@@ -1,0 +1,132 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "change_set_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Change Set Id"
+    },
+    "code": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Code",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "digest": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Digest",
+      "type": "string"
+    },
+    "file_saved": {
+      "default": false,
+      "title": "File Saved",
+      "type": "boolean"
+    },
+    "ledger_saved": {
+      "default": false,
+      "title": "Ledger Saved",
+      "type": "boolean"
+    },
+    "pending_change_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pending Change Id"
+    },
+    "relative_path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Relative Path",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "saved",
+        "unchanged",
+        "pending_import",
+        "conflict",
+        "denied",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target": {
+      "enum": [
+        "workspace",
+        "sandbox_shadow"
+      ],
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "conversation_id",
+    "relative_path",
+    "resource_revision",
+    "binding_id",
+    "binding_revision",
+    "target",
+    "status"
+  ],
+  "title": "WorkspaceEditResult",
+  "type": "object"
+}

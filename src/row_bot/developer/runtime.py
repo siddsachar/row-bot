@@ -5,6 +5,13 @@ import os
 import pathlib
 import shlex
 import subprocess
+import collections
+import logging
+import signal
+import sys
+import threading
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from row_bot.developer import change_ledger
@@ -33,6 +40,8 @@ class CommandResult:
     execution_mode: str = "local"
     sandbox_backend: str = ""
     sandbox_pending_change_id: str = ""
+    process_id: str = ""
+    code: str = ""
 
     @property
     def ran(self) -> bool:
@@ -52,6 +61,452 @@ class ManagedProcess:
 
 _SHELL_CONTROL_OPERATORS = ("&&", "||", "|", ">", "<")
 _ACTIVE_PROCESSES: dict[str, list[subprocess.Popen]] = {}
+_PROCESS_LOCK = threading.RLock()
+_PROCESS_LIMIT = 32
+_OUTPUT_LIMIT = 256 * 1024
+_OUTPUT_ENTRY_LIMIT = 1024
+_REMOTE_STOP_TIMEOUT = 8
+logger = logging.getLogger(__name__)
+
+
+def _close_owned_stream(stream) -> None:
+    try:
+        stream.close()
+    except (OSError, ValueError):
+        # A stopped Windows pipe can reject a buffered flush. Its underlying
+        # handle still belongs to this owner and must be closed without retrying
+        # the failed write or abandoning lifecycle finalization.
+        raw = getattr(stream, "raw", None)
+        if raw is not None:
+            try:
+                raw.close()
+            except (OSError, ValueError):
+                pass
+
+
+@dataclass
+class TrackedProcess:
+    """Private state attached to the existing registry's Popen object."""
+    process_id: str
+    command: str
+    metadata: dict[str, str]
+    process: subprocess.Popen
+    on_quiesced: Callable[["TrackedProcess"], None] | None = None
+    state: str = "starting"
+    exit_code: int | None = None
+    code: str = ""
+    quiesced: bool = False
+    finalization_complete: bool = False
+    output_incomplete: bool = False
+    output: collections.deque = field(default_factory=collections.deque)
+    output_bytes: int = 0
+    sequence: int = 0
+    truncated: bool = False
+    stop_requested: bool = False
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    lifetime_lock: threading.Lock = field(default_factory=threading.Lock)
+    ready: threading.Event = field(default_factory=threading.Event)
+    done: threading.Event = field(default_factory=threading.Event)
+    job: object | None = None
+    containment_closed: bool | None = None
+    threads: list[threading.Thread] = field(default_factory=list)
+    guard: Callable[[], None] | None = None
+    changed: threading.Condition = field(init=False)
+    verify_receipt: Callable[[dict], dict] | None = None
+    remote_receipt: dict | None = None
+    remote_done: threading.Event = field(default_factory=threading.Event)
+    host_quiesced: bool = False
+
+    def __post_init__(self):
+        self.changed = threading.Condition(self.lock)
+
+    def append(self, channel: str, value: str) -> None:
+        if not value:
+            return
+        with self.lock:
+            self.sequence += 1
+            cost = len(value.encode("utf-8"))
+            self.output.append((self.sequence, channel, value, cost))
+            self.output_bytes += cost
+            while self.output_bytes > _OUTPUT_LIMIT or len(self.output) > _OUTPUT_ENTRY_LIMIT:
+                self.output_bytes -= self.output.popleft()[3]
+                self.truncated = True
+            self.changed.notify_all()
+
+
+def tracked_processes(workspace_path: str) -> tuple[TrackedProcess, ...]:
+    """Passive snapshot from the sole existing process registry."""
+    key = str(pathlib.Path(workspace_path).resolve())
+    with _PROCESS_LOCK:
+        return tuple(state for proc in _ACTIVE_PROCESSES.get(key, ())
+                     if isinstance(state := getattr(proc, "_row_bot_state", None), TrackedProcess))
+
+
+def _retirable_tracked_process(process: subprocess.Popen) -> bool:
+    state = getattr(process, "_row_bot_state", None)
+    return bool(state and state.quiesced and
+                (state.on_quiesced is None or state.finalization_complete))
+
+
+def _close_process_containment(state: TrackedProcess) -> bool:
+    with state.lifetime_lock:
+        if state.containment_closed is not None:
+            return state.containment_closed
+        if state.verify_receipt and not state.remote_done.is_set():
+            def request_remote_stop():
+                try:
+                    state.process.stdin.write(b"stop\n")
+                    state.process.stdin.flush()
+                except (OSError, ValueError):
+                    pass
+            sender = threading.Thread(target=request_remote_stop, daemon=True,
+                                      name="row-bot-developer-remote-stop")
+            state.threads.append(sender)
+            sender.start()
+            state.remote_done.wait(timeout=_REMOTE_STOP_TIMEOUT)
+        if state.job is not None:
+            closed = state.job.close()
+        elif os.name != "nt":
+            try:
+                os.killpg(state.process.pid, signal.SIGKILL)
+                closed = True
+            except ProcessLookupError:
+                closed = True
+            except OSError:
+                closed = False
+        else:
+            # The trusted bootstrap never receives a command before assignment.
+            try:
+                if state.process.poll() is None:
+                    state.process.kill()
+                closed = True
+            except OSError:
+                closed = False
+        state.host_quiesced = bool(closed)
+        state.containment_closed = bool(closed) and (not state.verify_receipt or state.remote_done.is_set())
+        return state.containment_closed
+
+
+def stop_tracked_process(state: TrackedProcess) -> None:
+    """Request cleanup of this exact owned process, without arbitrary PID input."""
+    with state.lock:
+        if state.quiesced or state.stop_requested:
+            return
+        state.stop_requested = True
+        state.state = "stopping"
+    threading.Thread(target=_close_process_containment, args=(state,),
+                     name="row-bot-developer-stop", daemon=True).start()
+
+
+def _frame_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate frame field")
+        result[key] = value
+    return result
+
+
+def _read_process_frames(state: TrackedProcess) -> None:
+    sequence = 0
+    started = False
+    ended = False
+    try:
+        while True:
+            line = state.process.stdout.readline(32769)
+            if not line:
+                break
+            if len(line) > 32768 or not line.endswith(b"\n"):
+                raise ValueError("process_output_invalid")
+            value = json.loads(line, object_pairs_hook=_frame_object,
+                parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite frame")))
+            if (type(value) is not dict or type(value.get("version")) is not int or value.get("version") != 1
+                    or type(value.get("sequence")) is not int or value["sequence"] != sequence + 1 or ended):
+                raise ValueError("process_output_invalid")
+            sequence += 1
+            event = value.get("event")
+            proof = None
+            if state.verify_receipt and "receipt" in value:
+                proof = state.verify_receipt(value.pop("receipt"))
+                state.remote_receipt = proof
+                if proof["payload"]["quiesced"]:
+                    state.remote_done.set()
+            if event == "started" and not started and set(value) == {"version", "sequence", "event", "pid"}:
+                if type(value["pid"]) is not int or value["pid"] <= 0:
+                    raise ValueError("process_output_invalid")
+                if state.verify_receipt and (not proof or proof["payload"]["state"] != "running"):
+                    raise ValueError("process_output_invalid")
+                started = True
+                with state.lock:
+                    if not state.stop_requested:
+                        state.state = "running"
+                state.ready.set()
+            elif event == "output" and started and set(value) == {"version", "sequence", "event", "channel", "text"}:
+                if (value["channel"] not in {"stdout", "stderr"} or type(value["text"]) is not str
+                        or len(value["text"]) > 2048 or len(json.dumps(value["text"], ensure_ascii=True)) > 8192):
+                    raise ValueError("process_output_invalid")
+                state.append(value["channel"], value["text"])
+            elif event == "failed" and not started and set(value) == {"version", "sequence", "event", "code"}:
+                if value["code"] not in {"process_start_failed", "process_containment_unavailable", "process_owner_unavailable"}:
+                    raise ValueError("process_output_invalid")
+                if state.verify_receipt and not proof:
+                    if value["code"] not in {"process_containment_unavailable", "process_owner_unavailable"}:
+                        raise ValueError("process_output_invalid")
+                    state.remote_done.set()  # Trusted bootstrap rejected before command execution.
+                with state.lock:
+                    state.code = value["code"]
+                    state.state = "failed"
+                ended = True
+                state.ready.set()
+            elif event == "exited" and started and set(value) == {"version", "sequence", "event", "exit_code", "output_incomplete"}:
+                if type(value["exit_code"]) is not int or type(value["output_incomplete"]) is not bool:
+                    raise ValueError("process_output_invalid")
+                if state.verify_receipt and (not proof or proof["payload"]["state"] != "complete"
+                        or proof["payload"]["exit_code"] != value["exit_code"]
+                        or proof["payload"]["output_incomplete"] != value["output_incomplete"]):
+                    raise ValueError("process_output_invalid")
+                with state.lock:
+                    state.exit_code = value["exit_code"]
+                    state.output_incomplete = value["output_incomplete"]
+                ended = True
+            else:
+                raise ValueError("process_output_invalid")
+    except (OSError, ValueError, TypeError, RecursionError):
+        with state.lock:
+            state.code = "process_output_invalid"
+        stop_tracked_process(state)
+    finally:
+        _close_owned_stream(state.process.stdout)
+
+
+def _read_bootstrap_errors(state: TrackedProcess) -> None:
+    # Bootstrap diagnostics may include host runtime paths; expose only a stable
+    # code. Continue draining so errors cannot block the owned process.
+    try:
+        while state.process.stderr.read(4096):
+            with state.lock:
+                state.code = "process_bootstrap_failed"
+    except (OSError, ValueError):
+        pass
+    finally:
+        _close_owned_stream(state.process.stderr)
+
+
+def _watch_tracked_process(state: TrackedProcess) -> None:
+    while True:
+        try:
+            state.process.wait(timeout=0.25)
+            break
+        except subprocess.TimeoutExpired:
+            if state.guard and not state.stop_requested:
+                try:
+                    state.guard()
+                except Exception:
+                    with state.lock:
+                        state.code = "process_revoked"
+                    stop_tracked_process(state)
+        except OSError:
+            with state.lock:
+                state.code = "process_cleanup_incomplete"
+            break
+    closed = _close_process_containment(state)
+    try:
+        state.process.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        closed = False
+    for thread in state.threads:
+        thread.join(timeout=5)
+    readers_done = all(not thread.is_alive() for thread in state.threads)
+    if readers_done and not state.process.stdin.closed:
+        _close_owned_stream(state.process.stdin)
+    with state.lock:
+        state.quiesced = closed and readers_done
+        if not state.quiesced:
+            state.state, state.code = "cleanup_incomplete", "process_cleanup_incomplete"
+        elif state.code:
+            state.state = "failed"
+        else:
+            state.state = "exited"
+        if state.exit_code is None:
+            state.exit_code = 130 if state.stop_requested else state.process.returncode
+    state.ready.set()
+    if state.quiesced and state.on_quiesced:
+        try:
+            state.on_quiesced(state)
+            state.finalization_complete = True
+        except Exception:
+            with state.lock:
+                state.code = "process_history_incomplete"
+            logger.exception("Developer process history finalization failed")
+    state.done.set()
+
+
+def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
+        process_id: str | None = None, metadata: dict[str, str] | None = None,
+        on_quiesced: Callable[[TrackedProcess], None] | None = None,
+        validate: Callable[[], None] | None = None, startup_timeout: float = 5,
+        bootstrap_argv: list[str] | None = None, request_fields: dict | None = None,
+        verify_receipt: Callable[[dict], dict] | None = None,
+        on_owner: Callable[[TrackedProcess], None] | None = None) -> TrackedProcess:
+    """Start only after trusted bootstrap containment and current admission."""
+    identity = process_id or str(uuid.uuid4())
+    if bootstrap_argv is None and sys.platform.startswith("linux"):
+        if verify_receipt is None:
+            # Legacy NiceGUI callers use the same supervised owner without a
+            # durable client command receipt. No detached-child group fallback.
+            from row_bot.developer.process_worker import verify_receipt as check_receipt
+            secret, target = os.urandom(32), "0" * 64
+            request_fields = {"owner_id": identity, "container_id": target, "key": secret.hex()}
+            def verify_receipt(receipt):
+                return check_receipt(receipt, identity, target, secret)
+    request = json.dumps({**(request_fields or {}), "argv": argv}, ensure_ascii=True).encode("ascii") + b"\n"
+    if len(request) > 32768:
+        raise ValueError("process_command_too_large")
+    key = str(root.resolve())
+    with _PROCESS_LOCK:
+        while sum(len(values) for values in _ACTIVE_PROCESSES.values()) >= 128:
+            old = next(((name, proc) for name, values in _ACTIVE_PROCESSES.items() for proc in values
+                        if _retirable_tracked_process(proc)), None)
+            if old is None:
+                raise ValueError("process_limit")
+            _ACTIVE_PROCESSES[old[0]].remove(old[1])
+            if not _ACTIVE_PROCESSES[old[0]]:
+                del _ACTIVE_PROCESSES[old[0]]
+        entries = _ACTIVE_PROCESSES.setdefault(key, [])
+        # Completed tail entries are discarded only when making room; active
+        # and unquiesced entries always remain discoverable and stoppable.
+        while len(entries) >= _PROCESS_LIMIT:
+            old = next((proc for proc in entries if _retirable_tracked_process(proc)), None)
+            if old is None:
+                raise ValueError("process_limit")
+            entries.remove(old)
+        kwargs = {"cwd": key, "stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
+                  "stderr": subprocess.PIPE, "shell": False, "close_fds": True}
+        if os.name != "nt":
+            kwargs["start_new_session"] = True
+        process = subprocess.Popen(bootstrap_argv or [sys.executable, "-I", "-S", "-B",
+            str(pathlib.Path(__file__).with_name("process_worker.py"))], **kwargs)
+        state = TrackedProcess(identity, command, dict(metadata or {}), process, on_quiesced)
+        state.guard = validate
+        state.verify_receipt = verify_receipt
+        process._row_bot_state = state
+        entries.append(process)
+    try:
+        if os.name == "nt":
+            from row_bot.plugins.worker_ownership import WindowsJob
+            state.job = WindowsJob(process)
+        if on_owner:
+            on_owner(state)
+        if validate:
+            validate()
+    except Exception:
+        state.code = "process_admission_failed"
+        _close_process_containment(state)
+        process.wait(timeout=5)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            _close_owned_stream(stream)
+        state.quiesced, state.state = bool(state.containment_closed), "failed"
+        state.ready.set()
+        try:
+            if state.quiesced and on_quiesced:
+                on_quiesced(state)
+                state.finalization_complete = True
+        finally:
+            state.done.set()
+        raise
+    def admit():
+        try:
+            process.stdin.write(request)
+            process.stdin.flush()
+        except OSError:
+            with state.lock:
+                if not state.stop_requested:
+                    state.code = "process_start_failed"
+        finally:
+            if not verify_receipt:
+                _close_owned_stream(process.stdin)
+    state.threads = [threading.Thread(target=target, args=args, daemon=True, name="row-bot-developer-process")
+                     for target, args in ((_read_process_frames, (state,)), (_read_bootstrap_errors, (state,)), (admit, ()))]
+    for thread in state.threads:
+        thread.start()
+    threading.Thread(target=_watch_tracked_process, args=(state,), daemon=True,
+                     name="row-bot-developer-lifetime").start()
+    if not state.ready.wait(startup_timeout):
+        with state.lock:
+            state.code = "process_start_timeout"
+        stop_tracked_process(state)
+    return state
+
+
+def run_process_control_query(argv: list[str], payload: dict | None = None, *, timeout: float = 15) -> bytes:
+    """Bounded explicit Docker inspect/recovery control, never a public shell."""
+    request = json.dumps(payload, ensure_ascii=True).encode("ascii") + b"\n" if payload is not None else b""
+    if len(request) > 8192:
+        raise ValueError("process_control_unavailable")
+    kwargs = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+              "shell": False, "close_fds": True}
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    process = subprocess.Popen(argv, **kwargs)
+    job = None
+    output, errors, overflow = bytearray(), bytearray(), threading.Event()
+    def read(stream, buffer):
+        try:
+            while block := stream.read(1024):
+                if len(buffer) + len(block) > 8192:
+                    overflow.set()
+                    process.kill()
+                    return
+                buffer.extend(block)
+        except (OSError, ValueError):
+            overflow.set()
+        finally:
+            _close_owned_stream(stream)
+    def write():
+        try:
+            process.stdin.write(request)
+            process.stdin.flush()
+        except OSError:
+            pass
+        finally:
+            _close_owned_stream(process.stdin)
+    threads = []
+    try:
+        if os.name == "nt":
+            from row_bot.plugins.worker_ownership import WindowsJob
+            job = WindowsJob(process)
+        threads = [threading.Thread(target=target, args=args, daemon=True)
+            for target, args in ((read, (process.stdout, output)), (read, (process.stderr, errors)), (write, ()))]
+        for thread in threads:
+            thread.start()
+        process.wait(timeout=timeout)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        overflow.set()
+    finally:
+        if job:
+            if not job.close():
+                overflow.set()
+        elif os.name != "nt":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                overflow.set()
+        elif process.poll() is None:
+            process.kill()
+        try:
+            process.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            overflow.set()
+        for thread in threads:
+            thread.join(timeout=2)
+        if not threads:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                _close_owned_stream(stream)
+    if overflow.is_set() or any(thread.is_alive() for thread in threads) or process.returncode != 0:
+        raise ValueError("process_control_unavailable")
+    return bytes(output)
 
 
 def _unresolved_workspace_result(
@@ -585,16 +1040,10 @@ def start_workspace_process(
                 sandbox_backend=outcome.sandbox_backend,
             )
 
-    proc = subprocess.Popen(
-        split_command(command),
-        cwd=str(root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        shell=False,
-    )
-    _ACTIVE_PROCESSES.setdefault(str(root), []).append(proc)
-    return CommandResult(command=command, cwd=str(root), returncode=0, stdout=f"Started PID {proc.pid}", decision=decision)
+    state = launch_tracked_process(root, split_command(command), command)
+    return CommandResult(command=command, cwd=str(root), returncode=0 if not state.code else None,
+        stdout=f"Started PID {state.process.pid}" if not state.code else "", decision=decision,
+        process_id=state.process_id, code=state.code)
 
 
 def stop_workspace_processes(workspace_path: str, *, workspace_id: str = "") -> int:
@@ -609,9 +1058,22 @@ def stop_workspace_processes(workspace_path: str, *, workspace_id: str = "") -> 
 
             return stop_docker_sandbox_processes(workspace)
     root = str(pathlib.Path(workspace_path).expanduser().resolve())
-    processes = _ACTIVE_PROCESSES.pop(root, [])
+    with _PROCESS_LOCK:
+        processes = list(_ACTIVE_PROCESSES.get(root, []))
     stopped = 0
     for proc in processes:
+        state = getattr(proc, "_row_bot_state", None)
+        if isinstance(state, TrackedProcess):
+            was_active = not state.quiesced
+            stop_tracked_process(state)
+            state.done.wait(timeout=10)
+            if not _retirable_tracked_process(proc):
+                continue
+            stopped += int(was_active)
+            with _PROCESS_LOCK:
+                if proc in _ACTIVE_PROCESSES.get(root, []):
+                    _ACTIVE_PROCESSES[root].remove(proc)
+            continue
         if proc.poll() is not None:
             continue
         proc.terminate()
@@ -621,4 +1083,7 @@ def stop_workspace_processes(workspace_path: str, *, workspace_id: str = "") -> 
             proc.kill()
             proc.wait(timeout=5)
         stopped += 1
+        with _PROCESS_LOCK:
+            if proc in _ACTIVE_PROCESSES.get(root, []):
+                _ACTIVE_PROCESSES[root].remove(proc)
     return stopped

@@ -87,9 +87,11 @@ test('two Decks require an explicit captured write target independent of panel f
     .resource_bindings;
   const first = targets[0].binding_id;
   await expect(
-    page.getByRole('button', { name: 'Deck target', exact: true }),
-  ).toContainText('Deck · None');
-  await page.getByRole('button', { name: 'Deck target', exact: true }).click();
+    page.getByRole('button', { name: 'Design target', exact: true }),
+  ).toContainText('Design · None');
+  await page
+    .getByRole('button', { name: 'Design target', exact: true })
+    .click();
   await page
     .getByRole('menuitem', { name: 'First target Deck', exact: true })
     .click();
@@ -131,7 +133,7 @@ test('two Decks require an explicit captured write target independent of panel f
       .getByRole('button', { name: 'Close all panels', exact: true })
       .click();
     await expect(
-      page.getByRole('button', { name: 'Deck target', exact: true }),
+      page.getByRole('button', { name: 'Design target', exact: true }),
     ).toContainText('First target Deck');
     await writeEvidence(info, 'two-deck-target-capture', {
       conversation,

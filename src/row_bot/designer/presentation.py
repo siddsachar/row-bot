@@ -6,7 +6,7 @@ import html
 import json
 import logging
 import pathlib
-import re
+from contextlib import nullcontext
 import time
 import uuid
 from urllib.parse import urlencode
@@ -29,21 +29,29 @@ _SLIDES_WINDOW_WIDTH = 1600
 _SLIDES_WINDOW_HEIGHT = 900
 
 
-def _build_reveal_html(project: DesignerProject, start_page: int = 0, presenter: bool = False) -> str:
+def _build_reveal_html(project: DesignerProject, start_page: int = 0, presenter: bool = False,
+                       *, offline_fonts: bool = False) -> str:
     """Build a self-contained Reveal.js HTML document from project pages."""
     brand = project.brand or BrandConfig()
 
     # Get font CSS for the brand fonts (local first)
-    from row_bot.designer.fonts import get_all_fonts_css, get_fallback_stack
+    from row_bot.designer.fonts import get_all_fonts_css
     families = list(dict.fromkeys([brand.heading_font, brand.body_font]))
-    font_css = get_all_fonts_css(families)
-    h_fallback = get_fallback_stack(brand.heading_font)
-    b_fallback = get_fallback_stack(brand.body_font)
+    if offline_fonts:
+        from row_bot.designer.fonts import get_font_css_embedded
+        font_css = '\n'.join(get_font_css_embedded(family, strict=True) for family in families)
+    else:
+        font_css = get_all_fonts_css(families)
 
     # Build individual slides
     slides_html = []
     for page_index, page in enumerate(project.pages):
-        html_content = render_page_html(project, page.html, page_index=page_index)
+        from row_bot.designer.fonts import strict_offline_fonts
+        with strict_offline_fonts() if offline_fonts else nullcontext():
+            html_content = render_page_html(project, page.html, page_index=page_index)
+        if offline_fonts:
+            from row_bot.designer.preview import isolate_preview_html
+            html_content = isolate_preview_html(html_content, brand=brand, strict_fonts=True)
         safe_srcdoc = html.escape(html_content, quote=True)
 
         notes_html = ""
@@ -70,7 +78,7 @@ def _build_reveal_html(project: DesignerProject, start_page: int = 0, presenter:
     slide_meta = json.dumps([
         {"title": page.title, "notes": page.notes}
         for page in project.pages
-    ])
+    ]).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
     stage_wrapper = (
         f"""
     <div class="presenter-shell">

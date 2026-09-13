@@ -1,0 +1,108 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "authorization_url": {
+      "anyOf": [
+        {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Authorization Url"
+    },
+    "device_code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Device Code"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expires At"
+    },
+    "flow_id": {
+      "format": "uuid",
+      "title": "Flow Id",
+      "type": "string"
+    },
+    "method": {
+      "enum": [
+        "device_code",
+        "authorization_code",
+        "loopback"
+      ],
+      "title": "Method",
+      "type": "string"
+    },
+    "provider_id": {
+      "enum": [
+        "codex",
+        "claude_subscription",
+        "xai_oauth"
+      ],
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Revision",
+      "type": "string"
+    },
+    "quiescent": {
+      "title": "Quiescent",
+      "type": "boolean"
+    },
+    "server_epoch": {
+      "format": "uuid",
+      "title": "Server Epoch",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "starting",
+        "waiting",
+        "checking",
+        "exchanging",
+        "publishing",
+        "connected",
+        "cancelled",
+        "expired",
+        "uncertain",
+        "draining"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "flow_id",
+    "server_epoch",
+    "provider_id",
+    "provider_revision",
+    "state",
+    "method",
+    "authorization_url",
+    "device_code",
+    "expires_at",
+    "quiescent"
+  ],
+  "title": "SubscriptionFlowSnapshot",
+  "type": "object"
+}

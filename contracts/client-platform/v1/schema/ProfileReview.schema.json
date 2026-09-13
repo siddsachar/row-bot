@@ -1,0 +1,231 @@
+{
+  "$defs": {
+    "ProfileFields": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_tools": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Allow Tools",
+          "type": "array"
+        },
+        "approval_mode": {
+          "enum": [
+            "inherit",
+            "block",
+            "approve",
+            "allow_all"
+          ],
+          "title": "Approval Mode",
+          "type": "string"
+        },
+        "capability": {
+          "enum": [
+            "read_only",
+            "write_capable",
+            "orchestrator"
+          ],
+          "title": "Capability",
+          "type": "string"
+        },
+        "context_mode": {
+          "enum": [
+            "auto",
+            "focused",
+            "recent",
+            "full",
+            "empty",
+            "resume"
+          ],
+          "title": "Context Mode",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 2048,
+          "title": "Description",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "maxLength": 49152,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Instructions"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Skills",
+          "type": "array"
+        },
+        "slug": {
+          "maxLength": 64,
+          "minLength": 2,
+          "pattern": "^[a-z][a-z0-9_-]{1,63}$",
+          "title": "Slug",
+          "type": "string"
+        },
+        "when_to_use": {
+          "maxLength": 2048,
+          "title": "When To Use",
+          "type": "string"
+        },
+        "workspace_mode": {
+          "enum": [
+            "auto",
+            "read_only",
+            "single_writer",
+            "worktree"
+          ],
+          "title": "Workspace Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug",
+        "display_name",
+        "description",
+        "when_to_use",
+        "instructions",
+        "capability",
+        "allow_tools",
+        "skills",
+        "context_mode",
+        "workspace_mode",
+        "approval_mode",
+        "enabled"
+      ],
+      "title": "ProfileFields",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "changes": {
+      "additionalProperties": true,
+      "title": "Changes",
+      "type": "object"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "fields": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProfileFields"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation": {
+      "enum": [
+        "create",
+        "edit",
+        "duplicate",
+        "delete",
+        "enable",
+        "disable"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "profile_id": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Profile Id"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 20,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "target_name": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Target Name"
+    },
+    "target_slug": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Target Slug"
+    }
+  },
+  "required": [
+    "profile_id",
+    "revision",
+    "operation",
+    "fields",
+    "target_slug",
+    "target_name",
+    "schema_version",
+    "changes",
+    "action_digest",
+    "disclosures",
+    "review_id"
+  ],
+  "title": "ProfileReview",
+  "type": "object"
+}

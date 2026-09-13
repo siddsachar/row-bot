@@ -1,0 +1,278 @@
+{
+  "$defs": {
+    "DesignBrand": {
+      "additionalProperties": false,
+      "properties": {
+        "accent_color": {
+          "maxLength": 128,
+          "title": "Accent Color",
+          "type": "string"
+        },
+        "bg_color": {
+          "maxLength": 128,
+          "title": "Bg Color",
+          "type": "string"
+        },
+        "body_font": {
+          "maxLength": 128,
+          "title": "Body Font",
+          "type": "string"
+        },
+        "heading_font": {
+          "maxLength": 128,
+          "title": "Heading Font",
+          "type": "string"
+        },
+        "logo_asset_id": {
+          "maxLength": 128,
+          "title": "Logo Asset Id",
+          "type": "string"
+        },
+        "logo_max_height": {
+          "maximum": 16384,
+          "minimum": 0,
+          "title": "Logo Max Height",
+          "type": "integer"
+        },
+        "logo_mode": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Logo Mode",
+          "type": "string"
+        },
+        "logo_padding": {
+          "maximum": 16384,
+          "minimum": 0,
+          "title": "Logo Padding",
+          "type": "integer"
+        },
+        "logo_position": {
+          "enum": [
+            "top_left",
+            "top_right",
+            "bottom_left",
+            "bottom_right"
+          ],
+          "title": "Logo Position",
+          "type": "string"
+        },
+        "logo_scope": {
+          "enum": [
+            "all",
+            "first"
+          ],
+          "title": "Logo Scope",
+          "type": "string"
+        },
+        "primary_color": {
+          "maxLength": 128,
+          "title": "Primary Color",
+          "type": "string"
+        },
+        "secondary_color": {
+          "maxLength": 128,
+          "title": "Secondary Color",
+          "type": "string"
+        },
+        "text_color": {
+          "maxLength": 128,
+          "title": "Text Color",
+          "type": "string"
+        }
+      },
+      "required": [
+        "primary_color",
+        "secondary_color",
+        "accent_color",
+        "bg_color",
+        "text_color",
+        "heading_font",
+        "body_font",
+        "logo_asset_id",
+        "logo_mode",
+        "logo_scope",
+        "logo_position",
+        "logo_max_height",
+        "logo_padding"
+      ],
+      "title": "DesignBrand",
+      "type": "object"
+    },
+    "DesignControlItem": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "detail": {
+          "maxLength": 2048,
+          "title": "Detail",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 128,
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "detail",
+        "available"
+      ],
+      "title": "DesignControlItem",
+      "type": "object"
+    },
+    "DesignElement": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 256,
+          "title": "Action",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "title": "Id",
+          "type": "string"
+        },
+        "styles": {
+          "additionalProperties": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 128
+          },
+          "title": "Styles",
+          "type": "object"
+        },
+        "tag": {
+          "maxLength": 128,
+          "title": "Tag",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tag",
+        "styles",
+        "action"
+      ],
+      "title": "DesignElement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "brand": {
+      "$ref": "#/$defs/DesignBrand"
+    },
+    "element": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DesignElement"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "item_count": {
+      "minimum": 0,
+      "title": "Item Count",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/DesignControlItem"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "deck",
+        "document",
+        "landing",
+        "app_mockup",
+        "storyboard"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "page_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Page Id",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "section": {
+      "enum": [
+        "elements",
+        "assets",
+        "fonts",
+        "presets",
+        "interactions"
+      ],
+      "title": "Section",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "mode",
+    "page_id",
+    "brand",
+    "element",
+    "section",
+    "items",
+    "item_count",
+    "next_cursor"
+  ],
+  "title": "DesignControlsState",
+  "type": "object"
+}

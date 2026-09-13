@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import copy
 import contextlib
 import datetime as _dt
+import hashlib
+import json
 import logging
 import os
 import threading
 import time
 import traceback
+import uuid
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterable
 
 from langchain_core.tools import StructuredTool
@@ -23,7 +27,7 @@ from row_bot.mcp_client import config as mcp_config
 from row_bot.mcp_client.logging import log_event, mask_mapping
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
 from row_bot.mcp_client.results import normalize_call_result
-from row_bot.mcp_client.safety import is_destructive_tool, prefixed_tool_name, sanitize_name_component, tool_enabled_by_default
+from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool, prefixed_tool_name, sanitize_name_component, tool_enabled_by_default
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,7 @@ class McpToolInfo:
     destructive: bool = False
     requires_approval: bool = False
     source: dict[str, Any] = field(default_factory=dict)
+    effect: str = ""
 
 
 @dataclass
@@ -257,13 +262,16 @@ def _resolve_stdio_command(command: str, env: dict[str, str]) -> str:
 def _ensure_loop() -> asyncio.AbstractEventLoop:
     global _loop, _thread
     with _runtime_lock:
-        if _loop and _loop.is_running():
-            return _loop
-        _loop = asyncio.new_event_loop()
+        if _loop is not None:
+            if _thread is not None and _thread.is_alive() and not _loop.is_closed():
+                return _loop
+            if _servers:
+                raise RuntimeError("MCP runtime cleanup is incomplete")
+        loop = _loop = asyncio.new_event_loop()
 
         def _run() -> None:
-            asyncio.set_event_loop(_loop)
-            _loop.run_forever()
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
 
         _thread = threading.Thread(target=_run, name="Row-Bot-MCP-Runtime", daemon=True)
         _thread.start()
@@ -358,8 +366,9 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
         description = str(_tool_attr(tool, "description", default="") or "")
         schema = _tool_attr(tool, "inputSchema", "input_schema", default={}) or {}
         destructive = is_destructive_tool(tool_name, description, tool)
-        enabled = bool(saved_enabled.get(tool_name, tool_enabled_by_default(destructive)))
-        requires = tool_name in approval_overrides or destructive
+        effect = classify_tool_effect(tool_name, description, tool)
+        enabled = bool(saved_enabled.get(tool_name, tool_enabled_by_default(destructive or effect == "unknown")))
+        requires = tool_name in approval_overrides or destructive or effect == "unknown"
         normalized[tool_name] = McpToolInfo(
             server_name=server_name,
             name=tool_name,
@@ -370,6 +379,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             destructive=destructive,
             requires_approval=requires,
             source=dict(server_cfg.get("source") or {}),
+            effect=effect,
         )
     return normalized
 
@@ -384,8 +394,9 @@ def _sync_catalog_from_config(config: dict[str, Any] | None = None) -> None:
             enabled_map = dict(tools_cfg.get("enabled") or {})
             approval_overrides = set(tools_cfg.get("require_approval") or [])
             for info in tools.values():
-                info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(info.destructive)))
-                info.requires_approval = info.destructive or info.name in approval_overrides
+                unknown = (info.effect or classify_tool_effect(info.name, info.description)) == "unknown"
+                info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(info.destructive or unknown)))
+                info.requires_approval = info.destructive or unknown or info.name in approval_overrides
             status = _statuses.get(server_name)
             if status:
                 status.tool_count = len(tools)
@@ -435,34 +446,107 @@ class McpServerRuntime:
     def __init__(self, name: str, cfg: dict[str, Any]) -> None:
         self.name = name
         self.cfg = cfg
+        self.runtime_id = str(uuid.uuid4())
+        self.state = "not_started"
         self.session: Any = None
         self.exit_stack: AsyncExitStack | None = None
         self.stop_event: asyncio.Event | None = None
         self._session_lock = asyncio.Lock()
+        self._start_task: asyncio.Task | None = None
+        self._start_admitted = False
+        self._started = asyncio.Event()
+        self._stop_requested = threading.Event()
+        self._stop_future: concurrent.futures.Future | None = None
+        self.cleanup_complete = False
+        self._cleanup_failed = False
+        self._cancel_requested = False
+        self._launch_validate: Callable[[], None] | None = None
+        self._launch_future: concurrent.futures.Future | None = None
+        self._ready = threading.Event()
+        self._finished = threading.Event()
+        self._connected_admitted = False
+        self._probe_result: dict[str, Any] | None = None
+        self._before_release: Callable[["McpServerRuntime"], None] | None = None
+        self._release_confirmed = True
+        self._release_inflight = False
+        self._release_epoch = 0
+
+    def _confirm_release(self) -> bool:
+        """Persist exact completion before forgetting a client-owned transport."""
+        with _runtime_lock:
+            if not self.cleanup_complete:
+                return False
+            if self._before_release is None or self._release_confirmed:
+                return True
+            if self._release_inflight:
+                return False
+            self._release_inflight = True
+            epoch = self._release_epoch
+        try:
+            self._before_release(self)
+            with _runtime_lock:
+                self._release_confirmed = self._release_epoch == epoch
+                return self._release_confirmed
+        except Exception:
+            return False  # Transport is closed; only its durable receipt needs retry.
+        finally:
+            with _runtime_lock:
+                self._release_inflight = False
+
+    def _validate_launch(self) -> None:
+        if self._stop_requested.is_set():
+            raise asyncio.CancelledError
+        with _runtime_lock:
+            if self._start_admitted and _servers.get(self.name) is not self:
+                raise RuntimeError("MCP runtime reservation changed")
+        if self._launch_validate is not None:
+            self._launch_validate()
+
+    def _status(self, **updates: Any) -> None:
+        if "status" in updates:
+            self.state = updates["status"]
+        with _runtime_lock:
+            current = _servers.get(self.name)
+            if current is not None and current is not self:
+                return
+            _update_status(self.name, **updates)
 
     async def start(self) -> None:
-        if not sdk_available():
-            _update_status(self.name, status="dependency_missing", last_error="Python package 'mcp' is not installed")
-            return
+        self._start_task = asyncio.current_task()
+        self._started.set()
         self.stop_event = asyncio.Event()
-        _update_status(self.name, status="connecting", enabled=True, transport=self.cfg.get("transport", "stdio"), last_error="")
         try:
-            await self._connect()
-            await self._discover_tools()
+            if self._stop_requested.is_set():
+                return
+            if not sdk_available():
+                self._status(status="dependency_missing", last_error="Python package 'mcp' is not installed")
+                return
+            self._status(status="connecting", enabled=True, transport=self.cfg.get("transport", "stdio"), last_error="")
+            async with asyncio.timeout(float(self.cfg.get("connect_timeout", 30))):
+                self._validate_launch()
+                await self._connect()
+                self._validate_launch()
+                await self._discover_tools()
+                self._validate_launch()
+            self._connected_admitted = True
+            self._ready.set()
             await self.stop_event.wait()
         except asyncio.CancelledError:
             raise
         except McpStdioCommandNotFound as exc:
-            _update_status(self.name, status="dependency_missing", last_error=str(exc))
+            self._status(status="dependency_missing", last_error=str(exc))
             log_event("mcp.server.dependency_missing", level=logging.WARNING, server=self.name, error=str(exc))
         except Exception as exc:
-            _update_status(self.name, status="failed", last_error=str(exc))
+            self._status(status="failed", last_error=str(exc))
             log_event("mcp.server.failed", level=logging.WARNING, server=self.name, error=str(exc), traceback=traceback.format_exc())
         finally:
             await self.close()
+            released = self._confirm_release()
             with _runtime_lock:
-                if _servers.get(self.name) is self:
+                if released and self._release_confirmed and _servers.get(self.name) is self:
                     _servers.pop(self.name, None)
+            self._finished.set()
+            self._ready.set()
 
     async def _connect(self) -> None:
         transport = str(self.cfg.get("transport") or "stdio")
@@ -473,9 +557,17 @@ class McpServerRuntime:
             command = str(self.cfg.get("command") or "").strip()
             if not command:
                 raise RuntimeError("stdio MCP server requires a command")
-            env = os.environ.copy()
-            env.update({str(k): str(v) for k, v in dict(self.cfg.get("env") or {}).items()})
-            env = apply_managed_runtime_env(self.cfg, env)
+            from row_bot.plugins.mcp import resolve_prepared_plugin_mcp_launch
+            launch = resolve_prepared_plugin_mcp_launch(self.name, self.cfg)
+            self._prepared_plugin_launch = launch
+            if launch is not None:
+                from row_bot.plugins.worker import _run_directory, _worker_environment
+                env = _worker_environment(_run_directory(launch.plugin_id))
+                env.update(launch.declared_env)
+            else:
+                env = os.environ.copy()
+                env.update({str(k): str(v) for k, v in dict(self.cfg.get("env") or {}).items()})
+                env = apply_managed_runtime_env(self.cfg, env)
             command = _resolve_stdio_command(command, env)
             params = StdioServerParameters(
                 command=command,
@@ -506,7 +598,7 @@ class McpServerRuntime:
             raise RuntimeError(f"Unsupported MCP transport: {transport}")
         self.session = await self.exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
         await asyncio.wait_for(self.session.initialize(), timeout=float(self.cfg.get("connect_timeout", 30)))
-        _update_status(self.name, status="connected", last_connected_at=_now(), last_error="")
+        self._status(status="connected", last_connected_at=_now(), last_error="")
         log_event("mcp.server.connected", server=self.name, transport=transport, cfg=mask_mapping(self.cfg))
 
     async def _discover_tools(self) -> None:
@@ -514,6 +606,8 @@ class McpServerRuntime:
             return
         session = self.session
         result = await asyncio.wait_for(session.list_tools(), timeout=float(self.cfg.get("connect_timeout", 30)))
+        if self._launch_validate is not None:
+            self._validate_launch()
         tools = list(getattr(result, "tools", result if isinstance(result, list) else []))
         normalized = _normalize_tools(self.name, self.cfg, tools)
         with _runtime_lock:
@@ -521,8 +615,7 @@ class McpServerRuntime:
                     or _servers.get(self.name, self) is not self):
                 return  # An old discovery callback cannot revive a replaced runtime.
             _catalog[self.name] = normalized
-        _update_status(
-            self.name,
+        self._status(
             status="connected",
             tool_count=len(normalized),
             enabled_tool_count=sum(1 for info in normalized.values() if info.enabled),
@@ -622,20 +715,49 @@ class McpServerRuntime:
         return "\n\n".join(parts) or "MCP prompt returned no messages."
 
     async def close(self) -> None:
+        if self._start_task is not None and self._start_task is not asyncio.current_task() and not self._start_task.done():
+            await self.stop()
+            return
+        if self.cleanup_complete or self._cleanup_failed:
+            return
+        self._connected_admitted = False
         self.session = None
         if self.exit_stack:
-            with contextlib.suppress(Exception):
+            try:
                 await self.exit_stack.aclose()
+            except (asyncio.CancelledError, Exception):
+                # AsyncExitStack may already have popped a failing callback.
+                # Calling it again cannot prove that transport was cleaned up.
+                self._cleanup_failed = True
+                self._status(status="cleanup_incomplete", last_error="MCP transport cleanup is unconfirmed")
+                return
         self.exit_stack = None
+        self.cleanup_complete = True
         with _runtime_lock:
             current_status = _statuses.get(self.name)
             preserve_status = current_status and current_status.status in {"failed", "dependency_missing"}
         if not preserve_status:
-            _update_status(self.name, status="stopped")
+            self._status(status="stopped")
 
     async def stop(self) -> None:
+        self._stop_requested.set()
+        if self.cleanup_complete:
+            self._confirm_release()
+            return
+        if not self.cleanup_complete and not self._cleanup_failed:
+            self._status(status="stopping")
         if self.stop_event and not self.stop_event.is_set():
             self.stop_event.set()
+        if self._start_admitted and self._start_task is None:
+            await self._started.wait()
+        task = self._start_task
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            if not self._cancel_requested:
+                self._cancel_requested = True
+                task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(task)
+            return
         await self.close()
 
 
@@ -650,7 +772,8 @@ def discover_enabled_servers() -> None:
         with _runtime_lock:
             _catalog.clear()
             for name, server_cfg in cfg.get("servers", {}).items():
-                _statuses[name] = McpServerStatus(name=name, enabled=bool(server_cfg.get("enabled")), status="global_disabled")
+                if name not in _servers:
+                    _statuses[name] = McpServerStatus(name=name, enabled=bool(server_cfg.get("enabled")), status="global_disabled")
         return
     if not sdk_available():
         log_event("mcp.dependency_missing", level=logging.WARNING, package="mcp")
@@ -668,12 +791,10 @@ def discover_enabled_servers() -> None:
             running = name in _servers
             status = _statuses.get(name)
             failed_until_refresh = status is not None and status.status == "failed"
-        if failed_until_refresh:
-            continue
-        if running:
-            continue
-        runtime = McpServerRuntime(name, server_cfg)
-        with _runtime_lock:
+            if failed_until_refresh or running:
+                continue
+            runtime = McpServerRuntime(name, server_cfg)
+            runtime._start_admitted = True
             _servers[name] = runtime
             _statuses[name] = McpServerStatus(
                 name=name,
@@ -682,22 +803,143 @@ def discover_enabled_servers() -> None:
                 transport=str(server_cfg.get("transport", "stdio")),
                 source=dict(server_cfg.get("source") or {}),
             )
-        _schedule(runtime.start())
+        coroutine = runtime.start()
+        try:
+            _schedule(coroutine)
+        except Exception:
+            coroutine.close()
+            runtime._stop_requested.set()
+            runtime._status(status="cleanup_incomplete", last_error="MCP start admission is unconfirmed")
 
 
 def stop_server(name: str) -> None:
+    _stop_server(name, expected_runtime_id=None, wait_seconds=5)
+
+
+def _stop_server(name: str, *, expected_runtime_id: str | None, wait_seconds: float) -> McpServerRuntime | None:
     with _runtime_lock:
-        runtime = _servers.pop(name, None)
+        runtime = _servers.get(name)
+        if expected_runtime_id is not None and (runtime is None or runtime.runtime_id != expected_runtime_id):
+            raise ValueError("mcp_runtime_identity_changed")
         _catalog.pop(name, None)
-    if runtime:
-        future = _schedule(runtime.stop())
-        with contextlib.suppress(Exception):
-            future.result(timeout=5)
+        if runtime is None:
+            return
+        runtime._stop_requested.set()
+        if not runtime.cleanup_complete and not runtime._cleanup_failed:
+            runtime._status(status="stopping")
+        future = runtime._stop_future
+        if future is None or future.done():
+            coroutine = runtime.stop()
+            try:
+                future = runtime._stop_future = _schedule(coroutine)
+            except Exception:
+                coroutine.close()
+                runtime._status(status="cleanup_incomplete", last_error="MCP stop admission is unconfirmed")
+                return runtime
+    try:
+        future.result(timeout=wait_seconds)
+    except Exception:
+        runtime._status(status="cleanup_incomplete", last_error="MCP cleanup has not returned")
+    with _runtime_lock:
+        if runtime.cleanup_complete and runtime._release_confirmed and _servers.get(name) is runtime:
+            _servers.pop(name, None)
+    return runtime
+
+
+def stop_server_owned(name: str, expected_runtime_id: str, *, wait_seconds: float = 5) -> dict[str, Any]:
+    """Stop only the exact saved owner; timeout never discards its reservation."""
+    if type(wait_seconds) not in (int, float) or not 0 <= wait_seconds <= 5:
+        raise ValueError("invalid_mcp_cleanup_wait")
+    runtime = _stop_server(name, expected_runtime_id=expected_runtime_id, wait_seconds=wait_seconds)
+    assert runtime is not None
+    quiesced = runtime.cleanup_complete and (runtime._finished.is_set() or not runtime._start_admitted)
+    return {"runtime_id": expected_runtime_id,
+            "state": "stopped" if quiesced and runtime._release_confirmed else "cleanup_incomplete",
+            "session_quiesced": quiesced, "receipt_confirmed": runtime._release_confirmed}
+
+
+def get_server_lifecycle(name: str, *, expected_runtime_id: str | None = None) -> dict[str, Any]:
+    """Passive exact-owner metadata; absence alone does not prove prior cleanup."""
+    with _runtime_lock:
+        runtime = _servers.get(name)
+        if runtime is None:
+            return {"runtime_id": None, "state": "missing", "session_quiesced": None}
+        if expected_runtime_id is not None and runtime.runtime_id != expected_runtime_id:
+            raise ValueError("mcp_runtime_identity_changed")
+        status = _statuses.get(name)
+        states = {"connecting", "connected", "stopping", "stopped", "failed", "dependency_missing", "cleanup_incomplete"}
+        state = status.status if status and type(status.status) is str and status.status in states else "connecting"
+        if runtime.cleanup_complete and not runtime._release_confirmed:
+            state = "cleanup_incomplete"
+        return {"runtime_id": runtime.runtime_id, "state": state,
+                "session_quiesced": runtime.cleanup_complete and runtime._finished.is_set()}
+
+
+def launch_server_owned(name: str, cfg: dict[str, Any], *, before_start: Callable[[str], None],
+                        validate: Callable[[], None], temporary: bool = False,
+                        before_release: Callable[[McpServerRuntime], None] | None = None) -> McpServerRuntime:
+    """Reserve, checkpoint, then schedule one owner without holding locks over IO."""
+    validate()
+    runtime = McpServerRuntime(name, copy.deepcopy(cfg))
+    runtime._launch_validate = validate
+    runtime._before_release = before_release
+    runtime._release_confirmed = before_release is None
+    with _runtime_lock:
+        if name in _servers:
+            raise ValueError("mcp_runtime_busy")
+        runtime._start_admitted = True
+        _servers[name] = runtime
+        runtime._status(status="connecting", enabled=bool(cfg.get("enabled", False)), transport=str(cfg.get("transport", "stdio")))
+    try:
+        before_start(runtime.runtime_id)
+        validate()
+        if runtime._stop_requested.is_set():
+            raise ValueError("mcp_runtime_cancelled")
+        with _runtime_lock:
+            if _servers.get(name) is not runtime:
+                raise ValueError("mcp_runtime_identity_changed")
+    except BaseException:
+        # No coroutine was scheduled: this reservation cannot have connected.
+        runtime._stop_requested.set()
+        runtime.cleanup_complete = True
+        runtime._finished.set()
+        runtime._ready.set()
+        runtime._started.set()
+        with _runtime_lock:
+            if _servers.get(name) is runtime:
+                _servers.pop(name, None)
+        raise
+    coroutine = probe_server_async(name, runtime.cfg, _runtime=runtime) if temporary else runtime.start()
+    try:
+        runtime._launch_future = _schedule(coroutine)
+    except Exception:
+        coroutine.close()
+        runtime._stop_requested.set()
+        runtime._status(status="cleanup_incomplete", last_error="MCP launch admission is unconfirmed")
+        raise
+    return runtime
+
+
+def reconcile_server_release_owned(name: str, expected_runtime_id: str) -> dict[str, Any]:
+    """Retry only the original completion receipt; never connect or close again."""
+    with _runtime_lock:
+        runtime = _servers.get(name)
+        if runtime is None or runtime.runtime_id != expected_runtime_id:
+            raise ValueError("mcp_runtime_identity_changed")
+    confirmed = runtime._confirm_release()
+    with _runtime_lock:
+        if confirmed and runtime._release_confirmed and runtime._finished.is_set() and _servers.get(name) is runtime:
+            _servers.pop(name, None)
+        confirmed = confirmed and runtime._release_confirmed
+    return {"runtime_id": expected_runtime_id, "receipt_confirmed": confirmed,
+            "session_quiesced": runtime.cleanup_complete and runtime._finished.is_set()}
 
 
 def refresh_server(name: str) -> None:
     stop_server(name)
     with _runtime_lock:
+        if name in _servers:
+            return
         _statuses.pop(name, None)
     discover_enabled_servers()
 
@@ -709,32 +951,68 @@ def shutdown() -> None:
         names = list(_servers)
     for name in names:
         stop_server(name)
-    loop = _loop
+    with _runtime_lock:
+        if _servers:
+            log_event("mcp.runtime.shutdown_incomplete", level=logging.WARNING)
+            return
+        loop, thread = _loop, _thread
     if loop and loop.is_running():
         loop.call_soon_threadsafe(loop.stop)
-    _loop = None
-    _thread = None
+    if thread and thread is not threading.current_thread():
+        thread.join(timeout=5)
+    with _runtime_lock:
+        if thread and thread.is_alive():
+            log_event("mcp.runtime.shutdown_incomplete", level=logging.WARNING)
+            return
+        if _loop is loop and _thread is thread:
+            _loop = None
+            _thread = None
+    if loop and not loop.is_running() and not loop.is_closed():
+        loop.close()
     log_event("mcp.runtime.shutdown")
 
 
-async def probe_server_async(name: str, server_cfg: dict[str, Any]) -> dict[str, Any]:
+async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
+                             _runtime: McpServerRuntime | None = None) -> dict[str, Any]:
     """Connect to a server temporarily and return discovered tools/status."""
-    runtime = McpServerRuntime(name, server_cfg)
+    runtime = _runtime or McpServerRuntime(name, server_cfg)
+    with _runtime_lock:
+        if name in _servers and _servers[name] is not runtime:
+            return {"ok": False, "error": "MCP server already has an active or draining connection", "tools": []}
+        runtime._start_admitted = True
+        runtime._start_task = asyncio.current_task()
+        runtime._started.set()
+        _servers[name] = runtime
+    outcome = None
     try:
-        await runtime._connect()
-        result = await asyncio.wait_for(runtime.session.list_tools(), timeout=float(server_cfg.get("connect_timeout", 30)))
+        async with asyncio.timeout(float(server_cfg.get("connect_timeout", 30))):
+            runtime._validate_launch()
+            await runtime._connect()
+            runtime._validate_launch()
+            result = await runtime.session.list_tools()
+            runtime._validate_launch()
         tools = list(getattr(result, "tools", result if isinstance(result, list) else []))
         normalized = _normalize_tools(name, server_cfg, tools)
-        return {
+        outcome = {
             "ok": True,
             "tools": [info.__dict__ for info in normalized.values()],
             "tool_count": len(normalized),
             "destructive_tool_count": sum(1 for info in normalized.values() if info.destructive),
         }
     except Exception as exc:
-        return {"ok": False, "error": str(exc), "tools": []}
+        outcome = {"ok": False, "error": str(exc), "tools": []}
     finally:
         await runtime.close()
+        runtime._probe_result = outcome
+        released = runtime._confirm_release()
+        with _runtime_lock:
+            if released and runtime._release_confirmed and _servers.get(name) is runtime:
+                _servers.pop(name, None)
+        runtime._finished.set()
+        runtime._ready.set()
+    if not runtime.cleanup_complete:
+        return {"ok": False, "error": "MCP transport cleanup is unconfirmed", "tools": []}
+    return outcome
 
 
 def probe_server(name: str, server_cfg: dict[str, Any], timeout: float | None = None) -> dict[str, Any]:
@@ -759,24 +1037,61 @@ def probe_server(name: str, server_cfg: dict[str, Any], timeout: float | None = 
         }
 
 
+@dataclass(frozen=True)
+class _BoundAuthority:
+    runtime: Any
+    revision: str
+
+
+def _authority_revision(server_name: str, cfg: dict[str, Any], tool_name: str = "") -> str:
+    """Private digest only; a bound schema/approval decision cannot adopt edits."""
+    info = _catalog.get(server_name, {}).get(tool_name) if tool_name else None
+    value = {
+        "global": {key: value for key, value in cfg.items() if key != "servers"},
+        "server": cfg.get("servers", {}).get(server_name, {}),
+        "tool": asdict(info) if info is not None else None,
+    }
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def _bind_authority(server_name: str, tool_name: str = "") -> _BoundAuthority:
+    cfg = _get_effective_config()
+    with _runtime_lock:
+        return _BoundAuthority(_servers.get(server_name, object()),
+                               _authority_revision(server_name, cfg, tool_name))
+
+
 def _validate_bound_runtime(server_name: str, expected: Any, *, tool_name: str = "",
                             feature: str = "") -> None:
     cfg = _get_effective_config()
     server_cfg = cfg.get("servers", {}).get(server_name, {})
     if not cfg.get("enabled") or not server_cfg.get("enabled"):
         raise RuntimeError("MCP capability was revoked")
+    from row_bot.plugins.mcp import resolve_prepared_plugin_mcp_launch
+    prepared = resolve_prepared_plugin_mcp_launch(server_name, server_cfg)
     with _runtime_lock:
-        if _servers.get(server_name) is not expected:
+        bound_runtime = expected.runtime if isinstance(expected, _BoundAuthority) else expected
+        if (isinstance(bound_runtime, McpServerRuntime) and bound_runtime._start_admitted
+                and (not bound_runtime._connected_admitted or bound_runtime._stop_requested.is_set()
+                     or bound_runtime._cleanup_failed)):
+            raise RuntimeError("MCP connection is not admitted for execution")
+        if _servers.get(server_name) is not bound_runtime:
             raise RuntimeError("MCP registration was replaced")
+        if getattr(bound_runtime, "_prepared_plugin_launch", None) != prepared:
+            raise RuntimeError("MCP plugin environment changed; reconnect before execution")
         if tool_name:
             info = _catalog.get(server_name, {}).get(tool_name)
             options = server_cfg.get("tools", {})
             if (info is None or tool_name in options.get("exclude", [])
                     or (options.get("include") and tool_name not in options["include"])
-                    or not options.get("enabled", {}).get(tool_name, tool_enabled_by_default(info.destructive))):
+                    or not options.get("enabled", {}).get(tool_name, tool_enabled_by_default(info.destructive or info.effect == "unknown"))):
                 raise RuntimeError("MCP capability was revoked")
         if feature and not server_cfg.get("tools", {}).get(feature):
             raise RuntimeError("MCP capability was revoked")
+        if (isinstance(expected, _BoundAuthority)
+                and _authority_revision(server_name, cfg, tool_name) != expected.revision):
+            raise RuntimeError("MCP policy changed; refresh the capability before execution")
 
 
 def _call_tool_sync(server_name: str, tool_name: str, kwargs: dict[str, Any], *, expected: Any = None) -> str:
@@ -800,8 +1115,7 @@ def _call_tool_sync(server_name: str, tool_name: str, kwargs: dict[str, Any], *,
 
 
 def _make_tool_func(server_name: str, tool_name: str, *, enforce_policy: bool = False) -> Callable[..., str]:
-    with _runtime_lock:
-        expected = _servers.get(server_name, object()) if enforce_policy else None
+    expected = _bind_authority(server_name, tool_name) if enforce_policy else None
     def _run(**kwargs: Any) -> str:
         return _call_tool_sync(server_name, tool_name, kwargs, expected=expected)
 
@@ -820,8 +1134,7 @@ async def _authorized_operation(server_name: str, expected: Any, feature: str,
 
 
 def _make_resource_list_func(server_name: str, *, enforce_policy: bool = False) -> Callable[[], str]:
-    with _runtime_lock:
-        expected = _servers.get(server_name, object()) if enforce_policy else None
+    expected = _bind_authority(server_name) if enforce_policy else None
     def _run() -> str:
         with _runtime_lock:
             runtime = _servers.get(server_name)
@@ -839,8 +1152,7 @@ def _make_resource_list_func(server_name: str, *, enforce_policy: bool = False) 
 
 
 def _make_resource_read_func(server_name: str, *, enforce_policy: bool = False) -> Callable[..., str]:
-    with _runtime_lock:
-        expected = _servers.get(server_name, object()) if enforce_policy else None
+    expected = _bind_authority(server_name) if enforce_policy else None
     def _run(uri: str) -> str:
         with _runtime_lock:
             runtime = _servers.get(server_name)
@@ -858,8 +1170,7 @@ def _make_resource_read_func(server_name: str, *, enforce_policy: bool = False) 
 
 
 def _make_prompt_list_func(server_name: str, *, enforce_policy: bool = False) -> Callable[[], str]:
-    with _runtime_lock:
-        expected = _servers.get(server_name, object()) if enforce_policy else None
+    expected = _bind_authority(server_name) if enforce_policy else None
     def _run() -> str:
         with _runtime_lock:
             runtime = _servers.get(server_name)
@@ -877,8 +1188,7 @@ def _make_prompt_list_func(server_name: str, *, enforce_policy: bool = False) ->
 
 
 def _make_prompt_get_func(server_name: str, *, enforce_policy: bool = False) -> Callable[..., str]:
-    with _runtime_lock:
-        expected = _servers.get(server_name, object()) if enforce_policy else None
+    expected = _bind_authority(server_name) if enforce_policy else None
     def _run(name: str, arguments: dict[str, Any] | None = None) -> str:
         with _runtime_lock:
             runtime = _servers.get(server_name)
@@ -1065,6 +1375,75 @@ def get_catalog_snapshot() -> dict[str, list[dict[str, Any]]]:
             server: [info.__dict__.copy() for info in tools.values()]
             for server, tools in _catalog.items()
         }
+
+
+def get_passive_tool_records() -> list[dict[str, Any]]:
+    """Project cached discovery and current known toggles without synchronizing.
+
+    No configuration loading, plugin overlay/secret resolution, connection or
+    discovery occurs. Unknown configuration yields unknown enablement. These
+    descriptors are observations, never dispatch authorization.
+    """
+    import sys
+    from itertools import islice
+
+    state = sys.modules.get("row_bot.plugins.state")
+    plugins = state.get_cached_plugin_enablement() if state is not None else None
+    with _runtime_lock:
+        infos = [(info.server_name, info.name, info.prefixed_name, info.destructive,
+                  (info.effect or classify_tool_effect(info.name, info.description)) == "unknown",
+                  info.source.get("plugin_id") if type(info.source) is dict else None)
+                 for info in islice((info for tools in _catalog.values() for info in tools.values()), 10001)]
+    requested: dict[str, list[str]] = {}
+    for server_name, name, *_ in infos:
+        requested.setdefault(server_name, []).append(name)
+    config = mcp_config.get_cached_enablement({server: tuple(names) for server, names in requested.items()})
+    records = []
+    for server_name, name, identity, destructive, unknown, plugin_id in infos:
+        enabled = None
+        configured = None
+        requires = True if destructive is True or unknown else None
+        if type(plugin_id) is str and plugin_id:
+            # Overlay tool toggles cannot be resolved without plugin declarations;
+            # cached disabled owners are definitive, enabled owners are not enough.
+            if plugins is not None and plugins.get(plugin_id, False) is False:
+                enabled = False
+        elif config is not None:
+            server = config["servers"].get(server_name)
+            configured = server is not None
+            if server is None or config["enabled"] is False or server["enabled"] is False:
+                enabled = False
+            elif config["enabled"] is True and server["enabled"] is True and type(destructive) is bool:
+                enabled = server["tools"].get(name, tool_enabled_by_default(destructive or unknown))
+            if server is not None and type(destructive) is bool:
+                requires = destructive is True or unknown or name in server["require_approval"]
+        records.append({"id": identity, "label": name, "server_name": server_name,
+                        "plugin_id": plugin_id, "destructive": destructive,
+                        "requires_approval": requires, "enabled": enabled,
+                        "configured": configured})
+    return records
+
+
+def get_passive_server_statuses(names: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    """Read bounded instantiated status only, without refreshing its authority."""
+    if len(names) > 50:
+        raise ValueError("too_many_servers")
+    states = {"disabled", "global_disabled", "not_started", "connecting", "connected",
+              "error", "stopped", "disconnected", "sdk_missing", "failed", "dependency_missing",
+              "stopping", "cleanup_incomplete"}
+    with _runtime_lock:
+        result = {}
+        for name in names:
+            status = _statuses.get(name)
+            if status is None:
+                continue
+            count = status.tool_count
+            result[name] = {
+                "status": status.status if type(status.status) is str and status.status in states else "unknown",
+                "tool_count": count if type(count) is int and 0 <= count <= 10000 else None,
+                "connection_present": name in _servers,
+            }
+        return result
 
 
 def get_status_summary() -> dict[str, Any]:

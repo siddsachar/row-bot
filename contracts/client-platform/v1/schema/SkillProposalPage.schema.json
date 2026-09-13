@@ -1,0 +1,98 @@
+{
+  "$defs": {
+    "SkillProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "preview": {
+          "additionalProperties": true,
+          "title": "Preview",
+          "type": "object"
+        },
+        "rationale": {
+          "maxLength": 4096,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "create_skill",
+            "patch_skill",
+            "consolidate_skills"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "rationale",
+        "risk",
+        "status",
+        "preview"
+      ],
+      "title": "SkillProposal",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SkillProposal"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items",
+    "truncated"
+  ],
+  "title": "SkillProposalPage",
+  "type": "object"
+}

@@ -8,6 +8,10 @@ import { Acknowledgements } from './acknowledgements';
 import { isPanelDescriptor } from './types';
 import type {
   ClientState,
+  DictationScope,
+  DictationHandle,
+  DictationResult,
+  ArtifactSetupOptions,
   ClientPanelSuggestion,
   ClientTransport,
   Command,
@@ -100,6 +104,9 @@ export class ClientController {
   private disposed = false;
   private retiredSubscriptions = new Set<string>();
   private selectionNumber = 0;
+  private dictationStartNumber = 0;
+  private dictationLease: string | null = null;
+  private appliedDictation: string | null = null;
   private conversationCursor: string | undefined;
   private conversationListNumber = 0;
   private transcriptCursor: string | undefined;
@@ -113,6 +120,7 @@ export class ClientController {
   private draftRevisions = new Map<string, string>();
   private draftWrites = new Set<string>();
   private dirtyDrafts = new Set<string>();
+  private browserCommandAttempts = new Set<string>();
   private draftStates = new Map<string, ClientState['draftStatus']>();
   private seen = new Set<string>();
   private sequences = new Map<string, bigint>();
@@ -142,6 +150,339 @@ export class ClientController {
   ) {}
   getSnapshot = (): ClientState => this.state;
   getSelectionVersion = (): number => this.selectionNumber;
+  dictationScope(): DictationScope | null {
+    const { handshake, selectedConversationId, loadingConversation, status } =
+      this.state;
+    if (
+      !handshake ||
+      !selectedConversationId ||
+      loadingConversation ||
+      status !== 'ready' ||
+      this.disposed
+    )
+      return null;
+    return {
+      conversationId: selectedConversationId,
+      clientSessionId: handshake.client_session_id,
+      serverEpoch: handshake.server_epoch,
+      selectionKey: String(this.selectionNumber),
+    };
+  }
+  private sameDictationScope(scope: DictationScope): boolean {
+    const current = this.dictationScope();
+    return Boolean(
+      current &&
+      Object.keys(current).every(
+        (key) =>
+          current[key as keyof DictationScope] ===
+          scope[key as keyof DictationScope],
+      ),
+    );
+  }
+  async dictationCapability(signal?: AbortSignal) {
+    return (
+      this.transport.dictationCapability?.(signal) ?? {
+        schema_version: 1 as const,
+        browser_dictation_available: false,
+        native_capture_available: false as const,
+        reason: 'host_unavailable' as const,
+      }
+    );
+  }
+  private voiceHandle(
+    scope: DictationScope,
+    handle: DictationHandle,
+    cleanup = false,
+  ) {
+    const h = this.state.handshake;
+    if (
+      !h ||
+      h.client_session_id !== scope.clientSessionId ||
+      h.server_epoch !== scope.serverEpoch ||
+      handle.conversation_id !== scope.conversationId ||
+      handle.server_epoch !== scope.serverEpoch ||
+      (!cleanup && !this.sameDictationScope(scope))
+    )
+      throw { code: 'voice_session_expired' };
+  }
+  async startTalk(
+    scope: DictationScope,
+    body: import('./types').TalkStart,
+    signal: AbortSignal,
+  ) {
+    if (!this.sameDictationScope(scope) || !this.transport.startTalk)
+      throw { code: 'voice_session_expired' };
+    const result = await this.transport.startTalk(
+      scope.conversationId,
+      body,
+      signal,
+    );
+    validateWire('TalkSnapshot', result);
+    if (
+      result.handle.conversation_id !== scope.conversationId ||
+      result.handle.server_epoch !== scope.serverEpoch
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async startRealtime(
+    scope: DictationScope,
+    body: import('./types').TalkStart,
+    signal: AbortSignal,
+  ) {
+    if (!this.sameDictationScope(scope) || !this.transport.startRealtime)
+      throw { code: 'voice_session_expired' };
+    const result = await this.transport.startRealtime(
+      scope.conversationId,
+      body,
+      signal,
+    );
+    validateWire('RealtimeStart', result);
+    if (
+      result.snapshot.handle.conversation_id !== scope.conversationId ||
+      result.snapshot.handle.server_epoch !== scope.serverEpoch
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async voiceControl<M extends 'talk' | 'realtime'>(
+    scope: DictationScope,
+    mode: M,
+    handle: DictationHandle,
+    action: 'stop' | 'heartbeat',
+    signal?: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle, action === 'stop');
+    if (!this.transport.voiceControl) throw { code: 'capability_unavailable' };
+    const result = await this.transport.voiceControl(
+      mode,
+      handle,
+      action,
+      signal,
+    );
+    validateWire(mode === 'talk' ? 'TalkSnapshot' : 'RealtimeSnapshot', result);
+    if (
+      Object.keys(handle).some(
+        (key) =>
+          result.handle[key as keyof DictationHandle] !==
+          handle[key as keyof DictationHandle],
+      )
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async transcribeTalk(
+    scope: DictationScope,
+    handle: DictationHandle,
+    utterance: string,
+    audio: Blob,
+    signal: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.transcribeTalk)
+      throw { code: 'capability_unavailable' };
+    const result = await this.transport.transcribeTalk(
+      handle,
+      utterance,
+      audio,
+      signal,
+    );
+    validateWire('TalkResult', result);
+    if (
+      result.utterance_id !== utterance ||
+      Object.keys(handle).some(
+        (key) =>
+          result.snapshot.handle[key as keyof DictationHandle] !==
+          handle[key as keyof DictationHandle],
+      )
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async talkOutput(
+    scope: DictationScope,
+    handle: DictationHandle,
+    run: string,
+    output: string,
+    signal: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.talkOutput) throw { code: 'capability_unavailable' };
+    const result = await this.transport.talkOutput(handle, run, output, signal);
+    this.voiceHandle(scope, handle);
+    return result;
+  }
+  async realtimeEvent(
+    scope: DictationScope,
+    handle: DictationHandle,
+    event: import('./voice_realtime').RealtimeEvent,
+    signal: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.realtimeEvent) throw { code: 'capability_unavailable' };
+    const input = validateWire<import('./types').RealtimeEvent>(
+      'RealtimeEvent',
+      event,
+    );
+    const result = await this.transport.realtimeEvent(handle, input, signal);
+    validateWire('RealtimeEventResult', result);
+    if (
+      result.event_id !== event.event_id ||
+      Object.keys(handle).some(
+        (key) =>
+          result.snapshot.handle[key as keyof DictationHandle] !==
+          handle[key as keyof DictationHandle],
+      )
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async realtimeExchange(
+    scope: DictationScope,
+    handle: DictationHandle,
+    sdp: string,
+    signal: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.realtimeExchange)
+      throw { code: 'capability_unavailable' };
+    const result = await this.transport.realtimeExchange(handle, sdp, signal);
+    this.voiceHandle(scope, handle);
+    return result;
+  }
+  async voiceRun(
+    scope: DictationScope,
+    mode: 'talk' | 'realtime',
+    handle: DictationHandle,
+    signal: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.voiceRun) throw { code: 'capability_unavailable' };
+    const result = await this.transport.voiceRun(mode, handle, signal);
+    this.voiceHandle(scope, handle);
+    validateWire('VoiceRunView', result);
+    if (
+      Object.keys(handle).some(
+        (key) =>
+          result.handle[key as keyof DictationHandle] !==
+          handle[key as keyof DictationHandle],
+      )
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async startDictation(
+    scope: DictationScope,
+    requestId: string,
+    signal: AbortSignal,
+  ) {
+    if (!this.sameDictationScope(scope) || !this.transport.startDictation)
+      throw { code: 'voice_session_expired' };
+    const ticket = ++this.dictationStartNumber;
+    const result = await this.transport.startDictation(
+      scope.conversationId,
+      requestId,
+      signal,
+    );
+    validateWire('DictationSnapshot', result);
+    if (
+      this.sameDictationScope(scope) &&
+      ticket === this.dictationStartNumber &&
+      !signal.aborted
+    ) {
+      if (
+        result.handle.conversation_id !== scope.conversationId ||
+        result.handle.server_epoch !== scope.serverEpoch
+      )
+        throw { code: 'protocol_incompatible' };
+      if (this.dictationLease !== result.handle.lease_id) {
+        this.dictationLease = result.handle.lease_id;
+        this.appliedDictation = null;
+      }
+    }
+    // Return a late handle so the captured component can stop that exact lease.
+    return result;
+  }
+  async transcribeDictation(
+    scope: DictationScope,
+    handle: DictationHandle,
+    utterance: string,
+    audio: Blob,
+    signal: AbortSignal,
+  ) {
+    if (
+      !this.sameDictationScope(scope) ||
+      handle.conversation_id !== scope.conversationId ||
+      handle.server_epoch !== scope.serverEpoch ||
+      !this.transport.transcribeDictation
+    )
+      throw { code: 'voice_session_expired' };
+    const result = await this.transport.transcribeDictation(
+      handle,
+      utterance,
+      audio,
+      signal,
+    );
+    validateWire('DictationResult', result);
+    if (
+      result.utterance_id !== utterance ||
+      (Object.keys(handle) as Array<keyof DictationHandle>).some(
+        (key) => result.snapshot.handle[key] !== handle[key],
+      )
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  async stopDictation(
+    scope: DictationScope,
+    handle: DictationHandle,
+    signal?: AbortSignal,
+  ) {
+    const current = this.state.handshake;
+    if (
+      !current ||
+      current.client_session_id !== scope.clientSessionId ||
+      current.server_epoch !== scope.serverEpoch ||
+      handle.conversation_id !== scope.conversationId ||
+      handle.server_epoch !== scope.serverEpoch ||
+      !this.transport.stopDictation
+    )
+      throw { code: 'voice_session_expired' };
+    const result = await this.transport.stopDictation(handle, signal);
+    validateWire('DictationSnapshot', result);
+    if (
+      (Object.keys(handle) as Array<keyof DictationHandle>).some(
+        (key) => result.handle[key] !== handle[key],
+      )
+    )
+      throw { code: 'protocol_incompatible' };
+    return result;
+  }
+  applyDictation(
+    scope: DictationScope,
+    result: DictationResult,
+  ): 'applied' | 'stale' | 'draft_full' {
+    if (result.snapshot.state !== 'completed' || !result.snapshot.quiesced)
+      return 'stale';
+    if (
+      !this.sameDictationScope(scope) ||
+      result.snapshot.handle.lease_id !== this.dictationLease ||
+      result.snapshot.handle.conversation_id !== scope.conversationId ||
+      result.snapshot.handle.server_epoch !== scope.serverEpoch
+    )
+      return 'stale';
+    const identity = `${result.snapshot.handle.lease_id}:${result.utterance_id}`;
+    if (identity === this.appliedDictation) return 'applied';
+    const draft = this.getDraft(scope.conversationId);
+    const addition = result.text.trim();
+    const text = addition
+      ? `${draft.text}${draft.text && !/\s$/.test(draft.text) ? ' ' : ''}${addition}`
+      : draft.text;
+    if (text.length > 200000) return 'draft_full';
+    this.appliedDictation = identity;
+    if (addition) this.setDraft(scope.conversationId, { ...draft, text });
+    return 'applied';
+  }
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -176,6 +517,7 @@ export class ClientController {
       this.transport.clearSession();
       this.drafts.clear();
       this.draftRevisions.clear();
+      this.browserCommandAttempts.clear();
       this.update({
         handshake: null,
         conversations: [],
@@ -677,6 +1019,29 @@ export class ClientController {
       ? [...this.state.activity, record].slice(-200)
       : this.state.activity;
     this.update({ projection: next, activity });
+    if (
+      event.type === 'tool.activity' &&
+      [
+        'browser_navigate',
+        'browser_click',
+        'browser_type',
+        'browser_scroll',
+        'browser_snapshot',
+        'browser_back',
+        'browser_tab',
+      ].includes(event.payload.tool_name ?? '') &&
+      this.state.conversation?.id === event.conversation_id
+    )
+      this.suggestPanel({
+        type: 'panel.suggested',
+        conversation_id: event.conversation_id,
+        conversation_revision: this.state.conversation.revision,
+        descriptor: {
+          panel_kind: 'browser.live',
+          title: 'Managed browser',
+          required_capabilities: ['browser_navigate'],
+        },
+      });
     if (event.type === 'generation.state' && event.payload.quiesced)
       void this.refreshWorkspace();
     return 'applied';
@@ -1159,6 +1524,1877 @@ export class ClientController {
     );
   deckSetup = (signal?: AbortSignal) =>
     this.query(() => this.transport.deckSetup?.(signal));
+  providerStatus = (signal?: AbortSignal) =>
+    this.query(() => this.transport.providerStatus?.(signal));
+  mcpConfiguration = (query: string, cursor?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.mcpConfiguration?.(query, cursor, signal));
+  mcpPolicy = (
+    query: { server_id: string | null; query: string; cursor?: string },
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.mcpPolicy?.(
+        query.server_id,
+        query.query,
+        query.cursor,
+        signal,
+      ),
+    );
+  reviewMcpPolicy = (body: unknown, signal?: AbortSignal) => {
+    const input = validateWire<import('./types').McpPolicyRequest>(
+      'McpPolicyRequest',
+      body,
+    );
+    return this.query(() => this.transport.reviewMcpPolicy?.(input, signal));
+  };
+  mcpTestedCatalog = (
+    query: {
+      server_id: string;
+      test_command_id: string;
+      query: string;
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.mcpTestedCatalog?.(
+        query.server_id,
+        query.test_command_id,
+        query.query,
+        query.cursor,
+        signal,
+      ),
+    );
+  reviewMcpCatalog = (body: unknown, signal?: AbortSignal) => {
+    const input = validateWire<import('./types').McpCatalogRequest>(
+      'McpCatalogRequest',
+      body,
+    );
+    return this.query(() => this.transport.reviewMcpCatalog?.(input, signal));
+  };
+  reviewMcpConfiguration = (body: unknown, signal?: AbortSignal) => {
+    const input = validateWire<import('./types').McpConfigurationReviewRequest>(
+      'McpConfigurationReviewRequest',
+      body,
+    );
+    return this.query(() =>
+      this.transport.reviewMcpConfiguration?.(input, signal),
+    );
+  };
+  executeMcpConfiguration = async (
+    original: {
+      command_id: string;
+      type:
+        | 'mcp.configuration.save'
+        | 'mcp.configuration.control'
+        | 'mcp.catalog.accept';
+      payload:
+        | { configuration_revision: string; intent: unknown }
+        | import('./types').McpCatalogRequest;
+    },
+    review: { nonce?: string },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake || !review.nonce)
+      throw clientError({ code: 'approval_expired' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      payload: { ...original.payload, nonce: review.nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, original.command_id, signal),
+    );
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      command_id: result.command_id,
+      status: result.status,
+      mcp_configuration: result.mcp_configuration ?? undefined,
+    };
+  };
+  defaultModel = (signal?: AbortSignal) =>
+    this.query(() => this.transport.defaultModel?.(signal));
+  knowledgeEditor = (entity: string | null, signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeEditor?.(entity, signal));
+  knowledgeRelations = (
+    entity: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.knowledgeRelations?.(entity, cursor, signal),
+    );
+  reviewKnowledgeRelation = (
+    action: import('./types').KnowledgeRelationReviewRequest['action'],
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const input = validateWire<
+      import('./types').KnowledgeRelationReviewRequest
+    >('KnowledgeRelationReviewRequest', { action, payload });
+    return this.query(() =>
+      this.transport.reviewKnowledgeRelation?.(input, signal),
+    );
+  };
+  knowledgeRelationReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.knowledgeRelationReceipt?.(command, signal),
+    );
+  executeKnowledgeRelation = async (original: {
+    command_id: string;
+    type: import('./types').KnowledgeRelationReviewRequest['action'];
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeKnowledgeRelation)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeKnowledgeRelation(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  reviewKnowledge = (
+    action: import('./types').KnowledgeReviewRequest['action'],
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const input = validateWire<import('./types').KnowledgeReviewRequest>(
+      'KnowledgeReviewRequest',
+      { action, payload },
+    );
+    return this.query(() => this.transport.reviewKnowledge?.(input, signal));
+  };
+  knowledgeReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeReceipt?.(command, signal));
+  executeKnowledge = async (original: {
+    command_id: string;
+    type: import('./types').KnowledgeReviewRequest['action'];
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeKnowledge)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeKnowledge(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  wikiStatus = (folderGrant?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.wikiStatus?.(folderGrant, signal));
+  wikiArticles = (folderGrant: string, cursor?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.wikiArticles?.(folderGrant, cursor, signal),
+    );
+  wikiArticle = (folderGrant: string, article: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.wikiArticle?.(folderGrant, article, signal),
+    );
+  reviewWiki = (
+    action: import('./types').WikiReviewRequest['action'],
+    folderGrant: string,
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const input = validateWire<import('./types').WikiReviewRequest>(
+      'WikiReviewRequest',
+      { action, folder_grant: folderGrant, payload },
+    );
+    return this.query(() => this.transport.reviewWiki?.(input, signal));
+  };
+  wikiReceipt = (folderGrant: string, command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.wikiReceipt?.(folderGrant, command, signal),
+    );
+  executeWiki = async (original: {
+    command_id: string;
+    type: import('./types').WikiReviewRequest['action'];
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeWiki)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeWiki(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  channels = (query: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.channels?.(query, signal));
+  reviewChannel = (
+    body: import('./types').ChannelActionRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewChannel?.(body, signal));
+  channelReceipt = (channel: string, command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.channelReceipt?.(channel, command, signal));
+  executeChannel = async (original: {
+    command_id: string;
+    type: string;
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeChannel)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeChannel(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  plugins = (
+    query: string,
+    source: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.plugins?.(query, source, cursor, signal));
+  plugin = (plugin: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.plugin?.(plugin, signal));
+  reviewPlugin = (
+    plugin: string,
+    action: import('./types').PluginReviewRequest['action'],
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const body = validateWire<import('./types').PluginReviewRequest>(
+      'PluginReviewRequest',
+      { action, payload },
+    );
+    return this.query(() =>
+      this.transport.reviewPlugin?.(plugin, body, signal),
+    );
+  };
+  pluginReceipt = (plugin: string, command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.pluginReceipt?.(plugin, command, signal));
+  executePlugin = async (
+    plugin: string,
+    original: {
+      command_id: string;
+      type: string;
+      payload: Record<string, unknown>;
+    },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executePlugin)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executePlugin(plugin, command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  skills = (
+    query: string,
+    source?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.skills?.(query, source, cursor, signal));
+  skill = (skill: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.skill?.(skill, signal));
+  skillProposals = (signal?: AbortSignal) =>
+    this.query(() => this.transport.skillProposals?.(signal));
+  reviewSkill = (
+    action: import('./types').SkillReviewRequest['action'],
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const body = validateWire<import('./types').SkillReviewRequest>(
+      'SkillReviewRequest',
+      { action, payload },
+    );
+    return this.query(() => this.transport.reviewSkill?.(body, signal));
+  };
+  skillReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.skillReceipt?.(command, signal));
+  executeSkill = async (original: {
+    command_id: string;
+    type: string;
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeSkill)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeSkill(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  conversationActions = (conversation: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.conversationActions?.(conversation, signal),
+    );
+  reviewConversationAction = (
+    conversation: string,
+    action:
+      | 'conversation.rename'
+      | 'conversation.pin'
+      | 'conversation.archive'
+      | 'conversation.export',
+    revision: string,
+    fields: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const body = validateWire<
+      import('./types').ConversationActionReviewRequest
+    >('ConversationActionReviewRequest', {
+      type: action,
+      expected_revision: revision,
+      payload: fields,
+    });
+    return this.query(() =>
+      this.transport.reviewConversationAction?.(conversation, body, signal),
+    );
+  };
+  conversationActionReceipt = (
+    conversation: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.conversationActionReceipt?.(conversation, command, signal),
+    );
+  executeConversationAction = async (
+    conversation: string,
+    original: {
+      command_id: string;
+      type:
+        | 'conversation.rename'
+        | 'conversation.pin'
+        | 'conversation.archive'
+        | 'conversation.export';
+      expected_revision: string;
+      payload: Record<string, unknown> & {
+        checkpoint_revision: string;
+        action_digest: string;
+      };
+    },
+    review: {
+      conversation_id: string;
+      action: string;
+      revision: string;
+      checkpoint_revision: string;
+      action_digest: string;
+      review_id?: string;
+    },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    if (
+      !review.review_id ||
+      review.conversation_id !== conversation ||
+      review.action !== original.type ||
+      review.revision !== original.expected_revision ||
+      review.checkpoint_revision !== original.payload.checkpoint_revision ||
+      review.action_digest !== original.payload.action_digest
+    )
+      throw clientError({ code: 'conversation_review_changed' });
+    const command = validateWire<import('./types').ConversationActionCommand>(
+      'ConversationActionCommand',
+      {
+        ...original,
+        client_session_id: handshake.client_session_id,
+        payload: { ...original.payload, review_id: review.review_id },
+      },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeConversationAction)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeConversationAction(
+        conversation,
+        command,
+        signal,
+      );
+    });
+    if (
+      result.command_id !== original.command_id ||
+      result.action !== original.type
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      ...result,
+      code: result.code ?? undefined,
+      conversation: result.conversation ?? undefined,
+      export: result.export ?? undefined,
+    };
+  };
+  browserControls = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.browserControls?.(conversation, signal));
+  reviewBrowserControl = (
+    conversation: string,
+    action: import('./types').BrowserReview['action'],
+    payload: import('./types').BrowserReviewRequest['payload'],
+    signal?: AbortSignal,
+  ) => {
+    const body = validateWire<import('./types').BrowserReviewRequest>(
+      'BrowserReviewRequest',
+      { action, type: action, payload },
+    );
+    return this.query(() =>
+      this.transport.reviewBrowserControl?.(conversation, body, signal),
+    );
+  };
+  browserControlReceipt = (
+    conversation: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.browserControlReceipt?.(conversation, command, signal),
+    );
+  executeBrowserControl = async (
+    conversation: string,
+    original: {
+      command_id: string;
+      type: import('./types').BrowserReview['action'];
+      payload: Record<string, unknown> & { nonce: string; revision: string };
+    },
+    review: import('./types').BrowserReview,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    if (
+      review.conversation_id !== conversation ||
+      review.action !== original.type ||
+      review.revision !== original.payload.revision ||
+      review.nonce !== original.payload.nonce
+    )
+      throw clientError({ code: 'browser_revision_conflict' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult(async (signal) => {
+      if (
+        !this.transport.executeBrowserControl ||
+        !this.transport.browserControlReceipt
+      )
+        throw clientError({ code: 'unsupported_command' });
+      if (this.browserCommandAttempts.has(original.command_id)) {
+        try {
+          return await this.transport.browserControlReceipt(
+            conversation,
+            original.command_id,
+            signal,
+          );
+        } catch (cause) {
+          if (clientError(cause).code !== 'not_found') throw cause;
+        }
+      }
+      this.browserCommandAttempts.add(original.command_id);
+      return this.transport.executeBrowserControl(
+        conversation,
+        command,
+        signal,
+      );
+    });
+    if (
+      result.command_id !== original.command_id ||
+      result.action !== original.type ||
+      result.conversation_id !== conversation
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    if (result.status !== 'partial')
+      this.browserCommandAttempts.delete(original.command_id);
+    return result;
+  };
+  goals = (
+    conversation: string,
+    query: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.goals?.(conversation, query, cursor, signal),
+    );
+  goal = (conversation: string, goal: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.goal?.(conversation, goal, signal));
+  reviewGoal = (
+    conversation: string,
+    body: import('./types').GoalCommandPayload,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.reviewGoal?.(conversation, body, signal));
+  goalReceipt = (conversation: string, command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.goalReceipt?.(conversation, command, signal),
+    );
+  executeGoal = async (
+    conversation: string,
+    original: {
+      command_id: string;
+      type: 'goal.control';
+      payload: Record<string, unknown>;
+    },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeGoal)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeGoal(conversation, command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  profiles = (
+    query: string,
+    scope?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.profiles?.(query, scope, cursor, signal));
+  profile = (profile: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.profile?.(profile, signal));
+  reviewProfile = (
+    body: import('./types').ProfileCommandPayload,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewProfile?.(body, signal));
+  profileReceipt = (profile: string, command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.profileReceipt?.(profile, command, signal));
+  executeProfile = async (original: {
+    command_id: string;
+    type: 'profile.mutate';
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeProfile)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeProfile(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  reviewDocumentUpload = (
+    files: import('./types').DocumentUploadReviewRequest['files'],
+  ) => {
+    const input = validateWire<import('./types').DocumentUploadReviewRequest>(
+      'DocumentUploadReviewRequest',
+      { files },
+    );
+    return this.query(() => this.transport.reviewDocumentUpload?.(input.files));
+  };
+  private documentUploadResult(
+    value: import('./types').DocumentUploadReceipt,
+    command: string,
+  ) {
+    if (value.command_id !== command)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      ...value,
+      code: value.code ?? undefined,
+      batch_id: value.batch_id ?? undefined,
+      processing: value.processing ?? undefined,
+      files: value.files ?? undefined,
+    };
+  }
+  documentUploadReceipt = async (command: string) =>
+    this.documentUploadResult(
+      await this.query(() => this.transport.documentUploadReceipt?.(command)),
+      command,
+    );
+  uploadDocuments = async (
+    original: {
+      command_id: string;
+      type: 'document.upload';
+      payload: {
+        files: import('./types').DocumentUploadReviewRequest['files'];
+        review_id: string;
+      };
+    },
+    files: readonly File[],
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.uploadDocuments)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.uploadDocuments(command, files, signal);
+    });
+    return this.documentUploadResult(result, original.command_id);
+  };
+  reviewDocumentProcessing = async (
+    conversation: string,
+    batch: string,
+    revision: string,
+  ) => {
+    const input = validateWire<
+      import('./types').DocumentProcessingReviewRequest
+    >('DocumentProcessingReviewRequest', { batch_id: batch, revision });
+    const result = await this.query(() =>
+      this.transport.reviewDocumentProcessing?.(conversation, input),
+    );
+    if (result.conversation_id !== conversation || result.batch_id !== batch)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  private documentProcessingResult(
+    value: import('./types').DocumentProcessingReceipt,
+    command: string,
+  ) {
+    if (value.command_id !== command)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      ...value,
+      code: value.code ?? undefined,
+      batch_id: value.batch_id ?? undefined,
+      processing: value.processing ?? undefined,
+    };
+  }
+  documentProcessingReceipt = async (conversation: string, command: string) =>
+    this.documentProcessingResult(
+      await this.query(() =>
+        this.transport.documentProcessingReceipt?.(conversation, command),
+      ),
+      command,
+    );
+  executeDocumentProcessing = async (
+    conversation: string,
+    original: {
+      command_id: string;
+      type: 'document.batch.process';
+      payload: {
+        conversation_id: string;
+        batch_id: string;
+        revision: string;
+        review_id: string;
+      };
+    },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (
+      !isCommand(command) ||
+      original.payload.conversation_id !== conversation
+    )
+      throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeDocumentProcessing)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeDocumentProcessing(
+        conversation,
+        command,
+        signal,
+      );
+    });
+    return this.documentProcessingResult(result, original.command_id);
+  };
+  mcpRuntime = (server: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.mcpRuntime?.(server, signal));
+  documentQueue = (
+    options: { kind: 'batches' | 'jobs'; batch_id?: string; cursor?: string },
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.documentQueue?.(
+        options.kind,
+        options.batch_id,
+        options.cursor,
+        signal,
+      ),
+    );
+  reviewDocumentControl = (
+    action: import('./types').DocumentControlReviewRequest['action'],
+    payload: Record<string, unknown>,
+  ) => {
+    const input = validateWire<import('./types').DocumentControlReviewRequest>(
+      'DocumentControlReviewRequest',
+      { action, payload },
+    );
+    return this.query(() => this.transport.reviewDocumentControl?.(input));
+  };
+  private documentControlResult(
+    value: import('./types').DocumentControlReceipt,
+    command: string,
+  ) {
+    if (value.command_id !== command)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      ...value,
+      code: value.code ?? undefined,
+      outcome: value.outcome ?? undefined,
+      batch_ids: value.batch_ids ?? undefined,
+      count: value.count ?? undefined,
+      retained_work: value.retained_work ?? undefined,
+    };
+  }
+  documentControlReceipt = async (command: string) =>
+    this.documentControlResult(
+      await this.query(() => this.transport.documentControlReceipt?.(command)),
+      command,
+    );
+  executeDocumentControl = async (original: {
+    command_id: string;
+    type: import('./types').DocumentControlReviewRequest['action'];
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeDocumentControl)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeDocumentControl(command, signal);
+    });
+    return this.documentControlResult(result, original.command_id);
+  };
+  runtimeInstallation = async (runtime: string, signal?: AbortSignal) => {
+    const result = await this.query(() =>
+      this.transport.runtimeInstallation?.(runtime, signal),
+    );
+    if (result.runtime_id !== runtime)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  reviewRuntimeInstallation = (body: unknown, signal?: AbortSignal) => {
+    const input = validateWire<
+      import('./types').RuntimeInstallationReviewRequest
+    >('RuntimeInstallationReviewRequest', body);
+    return this.query(() =>
+      this.transport.reviewRuntimeInstallation?.(input, signal),
+    );
+  };
+  runtimeInstallationReceipt = async (
+    runtime: string,
+    command: string,
+    signal?: AbortSignal,
+  ) => {
+    const result = await this.query(() =>
+      this.transport.runtimeInstallationReceipt?.(runtime, command, signal),
+    );
+    if (
+      result.command_id !== command ||
+      result.installation.runtime_id !== runtime
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return { ...result, code: result.code ?? undefined };
+  };
+  executeRuntimeInstallation = async (
+    original: {
+      command_id: string;
+      type: string;
+      payload: Record<string, unknown>;
+    },
+    review: { nonce?: string } | null,
+    signal?: AbortSignal,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      payload: {
+        ...original.payload,
+        ...(review ? { nonce: review.nonce } : {}),
+      },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((owned) => {
+      if (!this.transport.executeRuntimeInstallation)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeRuntimeInstallation(
+        command,
+        signal ? AbortSignal.any([signal, owned]) : owned,
+      );
+    });
+    if (
+      result.command_id !== original.command_id ||
+      result.installation.runtime_id !== original.payload.runtime_id
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return { ...result, code: result.code ?? undefined };
+  };
+  reviewMcpRuntime = (body: unknown, signal?: AbortSignal) => {
+    const request = validateWire<import('./types').McpRuntimeReviewRequest>(
+      'McpRuntimeReviewRequest',
+      body,
+    );
+    return this.query(() => this.transport.reviewMcpRuntime?.(request, signal));
+  };
+  executeMcpRuntime = async (
+    original: {
+      command_id: string;
+      type: 'mcp.runtime.control';
+      payload: import('./types').McpRuntimeReviewRequest;
+    },
+    review: { nonce?: string },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake || !review.nonce)
+      throw clientError({ code: 'approval_expired' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      payload: { ...original.payload, nonce: review.nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, original.command_id, signal),
+    );
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      command_id: result.command_id,
+      status: result.status,
+      mcp_runtime: result.mcp_runtime ?? undefined,
+    };
+  };
+  subscriptionAccounts = (signal?: AbortSignal) =>
+    this.query(() => this.transport.subscriptionAccounts?.(signal));
+  reviewDocumentRemoval = async (document: string | null) => {
+    const result = await this.query(() =>
+      this.transport.reviewDocumentRemoval?.(document),
+    );
+    return {
+      ...result,
+      source_command_id: result.source_command_id ?? undefined,
+      removal_id: result.removal_id ?? undefined,
+    };
+  };
+  reviewDocumentRemovalRetry = async (command: string) => {
+    const result = await this.query(() =>
+      this.transport.reviewDocumentRemovalRetry?.(command),
+    );
+    return {
+      ...result,
+      source_command_id: result.source_command_id ?? undefined,
+      removal_id: result.removal_id ?? undefined,
+    };
+  };
+  documentRemovalReceipt = async (command: string) => {
+    const result = await this.query(() =>
+      this.transport.documentRemovalReceipt?.(command),
+    );
+    return {
+      ...result,
+      code: result.code ?? undefined,
+      removal: result.removal ?? undefined,
+    };
+  };
+  executeDocumentRemoval = async (original: {
+    command_id: string;
+    type: 'document.remove' | 'document.removal.retry';
+    payload: Record<string, unknown>;
+  }) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'session_expired' });
+    const command = structuredClone({
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    });
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeDocumentRemoval)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.executeDocumentRemoval(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      ...result,
+      code: result.code ?? undefined,
+      removal: result.removal ?? undefined,
+    };
+  };
+  buddy = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.buddy?.(conversation, signal));
+  buddyPacks = (conversation: string, cursor?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.buddyPacks?.(conversation, cursor, signal));
+  buddyPack = (conversation: string, pack: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.buddyPack?.(conversation, pack, signal));
+  buddyMedia = (
+    conversation: string,
+    pack: string,
+    asset: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.buddyMedia?.(conversation, pack, asset, revision, signal),
+    );
+  reviewBuddy = (
+    conversation: string,
+    body: import('./types').BuddyHatchRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.reviewBuddy?.(conversation, body, signal));
+  buddyReceipt = (
+    conversation: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.buddyReceipt?.(conversation, command, signal),
+    );
+  executeBuddy = async (
+    conversation: string,
+    original: {
+      command_id: string;
+      type: string;
+      payload: Record<string, unknown>;
+    },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'session_expired' });
+    const command = structuredClone({
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    });
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeBuddy)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.executeBuddy(conversation, command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  subscriptionProbes = (signal?: AbortSignal) =>
+    this.query(() => this.transport.subscriptionProbes?.(signal));
+  reviewSubscriptionProbe = (
+    body: import('./types').SubscriptionProbeRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewSubscriptionProbe?.(body, signal));
+  subscriptionProbeReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.subscriptionProbeReceipt?.(command, signal),
+    );
+  subscriptionProbeStatus = async (command: string, signal?: AbortSignal) => {
+    const value = await this.query(() =>
+      this.transport.subscriptionProbeStatus?.(command, signal),
+    );
+    if (value.operation && value.operation.command_id !== command)
+      throw clientError({ code: 'protocol_incompatible' });
+    return value.operation;
+  };
+  cancelSubscriptionProbe = async (command: string) => {
+    const value = await this.authenticatedResult((signal) => {
+      if (!this.transport.cancelSubscriptionProbe)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.cancelSubscriptionProbe(command, signal);
+    });
+    if (value.command_id !== command)
+      throw clientError({ code: 'protocol_incompatible' });
+    return value;
+  };
+  applySubscriptionProbe = async (
+    review: import('./types').SubscriptionProbeReview,
+    commandId: string,
+  ) => {
+    const captured = validateWire<import('./types').SubscriptionProbeReview>(
+      'SubscriptionProbeReview',
+      review,
+    );
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'session_expired' });
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      type: 'provider.subscription.probe',
+      payload: {
+        provider_id: captured.provider_id,
+        provider_revision: captured.provider_revision,
+        kind: captured.kind,
+        model_ref: captured.model_ref,
+        nonce: captured.nonce,
+      },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const value = await this.authenticatedResult((signal) => {
+      if (!this.transport.applySubscriptionProbe)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.applySubscriptionProbe(command, signal);
+    });
+    if (
+      value.command_id !== commandId ||
+      value.result.provider_id !== captured.provider_id ||
+      value.result.kind !== captured.kind ||
+      value.result.model_ref !== captured.model_ref
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return value.result;
+  };
+  subscriptionOptions = (signal?: AbortSignal) =>
+    this.query(() => this.transport.subscriptionOptions?.(signal));
+  reviewSubscriptionOptions = (
+    body: import('./types').SubscriptionOptionsRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.reviewSubscriptionOptions?.(body, signal));
+  subscriptionOptionsReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.subscriptionOptionsReceipt?.(command, signal),
+    );
+  applySubscriptionOptions = async (
+    review: import('./types').SubscriptionOptionsReview,
+    commandId: string,
+  ) => {
+    const captured = validateWire<import('./types').SubscriptionOptionsReview>(
+      'SubscriptionOptionsReview',
+      review,
+    );
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'session_expired' });
+    const kinds = {
+      reference: 'provider.subscription.reference',
+      client_id_save: 'provider.subscription.client_id.save',
+      client_id_reset: 'provider.subscription.client_id.reset',
+    } as const;
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      type: kinds[captured.operation],
+      payload: {
+        provider_id: captured.provider_id,
+        provider_revision: captured.provider_revision,
+        value: captured.value,
+        nonce: captured.nonce,
+      },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.applySubscriptionOptions)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.applySubscriptionOptions(command, signal);
+    });
+    if (result.command_id !== commandId)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result.options;
+  };
+  cancelSubscriptionStart = (command: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.cancelSubscriptionStart)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.cancelSubscriptionStart(command, signal);
+    });
+  reviewSubscriptionAction = (body: unknown, signal?: AbortSignal) => {
+    const request = validateWire<import('./types').SubscriptionActionRequest>(
+      'SubscriptionActionRequest',
+      body,
+    );
+    return this.query(() =>
+      this.transport.reviewSubscriptionAction?.(request, signal),
+    );
+  };
+  subscriptionFlow = (
+    identity: { flow_id: string; server_epoch: string },
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.subscriptionFlow?.(
+        identity.flow_id,
+        identity.server_epoch,
+        signal,
+      ),
+    );
+  subscriptionReceipt = (
+    provider: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.subscriptionReceipt?.(provider, command, signal),
+    );
+  applySubscriptionAction = async (
+    intent: unknown,
+    review: import('./types').SubscriptionActionReview,
+    commandId: string,
+  ) => {
+    const request = validateWire<import('./types').SubscriptionActionRequest>(
+      'SubscriptionActionRequest',
+      intent,
+    );
+    const handshake = this.state.handshake;
+    if (!handshake || !review.nonce)
+      throw clientError({ code: 'approval_expired' });
+    if (
+      request.provider_id !== review.provider_id ||
+      request.provider_revision !== review.provider_revision ||
+      request.operation !== review.operation ||
+      (request.flow_id ?? null) !== review.flow_id ||
+      (request.server_epoch ?? null) !== review.server_epoch
+    )
+      throw clientError({ code: 'approval_expired' });
+    const { operation, ...payload } = request;
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      type: `provider.subscription.${operation}`,
+      payload: { ...payload, nonce: review.nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.subscriptionAction)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.subscriptionAction(command, signal);
+    });
+    if (result.command_id !== commandId)
+      throw clientError({ code: 'protocol_incompatible' });
+    return { ...result, flow: result.flow ?? undefined };
+  };
+  cancelSubscriptionFlow = async (
+    identity: import('./types').SubscriptionFlowSnapshot,
+    commandId: string,
+  ) => {
+    const accounts = await this.subscriptionAccounts();
+    const intent = {
+      provider_id: identity.provider_id,
+      provider_revision: accounts.revision,
+      operation: 'cancel',
+      flow_id: identity.flow_id,
+      server_epoch: identity.server_epoch,
+    };
+    const review = await this.reviewSubscriptionAction(intent);
+    return this.applySubscriptionAction(intent, review, commandId);
+  };
+  reviewDefaultModel = (
+    body: import('./types').DefaultModelReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewDefaultModel?.(body, signal));
+  defaultModelReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.defaultModelReceipt?.(command, signal));
+  executeDefaultModel = async (
+    review: import('./types').DefaultModelReviewRequest & { nonce?: string },
+    commandId: string,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake || !review.nonce)
+      throw clientError({ code: 'approval_expired' });
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      type: 'provider.default_model.save',
+      expected_revision: '0',
+      payload: {
+        settings_revision: review.settings_revision,
+        provider_id: review.provider_id,
+        model_id: review.model_id,
+        nonce: review.nonce,
+      },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, commandId, signal),
+    );
+    if (
+      result.status !== 'completed' ||
+      result.command_id !== commandId ||
+      !result.selection
+    )
+      throw clientError({ code: 'operation_uncertain' });
+    return result.selection;
+  };
+  providerSettings = (provider: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.providerSettings?.(provider, signal));
+  reviewProviderSettings = (
+    provider: string,
+    body: import('./types').ProviderSettingsReviewRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewProviderSettings?.(provider, body, signal),
+    );
+  providerSettingsReceipt = (
+    provider: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.providerSettingsReceipt?.(provider, command, signal),
+    );
+  artifactReviewDraft = (
+    conversation: string,
+    binding: string,
+    body: import('./types').ArtifactReviewDraftRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactReviewDraft?.(conversation, binding, body, signal),
+    );
+  reviewArtifactPreset = (
+    conversation: string,
+    binding: string,
+    body: import('./types').ArtifactPresetReviewRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewArtifactPreset?.(
+        conversation,
+        binding,
+        body,
+        signal,
+      ),
+    );
+  stageArtifactUpload = (
+    conversation: string,
+    file: File,
+    commandId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.stageArtifactUpload)
+        return Promise.reject({ code: 'capability_unavailable' });
+      return this.transport.stageArtifactUpload(
+        conversation,
+        file,
+        commandId,
+        current,
+      );
+    }, signal);
+  executeArtifactDesign = (
+    conversation: string,
+    commandId: string,
+    type:
+      | 'artifact.design.control'
+      | 'artifact.asset.upload'
+      | 'artifact.preset.mutate',
+    payload: Record<string, unknown>,
+    expectedRevision: string,
+  ) => {
+    const command = {
+      command_id: commandId,
+      client_session_id: this.state.handshake?.client_session_id,
+      type,
+      expected_revision: expectedRevision,
+      payload,
+    };
+    if (!isCommand(command))
+      return Promise.reject(clientError({ code: 'invalid_command' }));
+    return this.authenticatedResult(async (signal) => {
+      const result = await this.transport.command(
+        conversation,
+        command,
+        commandId,
+        signal,
+      );
+      if (
+        result.status === 'completed' &&
+        this.state.selectedConversationId === conversation
+      )
+        await this.refreshWorkspace();
+      return result;
+    });
+  };
+  providerConfiguration = (query = '', cursor?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.providerConfiguration?.(query, cursor, signal),
+    );
+  reviewProviderConfiguration = (
+    body: import('./types').ProviderConfigurationReviewRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewProviderConfiguration?.(body, signal),
+    );
+  providerConfigurationReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.providerConfigurationReceipt?.(command, signal),
+    );
+  executeProviderConfiguration = async (
+    type: import('./types').ProviderConfigurationReviewRequest['operation'],
+    configuration_revision: string,
+    fields: import('./types').ProviderConfigurationReviewRequest['fields'],
+    commandId: string,
+    nonce: string,
+  ) => {
+    const command = {
+      command_id: commandId,
+      client_session_id: this.state.handshake?.client_session_id,
+      type,
+      expected_revision: '0',
+      payload: { configuration_revision, fields, nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, commandId, signal),
+    );
+    if (
+      result.command_id !== commandId ||
+      result.status !== 'completed' ||
+      !result.configuration_revision
+    )
+      throw clientError({ code: 'operation_uncertain' });
+    return { configuration_revision: result.configuration_revision };
+  };
+  executeProviderCredential = async (
+    provider: string,
+    revision: string,
+    operation: 'save' | 'clear' | 'restore',
+    value: string | undefined,
+    commandId: string,
+    nonce: string,
+  ): Promise<import('./types').ProviderSettingsSnapshot> => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      type: `${provider.startsWith('custom_openai_') ? 'provider.custom_credential' : 'provider.credential'}.${operation}`,
+      expected_revision: '0',
+      payload: {
+        provider_id: provider,
+        provider_revision: revision,
+        nonce,
+        ...(operation === 'save' ? { value } : {}),
+      },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    // The bounded credential session owns the private intent. Do not add
+    // write-only secrets to the general conversation command retention map.
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, commandId, signal),
+    );
+    if (
+      result.status !== 'completed' ||
+      result.command_id !== commandId ||
+      result.credential?.provider_id !== provider
+    )
+      throw clientError({ code: 'provider_credential_unconfirmed' });
+    return { ...result.credential, display_name: provider };
+  };
+  savedEntities = (
+    query = '',
+    entityType?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.savedEntities?.(query, entityType, cursor, signal),
+    );
+  savedDocuments = (
+    query = '',
+    status?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.savedDocuments?.(query, status, cursor, signal),
+    );
+  cachedTools = (
+    source?: import('./types').ToolCatalogPage['items'][number]['source'],
+    query = '',
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.cachedTools?.(source, query, cursor, signal),
+    );
+  savedTasks = (
+    query = '',
+    enabled?: boolean,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.savedTasks?.(query, enabled, cursor, signal),
+    );
+  taskEditor = (task: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.taskEditor?.(task, signal));
+  taskGraph = (task: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.taskGraph?.(task, signal));
+  taskSettings = (task: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.taskSettings?.(task, signal));
+  workspaceProcesses = (
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceProcesses?.(conversation, binding, signal),
+    );
+  workspaceProcessRecovery = (
+    conversation: string,
+    binding: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceProcessRecovery?.(
+        conversation,
+        binding,
+        cursor,
+        signal,
+      ),
+    );
+  workspaceProcessOutput = (
+    conversation: string,
+    binding: string,
+    process: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceProcessOutput?.(
+        conversation,
+        binding,
+        process,
+        cursor,
+        signal,
+      ),
+    );
+  reviewWorkspaceProcess = (
+    conversation: string,
+    binding: string,
+    body: import('./types').WorkspaceProcessReviewRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewWorkspaceProcess?.(
+        conversation,
+        binding,
+        body,
+        signal,
+      ),
+    );
+  reviewTaskSettings = (
+    task: string,
+    fields: import('./types').TaskSettingsFields,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.reviewTaskSettings?.(task, fields, signal));
+  downloadTaskWebhook = (
+    task: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.downloadTaskWebhook)
+        throw clientError({ code: 'dependency_unavailable' });
+      return this.transport.downloadTaskWebhook(task, revision, current);
+    }, signal);
+  prepareArtifactShare = (
+    conversation: string,
+    binding: string,
+    options: import('./types').ArtifactShareOptions,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.prepareArtifactShare?.(
+        conversation,
+        binding,
+        options,
+        signal,
+      ),
+    );
+  artifactShareChannels = (cursor?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.artifactShareChannels?.(cursor, signal));
+  workspaceImports = (
+    conversation: string,
+    binding: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceImports?.(conversation, binding, cursor, signal),
+    );
+  developerRepository = (
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.developerRepository?.(conversation, binding, signal),
+    );
+  reviewDeveloperRepository = (
+    conversation: string,
+    binding: string,
+    action: import('./types').DeveloperRepositoryReview['action'],
+    payload: import('./types').DeveloperRepositoryReviewRequest['payload'],
+    signal?: AbortSignal,
+  ) => {
+    const body = validateWire<
+      import('./types').DeveloperRepositoryReviewRequest
+    >('DeveloperRepositoryReviewRequest', { action, payload });
+    return this.query(() =>
+      this.transport.reviewDeveloperRepository?.(
+        conversation,
+        binding,
+        body,
+        signal,
+      ),
+    );
+  };
+  developerRepositoryReceipt = (
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.developerRepositoryReceipt?.(
+        conversation,
+        binding,
+        command,
+        signal,
+      ),
+    );
+  executeDeveloperRepository = async (
+    conversation: string,
+    binding: string,
+    original: {
+      command_id: string;
+      type: import('./types').DeveloperRepositoryReview['action'];
+      payload: Record<string, unknown>;
+    },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeDeveloperRepository)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeDeveloperRepository(
+        conversation,
+        binding,
+        command,
+        signal,
+      );
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  workspaceImportPatch = (
+    conversation: string,
+    binding: string,
+    pending: string,
+    revision: string,
+    offset: number,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceImportPatch?.(
+        conversation,
+        binding,
+        pending,
+        revision,
+        offset,
+        signal,
+      ),
+    );
+  reviewWorkspaceUndo = (
+    conversation: string,
+    binding: string,
+    changeSet: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewWorkspaceUndo?.(
+        conversation,
+        binding,
+        changeSet,
+        signal,
+      ),
+    );
+  workspaceUndoReceipt = (
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceUndoReceipt?.(
+        conversation,
+        binding,
+        command,
+        signal,
+      ),
+    );
+  reviewWorkspaceUndoRecovery = (
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewWorkspaceUndoRecovery?.(
+        conversation,
+        binding,
+        command,
+        signal,
+      ),
+    );
+  executeWorkspaceUndo = async (
+    conversation: string,
+    binding: string,
+    review: import('./types').WorkspaceUndoReview,
+    commandId: string,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    if (
+      review.conversation_id !== conversation ||
+      review.binding_id !== binding
+    )
+      throw clientError({ code: 'resource_binding_revoked' });
+    const { nonce, ...reviewed } = review;
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      type: 'workspace.undo',
+      payload: { review: reviewed, nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeWorkspaceUndo)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeWorkspaceUndo(
+        conversation,
+        binding,
+        command,
+        signal,
+      );
+    });
+    if (
+      result.command_id !== commandId ||
+      result.conversation_id !== conversation ||
+      result.resource_id !== review.resource_id ||
+      result.change_set_id !== review.change_set_id
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  reviewWorkspaceImport = (
+    conversation: string,
+    binding: string,
+    pending: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewWorkspaceImport?.(
+        conversation,
+        binding,
+        pending,
+        signal,
+      ),
+    );
+  workspaceImportReceipt = (
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceImportReceipt?.(
+        conversation,
+        binding,
+        command,
+        signal,
+      ),
+    );
+  reviewWorkspaceImportRecovery = (
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reviewWorkspaceImportRecovery?.(
+        conversation,
+        binding,
+        command,
+        signal,
+      ),
+    );
+  executeWorkspaceImport = async (
+    conversation: string,
+    binding: string,
+    review: import('./types').WorkspaceImportReview,
+    commandId: string,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const { nonce, ...reviewed } = review;
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      type: 'workspace.import',
+      payload: { review: reviewed, nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeWorkspaceImport)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeWorkspaceImport(
+        conversation,
+        binding,
+        command,
+        signal,
+      );
+    });
+    if (
+      result.command_id !== commandId ||
+      result.conversation_id !== conversation ||
+      result.resource_id !== review.resource_id
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  workspaceEditableFile = (
+    conversation: string,
+    binding: string,
+    path: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.workspaceEditableFile?.(
+        conversation,
+        binding,
+        path,
+        signal,
+      ),
+    );
+  taskRunReview = (task: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.taskRunReview?.(task, signal));
+  taskRuns = (task: string, cursor?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.taskRuns?.(task, cursor, signal));
+  taskRun = (task: string, run: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.taskRun?.(task, run, signal));
+  taskApprovals = (
+    task: string,
+    run: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.taskApprovals?.(task, run, cursor, signal));
+  artifactExport = (
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactExport?.(conversation, binding, exportId, signal),
+    );
+  artifactDownload = (
+    conversation: string,
+    binding: string,
+    descriptor: import('./types').ArtifactExport,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactDownload?.(
+        conversation,
+        binding,
+        descriptor,
+        signal,
+      ),
+    );
+  cachedModels = (
+    providerId?: string,
+    query = '',
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.cachedModels?.(providerId, query, cursor, signal),
+    );
+  artifactSetup = (
+    mode: NonNullable<ArtifactSetupOptions['mode']>,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.artifactSetup?.(mode, signal));
   pickFolder = (signal?: AbortSignal) =>
     this.query(() => this.transport.pickFolder?.(signal));
   artifactPreview = (
@@ -1167,6 +3403,7 @@ export class ClientController {
     page?: string,
     revision?: string,
     signal?: AbortSignal,
+    authoring?: import('./types').ArtifactAuthoring,
   ) =>
     this.query(() =>
       this.transport.artifactPreview?.(
@@ -1174,6 +3411,91 @@ export class ClientController {
         binding,
         page,
         revision,
+        signal,
+        authoring,
+      ),
+    );
+  artifactLifecycle = (
+    conversation: string,
+    binding: string,
+    expectedRevision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactLifecycle?.(
+        conversation,
+        binding,
+        expectedRevision,
+        signal,
+      ),
+    );
+  artifactStaticPreview = (
+    conversation: string,
+    binding: string,
+    pageId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactStaticPreview?.(
+        conversation,
+        binding,
+        pageId,
+        signal,
+      ),
+    );
+  designControls = (
+    conversation: string,
+    binding: string,
+    options: import('./types').DesignControlOptions,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.designControls?.(conversation, binding, options, signal),
+    );
+  designReview = (
+    conversation: string,
+    binding: string,
+    options: import('./types').DesignReviewOptions,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.designReview?.(conversation, binding, options, signal),
+    );
+  designPresentation = (
+    conversation: string,
+    binding: string,
+    options: import('./types').DesignPresentationOptions,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.designPresentation?.(
+        conversation,
+        binding,
+        options,
+        signal,
+      ),
+    );
+  artifactEditing = (
+    conversation: string,
+    binding: string,
+    pageId?: string,
+    pageCursor?: string,
+    elementCursor?: string,
+    historyCursor?: string,
+    elementId?: string,
+    limit = 25,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactEditing?.(
+        conversation,
+        binding,
+        pageId,
+        pageCursor,
+        elementCursor,
+        historyCursor,
+        elementId,
+        limit,
         signal,
       ),
     );
@@ -1522,7 +3844,24 @@ export class ClientController {
       (await previous.verifier) !== (await intentVerifier(target, command))
     )
       return Promise.reject(clientError({ code: 'idempotency_mismatch' }));
-    if (!previous.failed) return previous.result;
+    if (!previous.failed) {
+      const receipt = await previous.result;
+      const savedTaskRecovery =
+        [
+          'task.create',
+          'task.update',
+          'task.graph.update',
+          'task.settings.update',
+          'task.webhook.rotate',
+        ].includes(command.type) &&
+        receipt.status === 'partial' &&
+        receipt.task_saved === true;
+      const savedWorkspaceRecovery =
+        command.type === 'workspace.edit' &&
+        receipt.status === 'partial' &&
+        receipt.workspace_edit?.status === 'partial';
+      if (!savedTaskRecovery && !savedWorkspaceRecovery) return receipt;
+    }
     this.commandClaims.delete(key);
     return this.command(target, command, key);
   }
@@ -1584,6 +3923,7 @@ export class ClientController {
     this.transport.clearSession();
     this.listeners.clear();
     this.commandClaims.clear();
+    this.browserCommandAttempts.clear();
     this.seen.clear();
     this.sequences.clear();
     this.retiredSubscriptions.clear();

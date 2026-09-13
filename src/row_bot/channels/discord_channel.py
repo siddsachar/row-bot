@@ -37,8 +37,10 @@ from row_bot.channels import auth as ch_auth
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.streaming import (
     ChannelDeliveryResult,
+    confirmed_channel_effect,
     ChannelStreamConfig,
     ChannelStreamConsumer,
+    consume_channel_producer,
 )
 from row_bot.threads import _save_thread_meta
 
@@ -422,12 +424,15 @@ class DiscordStreamTransport:
         except Exception:
             pass
 
+    @confirmed_channel_effect
     async def start(self, text: str):
         return await self.channel.send(str(text or ""))
 
+    @confirmed_channel_effect
     async def update(self, handle, text: str, *, final: bool = False):
         return await handle.edit(content=str(text or ""))
 
+    @confirmed_channel_effect
     async def send_final(self, text: str) -> list[Any]:
         refs: list[Any] = []
         for chunk in self.split_text(str(text or "")):
@@ -677,7 +682,7 @@ async def _handle_discord_interrupt_button(channel, message, *, approved: bool) 
         await channel.send(f"Error processing approval: {exc}")
         return
 
-    if answer and not delivery.delivered:
+    if answer and not delivery.delivered and not delivery.uncertain:
         await _send_discord_safe_text(channel, answer)
 
     try:
@@ -888,33 +893,16 @@ async def _stream_agent_turn_to_discord(
     user_text: str,
     config: dict,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _discord_stream_config()
     consumer = ChannelStreamConsumer(DiscordStreamTransport(channel), stream_config)
-    agent_future = loop.run_in_executor(None, _run_agent_sync, user_text, config, event_queue)
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _run_agent_sync(user_text, config, sink),
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="discord",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="discord", delivery=delivery,
+    )
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _stream_agent_resume_to_discord(
@@ -924,41 +912,18 @@ async def _stream_agent_resume_to_discord(
     *,
     interrupt_ids: list[str] | None = None,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _discord_stream_config()
     consumer = ChannelStreamConsumer(DiscordStreamTransport(channel), stream_config)
-    agent_future = loop.run_in_executor(
-        None,
-        lambda: _resume_agent_sync(
-            config,
-            approved,
-            interrupt_ids=interrupt_ids,
-            event_queue=event_queue,
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _resume_agent_sync(
+            config, approved, interrupt_ids=interrupt_ids, event_queue=sink,
         ),
     )
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="discord", delivery=delivery,
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="discord",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _send_discord_safe_text(channel, text: str) -> None:
@@ -1001,7 +966,7 @@ def _discord_goal_callbacks(channel):
         delivery = state.get("delivery")
         if (
             delivery
-            and delivery.delivered
+            and (delivery.delivered or delivery.uncertain)
             and str(delivery.final_text or "").strip() == str(message or "").strip()
         ):
             state["delivery"] = None
@@ -1208,7 +1173,7 @@ async def start_bot() -> bool:
                     approved,
                     interrupt_ids=interrupt_ids,
                 )
-                if answer and not delivery.delivered:
+                if answer and not delivery.delivered and not delivery.uncertain:
                     await _send_discord_safe_text(message.channel, answer)
                 for img_bytes in captured:
                     try:
@@ -1347,7 +1312,7 @@ async def start_bot() -> bool:
                     except Exception as exc:
                         log.warning("Failed to send Discord video: %s", exc)
             else:
-                if clean_answer:
+                if clean_answer and not delivery.uncertain:
                     for part in _split_message(clean_answer):
                         await message.channel.send(part)
                 for url in yt_urls:

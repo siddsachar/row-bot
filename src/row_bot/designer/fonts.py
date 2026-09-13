@@ -20,6 +20,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import os
+import stat
+from itertools import islice
+from contextlib import contextmanager
+from contextvars import ContextVar
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -28,6 +33,17 @@ from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime_paths import static_dir
 
 logger = logging.getLogger(__name__)
+_STRICT_OFFLINE_FONTS: ContextVar[bool] = ContextVar('designer_strict_offline_fonts', default=False)
+
+
+@contextmanager
+def strict_offline_fonts():
+    """Suppress intermediate URL CSS; the final isolated owner embeds fonts."""
+    token = _STRICT_OFFLINE_FONTS.set(True)
+    try:
+        yield
+    finally:
+        _STRICT_OFFLINE_FONTS.reset(token)
 
 # ── Paths ─────────────────────────────────────────────────────────────────
 _STATIC_DIR = static_dir()
@@ -100,6 +116,8 @@ def get_font_css(family: str, base_url: str = "/static") -> str:
     str
         CSS @font-face declarations.
     """
+    if _STRICT_OFFLINE_FONTS.get():
+        return ''  # Final strict embedding validates and resolves exactly once.
     # Tier 1: Bundled
     if family in _manifest:
         return _bundled_font_css(family, base_url)
@@ -130,7 +148,6 @@ def _bundled_font_css(family: str, base_url: str) -> str:
     """Build @font-face for a bundled font."""
     dirname = _safe_dirname(family)
     weights = _manifest[family]
-    fallback = get_fallback_stack(family)
     lines = []
     for weight_str, filename in sorted(weights.items()):
         url = f"{base_url}/fonts/{dirname}/{filename}"
@@ -181,12 +198,15 @@ def _cdn_font_css(family: str) -> str:
 # FONT CSS FOR EXPORT (base64 embedded)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_font_css_embedded(family: str) -> str:
+def get_font_css_embedded(family: str, *, strict: bool = False) -> str:
     """Generate @font-face CSS with base64-embedded woff2 data.
 
     For self-contained HTML export. Falls back to CDN if not bundled/cached.
     """
     import base64
+
+    if strict:
+        return _strict_font_css(family)
 
     # Try bundled first
     if family in _manifest:
@@ -233,6 +253,121 @@ def get_font_css_embedded(family: str) -> str:
 
     # Fallback to CDN import
     return _cdn_font_css(family)
+
+
+class FontReadError(ValueError):
+    """An offline font could not be safely and completely resolved."""
+
+
+_FONT_FILE_BYTES = 4 * 1024 * 1024
+_FONT_FAMILY_BYTES = 8 * 1024 * 1024
+_FONT_MAX_FILES = 64
+_SYSTEM_FONTS = {'Arial', 'Georgia', 'Times New Roman', 'system-ui', 'serif', 'sans-serif', 'monospace'}
+
+
+def _font_files(family: str):
+    if not isinstance(family, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9 -]{0,127}', family):
+        raise FontReadError('font_unavailable')
+    if family in _SYSTEM_FONTS:
+        return []
+    bundled = family in _manifest
+    root = (_FONTS_DIR if bundled else _CACHE_DIR) / _safe_dirname(family)
+    if any(path.is_symlink() or path.is_junction() for path in (root, *root.parents)):
+        raise FontReadError('font_unsafe_path')
+    if not root.is_dir():
+        raise FontReadError('font_unavailable')
+    parent = root.stat()
+    if bundled:
+        weights = _manifest[family]
+        if not isinstance(weights, dict) or not 0 < len(weights) <= _FONT_MAX_FILES:
+            raise FontReadError('font_catalog_invalid')
+        entries = list(weights.items())
+    else:
+        paths = list(islice(root.iterdir(), _FONT_MAX_FILES + 1))
+        if len(paths) > _FONT_MAX_FILES:
+            raise FontReadError('font_budget_exceeded')
+        entries = []
+        for path in paths:
+            if path.suffix == '.woff2':
+                match = re.search(r'-(\d+)\.woff2$', path.name)
+                entries.append((match[1] if match else '400', path.name))
+    if not entries:
+        raise FontReadError('font_unavailable')
+    result, total = [], 0
+    for weight, filename in sorted(entries):
+        if (not isinstance(weight, str) or not re.fullmatch(r'[1-9][0-9]{0,3}', weight) or int(weight) > 1000
+                or not isinstance(filename, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,200}\.woff2', filename)):
+            raise FontReadError('font_catalog_invalid')
+        path = root / filename
+        before = path.lstat()
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or path.is_junction()
+                or not 48 <= before.st_size <= _FONT_FILE_BYTES):
+            raise FontReadError('font_file_invalid')
+        total += before.st_size
+        if total > _FONT_FAMILY_BYTES:
+            raise FontReadError('font_budget_exceeded')
+        result.append((weight, path, before, parent))
+    if not os.path.samestat(parent, root.stat()):
+        raise FontReadError('font_revision_conflict')
+    return result
+
+
+def offline_font_fingerprint(families: list[str]) -> tuple:
+    """Bounded saved file identities for client preview invalidation, no cache."""
+    if len(families) > 8:
+        raise FontReadError('font_budget_exceeded')
+    try:
+        return tuple((family, tuple((weight, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+                     info.st_ctime_ns, parent.st_dev, parent.st_ino)
+                    for weight, _path, info, parent in _font_files(family)))
+                     for family in dict.fromkeys(families))
+    except OSError:
+        raise FontReadError('font_unavailable') from None
+
+
+def _strict_font_css(family: str) -> str:
+    import base64
+    from row_bot.developer.client_workspace import _empty_parent_guard
+    try:
+        files = _font_files(family)
+        lines = []
+        for weight, path, before, parent in files:
+            expected = f'{parent.st_dev}:{parent.st_ino}:0'
+            # Guard all ancestors on Windows; descriptor-relative leaf open on
+            # POSIX ensures a renamed parent cannot redirect a font read.
+            with _empty_parent_guard(path.parent, expected) as directory:
+                fd = os.open(path.name if directory is not None else path,
+                             os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0), dir_fd=directory)
+                with os.fdopen(fd, 'rb') as handle:
+                    opened = os.fstat(handle.fileno())
+                    if not os.path.samestat(before, opened) or opened.st_nlink != 1:
+                        raise FontReadError('font_revision_conflict')
+                    data = handle.read(_FONT_FILE_BYTES + 1)
+                    finished = os.fstat(handle.fileno())
+                named = os.stat(path.name, dir_fd=directory, follow_symlinks=False) if directory is not None else path.lstat()
+                if (not os.path.samestat(opened, named) or not os.path.samestat(parent, path.parent.lstat())
+                        or (opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns) != (finished.st_size, finished.st_mtime_ns, finished.st_ctime_ns)
+                        # Windows pathname stat exposes birth time as ctime in
+                        # this supported Python, while fstat reports change time.
+                        # Compare change time on the same open handle above.
+                        or (named.st_size, named.st_mtime_ns) != (finished.st_size, finished.st_mtime_ns)
+                        or len(data) != before.st_size or named.st_nlink != 1):
+                    raise FontReadError('font_revision_conflict')
+            # Validate the bounded WOFF2 container, without invoking a native
+            # font decoder. Browser font decoding remains inside its sandbox.
+            if (len(data) < 48 or data[:4] != b'wOF2' or int.from_bytes(data[8:12], 'big') != len(data)
+                    or not 1 <= int.from_bytes(data[12:14], 'big') <= 4096 or data[14:16] != b'\0\0'
+                    or not 1 <= int.from_bytes(data[16:20], 'big') <= 64 * 1024 * 1024
+                    or int.from_bytes(data[20:24], 'big') > len(data)):
+                raise FontReadError('font_file_invalid')
+            encoded = base64.b64encode(data).decode('ascii')
+            lines.append(f"@font-face {{ font-family: '{family}'; font-style: normal; font-weight: {weight}; "
+                         f"font-display: swap; src: url('data:font/woff2;base64,{encoded}') format('woff2'); }}")
+        return '\n'.join(lines)
+    except FontReadError:
+        raise
+    except (OSError, ValueError):
+        raise FontReadError('font_unavailable') from None
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -8,6 +8,13 @@ checks dependency conflicts against core, and manages the local
 from __future__ import annotations
 
 import json
+import copy
+import functools
+import hashlib
+import re
+import stat
+import threading
+import uuid
 import logging
 import os
 import pathlib
@@ -43,7 +50,276 @@ class InstallResult:
     version: str = ""
 
 
+_environment_lock = threading.RLock()
+
+
+def _environment_serialized(function):
+    @functools.wraps(function)
+    def guarded(*args, **kwargs):
+        with _environment_lock:
+            return function(*args, **kwargs)
+    return guarded
+
+
+@dataclass(frozen=True)
+class EnvironmentPreparation:
+    """Private preparation outcome; paths never become public status fields."""
+
+    ready: bool
+    plugin_id: str
+    plugin_revision: str
+    operation_id: str
+    environment_revision: str = ""
+    changed: bool = False
+    error_code: str | None = None
+
+
+def _preparation_id(plugin_id: str) -> None:
+    if type(plugin_id) is not str or not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", plugin_id):
+        raise ValueError("invalid_plugin_id")
+
+
+def _source_for_preparation(plugin_id: str) -> pathlib.Path:
+    from row_bot.plugins.devtools import iter_linked_plugin_dirs
+    from row_bot.plugins.sandbox import _checked_path
+
+    _preparation_id(plugin_id)
+    # Explicit linked roots remain supported through their existing owner.
+    linked = iter_linked_plugin_dirs()
+    if plugin_id in linked:
+        source = linked[plugin_id]
+    else:
+        source = PLUGINS_DIR / plugin_id
+        _checked_path(pathlib.Path(source.absolute().anchor), source.absolute())
+    source = source.resolve(strict=True)
+    if not source.is_dir():
+        raise ValueError("plugin_unavailable")
+    return source
+
+
+def _tree_revision(root: pathlib.Path, *, source: bool) -> str:
+    """Bounded nonexecuting content/identity cut; reject links and changed reads."""
+    from row_bot.plugins.sandbox import _checked_path, _no_link
+
+    digest = hashlib.sha256()
+    before_root = _no_link(root)
+    digest.update(str(root).encode("utf-8"))
+    digest.update(f"\0{before_root.st_dev}:{before_root.st_ino}\0".encode())
+    byte_limit = (64 if source else 512) * 1024 * 1024
+    file_limit = 8192 if source else 65536
+    consumed = 0
+    entries = 0
+    pending = [root]
+    directories = []
+    while pending:
+        directory = pending.pop()
+        directory_stat = _checked_path(root, directory)
+        directories.append((directory, directory_stat))
+        children = []
+        for child in directory.iterdir():
+            entries += 1
+            if entries > file_limit:
+                raise ValueError("environment_capacity_exceeded")
+            children.append(child)
+        for path in sorted(children):
+            value = _no_link(path)
+            if path.name == "__pycache__" or (source and path.name == ".git"):
+                continue
+            if stat.S_ISDIR(value.st_mode):
+                pending.append(path)
+            elif stat.S_ISREG(value.st_mode):
+                if path.suffix == ".pyc":
+                    continue
+                consumed += value.st_size
+                if consumed > byte_limit:
+                    raise ValueError("environment_capacity_exceeded")
+                digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
+                with path.open("rb") as stream:
+                    opened = os.fstat(stream.fileno())
+                    if (opened.st_dev, opened.st_ino) != (value.st_dev, value.st_ino):
+                        raise ValueError("environment_changed")
+                    read = 0
+                    while block := stream.read(1024 * 1024):
+                        read += len(block)
+                        if read > value.st_size:
+                            raise ValueError("environment_changed")
+                        digest.update(block)
+                    after = os.fstat(stream.fileno())
+                current = _checked_path(root, path)
+                if read != value.st_size or (after.st_size, after.st_mtime_ns) != (value.st_size, value.st_mtime_ns) or (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns) != (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns):
+                    raise ValueError("environment_changed")
+                digest.update(b"\0")
+            else:
+                raise ValueError("environment_path_invalid")
+    for directory, before in directories:
+        after = _checked_path(root, directory)
+        if (before.st_dev, before.st_ino, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_mtime_ns):
+            raise ValueError("environment_changed")
+    after_root = _no_link(root)
+    if (before_root.st_dev, before_root.st_ino, before_root.st_mtime_ns) != (after_root.st_dev, after_root.st_ino, after_root.st_mtime_ns):
+        raise ValueError("environment_changed")
+    return "sha256:" + digest.hexdigest()
+
+
+def get_plugin_source_revision(plugin_id: str) -> str:
+    """Read the installed/explicitly linked source cut without importing it."""
+    from row_bot.plugins.manifest import parse_manifest
+
+    source = _source_for_preparation(plugin_id)
+    revision = _tree_revision(source, source=True)
+    if parse_manifest(source).id != plugin_id:
+        raise ValueError("plugin_identity_changed")
+    if _source_for_preparation(plugin_id) != source or _tree_revision(source, source=True) != revision:
+        raise ValueError("plugin_changed")
+    return revision
+
+
+def _generation_path(plugin_id: str, operation_id: str, *, create: bool = False) -> pathlib.Path:
+    from row_bot.plugins.sandbox import _checked_path, _no_link
+
+    _preparation_id(plugin_id)
+    if type(operation_id) is not str or str(uuid.UUID(operation_id)) != operation_id:
+        raise ValueError("invalid_operation_id")
+    owner = DATA_DIR.absolute()
+    if owner.resolve() != get_row_bot_data_dir(create=False).resolve():
+        raise ValueError("environment_owner_changed")
+    _checked_path(pathlib.Path(owner.anchor), owner)
+    root = owner
+    for name in ("plugin_environments", plugin_id):
+        root /= name
+        if create:
+            root.mkdir(exist_ok=True)
+        _no_link(root)
+    generation = root / operation_id
+    if create:
+        # Never adopt an unrelated preexisting candidate, even after a crash.
+        generation.mkdir()
+    _checked_path(owner, generation)
+    return generation / "environment"
+
+
+def _check_preparation_cancelled() -> None:
+    from row_bot.cancellation import current_cancellation_scope
+
+    scope = current_cancellation_scope()
+    if scope is not None and scope.is_cancelled():
+        raise ValueError("cancelled")
+
+
+def _safe_preparation_code(error: Exception) -> str:
+    permitted = {
+        "cancelled", "invalid_plugin_id", "invalid_operation_id", "invalid_requirements",
+        "plugin_changed", "plugin_identity_changed", "plugin_unavailable",
+        "environment_changed", "environment_owner_changed", "environment_path_invalid",
+        "environment_capacity_exceeded", "environment_already_exists", "host_environment_blocked",
+        "environment_process_timeout", "environment_process_failed", "environment_verification_failed",
+        "dependency_plan_unverified", "dependency_plan_incomplete", "dependency_core_conflict",
+        "dependency_source_unavailable", "direct_reference_unavailable", "host_constraints_unavailable",
+        "environment_state_unavailable", "environment_state_changed",
+    }
+    return str(error) if str(error) in permitted else "environment_preparation_failed"
+
+
+@_environment_serialized
+def prepare_plugin_environment(
+    plugin_id: str,
+    requirements: list[str],
+    *,
+    expected_plugin_revision: str,
+    operation_id: str,
+) -> EnvironmentPreparation:
+    """Explicitly prepare an isolated immutable generation, without enabling it.
+
+    Installation is the sole effectful entry point. Reads/load never call it.
+    Repeating a completed operation returns its recorded outcome. An interrupted
+    unverified operation is retained, not automatically replayed; a fresh explicit
+    operation is required. Verified-but-unpublished candidates can finish their
+    metadata publication without repeating installation.
+    """
+    from row_bot.plugins import sandbox, state as plugin_state
+
+    records: dict[str, Any] | None = None
+    receipt: dict[str, Any] | None = None
+    try:
+        _preparation_id(plugin_id)
+        if type(operation_id) is not str or str(uuid.UUID(operation_id)) != operation_id:
+            raise ValueError("invalid_operation_id")
+        if type(expected_plugin_revision) is not str or not re.fullmatch(r"sha256:[a-f0-9]{64}", expected_plugin_revision):
+            raise ValueError("plugin_changed")
+        values = sandbox._requirement_values(requirements)
+        revision = get_plugin_source_revision(plugin_id)
+        if revision != expected_plugin_revision:
+            raise ValueError("plugin_changed")
+        request_revision = hashlib.sha256(json.dumps([revision, values], separators=(",", ":")).encode()).hexdigest()
+        records = plugin_state.get_plugin_environment_state(plugin_id)
+        operations = records.get("operations", {})
+        if type(operations) is not dict or len(operations) > 128:
+            raise ValueError("environment_state_unavailable")
+        existing = operations.get(operation_id)
+        if existing is not None:
+            if type(existing) is not dict or existing.get("request_revision") != request_revision:
+                return EnvironmentPreparation(False, plugin_id, revision, operation_id, error_code="operation_conflict")
+            stage = existing.get("stage")
+            if stage == "failed":
+                return EnvironmentPreparation(False, plugin_id, revision, operation_id, error_code=_safe_preparation_code(ValueError(existing.get("error_code"))))
+            if stage not in {"verified", "ready"}:
+                return EnvironmentPreparation(False, plugin_id, revision, operation_id, error_code="operation_incomplete")
+            environment = _generation_path(plugin_id, operation_id)
+            sandbox._target(environment)
+            environment_revision = _tree_revision(environment, source=False)
+            if environment_revision != existing.get("environment_revision"):
+                raise ValueError("environment_changed")
+            if stage == "ready":
+                return EnvironmentPreparation(True, plugin_id, revision, operation_id, environment_revision)
+            receipt = dict(existing)
+        else:
+            if len(operations) >= 128:
+                raise ValueError("environment_capacity_exceeded")
+            _check_preparation_cancelled()
+            receipt = {"stage": "preparing", "plugin_revision": revision, "request_revision": request_revision}
+            updated = copy.deepcopy(records)
+            updated.setdefault("operations", {})[operation_id] = receipt
+            plugin_state.set_plugin_environment_state(plugin_id, updated, expected=records)
+            records = updated
+            environment = _generation_path(plugin_id, operation_id, create=True)
+            sandbox.create_environment(environment)
+            _check_preparation_cancelled()
+            result = _install_plugin_deps(list(values), environment=environment)
+            if not result.success:
+                raise ValueError(result.message)
+            _check_preparation_cancelled()
+            environment_revision = _tree_revision(environment, source=False)
+            if get_plugin_source_revision(plugin_id) != revision:
+                raise ValueError("plugin_changed")
+            receipt = dict(receipt, stage="verified", environment_revision=environment_revision)
+            updated = copy.deepcopy(records)
+            updated["operations"][operation_id] = receipt
+            plugin_state.set_plugin_environment_state(plugin_id, updated, expected=records)
+            records = updated
+        _check_preparation_cancelled()
+        if get_plugin_source_revision(plugin_id) != revision:
+            raise ValueError("plugin_changed")
+        updated = copy.deepcopy(records)
+        updated["operations"][operation_id] = dict(receipt, stage="ready")
+        updated["active_operation_id"] = operation_id
+        plugin_state.set_plugin_environment_state(plugin_id, updated, expected=records)
+        return EnvironmentPreparation(True, plugin_id, revision, operation_id, environment_revision, True)
+    except Exception as exc:
+        code = _safe_preparation_code(exc)
+        # A verified receipt is recoverable after publication failure. Never
+        # downgrade it or clear the previous active generation on an exception.
+        if records is not None and receipt is not None and receipt.get("stage") == "preparing":
+            try:
+                updated = copy.deepcopy(records)
+                updated.setdefault("operations", {})[operation_id] = dict(receipt, stage="failed", error_code=code)
+                plugin_state.set_plugin_environment_state(plugin_id, updated, expected=records)
+            except Exception:
+                logger.warning("Plugin environment failure receipt could not be persisted")
+        return EnvironmentPreparation(False, plugin_id, expected_plugin_revision, operation_id, error_code=code)
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
+@_environment_serialized
 def install_plugin(
     plugin_id: str,
     *,
@@ -153,6 +429,7 @@ def install_plugin(
         )
 
 
+@_environment_serialized
 def update_plugin(
     plugin_id: str,
     *,
@@ -218,6 +495,7 @@ def update_plugin(
         )
 
 
+@_environment_serialized
 def uninstall_plugin(plugin_id: str) -> InstallResult:
     """Uninstall a plugin — remove files and clean state."""
     dest = PLUGINS_DIR / plugin_id
@@ -380,24 +658,9 @@ def _local_path_from_ref(ref: str) -> pathlib.Path | None:
 
 
 # ── Dependency Installation ──────────────────────────────────────────────────
-def _install_plugin_deps(deps: list[str]) -> InstallResult:
-    """Install plugin Python dependencies with core freeze protection."""
+def _install_plugin_deps(deps: list[str], *, environment: pathlib.Path | None = None) -> InstallResult:
+    """The single installer seam; explicit isolated target required."""
     from row_bot.plugins.sandbox import install_dependencies
 
-    # Install
-    try:
-        success, message = install_dependencies(deps)
-        if success:
-            return InstallResult(success=True, plugin_id="", message="Dependencies installed")
-        else:
-            logger.warning("Plugin dependency install failed: %s", message)
-            return InstallResult(
-                success=False, plugin_id="",
-                message=f"Install blocked: {message}",
-            )
-    except Exception as exc:
-        logger.error("Plugin dependency install error: %s", exc, exc_info=True)
-        return InstallResult(
-            success=False, plugin_id="",
-            message=f"Dependency install failed: {exc}",
-        )
+    success, message = install_dependencies(deps, environment=environment)
+    return InstallResult(success=success, plugin_id="", message=message)

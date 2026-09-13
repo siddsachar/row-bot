@@ -1,6 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ArtifactPreview as Preview } from '../../api/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  ArtifactPreview as Preview,
+  ArtifactAuthoring,
+} from '../../api/types';
 import { Button, ErrorState, Select, Skeleton } from '../../ui/primitives';
+import ArtifactEditor, { type ArtifactEditorProps } from './ArtifactEditor';
+import { artifactBridgeMessage } from './artifact-bridge';
+import ArtifactExports, { type ArtifactExportsProps } from './ArtifactExports';
+import ArtifactSharingPanel, {
+  type ArtifactSharingPanelProps,
+} from './ArtifactSharingPanel';
+import ArtifactPresentationPanel, {
+  type ArtifactPresentationPanelProps,
+} from './ArtifactPresentationPanel';
+import ArtifactDesignPanel, {
+  type ArtifactDesignPanelProps,
+} from './ArtifactDesignPanel';
+import ArtifactLifecyclePanel, {
+  type ArtifactLifecyclePanelProps,
+} from './ArtifactLifecyclePanel';
 
 export type ArtifactPreviewProps = {
   resourceId: string;
@@ -10,7 +28,19 @@ export type ArtifactPreviewProps = {
     pageId?: string,
     knownRevision?: string,
     signal?: AbortSignal,
+    authoring?: ArtifactAuthoring,
   ) => Promise<Preview>;
+  loadEditing?: ArtifactEditorProps['load'];
+  edit?: ArtifactEditorProps['edit'];
+  createExport?: ArtifactExportsProps['create'];
+  downloadExport?: ArtifactExportsProps['download'];
+  sharing?: Pick<
+    ArtifactSharingPanelProps,
+    'prepare' | 'execute' | 'loadChannels'
+  >;
+  presentation?: Pick<ArtifactPresentationPanelProps, 'load' | 'preview'>;
+  lifecycle?: Pick<ArtifactLifecyclePanelProps, 'load'>;
+  design?: Pick<ArtifactDesignPanelProps, 'session' | 'onDraftText'>;
 };
 
 function failureText(error: unknown): string {
@@ -29,9 +59,9 @@ function failureText(error: unknown): string {
   if (code === 'resource_revision_conflict')
     return 'This design changed while loading. Refresh to see its current version.';
   if (code === 'artifact_type_unavailable')
-    return 'This preview currently supports Deck designs.';
+    return 'This design type is not supported by this client.';
   if (code === 'page_unavailable')
-    return 'That slide is no longer available. Reload the design to continue.';
+    return 'That page is no longer available. Reload the design to continue.';
   return 'The design is bound, but its preview could not load. Retry the preview.';
 }
 
@@ -40,6 +70,14 @@ export default function ArtifactPreview({
   resourceRevision,
   visible,
   load,
+  loadEditing,
+  edit,
+  createExport,
+  downloadExport,
+  sharing,
+  presentation,
+  lifecycle,
+  design,
 }: ArtifactPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [selection, setSelection] = useState({
@@ -47,8 +85,20 @@ export default function ArtifactPreview({
     pageId: undefined as string | undefined,
   });
   const [refresh, setRefresh] = useState(0);
+  const [zoom, setZoom] = useState({ resourceId, value: 'fit' });
+  const zoomMode = zoom.resourceId === resourceId ? zoom.value : 'fit';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [exportsOpen, setExportsOpen] = useState(false);
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [presentationOpen, setPresentationOpen] = useState(false);
+  const [designOpen, setDesignOpen] = useState(false);
+  const [authoring, setAuthoring] = useState(false);
+  const [selectedElementId, setSelectedElementId] = useState<string>();
+  const [editError, setEditError] = useState('');
+  const frame = useRef<HTMLIFrameElement>(null);
+  const inlineOperation = useRef(false);
   const [viewport, setViewport] = useState({ width: 400, height: 225 });
   const measured = useRef(viewport);
   const frameHost = useRef<HTMLDivElement>(null);
@@ -57,6 +107,23 @@ export default function ArtifactPreview({
   const request = useRef(0);
   const pageId =
     selection.resourceId === resourceId ? selection.pageId : undefined;
+  const canEdit = !!edit;
+  const authoringScope = useMemo(
+    () => ({
+      resourceId,
+      resourceRevision,
+      pageId,
+      identity:
+        authoring && canEdit
+          ? {
+              previewId: crypto.randomUUID(),
+              capability: crypto.randomUUID(),
+            }
+          : undefined,
+    }),
+    [authoring, resourceId, resourceRevision, pageId, canEdit],
+  );
+  const authoringIdentity = authoringScope.identity;
 
   useEffect(() => {
     loader.current = load;
@@ -74,7 +141,7 @@ export default function ArtifactPreview({
         : undefined;
     setLoading(true);
     setError('');
-    loader.current(pageId, known, abort.signal).then(
+    loader.current(pageId, known, abort.signal, authoringIdentity).then(
       (result) => {
         if (abort.signal.aborted || epoch !== request.current) return;
         if (result.resource_id !== resourceId) {
@@ -111,9 +178,84 @@ export default function ArtifactPreview({
       },
     );
     return () => abort.abort();
-  }, [resourceId, resourceRevision, pageId, refresh, visible]);
+  }, [
+    resourceId,
+    resourceRevision,
+    pageId,
+    refresh,
+    visible,
+    authoringIdentity,
+  ]);
 
   const current = preview?.resource_id === resourceId ? preview : null;
+  const pageLabel = current?.mode === 'deck' || !current ? 'Slide' : 'Page';
+  const interactive =
+    current?.scripts_allowed === true &&
+    (!!authoringIdentity ||
+      ['landing', 'app_mockup', 'storyboard'].includes(current.mode));
+  const editCallback = useRef(edit);
+  useEffect(() => {
+    editCallback.current = edit;
+  }, [edit]);
+  useEffect(() => {
+    if (!visible || !authoringIdentity || !current || !canEdit) return;
+    let active = true;
+    const receive = (event: MessageEvent) => {
+      const message = artifactBridgeMessage(
+        event,
+        frame.current?.contentWindow ?? null,
+        authoringIdentity,
+        current.preview_revision,
+      );
+      if (!message) return;
+      if (message.type === 'unavailable') {
+        setEditError(
+          'This inline edit is too large. Use the text field in Design properties.',
+        );
+        return;
+      }
+      setSelectedElementId(message.elementId);
+      setEditorOpen(true);
+      if (message.type !== 'edit') return;
+      if (inlineOperation.current) {
+        setEditError(
+          'A design edit is still saving. Review the saved version before editing again.',
+        );
+        return;
+      }
+      inlineOperation.current = true;
+      setEditError('');
+      void editCallback
+        .current?.(
+          {
+            operation: 'text',
+            page_id: current.page_id,
+            element_id: message.elementId,
+            text: message.text,
+          },
+          current.resource_revision,
+        )
+        .then(
+          () => {
+            if (active) setRefresh((value) => value + 1);
+          },
+          () => {
+            if (active)
+              setEditError(
+                'The inline edit was not confirmed. Refresh to review the saved design.',
+              );
+          },
+        )
+        .finally(() => {
+          inlineOperation.current = false;
+        });
+    };
+    window.addEventListener('message', receive);
+    return () => {
+      active = false;
+      window.removeEventListener('message', receive);
+    };
+  }, [visible, authoringIdentity, current, canEdit]);
   useEffect(() => {
     if (!visible || !frameHost.current) return;
     const element = frameHost.current;
@@ -152,10 +294,14 @@ export default function ArtifactPreview({
 
   if (!visible) return null;
   const scale = current
-    ? Math.min(
-        viewport.width / current.canvas_width,
-        viewport.height / current.canvas_height,
-      )
+    ? zoomMode === 'actual'
+      ? 1
+      : zoomMode === 'width'
+        ? viewport.width / current.canvas_width
+        : Math.min(
+            viewport.width / current.canvas_width,
+            viewport.height / current.canvas_height,
+          )
     : 1;
   return (
     <section
@@ -174,7 +320,7 @@ export default function ArtifactPreview({
       <div
         className="toolbar"
         role="group"
-        aria-label="Slide navigation"
+        aria-label={`${pageLabel} navigation`}
         style={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -192,10 +338,10 @@ export default function ArtifactPreview({
             })
           }
         >
-          Previous slide
+          Previous {pageLabel.toLowerCase()}
         </Button>
         <Select
-          aria-label="Slide"
+          aria-label={pageLabel}
           value={current?.page_id ?? ''}
           disabled={!current || loading}
           style={{
@@ -208,7 +354,7 @@ export default function ArtifactPreview({
             setSelection({ resourceId, pageId: event.target.value })
           }
         >
-          {!current && <option value="">No slide loaded</option>}
+          {!current && <option value="">No page loaded</option>}
           {current?.pages.map((page) => (
             <option key={page.id} value={page.id}>
               {page.index + 1}. {page.title}
@@ -226,7 +372,7 @@ export default function ArtifactPreview({
             })
           }
         >
-          Next slide
+          Next {pageLabel.toLowerCase()}
         </Button>
         <Button
           disabled={loading}
@@ -234,7 +380,205 @@ export default function ArtifactPreview({
         >
           Refresh preview
         </Button>
+        {loadEditing && edit && (
+          <Button
+            aria-expanded={editorOpen}
+            onClick={() => {
+              setEditorOpen((value) => !value);
+              setExportsOpen(false);
+              setSharingOpen(false);
+              setPresentationOpen(false);
+              setDesignOpen(false);
+            }}
+          >
+            Design properties
+          </Button>
+        )}
+        {!lifecycle && createExport && downloadExport && (
+          <Button
+            aria-expanded={exportsOpen}
+            onClick={() => {
+              setExportsOpen((value) => !value);
+              setEditorOpen(false);
+              setSharingOpen(false);
+              setPresentationOpen(false);
+              setDesignOpen(false);
+            }}
+          >
+            Export design
+          </Button>
+        )}
+        {!lifecycle && sharing && (
+          <Button
+            aria-expanded={sharingOpen}
+            onClick={() => {
+              setSharingOpen((value) => !value);
+              setEditorOpen(false);
+              setExportsOpen(false);
+              setPresentationOpen(false);
+              setDesignOpen(false);
+            }}
+          >
+            Share design
+          </Button>
+        )}
+        {!lifecycle && presentation && (
+          <Button
+            disabled={
+              loading ||
+              !current ||
+              current.resource_revision !== resourceRevision
+            }
+            aria-expanded={presentationOpen}
+            onClick={() => {
+              setPresentationOpen((value) => !value);
+              setDesignOpen(false);
+              setEditorOpen(false);
+              setExportsOpen(false);
+              setSharingOpen(false);
+            }}
+          >
+            Present design
+          </Button>
+        )}
+        {design && (
+          <Button
+            aria-expanded={designOpen}
+            onClick={() => {
+              setDesignOpen((value) => !value);
+              setEditorOpen(false);
+              setExportsOpen(false);
+              setSharingOpen(false);
+              setPresentationOpen(false);
+            }}
+          >
+            Design controls
+          </Button>
+        )}
+        <Select
+          aria-label="Preview zoom"
+          value={zoomMode}
+          onChange={(event) =>
+            setZoom({ resourceId, value: event.target.value })
+          }
+          style={{ width: 'auto' }}
+        >
+          <option value="fit">Fit page</option>
+          <option value="width">Fit width</option>
+          <option value="actual">Actual size</option>
+        </Select>
       </div>
+      {lifecycle &&
+        !editorOpen &&
+        !designOpen &&
+        current &&
+        current.resource_revision === resourceRevision &&
+        presentation &&
+        createExport &&
+        downloadExport &&
+        sharing && (
+          <ArtifactLifecyclePanel
+            {...lifecycle}
+            resourceId={resourceId}
+            resourceRevision={current.resource_revision}
+            visible={visible}
+            renderPresentation={() => (
+              <ArtifactPresentationPanel
+                {...presentation}
+                resourceId={resourceId}
+                resourceRevision={current.resource_revision}
+                visible={visible}
+              />
+            )}
+            renderExport={() => (
+              <ArtifactExports
+                resourceId={resourceId}
+                resourceRevision={current.resource_revision}
+                visible={visible}
+                currentPageIndex={current.page_index}
+                pageCount={current.page_count}
+                create={createExport}
+                download={downloadExport}
+              />
+            )}
+            renderSharing={() => (
+              <ArtifactSharingPanel
+                {...sharing}
+                resourceId={resourceId}
+                resourceRevision={current.resource_revision}
+                visible={visible}
+              />
+            )}
+          />
+        )}
+      {!lifecycle && presentation && (
+        <div className="panel-controls" hidden={!presentationOpen}>
+          <ArtifactPresentationPanel
+            {...presentation}
+            resourceId={resourceId}
+            resourceRevision={current?.resource_revision ?? resourceRevision}
+            visible={visible && presentationOpen}
+          />
+        </div>
+      )}
+      {design && current && (
+        <div className="panel-controls" hidden={!designOpen}>
+          <ArtifactDesignPanel
+            {...design}
+            resourceRevision={current.resource_revision}
+            pageId={current.page_id}
+            selectedElementId={selectedElementId}
+            onSelectElement={setSelectedElementId}
+            visible={visible && designOpen}
+          />
+        </div>
+      )}
+      {!lifecycle && sharing && (
+        <div className="panel-controls" hidden={!sharingOpen}>
+          <ArtifactSharingPanel
+            {...sharing}
+            resourceId={resourceId}
+            resourceRevision={current?.resource_revision ?? resourceRevision}
+            visible={visible && sharingOpen}
+          />
+        </div>
+      )}
+      {!lifecycle && createExport && downloadExport && (
+        <div className="panel-controls" hidden={!exportsOpen}>
+          <ArtifactExports
+            resourceId={resourceId}
+            resourceRevision={current?.resource_revision ?? resourceRevision}
+            visible={visible && exportsOpen}
+            currentPageIndex={current?.page_index ?? 0}
+            pageCount={current?.page_count ?? 0}
+            create={createExport}
+            download={downloadExport}
+          />
+        </div>
+      )}
+      {loadEditing && edit && (
+        <div className="panel-controls" hidden={!editorOpen}>
+          <ArtifactEditor
+            resourceId={resourceId}
+            resourceRevision={resourceRevision}
+            visible={visible && editorOpen}
+            pageId={current?.page_id}
+            selectedElementId={selectedElementId}
+            authoring={authoring}
+            onAuthoringChange={setAuthoring}
+            onPageChange={(next) => {
+              setSelectedElementId(undefined);
+              setSelection({ resourceId, pageId: next });
+            }}
+            load={loadEditing}
+            edit={edit}
+            onEdited={() => setRefresh((value) => value + 1)}
+          />
+        </div>
+      )}
+      {editError && (
+        <ErrorState title="Design edit needs review">{editError}</ErrorState>
+      )}
       {error && (
         <ErrorState
           title="Preview unavailable"
@@ -247,7 +591,7 @@ export default function ArtifactPreview({
       {current?.html && (
         <>
           <p aria-live="polite" style={{ margin: 0, flexShrink: 0 }}>
-            Slide {current.page_index + 1} of {current.page_count}:{' '}
+            {pageLabel} {current.page_index + 1} of {current.page_count}:{' '}
             {current.page_title}
           </p>
           <div
@@ -257,37 +601,45 @@ export default function ArtifactPreview({
               flex: '1 0 96px',
               minHeight: 96,
               position: 'relative',
-              overflow: 'clip',
+              overflow: zoomMode === 'fit' ? 'clip' : 'auto',
             }}
           >
-            <iframe
-              title={`Slide preview: ${current.page_title}`}
-              sandbox=""
-              referrerPolicy="no-referrer"
-              srcDoc={current.html}
+            <div
               style={{
-                width: current.canvas_width,
-                height: current.canvas_height,
-                position: 'absolute',
-                left: Math.max(
-                  0,
-                  (viewport.width - current.canvas_width * scale) / 2,
-                ),
-                top: Math.max(
-                  0,
-                  (viewport.height - current.canvas_height * scale) / 2,
-                ),
-                border: 0,
-                transform: `scale(${scale})`,
-                transformOrigin: 'top left',
+                width: current.canvas_width * scale,
+                height: current.canvas_height * scale,
               }}
-            />
+            >
+              <iframe
+                ref={frame}
+                title={`${pageLabel} preview: ${current.page_title}`}
+                sandbox={interactive ? 'allow-scripts' : ''}
+                referrerPolicy="no-referrer"
+                srcDoc={current.html}
+                style={{
+                  width: current.canvas_width,
+                  height: current.canvas_height,
+                  position: 'absolute',
+                  left: Math.max(
+                    0,
+                    (viewport.width - current.canvas_width * scale) / 2,
+                  ),
+                  top: Math.max(
+                    0,
+                    (viewport.height - current.canvas_height * scale) / 2,
+                  ),
+                  border: 0,
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                }}
+              />
+            </div>
           </div>
         </>
       )}
       <p className="muted" style={{ margin: 0, flexShrink: 0, fontSize: 12 }}>
-        Deck preview. Export and advanced design controls remain available in
-        Designer Studio.
+        Preview of the saved design. Advanced design controls remain available
+        in Designer Studio.
       </p>
     </section>
   );

@@ -1,3 +1,4 @@
+import BuddySurface from '../buddy/BuddySurface';
 import { useId, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -83,6 +84,7 @@ export default function Navigation({
   return (
     <nav className="navigation" aria-label="Workspace navigation">
       <Brand />
+      <BuddySurface />
       <div className="nav-primary-actions">
         <Link
           className="button ghost nav-home"
@@ -158,7 +160,7 @@ export default function Navigation({
             >
               <option value="all">All conversations</option>
               <option value="pinned">Pinned</option>
-              <option value="artifact">With Deck resources</option>
+              <option value="artifact">With design resources</option>
               <option value="workspace">With coding workspaces</option>
             </Select>
             {state.conversationListError && (

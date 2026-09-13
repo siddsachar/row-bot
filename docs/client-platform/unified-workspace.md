@@ -1,6 +1,6 @@
 # Unified workspace contributor cookbook
 
-The opt-in client at `/app-v2/` presents conversations, saved Deck artifacts and
+The opt-in client at `/app-v2/` presents conversations, saved Designer artifacts and
 registered Developer workspaces through shared application services. NiceGUI at
 `/` remains the default application. Enabling the client does not migrate user
 data, replace the native host, or make the new client the default.
@@ -15,12 +15,14 @@ JSON schemas and TypeScript transport. Import generated types through
 ## Route, store and panel interfaces
 
 `/app-v2/` is Home in the persistent application shell. Home reads bounded
-recent conversations, saved Decks and saved workspaces through the existing
+recent conversations, saved designs and saved workspaces through the existing
 controller. Recent conversations do not inherit the sidebar's group filter;
 Search and the saved-resource picker retain access to the complete libraries.
 Designer and Developer sections are resource entry points into the same
-conversation route, not separate chat modes. Workflows, Knowledge and Monitor
-remain available through the explicit link to the current app.
+conversation route, not separate chat modes. `/tasks` presents saved workflow
+summaries; Settings presents saved provider/model/tool and Knowledge/Documents
+read views. Their mutation controls and Monitor still use the current app while
+the remaining Phase 4 packets are implemented.
 
 Sidebar Home is navigation only. Every New chat entry delegates to the single
 `useNewChat` owner mounted by `Workspace`; it reserves a command identity before
@@ -74,7 +76,7 @@ cancel a shared backend producer. Layout persistence stores view descriptors and
 geometry, never source files, secrets or accepted execution state.
 
 `features/panels/presentation.ts` centralizes automatic presentation. A committed
-Deck binding opens `artifact.preview`; a workspace binding opens
+Designer binding opens `artifact.preview`; a workspace binding opens
 `workspace.inspector`. Saved layout is restored first, and a conversation with
 no saved view can discover its available resources in stable binding order.
 Resource revisions update an existing instance. Close and collapse choices
@@ -117,8 +119,9 @@ revision. New chat is `conversation.create`; it needs no configured model.
 add | repair | new_conversation`. Global setup uses `/api/v1/resources/commands`; setup against an
 existing conversation uses its commands route.
 
-For a Deck, read the setup options and submit supported template, aspect ratio,
-name and brief. Creation saves the artifact, associates a conversation and binds
+For a design, read its typed setup options for Deck, Document, Landing, App
+mockup or Storyboard and submit the supported template/canvas, name and brief.
+Creation saves the artifact, associates a conversation and binds
 it without invoking generation. For a workspace, request
 `POST /api/v1/resources/folder-selection` from an authenticated local owner. The
 host picker returns a short-lived session-scoped grant; submit that grant rather
@@ -126,6 +129,13 @@ than a renderer-supplied absolute path. Registration accepts an existing folder
 and saves registry metadata. It performs no Git initialization, cloning,
 worktree creation, dependency installation, process launch or source write.
 Browser-only hosts without a native picker report capability unavailable.
+
+New empty workspace is a distinct `empty_folder` setup action. Select an
+authorized existing parent and a valid new folder name; opening setup remains
+inert. The explicit action reserves and creates one directory and registry
+record. Collisions never overwrite or merge existing files. Continuation after
+a partial outcome revalidates the parent grant and original resource identity;
+it does not create another directory or initialize Git.
 
 Global Open resumes the saved origin, or the supported legacy association. A
 missing origin requires explicit repair with its expected origin ID. Add binds
@@ -234,6 +244,28 @@ resource revisions. Use the existing sanitized preview service and sandboxed
 renderer. Do not inject saved HTML into the application document or introduce a
 second artifact cache.
 
+All five Designer modes use this preview. Landing, App mockup and Storyboard
+permit only the exact packaged declarative interaction runtime in an opaque
+sandbox; authored scripts stay blocked. Zoom changes presentation without
+reloading the iframe. A current resource revision updates the existing panel
+instance; unavailable or replaced bindings still remove its content.
+
+`MediaPreview` supplies one authenticated retrieval/retry/object-URL owner for
+generated images, native audio/video presentation and download fallback. Only
+explicit MIME types are previewed; HTML/PDF/SVG and MIME disagreements download
+without active embedding. Native players do not autoplay and release playback
+on removal. The present attachment transport exposes PNG/JPEG/MP4/PDF and opaque
+downloads; audio transport/capture parity remains a separate implementation
+packet. Do not infer captions or accessibility from the existence of controls.
+
+Saved task/model/tool/knowledge/document queries apply server-side filtering
+before bounded paging. Follow every cursor for complete discovery, but retain
+at most 200 rendered entries in these client lists. Reload returns to the first
+page. A changed snapshot disables continuation until explicit reload. Saved
+statuses and unknown runtime/index readiness must not be presented as a live
+capability check. These reads do not start models, discover external tools,
+ingest documents or run workflows.
+
 Conversation search and history use bounded server queries and continuation
 cursors. Search is not limited to the loaded sidebar or transcript window.
 Selecting a hit opens its conversation and message context; lazy content reads
@@ -316,3 +348,21 @@ replace Developer execution controls, migrate later application surfaces, or
 complete a desktop cutover. New artifact types, editor/write operations, native
 hosting and broader feature migrations require their own scoped contracts and
 validation before becoming available.
+
+Browser dictation uses the existing voice coordinator. Starting reserves a
+conversation- and session-bound lease before browser microphone permission;
+finishing sends one bounded utterance and appends the result to the current
+draft without submitting it. Cancellation, navigation, disconnect and shutdown
+stop browser capture and revoke the exact lease. An admitted transcription or
+model-readiness operation remains busy until its worker actually returns.
+Dictation requires HTTPS or direct loopback and local transcription readiness.
+Talk, realtime voice and Buddy parity are separate Phase 4 work.
+
+MCP wrappers capture the current server configuration and tool descriptor at
+binding. Execution rechecks that authority after waiting for the stateful server
+lock; changed approval, schema, effects or transport require a fresh binding.
+Known read operations retain their existing default behavior. Unclassified
+effects require explicit enablement and approval; enabling a tool alone does
+not remove that approval requirement. Reviewed browser interaction remains
+distinct from read-only operations. Annotations and process separation do not
+constitute an operating-system sandbox.

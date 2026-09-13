@@ -10,7 +10,7 @@ from langchain_core.tools import StructuredTool
 from row_bot.plugins.api import PluginAPI, PluginTool
 from row_bot.plugins.manifest import PluginAuthor, PluginManifest, PluginProvides
 
-from .conftest import manifest_payload, write_plugin
+from .conftest import manifest_payload, prepare_worker_environment, write_plugin
 
 
 pytestmark = pytest.mark.subsystem
@@ -192,6 +192,9 @@ def test_plugin_mcp_overlay_uses_enabled_manifests_and_resolves_config(
             "tools": {"include": ["search_mail"]},
         }]
     )
+    write_plugin(tmp_path, "office-plugin", manifest=manifest_payload("office-plugin", provides={
+        "native_tools": [], "mcp_servers": manifest.provides.mcp_servers, "channels": [], "skills": []}))
+    prepare_worker_environment(plugin_modules, manifest.path)
     registry.register_plugin(manifest=manifest, tools=[], skills=[])
     state.set_plugin_config("office-plugin", "tenant", "contoso")
     state.set_plugin_secret("office-plugin", "TOKEN", "secret-value")
@@ -269,6 +272,7 @@ def test_loader_loads_valid_plugin_discovers_skills_and_registers_tool(
     plugin_dir = write_plugin(tmp_path, "sample-plugin", skill=skill)
 
     state.set_plugin_enabled("sample-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     result = loader._load_single_plugin(plugin_dir)
 
     assert result.success is True
@@ -342,6 +346,7 @@ def test_loader_registers_plugin_channel_and_disable_unregisters(
     )
 
     state.set_plugin_enabled("channel-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     result = loader._load_single_plugin(plugin_dir)
 
     assert result.success is True
@@ -392,6 +397,7 @@ def test_loader_rejects_plugin_channel_manifest_mismatch(
     )
 
     state.set_plugin_enabled("channel-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     result = loader._load_single_plugin(plugin_dir)
 
     assert result.success is False
@@ -421,6 +427,7 @@ def test_loader_rejects_declared_channel_without_registration(
     )
 
     state.set_plugin_enabled("channel-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     result = loader._load_single_plugin(plugin_dir)
 
     assert result.success is False
@@ -458,6 +465,7 @@ def test_loader_failure_after_register_cleans_up_webhooks(
     )
 
     state.set_plugin_enabled("channel-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     result = loader._load_single_plugin(plugin_dir)
 
     assert result.success is False
@@ -578,6 +586,7 @@ def test_unregister_removes_plugin_manifest_tools_and_skills(
         skill="---\nname: sample_skill\n---\nSkill instructions.\n",
     )
     state.set_plugin_enabled("sample-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     result = loader._load_single_plugin(plugin_dir)
     assert result.success is True
 
@@ -710,6 +719,7 @@ def test_refresh_plugin_runtime_registers_enabled_tool_for_agent_graph(
     mcp_calls: list[str] = []
     monkeypatch.setattr(mcp_runtime, "discover_enabled_servers", lambda: mcp_calls.append("discover"))
 
+    prepare_worker_environment(plugin_modules, plugin_dir)
     loader.refresh_plugin_runtime("test")
     loader.refresh_plugin_runtime("test again")
     graph = agent.get_agent_graph([])

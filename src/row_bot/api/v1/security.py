@@ -29,8 +29,7 @@ def current_policy_snapshot() -> dict:
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client import runtime as mcp_runtime
-    native = [(tool.name, tool_registry.is_enabled(tool.name), sorted(tool.destructive_tool_names))
-              for tool in tool_registry.get_all_tools()]
+    native = tool_registry.read_policy_snapshot()
     plugins = [(manifest.id, str(manifest.version), plugin_state.is_plugin_enabled(manifest.id),
                 plugin_state.get_all_plugin_config(manifest.id))
                for manifest in plugin_registry.get_loaded_manifests()]
@@ -48,9 +47,7 @@ def current_policy_snapshot() -> dict:
                "registrations": sorted((name, id(runtime)) for name, runtime in mcp_runtime._servers.items()),
                "effects": sorted((server, info.name, info.destructive, info.requires_approval)
                                  for server, catalog in mcp_runtime._catalog.items() for info in catalog.values())}
-    tool_registry._load_global_config()
-    return {"native": native, "native_config": tool_registry._tool_configs,
-            "global_config": tool_registry._global_config,
+    return {"native": native,
             "plugins": plugins, "registrations": registrations, "mcp": mcp}
 
 
@@ -70,6 +67,7 @@ class ClientSession:
     csrf: str
     expires: float
     buckets: dict[str, tuple[float, float]] = field(default_factory=dict)
+    worker_validation: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -106,6 +104,46 @@ class ClientSecurity:
         except Exception:
             raise ProtocolError("dependency_unavailable", 503) from None
         return str(int.from_bytes(hmac.new(self._key, snapshot, hashlib.sha256).digest()[:8], "big"))
+
+    def _mcp_policy_digest(self, server_id: str, runtime_id: str | None = None) -> str:
+        """Normalize only this admitted connection's registration/discovery.
+
+        Saved server/tool policy and every unrelated capability remain covered.
+        A launch discovers tools; it does not authorize calling discovered tools.
+        """
+        from row_bot.application.capability_configuration_controls import _server_id
+        if len(server_id) != 64 or any(char not in "0123456789abcdef" for char in server_id):
+            raise ProtocolError("invalid_command", 422)
+        owned_registration = None
+        if runtime_id is not None:
+            runtime = sys.modules.get("row_bot.mcp_client.runtime")
+            if runtime is None:
+                raise ProtocolError("approval_expired", 409)
+            with runtime._runtime_lock:
+                if len(runtime._servers) > 10000:
+                    raise ProtocolError("approval_expired", 409)
+                matches = [(name, owner) for name, owner in runtime._servers.items() if _server_id(name) == server_id]
+                if len(matches) != 1 or matches[0][1].runtime_id != runtime_id:
+                    raise ProtocolError("approval_expired", 409)
+                owned_registration = (matches[0][0], id(matches[0][1]))
+        try:
+            # A private detached snapshot prevents normalization from mutating
+            # the canonical policy owner. Only its keyed digest is retained.
+            snapshot = json.loads(json.dumps(self._policy() if self._policy else {"revision": self._policy_revision}))
+            mcp = snapshot.get("mcp")
+            if mcp is not None:
+                mcp["effects"] = [item for item in mcp["effects"] if _server_id(item[0]) != server_id]
+                if owned_registration is not None:
+                    exact = list(owned_registration)
+                    if mcp["registrations"].count(exact) != 1:
+                        raise ProtocolError("approval_expired", 409)
+                    mcp["registrations"] = [item for item in mcp["registrations"] if item != exact]
+            encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
+            return hmac.new(self._key, encoded, hashlib.sha256).hexdigest()
+        except ProtocolError:
+            raise
+        except Exception:
+            raise ProtocolError("dependency_unavailable", 503) from None
 
     @policy_revision.setter
     def policy_revision(self, value: str) -> None:
@@ -169,6 +207,45 @@ class ClientSecurity:
             if tokens < 1:
                 raise ProtocolError("rate_limited", 429)
             session.buckets[lane] = (tokens - 1, now)
+
+    def bind_worker_validation(self, current: ClientSession, callback: Callable[[], None]) -> None:
+        """Retain trusted current-auth validation in the existing session owner.
+
+        The route supplies its bounded synchronous middleware/loop bridge. A
+        later request in the same session does not replace active authority.
+        """
+        if not callable(callback):
+            raise ProtocolError("authentication_required", 401)
+        with self._lock:
+            self._prune()
+            if self._sessions.get(current.id) is not current:
+                raise ProtocolError("session_expired", 401)
+            if current.worker_validation is None:
+                current.worker_validation = callback
+
+    def validate_worker(self, owner_id: str) -> None:
+        """Revalidate a live session without holding its lock across auth I/O."""
+        with self._lock:
+            self._prune()
+            current = self._sessions.get(owner_id)
+            callback = current.worker_validation if current is not None else None
+            if callback is None:
+                raise ProtocolError("session_expired", 401)
+        # This may wait for the request loop; no security/registry lock may be
+        # held. Missing or stopped loops are rejected by the trusted callback.
+        if callback() is not None:
+            raise ProtocolError("authentication_required", 401)
+        with self._lock:
+            self._prune()
+            if (self._sessions.get(owner_id) is not current
+                    or current.worker_validation is not callback):
+                raise ProtocolError("session_expired", 401)
+
+    def clear_worker_validations(self) -> None:
+        """Revoke worker authority on shutdown, including in-flight checks."""
+        with self._lock:
+            for current in self._sessions.values():
+                current.worker_validation = None
 
     def subscribe(self, session: ClientSession, conversation: str, epoch: str) -> Subscription:
         with self._lock:
@@ -234,7 +311,7 @@ class ClientSecurity:
             self._subscriptions.pop(sub.id, None)
 
     def approval_nonce(self, session: ClientSession, approval_id: str, revision: str,
-                       action_digest: str, *, ttl: float = 300) -> str:
+                       action_digest: str, *, ttl: float = 300, mcp_server_id: str | None = None) -> str:
         with self._lock:
             self._prune()
             if len(self._nonces) >= 1024:
@@ -242,7 +319,8 @@ class ClientSecurity:
             nonce = secrets.token_urlsafe(32)
             self._nonces[hashlib.sha256(nonce.encode()).hexdigest()] = (
                 session.id, approval_id, revision, action_digest,
-                self.clock() + max(0, min(ttl, 300)), self.policy_revision, None)
+                self.clock() + max(0, min(ttl, 300)), self.policy_revision, None,
+                *(((mcp_server_id, self._mcp_policy_digest(mcp_server_id), None),) if mcp_server_id is not None else ()))
             return nonce
 
     def consume_nonce(self, session: ClientSession, approval_id: str, revision: str,
@@ -255,4 +333,18 @@ class ClientSecurity:
                 raise ProtocolError("approval_expired", 409)
             if value[6] is not None and value[6] != command_id:
                 raise ProtocolError("approval_already_resolved", 409)
-            self._nonces[key] = (*value[:6], command_id)
+            self._nonces[key] = (*value[:6], command_id, *value[7:])
+
+    def consume_admitted_mcp_nonce(self, session: ClientSession, approval_id: str, revision: str,
+            action_digest: str, nonce: str, command_id: str, *, server_id: str, runtime_id: str) -> None:
+        """Recheck a previously authorized launch after its exact reservation."""
+        with self._lock:
+            value = self._nonces.get(hashlib.sha256(nonce.encode()).hexdigest())
+            if (value is None or len(value) != 8 or value[:4] != (session.id, approval_id, revision, action_digest)
+                    or value[4] <= self.clock() or value[6] != command_id or value[7][0] != server_id
+                    or value[7][2] not in (None, runtime_id)
+                    or self._sessions.get(session.id) is not session or session.expires <= self.clock()):
+                raise ProtocolError("approval_expired", 409)
+            if not hmac.compare_digest(value[7][1], self._mcp_policy_digest(server_id, runtime_id)):
+                raise ProtocolError("approval_expired", 409)
+            self._nonces[hashlib.sha256(nonce.encode()).hexdigest()] = (*value[:7], (*value[7][:2], runtime_id))

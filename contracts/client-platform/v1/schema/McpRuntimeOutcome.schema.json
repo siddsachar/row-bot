@@ -1,0 +1,90 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "mcp_cleanup_incomplete",
+            "mcp_runtime_unconfirmed",
+            "mcp_connection_failed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Code"
+    },
+    "operation": {
+      "enum": [
+        "connect",
+        "test",
+        "disconnect"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "runtime_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Runtime Id"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "server_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Server Id",
+      "type": "string"
+    },
+    "session_quiesced": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Session Quiesced"
+    },
+    "state": {
+      "enum": [
+        "not_started",
+        "connecting",
+        "connected",
+        "stopping",
+        "stopped",
+        "failed",
+        "dependency_missing",
+        "cleanup_incomplete",
+        "unknown",
+        "tested"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "server_id",
+    "operation",
+    "runtime_id",
+    "state",
+    "session_quiesced",
+    "code"
+  ],
+  "title": "McpRuntimeOutcome",
+  "type": "object"
+}

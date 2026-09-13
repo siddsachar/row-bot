@@ -41,7 +41,7 @@ _INFERRED_OUTPUT_TYPES = {
 _CANVAS_CHOICES_BY_MODE: dict[str, list[tuple[str, str]]] = {
     "deck": [
         ("16:9", "16:9 · Widescreen slide (1920×1080)"),
-        ("4:3",  "4:3 · Standard slide (1440×1080)"),
+        ("4:3",  "4:3 · Standard slide (1024×768)"),
         ("1:1",  "1:1 · Square (1080×1080)"),
         ("9:16", "9:16 · Vertical (1080×1920)"),
     ],

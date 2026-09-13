@@ -82,6 +82,40 @@ def _allow_set(allow_names: Iterable[str] | None) -> set[str] | None:
     return {str(name) for name in allow_names if str(name or "").strip()}
 
 
+def get_passive_tool_records() -> list[dict]:
+    """Copy parent registrations without invoking plugin properties or wrappers.
+
+    Child aliases require executable wrapper construction and are not claimed by
+    this view. Existing runtime dispatch remains the authority for every action.
+    """
+    import inspect
+    import sys
+    from itertools import islice
+    from row_bot.agent_tool_catalog import _passive_tool_fields
+
+    state = sys.modules.get("row_bot.plugins.state")
+    enabled = state.get_cached_plugin_enablement() if state is not None else None
+    owners = _tool_to_plugin.copy()
+    records = []
+    manifests = _loaded_manifests.copy()
+    for name, tool in islice(_plugin_tools.copy().items(), 10001):
+        plugin_id = owners.get(name)
+        if type(plugin_id) is not str:
+            continue
+        active = enabled.get(plugin_id, False) if enabled is not None else None
+        api = inspect.getattr_static(tool, "plugin_api", None)
+        revoked = inspect.getattr_static(api, "_registration_revoked", None)
+        if revoked is True:
+            active = False
+        elif revoked is not False:
+            active = None if active is not False else False
+        tags = inspect.getattr_static(manifests.get(plugin_id), "tags", None)
+        custom = type(tags) in (list, tuple) and any(type(tag) is str and tag.strip().lower() == "custom-tool" for tag in tags)
+        records.append({**_passive_tool_fields(name, tool),
+                        "plugin_id": plugin_id, "custom": custom, "enabled": active})
+    return records
+
+
 def _plugin_runtime_allowed(
     *,
     allow: set[str] | None,

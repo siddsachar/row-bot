@@ -11,10 +11,11 @@ import json
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from urllib.parse import parse_qs
 
-from langchain_core.tools import StructuredTool
+if TYPE_CHECKING:
+    from langchain_core.tools import StructuredTool
 
 from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 
@@ -595,6 +596,8 @@ class PluginTool:
     # ── LangChain Bridge ─────────────────────────────────────────────────
     def as_langchain_tool(self) -> StructuredTool:
         """Convert to a LangChain StructuredTool for the agent."""
+        from langchain_core.tools import StructuredTool
+
         tool_instance = self
 
         def _run(query: str) -> str:

@@ -37,21 +37,21 @@ it('shows explicit None without choosing a target merely because a resource is b
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole('button', { name: 'Deck target' })).toHaveTextContent(
-    'Deck · None',
-  );
+  expect(
+    screen.getByRole('button', { name: 'Design target' }),
+  ).toHaveTextContent('Design · None');
   expect(
     screen.getByRole('button', { name: 'Folder target' }),
   ).toHaveTextContent('Folder · None');
-  const trigger = screen.getByRole('button', { name: 'Deck target' });
+  const trigger = screen.getByRole('button', { name: 'Design target' });
   act(() => trigger.focus());
-  const choices = await menu('Deck target');
+  const choices = await menu('Design target');
   act(() => choices.getByRole('menuitem', { name: /Saved resource/ }).focus());
   expect(onChange).not.toHaveBeenCalled();
 });
 
 it.each([
-  ['artifact', 'Deck target'],
+  ['artifact', 'Design target'],
   ['workspace', 'Folder target'],
 ] as const)(
   'changes only the explicit %s binding and supports None',
@@ -89,10 +89,10 @@ it('disambiguates duplicate names and retains the exact chosen resource and bind
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole('button', { name: 'Deck target' })).toHaveTextContent(
-    'saved-second',
-  );
-  const choices = await menu('Deck target');
+  expect(
+    screen.getByRole('button', { name: 'Design target' }),
+  ).toHaveTextContent('saved-second');
+  const choices = await menu('Design target');
   expect(
     choices.getByRole('menuitem', { name: /Saved resource · saved-first/ }),
   ).toBeVisible();
@@ -114,10 +114,10 @@ it('keeps an unavailable selected target visible and disabled until explicit Non
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole('button', { name: 'Deck target' })).toHaveTextContent(
-    'Saved resource (unavailable)',
-  );
-  const choices = await menu('Deck target');
+  expect(
+    screen.getByRole('button', { name: 'Design target' }),
+  ).toHaveTextContent('Saved resource (unavailable)');
+  const choices = await menu('Design target');
   const item = choices.getByRole('menuitem', {
     name: /Saved resource \(unavailable\)/,
   });
@@ -137,7 +137,7 @@ it('does not infer targets from order, titles or resource updates and omits irre
   const view = render(
     <ResourceTargets resources={[a, b]} selected={['a']} onChange={onChange} />,
   );
-  expect(screen.queryByRole('button', { name: 'Deck target' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Design target' })).toBeNull();
   view.rerender(
     <ResourceTargets
       resources={[b, { ...a, title: 'Renamed A', resource_revision: '8' }]}

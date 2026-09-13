@@ -133,7 +133,7 @@ test('Home is a real bounded library and New chat creates exactly once without s
   ])
     await expect(page.getByRole('region', { name, exact: true })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Create Deck', exact: true }),
+    page.getByRole('button', { name: 'Create design', exact: true }),
   ).toBeEnabled();
   await expect(
     page.getByRole('button', { name: 'Open folder', exact: true }),

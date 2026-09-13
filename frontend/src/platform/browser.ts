@@ -10,6 +10,7 @@ import type {
   MediaTransport,
   Selection,
 } from './types';
+import { saveBrowserDownload } from './download';
 
 export function createBrowserPlatform(
   media: MediaTransport,
@@ -149,22 +150,12 @@ export function createBrowserPlatform(
         return Promise.resolve(unavailable('invalid_name'));
       if (!activated())
         return Promise.resolve(unavailable('user_gesture_required'));
-      return protect(async () => {
-        const blob = await media.download(reference, signal);
-        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-        const url = URL.createObjectURL(blob);
-        try {
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = name;
-          document.body.append(link);
-          link.click();
-          link.remove();
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-        return null;
-      });
+      return saveBrowserDownload(
+        () => media.download(reference, signal),
+        name,
+        signal,
+        target,
+      );
     },
   };
 }

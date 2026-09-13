@@ -2972,12 +2972,61 @@ def _build_developer_inspector_static(
 
         def _agent_changes() -> None:
             if agent_changes:
+                reverting: set[str] = set()
                 async def _revert(change_set_id: str) -> None:
+                    if change_set_id in reverting:
+                        return
+                    reverting.add(change_set_id)
                     try:
-                        message = await run.io_bound(revert_change_set, workspace_now.id, change_set_id)
+                        from row_bot.developer import change_ledger, client_undo
+                        saved, _ = await run.io_bound(change_ledger.read_change_set, change_set_id)
+                        if change_ledger.requires_guarded_undo(saved):
+                            from row_bot.ui.access_context import access_context_from_client, require_ui_owner
+                            from row_bot.access.store import normalize_datetime
+                            client = ui.context.client
+                            access = require_ui_owner(access_context_from_client(client))
+                            access_service = getattr(client.request.app.state, "row_bot_access_service", None)
+                            thread_id = next_snapshot.thread_id or ""
+                            def validate():
+                                if (state is None or state.thread_id != thread_id or not client.has_socket_connection
+                                        or state.active_developer_workspace_id != workspace_now.id
+                                        or type(client).instances.get(str(client.id)) is not client
+                                        or access_context_from_client(client) != access):
+                                    raise ValueError("resource_binding_revoked")
+                                if not access.is_local_owner:
+                                    session = access_service.store.get_session(access.session_id) if access_service else None
+                                    device = access_service.store.get_device(access.device_id) if access_service else None
+                                    if (not session or session.device_id != access.device_id or not session.is_active(normalize_datetime(None))
+                                            or not device or device.revoked_at is not None):
+                                        raise ValueError("capability_revoked")
+                            review, command_id = await run.io_bound(partial(client_undo.prepare_retained_undo,
+                                workspace_now.id, thread_id, change_set_id, validate=validate))
+                            with ui.dialog() as dialog, ui.card().classes("q-pa-md").style("width: min(620px, 92vw);"):
+                                ui.label("Undo imported workspace changes").classes("text-h6")
+                                ui.label("Restore the exact retained original files. Later edits cause a conflict.").classes("text-sm")
+                                for path in review.files:
+                                    ui.label(path).classes("text-xs break-all")
+                                if review.directories_retained:
+                                    ui.label("Created directories will remain: " + ", ".join(review.directories_retained)).classes("text-xs")
+                                with ui.row().classes("gap-2"):
+                                    ui.button("Cancel", on_click=lambda: dialog.submit(False)).props("flat no-caps")
+                                    ui.button("Undo these changes", on_click=lambda: dialog.submit(True)).props("no-caps")
+                            if not await dialog:
+                                return
+                            outcome = await run.io_bound(partial(client_undo.execute_retained_undo, review, command_id,
+                                confirmed=True, validate=validate))
+                            if outcome.status != "undone":
+                                ui.notify(f"Undo {outcome.status}: {outcome.code}. Reopen Revert to recover the original operation.",
+                                    type="negative", close_button=True)
+                                return
+                            message = f"Reverted {len(outcome.files_restored)} file(s). Created directories were retained."
+                        else:
+                            message = await run.io_bound(revert_change_set, workspace_now.id, change_set_id)
                     except Exception as exc:
                         ui.notify(str(exc), type="negative", close_button=True)
                         return
+                    finally:
+                        reverting.discard(change_set_id)
                     ui.notify(message, type="positive")
                     audit_msg = {"role": "assistant", "content": f"Developer Inspector reverted change set `{change_set_id}`. {message}"}
                     if state is not None:

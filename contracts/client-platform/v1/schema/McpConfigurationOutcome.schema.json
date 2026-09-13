@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "const": "mcp_configuration_unconfirmed",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Code"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Revision"
+    },
+    "runtime_cleanup": {
+      "const": "not_requested",
+      "title": "Runtime Cleanup",
+      "type": "string"
+    },
+    "saved_disabled": {
+      "anyOf": [
+        {
+          "const": true,
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Saved Disabled"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "server_ids": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Server Ids",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "saved",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "revision",
+    "server_ids",
+    "saved_disabled",
+    "runtime_cleanup",
+    "code"
+  ],
+  "title": "McpConfigurationOutcome",
+  "type": "object"
+}

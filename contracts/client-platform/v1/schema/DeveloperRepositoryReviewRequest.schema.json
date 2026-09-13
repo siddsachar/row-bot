@@ -1,0 +1,244 @@
+{
+  "$defs": {
+    "DeveloperRepositoryBranchInput": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Branch",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "branch"
+      ],
+      "title": "DeveloperRepositoryBranchInput",
+      "type": "object"
+    },
+    "DeveloperRepositoryCommitInput": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Paths",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "message",
+        "paths"
+      ],
+      "title": "DeveloperRepositoryCommitInput",
+      "type": "object"
+    },
+    "DeveloperRepositoryPullRequestInput": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 16384,
+          "title": "Body",
+          "type": "string"
+        },
+        "draft": {
+          "title": "Draft",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "title",
+        "body",
+        "draft"
+      ],
+      "title": "DeveloperRepositoryPullRequestInput",
+      "type": "object"
+    },
+    "DeveloperRepositoryRevisionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "DeveloperRepositoryRevisionInput",
+      "type": "object"
+    },
+    "DeveloperRepositorySandboxInput": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_mode": {
+          "enum": [
+            "local",
+            "docker"
+          ],
+          "title": "Execution Mode",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "sandbox_image": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Sandbox Image",
+          "type": "string"
+        },
+        "sandbox_network": {
+          "enum": [
+            "off",
+            "ask",
+            "on"
+          ],
+          "title": "Sandbox Network",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "execution_mode",
+        "sandbox_network",
+        "sandbox_image"
+      ],
+      "title": "DeveloperRepositorySandboxInput",
+      "type": "object"
+    },
+    "DeveloperRepositoryWorktreeCreateInput": {
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "maxLength": 512,
+          "title": "Objective",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "seed_mode": {
+          "const": "current_changes",
+          "title": "Seed Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "objective",
+        "seed_mode"
+      ],
+      "title": "DeveloperRepositoryWorktreeCreateInput",
+      "type": "object"
+    },
+    "DeveloperRepositoryWorktreePreserveInput": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "reason"
+      ],
+      "title": "DeveloperRepositoryWorktreePreserveInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "developer.repository.branch.create",
+        "developer.repository.branch.switch",
+        "developer.repository.commit",
+        "developer.repository.push",
+        "developer.repository.pull_request",
+        "developer.repository.worktree.create",
+        "developer.repository.worktree.preserve",
+        "developer.repository.sandbox.configure",
+        "developer.repository.sandbox.rebuild",
+        "developer.repository.sandbox.cleanup"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeveloperRepositoryRevisionInput"
+        },
+        {
+          "$ref": "#/$defs/DeveloperRepositoryBranchInput"
+        },
+        {
+          "$ref": "#/$defs/DeveloperRepositoryCommitInput"
+        },
+        {
+          "$ref": "#/$defs/DeveloperRepositoryPullRequestInput"
+        },
+        {
+          "$ref": "#/$defs/DeveloperRepositoryWorktreeCreateInput"
+        },
+        {
+          "$ref": "#/$defs/DeveloperRepositoryWorktreePreserveInput"
+        },
+        {
+          "$ref": "#/$defs/DeveloperRepositorySandboxInput"
+        }
+      ],
+      "title": "Payload"
+    }
+  },
+  "required": [
+    "action",
+    "payload"
+  ],
+  "title": "DeveloperRepositoryReviewRequest",
+  "type": "object"
+}

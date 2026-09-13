@@ -89,3 +89,24 @@ def test_failed_recovery_does_not_advertise_ready_and_can_retry():
         assert (await lifecycle.shutdown())["status"] == "quiesced"
 
     asyncio.run(scenario())
+
+
+def test_voice_work_remains_stopping_until_actual_acknowledgement():
+    registry = GenerationRuntimeRegistry()
+    trace, quiesced = [], [False]
+    async def inspector():
+        trace.append("inspector")
+    def voice():
+        trace.append("voice_cancel")
+        return quiesced[0]
+    lifecycle = ApplicationLifecycle(registry=registry, recover=lambda _: None,
+        shutdown_inspector=inspector, close_live_content=lambda: trace.append("content"), close_voice=voice)
+    async def scenario():
+        await lifecycle.startup()
+        first = await lifecycle.shutdown(timeout=0)
+        assert first == {"status": "stopping", "pending_executions": [], "pending_voice": True}
+        assert "content" not in trace
+        quiesced[0] = True
+        assert (await lifecycle.shutdown(timeout=0))["status"] == "quiesced"
+        assert trace.count("content") == 1 and trace.count("inspector") == 1
+    asyncio.run(scenario())

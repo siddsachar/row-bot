@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "SubscriptionOptionsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "references": {
+          "items": {
+            "$ref": "#/$defs/SubscriptionReferenceState"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "References",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "xai_client_id_source": {
+          "enum": [
+            "environment",
+            "override",
+            "default",
+            "missing"
+          ],
+          "title": "Xai Client Id Source",
+          "type": "string"
+        },
+        "xai_default_available": {
+          "title": "Xai Default Available",
+          "type": "boolean"
+        },
+        "xai_saved_client_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Xai Saved Client Id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "references",
+        "xai_client_id_source",
+        "xai_saved_client_id",
+        "xai_default_available",
+        "runtime_state"
+      ],
+      "title": "SubscriptionOptionsSnapshot",
+      "type": "object"
+    },
+    "SubscriptionReferenceState": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata_saved": {
+          "title": "Metadata Saved",
+          "type": "boolean"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "metadata_saved"
+      ],
+      "title": "SubscriptionReferenceState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "options": {
+      "$ref": "#/$defs/SubscriptionOptionsSnapshot"
+    },
+    "status": {
+      "const": "completed",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "options"
+  ],
+  "title": "SubscriptionOptionsResult",
+  "type": "object"
+}

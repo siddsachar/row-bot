@@ -231,7 +231,8 @@ def main() -> int:
             raw = re.sub(r"[A-Za-z]:[\\/](?:Users|users)[\\/][^\s\"<>]+", "<profile-path>", raw)
             log.write_text(raw, encoding="utf-8")
         (run / "results.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        print(f"Browser result: {code}; evidence: {run.relative_to(ROOT).as_posix()}")
+        destination = run.relative_to(ROOT) if run.is_relative_to(ROOT) else run
+        print(f"Browser result: {code}; evidence: {destination.as_posix()}")
     return code
 
 

@@ -440,21 +440,22 @@ def _expires_soon(expires_at: str, *, skew_seconds: int = 120) -> bool:
     return parsed <= _utcnow() + timedelta(seconds=max(0, skew_seconds))
 
 
-def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: Any | None = None) -> CodexTokenSet:
+def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: Any | None = None, _snapshot: tuple | None = None) -> CodexTokenSet:
     """Return Row-Bot-owned Codex OAuth credentials for direct runtime use.
 
     This intentionally ignores metadata-only external CLI references. Runtime
     callers need actual bearer/account values, which Row-Bot only treats as
     available when they are stored in its provider keyring namespace.
     """
-    from row_bot.providers.auth_store import get_provider_secret
-    from row_bot.providers.config import load_provider_config
+    from dataclasses import replace
+    from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
 
-    access_token = get_provider_secret(CODEX_PROVIDER_ID, "access_token")
-    refresh_token = get_provider_secret(CODEX_PROVIDER_ID, "refresh_token")
-    id_token = get_provider_secret(CODEX_PROVIDER_ID, "id_token")
-    account_id = get_provider_secret(CODEX_PROVIDER_ID, "account")
-    provider_cfg = load_provider_config().get("providers", {}).get(CODEX_PROVIDER_ID, {})
+    captured, provider_cfg, revision = _snapshot if _snapshot is not None else read_provider_oauth_bundle_snapshot(CODEX_PROVIDER_ID)
+
+    access_token = captured["access_token"]
+    refresh_token = captured["refresh_token"]
+    id_token = captured["id_token"]
+    account_id = captured["account"]
     if provider_cfg.get("source") != AuthMethod.OAUTH_DEVICE.value or provider_cfg.get("auth_method") != AuthMethod.OAUTH_DEVICE.value:
         return CodexTokenSet(access_token="")
     expires_at = str(provider_cfg.get("expires_at") or "")
@@ -470,7 +471,8 @@ def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: An
 
     if refresh_if_needed and refresh_token and (not access_token or _expires_soon(expires_at)):
         refreshed = refresh_codex_token(refresh_token, http_client=http_client)
-        saved = save_codex_oauth_tokens(refreshed)
+        refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or refresh_token, id_token=refreshed.id_token or id_token, account_id=refreshed.account_id or account_id)
+        saved = save_codex_oauth_tokens(refreshed, expected_revision=revision)
         access_token = refreshed.access_token
         refresh_token = refreshed.refresh_token or refresh_token
         id_token = refreshed.id_token or id_token
@@ -490,8 +492,11 @@ def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: An
 
 def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any | None = None) -> CodexTokenHealth:
     """Probe Codex OAuth credentials and silently refresh when possible."""
+    from dataclasses import replace
+    from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
     try:
-        credentials = codex_runtime_credentials(refresh_if_needed=False)
+        captured = read_provider_oauth_bundle_snapshot(CODEX_PROVIDER_ID)
+        credentials = codex_runtime_credentials(refresh_if_needed=False, _snapshot=captured)
     except Exception as exc:
         return CodexTokenHealth("error", f"Could not read ChatGPT credentials: {exc}")
 
@@ -510,7 +515,8 @@ def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any
     if should_refresh:
         try:
             refreshed = refresh_codex_token(credentials.refresh_token, http_client=http_client)
-            saved = save_codex_oauth_tokens(refreshed)
+            refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or credentials.refresh_token, id_token=refreshed.id_token or credentials.id_token, account_id=refreshed.account_id or credentials.account_id)
+            saved = save_codex_oauth_tokens(refreshed, expected_revision=captured[2])
             credentials = CodexTokenSet(
                 access_token=refreshed.access_token,
                 refresh_token=refreshed.refresh_token or credentials.refresh_token,
@@ -921,42 +927,13 @@ def refresh_codex_token(refresh_token: str, *, http_client: Any | None = None) -
     return _token_set_from_payload(payload)
 
 
-def save_codex_oauth_tokens(token_set: CodexTokenSet) -> dict[str, Any]:
+def save_codex_oauth_tokens(token_set: CodexTokenSet, *, expected_revision: str | None = None,
+                            validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
     """Persist Row-Bot-owned Codex OAuth tokens in keyring and metadata in providers.json."""
-    from row_bot.providers.auth_store import set_provider_secret
-    from row_bot.providers.config import update_provider_config
+    from row_bot.providers.auth_store import replace_provider_oauth_bundle
 
-    set_provider_secret(
-        CODEX_PROVIDER_ID,
-        "access_token",
-        token_set.access_token,
-        source=AuthMethod.OAUTH_DEVICE.value,
-        auth_method=AuthMethod.OAUTH_DEVICE,
-    )
-    if token_set.refresh_token:
-        set_provider_secret(
-            CODEX_PROVIDER_ID,
-            "refresh_token",
-            token_set.refresh_token,
-            source=AuthMethod.OAUTH_DEVICE.value,
-            auth_method=AuthMethod.OAUTH_DEVICE,
-        )
-    if token_set.id_token:
-        set_provider_secret(
-            CODEX_PROVIDER_ID,
-            "id_token",
-            token_set.id_token,
-            source=AuthMethod.OAUTH_DEVICE.value,
-            auth_method=AuthMethod.OAUTH_DEVICE,
-        )
-    if token_set.account_id:
-        set_provider_secret(
-            CODEX_PROVIDER_ID,
-            "account",
-            token_set.account_id,
-            source=AuthMethod.OAUTH_DEVICE.value,
-            auth_method=AuthMethod.OAUTH_DEVICE,
-        )
+    if not token_set.access_token:
+        raise ValueError("missing_access_token")
 
     token_metadata = codex_token_metadata(token_set.access_token, token_set.id_token)
     fingerprint = secret_store.fingerprint(token_set.access_token)
@@ -979,8 +956,8 @@ def save_codex_oauth_tokens(token_set: CodexTokenSet) -> dict[str, Any]:
             "external_reference_exists": False,
         })
 
-    cfg = update_provider_config(_update)
-    return dict(cfg.get("providers", {}).get(CODEX_PROVIDER_ID, {}))
+    return replace_provider_oauth_bundle(CODEX_PROVIDER_ID, {"access_token": token_set.access_token, "refresh_token": token_set.refresh_token, "id_token": token_set.id_token, "account": token_set.account_id},
+        update_metadata=_update, expected_revision=expected_revision, validate=validate, command_proof=command_proof)
 
 
 def external_reference_metadata(path: pathlib.Path | str | None = None) -> dict[str, Any]:
@@ -996,18 +973,28 @@ def external_reference_metadata(path: pathlib.Path | str | None = None) -> dict[
     }
 
 
-def save_external_reference(path: pathlib.Path | str | None = None) -> dict[str, Any]:
+def save_external_reference(path: pathlib.Path | str | None = None, *, expected_revision: str | None = None,
+                            validate: Any = lambda: None, command_proof: dict | None = None,
+                            _captured_metadata: dict | None = None) -> dict[str, Any]:
     """Persist an explicit reference to an existing Codex auth cache.
 
     This records only metadata. It never copies token values from the external
     file and never edits Codex CLI-managed files.
     """
-    from row_bot.providers.config import update_provider_config
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
-    metadata = external_reference_metadata(path)
+    validate()
+    metadata = dict(_captured_metadata) if _captured_metadata is not None else external_reference_metadata(path)
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(CODEX_PROVIDER_ID, {})
+        if (_captured_metadata is not None and entry and entry.get("source") != "external_cli"
+                and not (entry.get("oauth_bundle_ref") == {"cleared": True} and isinstance(entry.get("oauth_bundle_previous"), dict))):
+            entry["oauth_bundle_previous"] = {"reference": entry.get("oauth_bundle_ref", {"legacy": True}),
+                "metadata": {name: value for name, value in entry.items() if name not in {"oauth_bundle_previous", "oauth_bundle_ref", "oauth_bundle_command"}}}
         entry.update(metadata)
         entry.update({
             "provider_id": CODEX_PROVIDER_ID,
@@ -1019,23 +1006,30 @@ def save_external_reference(path: pathlib.Path | str | None = None) -> dict[str,
             "last_error": "" if metadata["external_reference_exists"] else "Codex auth cache was not found.",
         })
 
+        if command_proof is not None:
+            entry["subscription_options_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_options_command", None)
+        validate()
+
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(CODEX_PROVIDER_ID, {}))
 
 
-def disconnect_codex_metadata(*, remove_row_bot_tokens: bool = True) -> None:
+def disconnect_codex_metadata(*, remove_row_bot_tokens: bool = True, expected_revision: str | None = None,
+                                  validate: Any = lambda: None, command_proof: dict | None = None) -> None:
     """Remove Row-Bot-owned Codex metadata and optional Row-Bot-owned token secrets."""
-    from row_bot.providers.auth_store import delete_provider_secret
-    from row_bot.providers.config import update_provider_config
-
-    if remove_row_bot_tokens:
-        for credential_name in ("access_token", "refresh_token", "id_token", "account"):
-            delete_provider_secret(CODEX_PROVIDER_ID, credential_name)
+    from row_bot.providers.auth_store import replace_provider_oauth_bundle, disconnect_provider_oauth_metadata
 
     def _update(cfg: dict[str, Any]) -> None:
         cfg.setdefault("providers", {}).pop(CODEX_PROVIDER_ID, None)
 
-    update_provider_config(_update)
+    if remove_row_bot_tokens:
+        replace_provider_oauth_bundle(CODEX_PROVIDER_ID, None, update_metadata=_update,
+            expected_revision=expected_revision, validate=validate, command_proof=command_proof)
+    else:
+        disconnect_provider_oauth_metadata(CODEX_PROVIDER_ID, update_metadata=_update,
+            expected_revision=expected_revision, validate=validate)
 
 
 def list_codex_model_infos(*, force_refresh: bool = False, http_client: Any | None = None) -> list[ModelInfo]:

@@ -36,6 +36,7 @@ BRIDGE_JS = r"""
     // ── State ─────────────────────────────────────────────────────
     var selectedEl = null;
     var editingEl = null;
+    var plainTextEdits = false;
     var highlightOutline = '2px solid rgba(37,99,235,0.6)';
     var selectOutline = '2px solid #2563EB';
     var origOutlineMap = new WeakMap();
@@ -59,6 +60,8 @@ BRIDGE_JS = r"""
 
     function isEditable(el) {
         if (!el || el.nodeType !== 1) return false;
+        if (plainTextEdits && (el.children.length !== 0 ||
+            !/^[a-f0-9]{64}$/.test(el.getAttribute('data-row-bot-element-id') || ''))) return false;
         var tag = el.tagName.toLowerCase();
         // Never treat structural roots or media as text-editable.
         if (['html','body','head','script','style','img','video','audio',
@@ -173,6 +176,7 @@ BRIDGE_JS = r"""
         // Start editing
         editingEl = el;
         var oldHTML = el.innerHTML;
+        var oldPlainText = el.textContent || '';
         el.setAttribute('contenteditable', 'true');
         el.style.outline = '2px solid __ROW_BOT_BRAND_ACCENT__';
         el.style.outlineOffset = '2px';
@@ -194,16 +198,23 @@ BRIDGE_JS = r"""
 
             var newHTML = el.innerHTML;
             if (newHTML !== oldHTML) {
-                window.parent.postMessage({
+                var proposal = {
                     type: 'text-edit',
                     detail: {
                         xpath: getXPath(el),
                         tag: el.tagName.toLowerCase(),
-                        oldText: oldHTML,
-                        newText: newHTML,
+                        oldText: plainTextEdits ? oldPlainText : oldHTML,
+                        newText: plainTextEdits ? (el.textContent || '') : newHTML,
                         elementInfo: getElementInfo(el)
                     }
-                }, '*');
+                };
+                if (plainTextEdits && new TextEncoder().encode(JSON.stringify(
+                    Object.assign({}, identity, proposal))).length > 16384) {
+                    el.innerHTML = oldHTML;
+                    window.parent.postMessage({type: 'edit-unavailable', detail: {code: 'text_too_large'}}, '*');
+                    return;
+                }
+                window.parent.postMessage(proposal, '*');
             } else {
                 window.parent.postMessage({type: 'edit-cancel'}, '*');
             }
@@ -230,7 +241,7 @@ BRIDGE_JS = BRIDGE_JS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
 def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
-                     capability: str = "") -> str:
+                     capability: str = "", plain_text: bool = False) -> str:
     """Inject the interaction bridge JS into page HTML.
 
     Inserts before </body> if present, otherwise appends.
@@ -240,6 +251,8 @@ def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
     identity = json.dumps({"previewId": preview_id, "revision": revision,
                            "capability": capability}).replace("<", "\\u003c")
     bridge_js = BRIDGE_JS.replace("window.parent.postMessage(", "sendToOwner(")
+    if plain_text:
+        bridge_js = bridge_js.replace("var plainTextEdits = false;", "var plainTextEdits = true;", 1)
     bridge_js = bridge_js.replace("(function() {", "(function() {\n"
         f"const identity = {identity};\n"
         "function sendToOwner(message) { window.parent.postMessage("

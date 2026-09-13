@@ -4,6 +4,7 @@ import json
 import logging
 import uuid
 from typing import Any, Iterator, Sequence
+from pydantic import PrivateAttr
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -28,6 +29,39 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
     anthropic_client: Any | None = None
     client_factory: Any | None = None
     reasoning_plan: Any | None = None
+    _probe_snapshot: Any = PrivateAttr(default=None)
+    _probe_validate: Any = PrivateAttr(default=None)
+    _captured_worker: bool = PrivateAttr(default=False)
+    _validation_error: Any = PrivateAttr(default=None)
+
+    def bind_captured_credentials(self, snapshot: tuple, validate: Any) -> None:
+        """Use the private non-refreshing account binding for a durable worker."""
+        self.bind_probe_credentials(snapshot,validate)
+        self._captured_worker = True
+
+    def bind_probe_credentials(self, snapshot: tuple, validate: Any) -> None:
+        """Bind a private captured account; reviewed probes never auto-refresh."""
+        import copy
+        self._probe_snapshot = copy.deepcopy(snapshot)
+        self._probe_validate = validate
+
+    def _validate_probe(self) -> None:
+        if self._probe_validate is not None:
+            self._validation_error = None
+            try:
+                self._probe_validate()
+            except Exception as error:
+                self._validation_error = error
+                raise
+
+    def _response_tool_name(self, name: str) -> str:
+        if self._captured_worker:
+            return name  # Document extraction offers no tools; do not discover any.
+        if self._probe_snapshot is not None:
+            # This explicit compatibility check offers only the synthetic tool.
+            # Do not discover or instantiate unrelated installed contributions.
+            return "calculate" if name == "mcp_calculate" else name
+        return _runtime_tool_name(name)
 
     @property
     def _llm_type(self) -> str:
@@ -55,7 +89,7 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
     ) -> ChatResult:
         request = self._request_kwargs(messages, stop=stop, **kwargs)
         payload = _plain_data(self._create_message(request))
-        message = _ai_message_from_response(payload)
+        message = _ai_message_from_response(payload, runtime_tool_name=self._response_tool_name)
         metadata = _response_metadata(payload)
         return ChatResult(generations=[ChatGeneration(message=message)], llm_output=metadata)
 
@@ -80,7 +114,7 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
                 if block.get("type") == "tool_use":
                     tool_blocks[index] = {
                         "id": str(block.get("id") or uuid.uuid4()),
-                        "name": _runtime_tool_name(str(block.get("name") or "")),
+                        "name": self._response_tool_name(str(block.get("name") or "")),
                     }
                     yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[{
                         "name": tool_blocks[index]["name"],
@@ -104,7 +138,6 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
                     continue
                 if delta_type == "input_json_delta":
                     partial = str(delta.get("partial_json") or "")
-                    tool = tool_blocks.get(index, {"id": "", "name": ""})
                     yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[{
                         "name": None,
                         "args": partial,
@@ -156,8 +189,12 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
     def _create_message(self, request: dict[str, Any]) -> Any:
         client = self._sdk_client()
         try:
-            return client.messages.create(**request)
+            result = client.messages.create(**request)
+            self._validate_probe()
+            return result
         except Exception as exc:
+            if self._validation_error is exc:
+                raise
             if _status_code_from_exception(exc) == 401 and self._refresh_access_token_if_possible():
                 client = self._sdk_client()
                 return client.messages.create(**request)
@@ -195,7 +232,10 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
                             return
                         yield event
                 return
-            logger.warning("claude_subscription_stream: stream failed: %s", exc)
+            if self._probe_snapshot is not None:
+                logger.warning("claude_subscription_stream: reviewed probe transport failed")
+            else:
+                logger.warning("claude_subscription_stream: stream failed: %s", exc)
             raise RuntimeError(_normalized_exception(exc)) from exc
         finally:
             for unregister in reversed(unregister_callbacks):
@@ -205,22 +245,31 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
                     logger.debug("claude_subscription_stream: unregister cancellation callback failed", exc_info=True)
 
     def _sdk_client(self) -> Any:
+        self._validate_probe()
         if self.anthropic_client is not None:
             return self.anthropic_client
-        credentials = claude_auth.claude_subscription_runtime_credentials(refresh_if_needed=True)
+        credentials = claude_auth.claude_subscription_runtime_credentials(refresh_if_needed=self._probe_snapshot is None, _snapshot=self._probe_snapshot)
         return claude_auth.claude_subscription_sdk_client(
             credentials.access_token,
             base_url=self.base_url,
             timeout=self.timeout,
             client_factory=self.client_factory,
+            allow_cli_probe=self._probe_snapshot is None,
         )
 
     def _refresh_access_token_if_possible(self) -> bool:
-        credentials = claude_auth.claude_subscription_runtime_credentials(refresh_if_needed=False)
+        if self._probe_snapshot is not None:
+            return False
+        from dataclasses import replace
+        from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
+        captured = read_provider_oauth_bundle_snapshot('claude_subscription')
+        credentials = claude_auth.claude_subscription_runtime_credentials(refresh_if_needed=False, _snapshot=captured)
         if not credentials.refresh_token:
             return False
         refreshed = claude_auth.refresh_claude_subscription_token(credentials.refresh_token)
-        claude_auth.save_claude_subscription_oauth_tokens(refreshed)
+        refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or credentials.refresh_token,
+            id_token=refreshed.id_token or credentials.id_token, account_id=refreshed.account_id or credentials.account_id, user_id=refreshed.user_id or credentials.user_id)
+        claude_auth.save_claude_subscription_oauth_tokens(refreshed, expected_revision=captured[2])
         return True
 
 
@@ -540,7 +589,7 @@ def _wire_tool_choice(tool_choice: dict[str, Any] | None) -> dict[str, Any] | No
     return payload
 
 
-def _ai_message_from_response(payload: dict[str, Any]) -> AIMessage:
+def _ai_message_from_response(payload: dict[str, Any], *, runtime_tool_name: Any = _runtime_tool_name) -> AIMessage:
     content_items = payload.get("content") if isinstance(payload.get("content"), list) else []
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
@@ -552,7 +601,7 @@ def _ai_message_from_response(payload: dict[str, Any]) -> AIMessage:
         elif item.get("type") == "tool_use":
             args = item.get("input") if isinstance(item.get("input"), dict) else _json_tool_arguments(item.get("input"))
             tool_calls.append({
-                "name": _runtime_tool_name(str(item.get("name") or "")),
+                "name": runtime_tool_name(str(item.get("name") or "")),
                 "args": args,
                 "id": str(item.get("id") or uuid.uuid4()),
                 "type": "tool_call",

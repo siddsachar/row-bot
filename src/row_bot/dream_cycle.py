@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import pathlib
 import re
 import threading
 import uuid
@@ -1389,17 +1387,11 @@ def run_dream_cycle(on_status=None) -> dict:
 
     _status(f"Starting dream cycle — {len(batch)} entities (of {entity_count})")
 
-    # Suppress per-entity FAISS rebuilds during batch operations
-    kg._skip_reindex = True
-
-    try:
-        # ── OP1: Duplicate merge ─────────────────────────────────────
-        _status("Phase 1: Scanning for duplicates…")
-        merge_threshold = cfg.get("merge_threshold", 0.93)
-        # Need FAISS index for similarity search — rebuild if needed
-        kg._skip_reindex = False
-        candidates = _find_merge_candidates(batch, merge_threshold)
-        kg._skip_reindex = True
+    # Discover candidates before deferring this cycle's projection writes.
+    _status("Phase 1: Scanning for duplicates…")
+    merge_threshold = cfg.get("merge_threshold", 0.93)
+    candidates = _find_merge_candidates(batch, merge_threshold)
+    with kg.projection_batch(drain_on_exit=False):
 
         for entity_a, entity_b, score in candidates:
             try:
@@ -1530,22 +1522,13 @@ def run_dream_cycle(on_status=None) -> dict:
         except Exception as exc:
             summary["errors"].append(f"Insights error: {exc}")
 
-    finally:
-        # Restore normal indexing and rebuild once
-        kg._skip_reindex = False
-        try:
-            kg.rebuild_index()
-        except Exception as exc:
-            summary["errors"].append(f"FAISS rebuild error: {exc}")
-            logger.warning("Post-dream FAISS rebuild failed: %s", exc)
-
-        # Rebuild wiki vault if enabled
-        try:
-            import row_bot.wiki_vault as wiki_vault
-            if wiki_vault.is_enabled():
-                wiki_vault.rebuild_vault()
-        except Exception:
-            pass
+    try:
+        projection = kg.repair_projections(max_entities=1000, cancelled=_dream_stop.is_set)
+        if not projection["complete"]:
+            summary["errors"].append("Saved knowledge has pending projection repair")
+    except Exception as exc:
+        summary["errors"].append("Saved knowledge projection repair failed")
+        logger.warning("Post-dream projection repair failed: %s", exc)
 
     # Compose summary text
     m = len(summary["merges"])

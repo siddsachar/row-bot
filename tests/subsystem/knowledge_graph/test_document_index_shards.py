@@ -271,7 +271,6 @@ def _write_fake_document_manifest(root, document_id, name, embedding, segments):
 
 def test_deterministic_top_k_stale_exclusion_and_legacy_merge(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
-    import langchain_community.vectorstores
     import row_bot.document_index as document_index
 
     document_index = importlib.reload(document_index)
@@ -291,9 +290,15 @@ def test_deterministic_top_k_stale_exclusion_and_legacy_merge(tmp_path, monkeypa
 
     class Store:
         def __init__(self, path):
-            self.path = str(path)
+            from types import SimpleNamespace
 
-        def similarity_search_with_score(self, _query, k):
+            self.path = str(path)
+            self.index = SimpleNamespace(d=3, ntotal=1)
+
+        def _embed_query(self, query):
+            return FakeEmbeddings().embed_query(query)
+
+        def similarity_search_with_score_by_vector(self, _vector, k):
             del k
             if pathlib.Path(self.path).parent.name == "stale":
                 raise AssertionError("stale segment must not load")
@@ -310,9 +315,9 @@ def test_deterministic_top_k_stale_exclusion_and_legacy_merge(tmp_path, monkeypa
     monkeypatch.setattr(document_index, "active_embedding_metadata", lambda: active)
     monkeypatch.setattr(document_index, "index_metadata_matches", lambda *_args: True)
     monkeypatch.setattr(
-        langchain_community.vectorstores.FAISS,
-        "load_local",
-        lambda path, **_kwargs: Store(path),
+        document_index,
+        "_load_safe_segment",
+        lambda path, _embedding, **_kwargs: Store(path),
     )
 
     facade = document_index.DocumentVectorStoreFacade(
@@ -359,7 +364,7 @@ def test_bounded_rebuild_from_vault_uses_sharded_atomic_output(tmp_path, monkeyp
     (raw / "one.txt").write_text("one " * 1000, encoding="utf-8")
     (raw / "two.txt").write_text("two " * 1000, encoding="utf-8")
     fake = FakeEmbeddings()
-    monkeypatch.setattr(documents, "get_embedding_model", lambda: fake)
+    monkeypatch.setattr(documents, "get_embedding_model", lambda config=None: fake)
 
     assert documents.rebuild_vector_store_from_vault() == 2
 

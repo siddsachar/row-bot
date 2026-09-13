@@ -1,0 +1,75 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "change_set_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Change Set Id",
+      "type": "string"
+    },
+    "code": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Code",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "files_restored": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Files Restored",
+      "type": "array"
+    },
+    "ledger_saved": {
+      "title": "Ledger Saved",
+      "type": "boolean"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "reverted": {
+      "title": "Reverted",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "undone",
+        "partial",
+        "conflict",
+        "denied"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "resource_id",
+    "conversation_id",
+    "change_set_id",
+    "status",
+    "files_restored",
+    "ledger_saved",
+    "reverted"
+  ],
+  "title": "WorkspaceUndoResult",
+  "type": "object"
+}

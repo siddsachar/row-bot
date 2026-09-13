@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "WorkspaceImportSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "maxLength": 80,
+          "title": "Created At",
+          "type": "string"
+        },
+        "file_count": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "imported": {
+          "title": "Imported",
+          "type": "boolean"
+        },
+        "pending_change_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Pending Change Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pending_change_id",
+        "revision",
+        "file_count",
+        "imported",
+        "created_at"
+      ],
+      "title": "WorkspaceImportSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceImportSummary"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "snapshot_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Snapshot Revision",
+      "type": "string"
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "snapshot_revision",
+    "next_cursor",
+    "total"
+  ],
+  "title": "WorkspaceImportPage",
+  "type": "object"
+}

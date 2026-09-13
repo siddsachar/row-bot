@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "DefaultModelSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Id"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider Id"
+        },
+        "revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "saved_state": {
+          "enum": [
+            "saved",
+            "missing",
+            "unavailable"
+          ],
+          "title": "Saved State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "selection_ref": {
+          "anyOf": [
+            {
+              "maxLength": 647,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selection Ref"
+        }
+      },
+      "required": [
+        "revision",
+        "selection_ref",
+        "provider_id",
+        "model_id",
+        "saved_state",
+        "runtime_state"
+      ],
+      "title": "DefaultModelSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "published": {
+      "title": "Published",
+      "type": "boolean"
+    },
+    "selection": {
+      "$ref": "#/$defs/DefaultModelSnapshot"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "rejected",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "published",
+    "selection"
+  ],
+  "title": "DefaultModelReceipt",
+  "type": "object"
+}

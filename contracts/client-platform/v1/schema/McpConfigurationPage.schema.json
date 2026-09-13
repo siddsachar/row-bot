@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "McpServerSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "configured_fields": {
+          "items": {
+            "enum": [
+              "command",
+              "args",
+              "cwd",
+              "url",
+              "env",
+              "headers"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Configured Fields",
+          "type": "array"
+        },
+        "connection_present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Connection Present"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "runtime_status": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Runtime Status"
+        },
+        "server_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Server Id",
+          "type": "string"
+        },
+        "tool_count": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Count"
+        },
+        "transport": {
+          "enum": [
+            "stdio",
+            "streamable_http",
+            "sse",
+            "unknown"
+          ],
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_id",
+        "name",
+        "transport",
+        "enabled",
+        "runtime_status",
+        "configured_fields",
+        "tool_count",
+        "connection_present"
+      ],
+      "title": "McpServerSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "recovery_required"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Enabled"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/McpServerSummary"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Revision"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "anyOf": [
+        {
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Total"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "availability",
+    "enabled",
+    "items",
+    "total",
+    "next_cursor"
+  ],
+  "title": "McpConfigurationPage",
+  "type": "object"
+}

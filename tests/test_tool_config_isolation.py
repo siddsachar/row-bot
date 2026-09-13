@@ -3,6 +3,44 @@ from __future__ import annotations
 import importlib
 import json
 from pathlib import Path
+import sys
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def restore_existing_module_owners():
+    """Reload probes must not leave other consumers bound to orphaned modules."""
+    def selected(name):
+        return name in {"row_bot.threads", "row_bot.developer.storage", "row_bot.tools"} or name.startswith("row_bot.tools.")
+    modules = {name: module for name, module in sys.modules.copy().items() if selected(name) and module is not None}
+    namespaces = {name: vars(module).copy() for name, module in modules.items()}
+    parents = []
+    for name in modules:
+        parent_name, _, attribute = name.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None:
+            parents.append((parent, attribute, vars(parent).get(attribute), attribute in vars(parent)))
+    registry = modules.get("row_bot.tools.registry")
+    maps = []
+    if registry is not None:
+        for name in ("_tools", "_enabled", "_tool_configs", "_global_config"):
+            value = vars(registry).get(name)
+            if type(value) is dict:
+                maps.append((value, value.copy()))
+    yield
+    for value, snapshot in maps:
+        value.clear()
+        value.update(snapshot)
+    for name, module in modules.items():
+        vars(module).clear()
+        vars(module).update(namespaces[name])
+        sys.modules[name] = module
+    for parent, attribute, value, existed in parents:
+        if existed:
+            setattr(parent, attribute, value)
+        else:
+            vars(parent).pop(attribute, None)
 
 
 def test_registry_follows_row_bot_data_dir_after_import(tmp_path, monkeypatch):

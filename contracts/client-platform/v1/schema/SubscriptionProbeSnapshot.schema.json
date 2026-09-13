@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "SubscriptionProbeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Chat Ok"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked At"
+        },
+        "kind": {
+          "enum": [
+            "tokens",
+            "runtime",
+            "vision"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_ref": {
+          "anyOf": [
+            {
+              "maxLength": 647,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Ref"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription",
+            "xai_oauth"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "missing",
+            "expired",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_calling": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Calling"
+        },
+        "tool_round_trip": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Round Trip"
+        },
+        "vision_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vision Ok"
+        }
+      },
+      "required": [
+        "provider_id",
+        "kind",
+        "model_ref",
+        "status",
+        "chat_ok",
+        "tool_calling",
+        "tool_round_trip",
+        "vision_ok",
+        "checked_at"
+      ],
+      "title": "SubscriptionProbeResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SubscriptionProbeResult"
+      },
+      "maxItems": 6,
+      "minItems": 6,
+      "title": "Items",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items"
+  ],
+  "title": "SubscriptionProbeSnapshot",
+  "type": "object"
+}

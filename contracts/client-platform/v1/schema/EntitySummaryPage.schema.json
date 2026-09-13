@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "EntitySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1000,
+          "title": "Description",
+          "type": "string"
+        },
+        "entity_type": {
+          "maxLength": 64,
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "saved_state": {
+          "const": "saved",
+          "title": "Saved State",
+          "type": "string"
+        },
+        "semantic_state": {
+          "const": "unknown",
+          "title": "Semantic State",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "maxLength": 64,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "entity_type",
+        "subject",
+        "description",
+        "updated_at",
+        "truncated",
+        "saved_state",
+        "semantic_state"
+      ],
+      "title": "EntitySummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/EntitySummary"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "maxLength": 64,
+      "minLength": 64,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Total"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items",
+    "total",
+    "next_cursor",
+    "availability"
+  ],
+  "title": "EntitySummaryPage",
+  "type": "object"
+}

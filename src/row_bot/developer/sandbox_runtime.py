@@ -11,6 +11,9 @@ import shutil
 import subprocess
 import tempfile
 import time
+import threading
+import uuid
+from functools import wraps
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -24,9 +27,52 @@ logger = logging.getLogger(__name__)
 
 SANDBOX_ROOT = DEVELOPER_DIR / "sandboxes"
 PENDING_CHANGES_PATH = SANDBOX_ROOT / "pending_changes.json"
+_PENDING_LOCK = threading.RLock()
+
+
+def _pending_mutation(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        with _PENDING_LOCK:
+            _load_client_pending()
+            return function(*args, **kwargs)
+    return guarded
+
+
+def _load_client_pending() -> dict:
+    if not PENDING_CHANGES_PATH.exists():
+        return {"changes": []}
+    if PENDING_CHANGES_PATH.stat().st_size > 64 * 1024 * 1024:
+        raise ValueError("sandbox_history_unavailable")
+    try:
+        value = json.loads(PENDING_CHANGES_PATH.read_text(encoding="utf-8"))
+        if type(value) is not dict or type(value.get("changes")) is not list or any(type(item) is not dict for item in value["changes"]):
+            raise ValueError
+        return value
+    except (ValueError, TypeError, OSError):
+        raise ValueError("sandbox_history_unavailable") from None
+
+
+def validate_client_pending() -> None:
+    with _PENDING_LOCK:
+        _load_client_pending()
+
+
+def prepared_shadow_workspace(workspace: DeveloperWorkspace) -> pathlib.Path:
+    from row_bot.developer.review import scoped_workspace_path
+    shadow = sandbox_shadow_path(workspace.id)
+    try:
+        scoped_workspace_path(SANDBOX_ROOT, shadow.relative_to(SANDBOX_ROOT).as_posix())
+        if not shadow.is_dir():
+            raise ValueError
+        return shadow
+    except (OSError, ValueError):
+        raise ValueError("sandbox_unprepared") from None
+
 SESSIONS_PATH = SANDBOX_ROOT / "sessions.json"
 _TEXT_LIMIT = 1_000_000
 _COPY_SKIP_DIRS = {
+    ".row-bot-edit-recovery",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
@@ -265,15 +311,60 @@ def get_pending_change(change_id: str) -> SandboxPendingChange | None:
     return None
 
 
-def mark_pending_change_imported(change_id: str) -> None:
+@_pending_mutation
+def mark_pending_change_imported(change_id: str, *, expected_revision: str | None = None,
+                                command_id: str | None = None, validate=None) -> None:
     payload = _load_pending_payload()
+    found = False
     for raw in payload.get("changes", []):
         if isinstance(raw, dict) and raw.get("id") == change_id:
+            if validate:
+                validate()
+            if expected_revision is not None:
+                revision = pending_change_revision(raw)
+                if raw.get("imported") and raw.get("import_command_id") == command_id:
+                    return
+                if revision != expected_revision:
+                    raise ValueError("sandbox_change_revision_conflict")
             raw["imported"] = True
+            if command_id is not None:
+                raw["import_command_id"] = command_id
+            found = True
             break
+    if expected_revision is not None and not found:
+        raise ValueError("sandbox_change_unavailable")
+    if validate:
+        validate()
     _save_pending_payload(payload)
 
 
+def pending_change_revision(raw: dict) -> str:
+    """Bind the full canonical row, including retained unknown metadata."""
+    return hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=True,
+        separators=(",", ":"), allow_nan=False).encode("ascii")).hexdigest()
+
+
+def read_pending_import_rows(workspace_id: str, thread_id: str) -> list[dict]:
+    """Validated saved rows only; never prepare a sandbox or mutate its history."""
+    with _PENDING_LOCK:
+        payload = _load_client_pending()
+        rows, identities = [], set()
+        for raw in payload["changes"]:
+            identity = raw.get("id")
+            if type(identity) is not str or not identity or len(identity) > 128 or identity in identities:
+                raise ValueError("sandbox_history_unavailable")
+            identities.add(identity)
+            if raw.get("workspace_id") != workspace_id or raw.get("thread_id") != thread_id:
+                continue
+            if (type(raw.get("patch")) is not str or type(raw.get("files")) is not list or
+                    any(type(path) is not str for path in raw["files"]) or type(raw.get("imported", False)) is not bool):
+                raise ValueError("sandbox_history_unavailable")
+            import copy
+            rows.append(copy.deepcopy(raw))
+        return rows
+
+
+@_pending_mutation
 def cleanup_thread_pending_changes(thread_id: str) -> dict[str, int]:
     """Drop imported records for a thread and retain every unimported change."""
 
@@ -300,6 +391,7 @@ def cleanup_thread_pending_changes(thread_id: str) -> dict[str, int]:
     return stats
 
 
+@_pending_mutation
 def cleanup_orphaned_imported_changes(owner_thread_ids: set[str]) -> int:
     """Remove imported pending-change rows whose conversation no longer exists."""
 
@@ -398,7 +490,44 @@ def write_file_in_docker_sandbox(
     content: str,
     *,
     thread_id: str,
+    prepared_only: bool = False,
+    expected_digest: str = "",
+    command_id: str = "",
+    persist_recovery=None,
+    recovery=None,
+    validate=None,
+    expected_identity: str | None = None,
+    expected_metadata: str | None = None,
+    expected_parent_identity: str | None = None,
 ) -> SandboxCommandOutcome:
+    if prepared_only:
+        from row_bot.developer.edits import FileEditError, publish_text_revision, read_edit_bytes
+        shadow = prepared_shadow_workspace(workspace)
+        validate_client_pending()
+        if recovery is None:
+            source, _, _, _ = read_edit_bytes(shadow, path)
+            before_text = source.decode("utf-8") if source is not None else None
+            # Git's configured attributes/EOL policy owns host import. A patch
+            # cannot promise that a newline-only intent survives that policy.
+            if before_text is not None and before_text != content and before_text.splitlines() == content.splitlines():
+                raise FileEditError("sandbox_patch_unavailable")
+            _client_file_patch(path, before_text, content)
+        publication = publish_text_revision(shadow, path, content, expected_digest=expected_digest,
+            command_id=command_id, persist_recovery=persist_recovery, recovery=recovery, validate=validate,
+            expected_identity=expected_identity, expected_metadata=expected_metadata,
+            expected_parent_identity=expected_parent_identity)
+        if not publication.changed:
+            return SandboxCommandOutcome(f"write {path}", "/workspace", 0)
+        try:
+            pending = _record_pending_change(workspace, thread_id, f"write {path}",
+                {path: publication.before_text}, {path: content}, command_id=command_id)
+            if pending is None:
+                raise ValueError("sandbox_patch_unavailable")
+        except Exception:
+            raise FileEditError("sandbox_history_incomplete", publication.recovery, file_saved=True) from None
+        return SandboxCommandOutcome(f"write {path}", "/workspace", 0, changed_files=[path],
+            pending_change_id=pending.id if pending else "", sandbox_workspace=str(shadow),
+            container_name=sandbox_container_name(workspace.id))
     try:
         ensure_docker_sandbox(workspace)
         container_name, shadow = _ensure_shadow_workspace(workspace)
@@ -968,25 +1097,37 @@ def _snapshot_text_files(root: pathlib.Path) -> dict[str, str | None]:
     return snapshot
 
 
+@_pending_mutation
 def _record_pending_change(
     workspace: DeveloperWorkspace,
     thread_id: str,
     command: str,
     before: dict[str, str | None],
     after: dict[str, str | None],
+    *, command_id: str | None = None,
 ) -> SandboxPendingChange | None:
     changed = sorted(path for path in (set(before) | set(after)) if before.get(path) != after.get(path))
     if not changed:
         return None
     patch_parts: list[str] = []
     for path in changed:
-        patch = _unified_file_patch(path, before.get(path), after.get(path))
+        patch = (_client_file_patch(path, before.get(path), after.get(path)) if command_id
+                 else _unified_file_patch(path, before.get(path), after.get(path)))
         if patch:
             patch_parts.append(patch)
-    combined_patch = "\n".join(patch_parts).strip() + "\n" if patch_parts else ""
+    combined_patch = ("".join(patch_parts) if command_id else "\n".join(patch_parts).strip() + "\n") if patch_parts else ""
     if not combined_patch:
         return None
-    change_id = f"sbox_{hashlib.sha1((workspace.id + command + str(time.time())).encode('utf-8')).hexdigest()[:12]}"
+    change_id = ("sbox_" + uuid.uuid5(uuid.NAMESPACE_URL, "row-bot:client-edit:" + command_id).hex if command_id
+                 else f"sbox_{hashlib.sha1((workspace.id + command + str(time.time())).encode('utf-8')).hexdigest()[:12]}")
+    payload = _load_client_pending() if command_id else _load_pending_payload()
+    if command_id:
+        matches = [row for row in payload["changes"] if row.get("id") == change_id]
+        if matches:
+            existing = SandboxPendingChange.from_dict(matches[0])
+            if len(matches) != 1 or (existing.workspace_id, existing.thread_id, existing.command, existing.patch, existing.files) != (workspace.id, thread_id, command, combined_patch, changed):
+                raise ValueError("sandbox_history_identity_conflict")
+            return existing
     change = SandboxPendingChange(
         id=change_id,
         workspace_id=workspace.id,
@@ -996,28 +1137,40 @@ def _record_pending_change(
         files=changed,
         created_at=datetime.now().isoformat(),
     )
-    payload = _load_pending_payload()
     payload.setdefault("changes", []).append(change.to_dict())
     _save_pending_payload(payload)
     return change
 
 
-def _unified_file_patch(path: str, before: str | None, after: str | None) -> str:
-    before_lines = [] if before is None else before.splitlines()
-    after_lines = [] if after is None else after.splitlines()
-    fromfile = "/dev/null" if before is None else f"a/{path}"
-    tofile = "/dev/null" if after is None else f"b/{path}"
-    body = list(difflib.unified_diff(before_lines, after_lines, fromfile=fromfile, tofile=tofile, lineterm=""))
-    if not body:
+def _client_file_patch(path: str, before: str | None, after: str | None) -> str:
+    """Retain patch line endings; host import still uses Git's EOL policy."""
+    if before == after:
         return ""
-    header = [
-        f"diff --git a/{path} b/{path}",
-    ]
-    if before is None:
-        header.append("new file mode 100644")
-    elif after is None:
-        header.append("deleted file mode 100644")
-    return "\n".join(header + body)
+    def git_lines(value):
+        parts = (value or "").split("\n")
+        return [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+    before_lines, after_lines = git_lines(before), git_lines(after)
+    lines = difflib.unified_diff(before_lines, after_lines,
+        fromfile="/dev/null" if before is None else f"a/{path}\t",
+        tofile="/dev/null" if after is None else f"b/{path}\t", lineterm="\n")
+    body = "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n" for line in lines)
+    if body:
+        # A preceding empty-file mode block otherwise consumes this file's
+        # ordinary headers as its own. Every emitted file needs a boundary.
+        mode = "new file mode 100644\n" if before is None else "deleted file mode 100644\n" if after is None else ""
+        return f"diff --git a/{path} b/{path}\n" + mode + body
+    # Empty-file creation has no hunk; Git represents it using mode/index.
+    if before is None and after == "":
+        return f"diff --git a/{path} b/{path}\nnew file mode 100644\nindex 0000000..e69de29\n"
+    if before == "" and after is None:
+        return f"diff --git a/{path} b/{path}\ndeleted file mode 100644\nindex e69de29..0000000\n"
+    raise ValueError("sandbox_patch_unavailable")
+
+
+def _unified_file_patch(path: str, before: str | None, after: str | None) -> str:
+    # Both callers ultimately emit the same Git patch. Dropping line endings
+    # made no-final-newline edits inapplicable and silently omitted empty files.
+    return _client_file_patch(path, before, after).rstrip("\n")
 
 
 def _is_skipped_path(rel_path: str) -> bool:

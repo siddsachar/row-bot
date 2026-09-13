@@ -9,12 +9,96 @@ import os
 import pathlib
 import re
 import zipfile
+import time
+from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from row_bot.designer.preview import render_page_html
 from row_bot.designer.state import DesignerProject
 
 logger = logging.getLogger(__name__)
+
+MAX_STRICT_EXPORT_BYTES = 64 * 1024 * 1024
+
+
+@dataclass
+class StrictExport:
+    validate: Callable[[], None]
+    deadline: float
+    warnings: set[str] = field(default_factory=set)
+
+
+_STRICT_EXPORT: ContextVar[StrictExport | None] = ContextVar('designer_strict_export', default=None)
+
+
+@contextmanager
+def strict_export(validate: Callable[[], None]):
+    """Opt-in bounded offline rendering for authenticated headless exports."""
+    state = StrictExport(validate, time.monotonic() + 120)
+    token = _STRICT_EXPORT.set(state)
+    try:
+        _export_checkpoint()
+        yield state
+    finally:
+        _STRICT_EXPORT.reset(token)
+
+
+def _export_checkpoint(data: bytes | None = None) -> None:
+    state = _STRICT_EXPORT.get()
+    if state is not None:
+        if time.monotonic() > state.deadline:
+            raise RuntimeError('export_time_limit')
+        state.validate()
+        if data is not None and len(data) > MAX_STRICT_EXPORT_BYTES:
+            raise RuntimeError('export_size_limit')
+
+
+def _export_collection_size(parts) -> None:
+    if _STRICT_EXPORT.get() is not None:
+        _export_checkpoint()
+        if sum(len(part) for part in parts) > MAX_STRICT_EXPORT_BYTES:
+            raise RuntimeError('export_size_limit')
+
+
+def _offline_export_html(html: str, project: DesignerProject) -> str:
+    state = _STRICT_EXPORT.get()
+    if state is None:
+        return html
+    from bs4 import BeautifulSoup
+    from row_bot.designer.preview import isolate_preview_html
+
+    if len(html.encode('utf-8')) > 2 * 1024 * 1024:
+        raise RuntimeError('export_page_size_limit')
+    soup = BeautifulSoup(html, 'html.parser')
+    if (soup.find('link', href=True)
+            or any(str(tag.get(attr, '')).strip() and not str(tag.get(attr, '')).startswith('data:')
+                   for tag in soup.find_all(True) for attr in ('src', 'poster', 'srcset'))
+            or re.search(r'@import\b', html, re.IGNORECASE)
+            or any(not value.strip().strip('\"\x27').startswith('data:')
+                   for value in re.findall(r'url\((.*?)\)', html, re.IGNORECASE | re.DOTALL))):
+        state.warnings.add('external_assets_unavailable')
+    return isolate_preview_html(html, brand=project.brand)
+
+
+def _render_export_html(project: DesignerProject, html: str, *, page_index: int) -> str:
+    _export_checkpoint()
+    return _offline_export_html(render_page_html(project, html, page_index=page_index), project)
+
+
+def _export_context(browser, **options):
+    _export_checkpoint()
+    state = _STRICT_EXPORT.get()
+    if state is not None:
+        options.update(java_script_enabled=False, service_workers='block', accept_downloads=False)
+    context = browser.new_context(**options)
+    if state is not None:
+        context.set_default_timeout(10000)
+        context.set_default_navigation_timeout(10000)
+        context.route('**/*', lambda route: route.abort())
+    return context
 
 _WORKSPACE = pathlib.Path(
     os.environ.get("ROW_BOT_WORKSPACE", pathlib.Path.home() / "Documents" / "Row-Bot")
@@ -26,6 +110,7 @@ def _launch_playwright_browser(playwright):
 
     from row_bot.browser.runtime import playwright_chromium_launch_options
 
+    _export_checkpoint()
     return playwright.chromium.launch(**playwright_chromium_launch_options())
 
 
@@ -354,6 +439,11 @@ def _parse_page_range(pages_str: Optional[str], total: int) -> list[int]:
 
 def _selected_pages(project: DesignerProject, pages: Optional[str]) -> list[tuple[int, object]]:
     indices = _parse_page_range(pages, len(project.pages))
+    if _STRICT_EXPORT.get() is not None:
+        _export_checkpoint()
+        pixels = project.canvas_width * project.canvas_height
+        if not indices or len(indices) > 200 or pixels > 32 * 1024 * 1024 or pixels * len(indices) > 256 * 1024 * 1024:
+            raise RuntimeError('export_page_limit')
     return [(i, project.pages[i]) for i in indices if i < len(project.pages)]
 
 
@@ -399,6 +489,7 @@ def _permission_denied_message(path: pathlib.Path, label: str) -> str:
 
 
 def _save_bytes(path: pathlib.Path, data: bytes, label: str) -> bytes:
+    _export_checkpoint(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     saved_path = path
     try:
@@ -441,10 +532,13 @@ def build_html_export(project: DesignerProject, pages: Optional[str] = None) -> 
     brand = project.brand
     font_families = list(dict.fromkeys([brand.heading_font, brand.body_font] if brand else []))
     embedded_font_css = "\n".join(get_font_css_embedded(f) for f in font_families)
+    if _STRICT_EXPORT.get() is not None and "@import" in embedded_font_css:
+        _STRICT_EXPORT.get().warnings.add("external_assets_unavailable")
+        embedded_font_css = re.sub(r"@import\s+[^;]+;", "", embedded_font_css)
 
     sections = []
     for i, page in selected:
-        html = render_page_html(project, page.html, page_index=i)
+        html = _render_export_html(project, page.html, page_index=i)
         sections.append(
             f'<section id="page-{i}" style="margin-bottom:40px; page-break-after:always;">\n'
             f'<h2 style="font-family:sans-serif;font-size:14px;color:#888;margin-bottom:8px;">'
@@ -506,8 +600,8 @@ def export_pdf(
     with sync_playwright() as pw:
         browser = _launch_playwright_browser(pw)
         for i, page in selected:
-            html = render_page_html(project, page.html, page_index=i)
-            ctx = browser.new_context(
+            html = _render_export_html(project, page.html, page_index=i)
+            ctx = _export_context(browser,
                 viewport={"width": project.canvas_width, "height": project.canvas_height}
             )
             pg = ctx.new_page()
@@ -519,6 +613,7 @@ def export_pdf(
                     print_background=True,
                 )
             )
+            _export_collection_size(pdf_pages)
             ctx.close()
         browser.close()
 
@@ -528,6 +623,8 @@ def export_pdf(
         try:
             from pypdf import PdfReader, PdfWriter
         except ImportError:
+            if _STRICT_EXPORT.get() is not None:
+                raise RuntimeError("export_pdf_merge_unavailable") from None
             logger.warning("pypdf not installed — returning first page only for multi-page PDF export")
             merged = pdf_pages[0]
         else:
@@ -556,8 +653,8 @@ def _render_png_screenshots(project: DesignerProject, pages: Optional[str] = Non
     with sync_playwright() as pw:
         browser = _launch_playwright_browser(pw)
         for i, page in selected:
-            html = render_page_html(project, page.html, page_index=i)
-            ctx = browser.new_context(
+            html = _render_export_html(project, page.html, page_index=i)
+            ctx = _export_context(browser,
                 viewport={"width": project.canvas_width, "height": project.canvas_height},
             )
             pg = ctx.new_page()
@@ -565,6 +662,7 @@ def _render_png_screenshots(project: DesignerProject, pages: Optional[str] = Non
             png_bytes = pg.screenshot(full_page=False, type="png")
             safe_title = _sanitize_name(page.title, max_len=40)
             screenshots.append((f"page_{i + 1}_{safe_title}.png", png_bytes))
+            _export_collection_size(data for _name, data in screenshots)
             ctx.close()
         browser.close()
     return screenshots
@@ -634,8 +732,8 @@ def export_pptx_screenshot(
     with sync_playwright() as pw:
         browser = _launch_playwright_browser(pw)
         for i, page in selected:
-            html = render_page_html(project, page.html, page_index=i)
-            ctx = browser.new_context(
+            html = _render_export_html(project, page.html, page_index=i)
+            ctx = _export_context(browser,
                 viewport={"width": project.canvas_width, "height": project.canvas_height},
             )
             pg = ctx.new_page()
@@ -1187,18 +1285,20 @@ def _collect_native_slide(project: DesignerProject, page_html: str, *, page_inde
             "Playwright is required for editable PPTX export. Run: pip install playwright && python -m playwright install chromium"
         ) from exc
 
-    html = render_page_html(project, page_html, page_index=page_index)
+    html = _render_export_html(project, page_html, page_index=page_index)
     screenshot_bytes: dict[str, bytes] = {}
 
     with sync_playwright() as pw:
         browser = _launch_playwright_browser(pw)
-        ctx = browser.new_context(
+        ctx = _export_context(browser,
             viewport={"width": project.canvas_width, "height": project.canvas_height},
             device_scale_factor=2,
         )
         pg = ctx.new_page()
         pg.set_content(html, wait_until="load")
         snapshot = pg.evaluate(_RENDERED_DOM_EXPORT_SCRIPT)
+        if _STRICT_EXPORT.get() is not None and len(snapshot.get("items", [])) > 5000:
+            raise RuntimeError("export_item_limit")
 
         # Render every raster item in an ISOLATED page.  Using
         # locator.screenshot() on the live page would clip the page
@@ -1239,6 +1339,10 @@ def _collect_native_slide(project: DesignerProject, page_html: str, *, page_inde
                     '<style>html,body{margin:0;padding:0;background:transparent;}</style>'
                     f'</head><body>{body}</body></html>'
                 )
+                if _STRICT_EXPORT.get() is not None and width * height > 32 * 1024 * 1024:
+                    raise RuntimeError("export_page_limit")
+                _export_checkpoint()
+                iso_html = _offline_export_html(iso_html, project)
                 iso = ctx.new_page()
                 iso.set_viewport_size({"width": width, "height": height})
                 iso.set_content(iso_html, wait_until="load")
@@ -1247,8 +1351,11 @@ def _collect_native_slide(project: DesignerProject, page_html: str, *, page_inde
                         "x": 0, "y": 0, "width": width, "height": height,
                     },
                 )
+                _export_collection_size(screenshot_bytes.values())
                 iso.close()
             except Exception:
+                if _STRICT_EXPORT.get() is not None:
+                    raise
                 logger.debug("Isolated raster render failed for %s", screenshot_id, exc_info=True)
 
         ctx.close()
@@ -1464,9 +1571,15 @@ def export_pptx_structured(
         items = sorted(snapshot.get("items", []), key=_rendered_item_sort_key)
         items = _dedupe_text_items(items)
         for item in items:
+            _export_checkpoint()
+            if (_STRICT_EXPORT.get() is not None and item.get("kind") == "raster"
+                    and not screenshots.get(item.get("screenshotId"))):
+                raise RuntimeError("export_raster_incomplete")
             try:
                 _add_rendered_item_to_slide(slide, item, screenshots)
             except Exception:
+                if _STRICT_EXPORT.get() is not None:
+                    raise
                 logger.debug("Failed to add item %s", item.get("kind"), exc_info=True)
 
         if page.notes:

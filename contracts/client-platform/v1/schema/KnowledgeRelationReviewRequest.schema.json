@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "KnowledgeRelationAddInput": {
+      "additionalProperties": false,
+      "properties": {
+        "relation_type": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Relation Type",
+          "type": "string"
+        },
+        "source_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "target_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "target_id",
+        "source_revision",
+        "target_revision",
+        "relation_type"
+      ],
+      "title": "KnowledgeRelationAddInput",
+      "type": "object"
+    },
+    "KnowledgeRelationRemoveInput": {
+      "additionalProperties": false,
+      "properties": {
+        "relation_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Relation Id",
+          "type": "string"
+        },
+        "relation_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Relation Revision",
+          "type": "string"
+        },
+        "source_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "target_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relation_id",
+        "relation_revision",
+        "source_revision",
+        "target_revision"
+      ],
+      "title": "KnowledgeRelationRemoveInput",
+      "type": "object"
+    },
+    "KnowledgeSupersedeInput": {
+      "additionalProperties": false,
+      "properties": {
+        "new_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "New Id",
+          "type": "string"
+        },
+        "new_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "New Revision",
+          "type": "string"
+        },
+        "old_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Old Id",
+          "type": "string"
+        },
+        "old_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Old Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "old_id",
+        "new_id",
+        "old_revision",
+        "new_revision"
+      ],
+      "title": "KnowledgeSupersedeInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "knowledge.relation.add",
+        "knowledge.relation.remove",
+        "knowledge.supersede"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KnowledgeRelationAddInput"
+        },
+        {
+          "$ref": "#/$defs/KnowledgeRelationRemoveInput"
+        },
+        {
+          "$ref": "#/$defs/KnowledgeSupersedeInput"
+        }
+      ],
+      "title": "Payload"
+    }
+  },
+  "required": [
+    "action",
+    "payload"
+  ],
+  "title": "KnowledgeRelationReviewRequest",
+  "type": "object"
+}

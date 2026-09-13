@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "manual_selection_required": {
+      "title": "Manual Selection Required",
+      "type": "boolean"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "const": "accept_catalog",
+      "title": "Operation",
+      "type": "string"
+    },
+    "saved_disabled": {
+      "title": "Saved Disabled",
+      "type": "null"
+    },
+    "server_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Server Id",
+      "type": "string"
+    },
+    "test_command_id": {
+      "format": "uuid",
+      "title": "Test Command Id",
+      "type": "string"
+    },
+    "tool_count": {
+      "maximum": 1000,
+      "minimum": 0,
+      "title": "Tool Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "configuration_revision",
+    "server_id",
+    "test_command_id",
+    "operation",
+    "action_digest",
+    "tool_count",
+    "manual_selection_required",
+    "saved_disabled",
+    "nonce"
+  ],
+  "title": "McpCatalogReview",
+  "type": "object"
+}

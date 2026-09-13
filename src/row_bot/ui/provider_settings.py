@@ -164,21 +164,19 @@ def _clear_provider_runtime_cache() -> None:
 
 
 def _save_provider_api_key_value(provider_id: str, value: str) -> dict:
-    from row_bot.providers.auth_store import delete_provider_secret, provider_secret_status, set_provider_secret
-    from row_bot.providers.models import AuthMethod
+    from row_bot.providers.credential_controls import save_api_key
 
-    delete_provider_secret(provider_id, "api_key")
-    set_provider_secret(provider_id, "api_key", value, auth_method=AuthMethod.API_KEY)
+    status = save_api_key(provider_id, value)
     _clear_provider_runtime_cache()
-    return provider_secret_status(provider_id, "api_key")
+    return status
 
 
 def _clear_provider_api_key_value(provider_id: str) -> dict:
-    from row_bot.providers.auth_store import delete_provider_secret, provider_secret_status
+    from row_bot.providers.credential_controls import clear_api_key
 
-    delete_provider_secret(provider_id, "api_key")
+    status = clear_api_key(provider_id)
     _clear_provider_runtime_cache()
-    return provider_secret_status(provider_id, "api_key")
+    return status
 
 
 def _credential_status_text(status: dict) -> str:
@@ -1536,7 +1534,11 @@ def build_custom_endpoints_section(on_change=None) -> None:
                                 except ValueError as exc:
                                     ui.notify(str(exc), type="negative", close_button=True)
                                     return
-                                save_custom_endpoint(payload)
+                                try:
+                                    save_custom_endpoint(payload)
+                                except Exception:
+                                    ui.notify("Endpoint could not be saved. Your previous configuration and credential are retained; review storage and try again.", type="negative", close_button=True)
+                                    return
                                 storage_warning = ""
                                 if payload.get("api_key"):
                                     from row_bot.providers.auth_store import get_storage_warning as get_provider_storage_warning
@@ -1762,7 +1764,11 @@ def build_custom_endpoints_section(on_change=None) -> None:
             payload["supports_reasoning_replay"] = bool(supports_reasoning_replay.value)
             if extra_body:
                 payload["extra_body"] = extra_body
-            save_custom_endpoint(payload)
+            try:
+                save_custom_endpoint(payload)
+            except Exception:
+                ui.notify("Endpoint could not be saved. Your previous configuration and credential are retained; review storage and try again.", type="negative", close_button=True)
+                return
             storage_warning = ""
             if payload.get("api_key"):
                 from row_bot.providers.auth_store import get_storage_warning as get_provider_storage_warning

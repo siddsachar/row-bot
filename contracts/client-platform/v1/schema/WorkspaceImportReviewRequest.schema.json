@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "pending_change_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Pending Change Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pending_change_id"
+  ],
+  "title": "WorkspaceImportReviewRequest",
+  "type": "object"
+}

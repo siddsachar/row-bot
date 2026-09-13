@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type {
   WorkspaceInspector as Inspector,
   WorkspaceChanges,
@@ -9,11 +15,34 @@ import type {
   WorkspaceChangeSetFiles,
 } from '../../api/types';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
+import WorkspaceFileEditor, {
+  type WorkspaceFileEditorProps,
+} from './WorkspaceFileEditor';
+import {
+  WorkspaceEditSession,
+  type WorkspaceEditScope,
+  type WorkspaceEditScopeState,
+} from './workspace-edit-sessions';
+
+const emptyEditScope: WorkspaceEditScopeState = {
+  session: null,
+  paths: [],
+  open: false,
+  capacity: false,
+  accessible: false,
+};
+const noEditSubscription = () => () => {};
+const noEditSnapshot = () => emptyEditScope;
 
 export type WorkspaceInspectorProps = {
+  onUndo?: (changeSetId: string) => void;
   resourceId: string;
   resourceRevision: string;
+  refreshToken?: number;
   visible: boolean;
+  editableFile?: WorkspaceFileEditorProps['load'];
+  saveFile?: WorkspaceFileEditorProps['save'];
+  editSessions?: WorkspaceEditScope;
   load: (refresh?: boolean, signal?: AbortSignal) => Promise<Inspector>;
   changes: (
     revision: string,
@@ -103,6 +132,28 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   const [busy, setBusy] = useState<Partial<Record<Lane, boolean>>>({});
   const [errors, setErrors] = useState<Partial<Record<Lane, boolean>>>({});
   const [accessChanged, setAccessChanged] = useState(false);
+  const [editPath, setEditPath] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const scopedEdit = useSyncExternalStore(
+    props.editSessions?.subscribe ?? noEditSubscription,
+    props.editSessions?.getSnapshot ?? noEditSnapshot,
+  );
+  const localEdit = useMemo(
+    () =>
+      editPath && props.resourceId
+        ? new WorkspaceEditSession(editPath, {
+            load: (...args) => callbacks.current.editableFile!(...args),
+            save: (...args) => callbacks.current.saveFile!(...args),
+          })
+        : null,
+    [editPath, props.resourceId],
+  );
+  useEffect(() => () => localEdit?.dispose(), [localEdit]);
+  const selectedEditPath = props.editSessions
+    ? (scopedEdit.session?.path ?? '')
+    : editPath;
+  const editSession = props.editSessions ? scopedEdit.session : localEdit;
+  const editOpen = props.editSessions ? scopedEdit.open : editorOpen;
 
   function cancelQueries() {
     epoch.current += 1;
@@ -279,12 +330,17 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   }
 
   useEffect(() => {
-    if (props.visible) void refresh(false);
+    if (props.visible) void refresh(Boolean(props.refreshToken));
     else cancelQueries();
     return cancelQueries;
     // Callback identity changes do not create another subscription or Git scan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.resourceId, props.resourceRevision, props.visible]);
+  }, [
+    props.resourceId,
+    props.resourceRevision,
+    props.visible,
+    props.refreshToken,
+  ]);
 
   const current = owner === props.resourceId ? summary : null;
   if (!props.visible) return null;
@@ -515,7 +571,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
       <section className="stack" aria-label="Agent change sets">
         <h3>Agent changes</h3>
         <Button
-          disabled={busy.ledger}
+          disabled={busy.summary || busy.ledger}
           onClick={() => void loadLedger(current.snapshot_revision)}
         >
           {ledger ? 'First agent changes' : 'Load agent changes'}
@@ -547,6 +603,14 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
                     ? 'Reviewed'
                     : 'Unreviewed'}
               </span>
+              {!change.reverted && props.onUndo && (
+                <Button
+                  variant="ghost"
+                  onClick={() => props.onUndo?.(change.id)}
+                >
+                  Review Undo {change.summary || change.id}
+                </Button>
+              )}
             </li>
           ))}
         </ul>
@@ -696,6 +760,73 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
 
       <section className="stack" aria-label="Read-only file preview">
         <h3>File preview{filePath ? `: ${filePath}` : ''}</h3>
+        {scopedEdit.capacity && (
+          <p role="alert">
+            The retained editor limit is full. Save or explicitly discard an
+            available draft before opening another file. Uncertain saves are
+            retained until resolved.
+          </p>
+        )}
+        {props.editableFile &&
+          props.saveFile &&
+          (filePath || selectedEditPath) && (
+            <Button
+              onClick={() => {
+                if (props.editSessions)
+                  props.editSessions.open(selectedEditPath || filePath);
+                else {
+                  if (!editPath) setEditPath(filePath);
+                  setEditorOpen(true);
+                }
+              }}
+            >
+              {selectedEditPath
+                ? `Resume edit: ${selectedEditPath}`
+                : 'Edit file'}
+            </Button>
+          )}
+        {props.editSessions &&
+          filePath &&
+          selectedEditPath &&
+          filePath !== selectedEditPath && (
+            <Button onClick={() => props.editSessions!.open(filePath)}>
+              Edit file: {filePath}
+            </Button>
+          )}
+        {props.editSessions &&
+          scopedEdit.paths
+            .filter((name) => name !== selectedEditPath)
+            .map((name) => (
+              <Button key={name} onClick={() => props.editSessions!.open(name)}>
+                Resume edit: {name}
+              </Button>
+            ))}
+        {selectedEditPath &&
+          editSession &&
+          props.editableFile &&
+          props.saveFile && (
+            <WorkspaceFileEditor
+              key={`${props.resourceId}:${selectedEditPath}`}
+              path={selectedEditPath}
+              session={editSession}
+              visible={props.visible && editOpen}
+              load={props.editableFile}
+              save={props.saveFile}
+              close={() =>
+                props.editSessions
+                  ? props.editSessions.close()
+                  : setEditorOpen(false)
+              }
+              discard={() => {
+                if (props.editSessions) {
+                  props.editSessions.discard();
+                  return;
+                }
+                setEditorOpen(false);
+                setEditPath('');
+              }}
+            />
+          )}
         {errors.file && (
           <ErrorState
             title="File unavailable"

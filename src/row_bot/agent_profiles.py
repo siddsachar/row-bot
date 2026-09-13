@@ -1157,17 +1157,53 @@ def resolve_profile_for_run(
     *,
     parent_approval_mode: str = DEFAULT_APPROVAL_MODE,
     require_enabled: bool = True,
+    single_snapshot: bool = False,
+    connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Resolve a profile and return effective policy data for a run."""
     ref = str(profile_id_or_slug or "").strip() or "row_bot_default"
-    profile = require_agent_profile(ref, enabled_only=require_enabled)
+    if connection is None:
+        profile = require_agent_profile(ref, enabled_only=require_enabled)
+    else:
+        # The reviewed task owner already holds the canonical DB snapshot.
+        # Do not call schema initialization or reopen a separate connection.
+        profile = _builtin_profile_by_ref(ref, include_aliases=False, include_display_names=False)
+        if profile is None and connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_profiles'"
+        ).fetchone():
+            columns = [str(row[1]) for row in connection.execute("PRAGMA table_info(agent_profiles)")]
+            sizes = " + ".join(
+                'COALESCE(length(CAST("' + name.replace('"', '""') + '" AS BLOB)), 0)'
+                for name in columns
+            )
+            size = connection.execute(
+                f"SELECT {sizes} FROM agent_profiles WHERE id=? OR slug=?", (ref, normalize_profile_slug(ref)),
+            ).fetchone()
+            if size is not None and size[0] > 2 * 1024 * 1024:
+                raise AgentProfileError("Agent Profile metadata exceeds the reviewed execution limit")
+            row = connection.execute(
+                "SELECT * FROM agent_profiles WHERE id=? OR slug=?", (ref, normalize_profile_slug(ref)),
+            ).fetchone()
+            profile = _profile_from_row(row) if row is not None else None
+        profile = profile or _builtin_profile_by_ref(ref, include_aliases=True, include_display_names=True)
+        if profile is None or (require_enabled and not profile.get("enabled", True)):
+            raise AgentProfileError("Agent Profile is unavailable for reviewed execution")
     approval_policy = _json_obj(profile.get("approval_policy_json"), field="approval_policy_json")
     effective_approval, warning = _effective_approval(
         parent_approval_mode,
         str(approval_policy.get("mode") or "inherit"),
     )
     warnings = [warning] if warning else []
-    snapshot = snapshot_agent_profile(profile["id"])
+    if single_snapshot or connection is not None:
+        # Reviewed execution must not combine an approval cap from one read
+        # with tools/workspace permissions from a later profile revision.
+        snapshot = copy.deepcopy(profile)
+        snapshot["snapshot_at"] = _now()
+        snapshot["snapshot_profile_id"] = profile["id"]
+        snapshot["snapshot_profile_slug"] = profile["slug"]
+        snapshot["snapshot_revision"] = profile.get("revision", 1)
+    else:
+        snapshot = snapshot_agent_profile(profile["id"])
     return {
         "profile": profile,
         "profile_id": profile["id"],

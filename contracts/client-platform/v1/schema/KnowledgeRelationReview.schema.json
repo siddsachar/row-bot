@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "knowledge.relation.add",
+        "knowledge.relation.remove",
+        "knowledge.supersede"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "entity_ids": {
+      "items": {
+        "pattern": "^[A-Za-z0-9_-]{1,128}$",
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Entity Ids",
+      "type": "array"
+    },
+    "entity_revisions": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Entity Revisions",
+      "type": "array"
+    },
+    "intent_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Intent Digest",
+      "type": "string"
+    },
+    "relation_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Relation Id"
+    },
+    "relation_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Relation Revision",
+      "type": "string"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "entity_ids",
+    "entity_revisions",
+    "relation_id",
+    "relation_revision",
+    "intent_digest",
+    "review_id"
+  ],
+  "title": "KnowledgeRelationReview",
+  "type": "object"
+}

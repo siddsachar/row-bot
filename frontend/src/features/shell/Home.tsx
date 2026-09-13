@@ -78,7 +78,7 @@ function ResourceLibrary({
   const page = useHomePage<ResourceChoicePage>(identity, load);
   const deck = kind === 'artifact';
   const title = deck ? 'Designer' : 'Developer';
-  const noun = deck ? 'Decks' : 'workspaces';
+  const noun = deck ? 'designs' : 'workspaces';
   const Icon = deck ? Presentation : FolderOpen;
   return (
     <section className="home-section" aria-label={`${title} library`}>
@@ -93,13 +93,13 @@ function ResourceLibrary({
           onClick={() => onSetup({ kind, mode: 'create' })}
         >
           <Plus size={16} aria-hidden />
-          {deck ? 'Create Deck' : 'Open folder'}
+          {deck ? 'Create design' : 'Open folder'}
         </Button>
       </header>
       <p className="muted">
         {deck
-          ? 'Create a Deck or continue a saved design in its conversation.'
-          : 'Register an existing folder or return to a saved workspace.'}
+          ? 'Create a design or continue a saved design in its conversation.'
+          : 'Create an empty folder, register an existing folder or return to a saved workspace.'}
       </p>
       {page.loading && <Skeleton label={`Loading ${noun}`} />}
       {page.error && (
@@ -139,10 +139,10 @@ function ResourceLibrary({
                 </Hint>
                 <details className="home-resource-identity">
                   <summary>
-                    {deck ? 'Deck details' : 'Workspace details'}
+                    {deck ? 'Design details' : 'Workspace details'}
                   </summary>
                   <small>
-                    {deck ? 'Deck' : 'Saved workspace'} ID:{' '}
+                    {deck ? 'Design' : 'Saved workspace'} ID:{' '}
                     {resource.resource_id}
                   </small>
                 </details>
@@ -170,12 +170,16 @@ export default function Home({
   onSetup,
   onOpenConversation,
   onSearch,
+  onOpenTasks,
+  onOpenSettings,
 }: {
   onNewChat: () => void;
   creatingChat?: boolean;
   onSetup: (entry: HomeSetupEntry) => void;
   onOpenConversation: (id: string) => void;
   onSearch: () => void;
+  onOpenTasks: () => void;
+  onOpenSettings: () => void;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -281,8 +285,14 @@ export default function Home({
         />
       </div>
       <p className="home-compatibility muted">
-        Workflows, Knowledge and Monitor are available in the current app.{' '}
-        <a href="/">Open in current app</a>
+        <Button variant="ghost" onClick={onOpenTasks}>
+          Workflows
+        </Button>
+        <Button variant="ghost" onClick={onOpenSettings}>
+          Settings
+        </Button>
+        Browse Knowledge and Documents in Settings. Monitor is available in the
+        current app. <a href="/">Open in current app</a>
       </p>
     </div>
   );

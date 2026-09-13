@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "WorkspaceProcessOutputEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 8192,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "channel",
+        "text"
+      ],
+      "title": "WorkspaceProcessOutputEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProcessOutputEntry"
+      },
+      "maxItems": 1024,
+      "title": "Entries",
+      "type": "array"
+    },
+    "next_cursor": {
+      "minimum": 0,
+      "title": "Next Cursor",
+      "type": "integer"
+    },
+    "process_id": {
+      "format": "uuid",
+      "title": "Process Id",
+      "type": "string"
+    },
+    "quiesced": {
+      "title": "Quiesced",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "process_id",
+    "entries",
+    "next_cursor",
+    "truncated",
+    "quiesced"
+  ],
+  "title": "WorkspaceProcessOutput",
+  "type": "object"
+}

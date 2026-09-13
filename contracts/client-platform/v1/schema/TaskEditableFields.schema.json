@@ -1,0 +1,98 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "At"
+    },
+    "channels": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9:_-]+$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Channels"
+    },
+    "description": {
+      "maxLength": 4096,
+      "title": "Description",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "icon": {
+      "maxLength": 32,
+      "title": "Icon",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "notify_label": {
+      "maxLength": 4096,
+      "title": "Notify Label",
+      "type": "string"
+    },
+    "notify_only": {
+      "title": "Notify Only",
+      "type": "boolean"
+    },
+    "prompts": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Prompts",
+      "type": "array"
+    },
+    "schedule": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Schedule"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "icon",
+    "prompts",
+    "enabled",
+    "schedule",
+    "at",
+    "notify_only",
+    "notify_label",
+    "channels"
+  ],
+  "title": "TaskEditableFields",
+  "type": "object"
+}

@@ -24,6 +24,7 @@ automatically and the old file is kept as a backup.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -32,6 +33,7 @@ import shutil
 import sqlite3
 import threading
 import uuid
+from collections.abc import Iterator
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
@@ -405,6 +407,10 @@ def _apply_schema(conn: sqlite3.Connection) -> None:
             except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
                     raise
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_runs_latest_by_task "
+        "ON task_runs(task_id, started_at DESC, id DESC)"
+    )
     conn.execute(
         "UPDATE tasks SET safety_mode = 'allow_all' WHERE safety_mode IS NULL"
     )
@@ -1616,6 +1622,9 @@ def create_task(
     agent_profile_id: str | None = None,
     enabled: bool = True,
     apply_default_skills: bool = True,
+    task_id: str | None = None,
+    validate: Callable[[], None] | None = None,
+    record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
 ) -> str:
     """Create a new task and return its ID.
 
@@ -1642,7 +1651,7 @@ def create_task(
     # ── Validate delivery settings ────────────────────────────────────
     _validate_delivery(delivery_channel, delivery_target)
 
-    task_id = uuid.uuid4().hex[:12]
+    task_id = task_id or uuid.uuid4().hex[:12]
     now = datetime.now().isoformat()
     if prompts is None:
         prompts = []
@@ -1687,42 +1696,49 @@ def create_task(
         _canonicalize_workflow_steps(steps)
         prompts = _steps_to_prompts(steps) or prompts
     conn = _get_conn()
-    conn.execute(
-        "INSERT INTO tasks "
-        "(id, name, description, icon, prompts, schedule, at, notify_only, "
-        "notify_label, delivery_channel, delivery_target, model_override, "
-        "persistent_thread_id, delete_after_run, created_at, enabled, skills_override, "
-        "steps, safety_mode, concurrency_group, trigger, tools_override, channels, "
-        "advanced_mode, agent_profile_id, profile_migration_status, "
-        "profile_migration_note, profile_migration_snapshot_json) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            task_id, name, description, icon, json.dumps(prompts),
-            schedule, at, int(notify_only), notify_label,
-            delivery_channel, delivery_target, model_override,
-            persistent_thread_id, int(delete_after_run), now, int(enabled),
-            json.dumps(skills_override) if skills_override is not None else None,
-            json.dumps(steps) if steps else "[]",
-            safety_mode,
-            concurrency_group,
-            json.dumps(trigger) if trigger else None,
-            json.dumps(tools_override) if tools_override else None,
-            json.dumps(channels) if channels is not None else None,
-            int(bool(advanced_mode)),
-            agent_profile_id,
-            profile_migration_status,
-            profile_migration_note,
-            json.dumps(profile_migration_snapshot, sort_keys=True),
-        ),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        conn.execute(
+            "INSERT INTO tasks "
+            "(id, name, description, icon, prompts, schedule, at, notify_only, "
+            "notify_label, delivery_channel, delivery_target, model_override, "
+            "persistent_thread_id, delete_after_run, created_at, enabled, skills_override, "
+            "steps, safety_mode, concurrency_group, trigger, tools_override, channels, "
+            "advanced_mode, agent_profile_id, profile_migration_status, "
+            "profile_migration_note, profile_migration_snapshot_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                task_id, name, description, icon, json.dumps(prompts),
+                schedule, at, int(notify_only), notify_label,
+                delivery_channel, delivery_target, model_override,
+                persistent_thread_id, int(delete_after_run), now, int(enabled),
+                json.dumps(skills_override) if skills_override is not None else None,
+                json.dumps(steps) if steps else "[]",
+                safety_mode,
+                concurrency_group,
+                json.dumps(trigger) if trigger else None,
+                json.dumps(tools_override) if tools_override else None,
+                json.dumps(channels) if channels is not None else None,
+                int(bool(advanced_mode)),
+                agent_profile_id,
+                profile_migration_status,
+                profile_migration_note,
+                json.dumps(profile_migration_snapshot, sort_keys=True),
+            ),
+        )
+        if validate is not None:
+            validate()
+        if record_commit is not None:
+            record_commit(conn, task_id)
+        conn.commit()
+    finally:
+        conn.close()
 
-    # Sync APScheduler job (no-op if scheduler not yet started)
+    # Reconcile from current canonical data, including recovery after commit.
     if _scheduler is not None:
-        task = get_task(task_id)
-        if task:
-            _sync_job(task)
+        sync_task_schedule(task_id, validate=validate)
 
     return task_id
 
@@ -1750,8 +1766,258 @@ def list_tasks() -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
+    """Yield bounded saved task metadata from one SQLite read snapshot.
+
+    Prompts, delivery destinations, approval tokens and runtime configuration
+    are deliberately absent. This never starts a task or loads its channels.
+    """
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        rows = conn.execute(
+            "SELECT t.id, substr(t.name, 1, 256) AS name, "
+            "substr(t.description, 1, 2048) AS description, "
+            "substr(t.icon, 1, 32) AS icon, t.enabled, t.notify_only, "
+            "substr(t.schedule, 1, 256) AS schedule, substr(t.at, 1, 80) AS at, "
+            "substr(t.last_run, 1, 80) AS last_run, t.persistent_thread_id, "
+            "(SELECT substr(r.status, 1, 80) FROM task_runs r WHERE r.task_id=t.id "
+            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status "
+            "FROM tasks t ORDER BY t.sort_order, t.created_at, t.id"
+        )
+        while batch := rows.fetchmany(128):
+            for row in batch:
+                yield dict(row)
+    finally:
+        conn.close()
+
+
+class TaskMutationError(ValueError):
+    def __init__(self, code: str, task_id: str, *, committed: bool = False):
+        self.code = code
+        self.task_id = task_id
+        self.committed = committed
+        super().__init__(code)
+
+
+def _task_row_revision(row: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(dict(row), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    ).hexdigest()
+
+
+def _task_editor_row(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
+    """Read the complete row only after a same-snapshot 2 MiB envelope check."""
+    columns = [str(column[1]) for column in conn.execute("PRAGMA table_info(tasks)")]
+    sizes = " + ".join(
+        'COALESCE(length(CAST("' + column.replace('"', '""') + '" AS BLOB)), 0)'
+        for column in columns
+    )
+    size = conn.execute(f"SELECT {sizes} FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if size is None:
+        return None
+    if size[0] > 2 * 1024 * 1024:
+        raise TaskMutationError("task_metadata_too_large", task_id)
+    return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+
 @_schema_retry
-def update_task(task_id: str, **kwargs) -> None:
+def read_task_for_edit(task_id: str) -> tuple[dict, str] | None:
+    """Capture the existing task and exact full stored-row revision together."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            return None
+        task = _row_to_dict(row)
+        # The compatibility reader synthesizes steps from simple prompts.
+        # Editing needs to distinguish those from authoritative stored graphs.
+        task["_stored_steps"] = bool(json.loads(row["steps"] or "[]"))
+        return task, _task_row_revision(row)
+    finally:
+        conn.close()
+
+
+@_schema_retry
+def update_task_graph(
+    task_id: str, *, expected_revision: str, steps: list[dict],
+    validate: Callable[[], None],
+    record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
+) -> None:
+    """Save a reviewed graph without renumbering stable IDs or running it."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        validate()
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        if _task_row_revision(row) != expected_revision:
+            raise TaskMutationError("task_revision_conflict", task_id)
+        # Inspect subtask dependencies in this same writer snapshot. A changed
+        # dependency cannot introduce recursion between validation and commit.
+        pending = [(str(s.get("task_id") or ""), False)
+                   for s in steps if s.get("type") == "subtask"]
+        visited: set[str] = set()
+        active: set[str] = set()
+        while pending:
+            dependency, leaving = pending.pop()
+            if leaving:
+                active.remove(dependency)
+                visited.add(dependency)
+                continue
+            if dependency == task_id or dependency in active:
+                raise TaskMutationError("task_graph_cycle", task_id)
+            if dependency in visited:
+                continue
+            if len(visited) + len(active) >= 1000:
+                raise TaskMutationError("task_graph_too_large", task_id)
+            active.add(dependency)
+            child = _task_editor_row(conn, dependency)
+            if child is None:
+                raise TaskMutationError("task_graph_missing_subtask", task_id)
+            child_steps = _row_to_dict(child).get("steps") or []
+            if len(child_steps) > 100:
+                raise TaskMutationError("task_graph_too_large", task_id)
+            pending.append((dependency, True))
+            pending.extend((str(s.get("task_id") or ""), False) for s in child_steps
+                           if isinstance(s, dict) and s.get("type") == "subtask")
+        conn.execute(
+            "UPDATE tasks SET steps = ?, prompts = ?, advanced_mode = 1 WHERE id = ?",
+            (json.dumps(steps), json.dumps(_steps_to_prompts(steps)), task_id),
+        )
+        _task_editor_row(conn, task_id)  # Preserve the same full-row envelope on write.
+        if record_commit is not None:
+            record_commit(conn, task_id)
+        validate()
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _task_settings_profile(conn: sqlite3.Connection, values: dict, *, required: bool) -> dict | None:
+    from row_bot.agent_profiles import AgentProfileError, resolve_profile_for_run
+
+    try:
+        return resolve_profile_for_run(
+            values.get("agent_profile_id") or DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            parent_approval_mode=values.get("safety_mode") or "block",
+            require_enabled=required, single_snapshot=True, connection=conn,
+        )
+    except AgentProfileError as exc:
+        if required:
+            raise TaskMutationError("task_settings_profile_unavailable", str(values.get("id") or "")) from exc
+        return None
+
+
+def _task_settings_profile_revision(profile: dict | None) -> str | None:
+    if profile is None:
+        return None
+    snapshot = dict(profile["profile_snapshot"])
+    snapshot.pop("snapshot_at", None)
+    return hashlib.sha256(json.dumps({"profile": snapshot, "approval": profile["effective_approval_mode"]},
+                                    sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+@_schema_retry
+def read_task_settings_review(task_id: str, values: dict | None = None) -> tuple[dict, str, dict | None]:
+    """Read settings and their profile from one canonical, non-mutating snapshot."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        task = _row_to_dict(row)
+        projected = {**task, **(values or {})}
+        profile = _task_settings_profile(conn, projected, required=values is not None)
+        return task, _task_row_revision(row), profile
+    finally:
+        conn.close()
+
+
+@_schema_retry
+def update_task_settings(
+    task_id: str, *, expected_revision: str, values: dict,
+    expected_profile_revision: str | None, validate: Callable[[], None],
+    rotate_webhook: bool = False,
+    record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
+) -> None:
+    """Publish reviewed settings in their existing task row; never execute."""
+    allowed = {"concurrency_group", "trigger", "model_override", "agent_profile_id",
+               "safety_mode", "persistent_thread_id"}
+    if set(values) - allowed:
+        raise TaskMutationError("invalid_task_settings", task_id)
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        validate()
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        if _task_row_revision(row) != expected_revision:
+            raise TaskMutationError("task_revision_conflict", task_id)
+        current = _row_to_dict(row)
+        merged = {**current, **values}
+        if not rotate_webhook:
+            profile = _task_settings_profile(conn, merged, required=True)
+            if _task_settings_profile_revision(profile) != expected_profile_revision:
+                raise TaskMutationError("task_settings_profile_conflict", task_id)
+            if "model_override" in values:
+                try:
+                    canonical = _canonicalize_workflow_model_override(values["model_override"])
+                except ValueError as exc:
+                    raise TaskMutationError("task_settings_model_unavailable", task_id) from exc
+                if canonical != values["model_override"]:
+                    raise TaskMutationError("task_settings_model_unavailable", task_id)
+        trigger = merged.get("trigger")
+        if rotate_webhook:
+            if not isinstance(current.get("trigger"), dict) or current["trigger"].get("type") != "webhook":
+                raise TaskMutationError("task_webhook_unavailable", task_id)
+            trigger = {**current["trigger"], "secret": generate_webhook_secret()}
+            values = {"trigger": trigger}
+        elif "trigger" in values and isinstance(trigger, dict) and trigger.get("type") == "webhook":
+            # Caller cannot supply or overwrite credentials. New webhook
+            # activation generates its secret only inside this transaction.
+            previous = current.get("trigger")
+            secret = previous.get("secret") if isinstance(previous, dict) and previous.get("type") == "webhook" else None
+            if not isinstance(secret, str) or not secret:
+                secret = generate_webhook_secret()
+            trigger = {**trigger, "secret": secret}
+            values = {**values, "trigger": trigger}
+        if isinstance(trigger, dict) and trigger.get("type") == "task_complete":
+            target = trigger.get("target_task")
+            visited = {task_id}
+            while target:
+                if target in visited:
+                    raise TaskMutationError("task_trigger_cycle", task_id)
+                if len(visited) >= 1000:
+                    raise TaskMutationError("task_settings_too_large", task_id)
+                visited.add(target)
+                dependency = _task_editor_row(conn, target)
+                if dependency is None:
+                    raise TaskMutationError("task_trigger_target_unavailable", task_id)
+                dependency_trigger = _row_to_dict(dependency).get("trigger")
+                target = dependency_trigger.get("target_task") if isinstance(dependency_trigger, dict) and dependency_trigger.get("type") == "task_complete" else None
+        for key, value in values.items():
+            conn.execute(f"UPDATE tasks SET {key} = ? WHERE id = ?",
+                         (json.dumps(value) if key == "trigger" and value is not None else value, task_id))
+        _task_editor_row(conn, task_id)
+        if record_commit is not None:
+            record_commit(conn, task_id)
+        validate()
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@_schema_retry
+def update_task(
+    task_id: str, *, expected_revision: str | None = None,
+    validate: Callable[[], None] | None = None,
+    record_commit: Callable[[sqlite3.Connection, str], None] | None = None, **kwargs,
+) -> None:
     """Update task fields.
 
     Accepted keys: name, description, icon, prompts (list[str]), schedule,
@@ -1771,6 +2037,13 @@ def update_task(task_id: str, **kwargs) -> None:
         "profile_migration_status", "profile_migration_note",
         "profile_migration_snapshot_json",
     }
+    if expected_revision is not None and set(kwargs) - {
+        "name", "description", "icon", "prompts", "schedule", "at", "enabled",
+        "notify_only", "notify_label", "channels",
+    }:
+        # The reviewed editor does not run legacy profile conversion or graph
+        # rewrites before CAS. Existing unreviewed callers retain their API.
+        raise TaskMutationError("task_review_unsupported_fields", task_id)
 
     # ── Validate delivery if either field is being changed ───────────
     if {"tools_override", "skills_override"} & set(kwargs):
@@ -1806,41 +2079,125 @@ def update_task(task_id: str, **kwargs) -> None:
             _validate_delivery(ch, tgt)
 
     conn = _get_conn()
-    for key, value in kwargs.items():
-        if key not in _ALLOWED:
-            continue
-        if key == "model_override":
-            value = _canonicalize_workflow_model_override(value)
-        if key == "safety_mode":
-            value = legacy_safety_mode_to_approval_mode(value)
-        if key == "agent_profile_id":
-            value = _canonicalize_agent_profile_reference(value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID)
-        if key == "steps" and isinstance(value, list):
-            assign_step_ids(value)
-            _canonicalize_workflow_steps(value)
-        if key in ("prompts", "allowed_commands", "allowed_recipients",
-                   "skills_override", "steps", "trigger",
-                   "tools_override", "channels", "profile_migration_snapshot_json"):
-            value = json.dumps(value, sort_keys=True) if value is not None else None
-        if key in ("notify_only", "delete_after_run", "advanced_mode"):
-            value = int(value)
-        conn.execute(
-            f"UPDATE tasks SET {key} = ? WHERE id = ?",
-            (value, task_id),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        if expected_revision is not None or validate is not None or record_commit is not None:
+            conn.execute("BEGIN IMMEDIATE")
+        if expected_revision is not None:
+            row = _task_editor_row(conn, task_id)
+            if row is None:
+                raise TaskMutationError("task_not_found", task_id)
+            if _task_row_revision(row) != expected_revision:
+                raise TaskMutationError("task_revision_conflict", task_id)
+        if validate is not None:
+            validate()
+        for key, value in kwargs.items():
+            if key not in _ALLOWED:
+                continue
+            if key == "model_override":
+                value = _canonicalize_workflow_model_override(value)
+            if key == "safety_mode":
+                value = legacy_safety_mode_to_approval_mode(value)
+            if key == "agent_profile_id":
+                value = _canonicalize_agent_profile_reference(value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID)
+            if key == "steps" and isinstance(value, list):
+                assign_step_ids(value)
+                _canonicalize_workflow_steps(value)
+            if key in ("prompts", "allowed_commands", "allowed_recipients",
+                       "skills_override", "steps", "trigger",
+                       "tools_override", "channels", "profile_migration_snapshot_json"):
+                value = json.dumps(value, sort_keys=True) if value is not None else None
+            if key in ("notify_only", "delete_after_run", "advanced_mode"):
+                value = int(value)
+            conn.execute(
+                f"UPDATE tasks SET {key} = ? WHERE id = ?",
+                (value, task_id),
+            )
+        if validate is not None:
+            validate()
+        if record_commit is not None:
+            record_commit(conn, task_id)
+        conn.commit()
+    finally:
+        conn.close()
 
     # Re-sync APScheduler job if schedule-related fields changed
     _SCHEDULE_KEYS = {"schedule", "at", "enabled", "notify_only", "delete_after_run"}
     if _scheduler is not None and _SCHEDULE_KEYS & set(kwargs):
-        task = get_task(task_id)
-        if task:
-            _sync_job(task)
+        sync_task_schedule(task_id, validate=validate)
+
+
+def sync_task_schedule(task_id: str, *, validate: Callable[[], None] | None = None) -> None:
+    """Reconcile a saved schedule without starting the scheduler or running it.
+
+    Existing task writer admission holds the captured row stable through the
+    local scheduler effect. A failure cannot undo the already saved task.
+    """
+    if _scheduler is None:
+        if validate is not None:
+            validate()
+        return
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _task_editor_row(conn, task_id) if validate is not None else conn.execute(
+            "SELECT * FROM tasks WHERE id = ?", (task_id,),
+        ).fetchone()
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id, committed=True)
+        if validate is not None:
+            validate()
+        _sync_job(_row_to_dict(row))
+        if validate is not None:
+            validate()
+    except TaskMutationError as exc:
+        raise TaskMutationError(exc.code, task_id, committed=True) from exc
+    except Exception as exc:
+        if validate is not None:
+            raise TaskMutationError("task_schedule_unconfirmed", task_id, committed=True) from exc
+        raise
+    finally:
+        conn.close()
+
 
 
 @_schema_retry
-def delete_task(task_id: str) -> None:
+def delete_task(task_id: str, *, expected_revision: str | None = None,
+                validate: Callable[[], None] | None = None,
+                preserve_conversations: bool = False) -> None:
+    if expected_revision is not None or validate is not None or preserve_conversations:
+        if not preserve_conversations or not isinstance(expected_revision, str) or len(expected_revision) != 64:
+            raise TaskMutationError("task_delete_review_required", task_id)
+        conn = _get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = _task_editor_row(conn, task_id)
+            if validate is not None:
+                validate()
+            if row is None:
+                raise TaskMutationError("task_not_found", task_id)
+            if _task_row_revision(row) != expected_revision:
+                raise TaskMutationError("task_delete_revision_conflict", task_id)
+            # New reviewed runs can share ordinary conversations. Run identity
+            # is not conversation ownership, nor authority over other runs'
+            # approvals or recovery rows. Only the exact task is removed.
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            if validate is not None:
+                validate()
+            conn.commit()
+        finally:
+            conn.close()
+        # Remove only a now-orphaned timer. A newly created row with the same
+        # ID owns its own schedule, so recheck under the canonical writer lock.
+        conn = _get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is None:
+                _remove_job(task_id)
+        except Exception as exc:
+            raise TaskMutationError("task_delete_schedule_unconfirmed", task_id, committed=True) from exc
+        finally:
+            conn.close()
+        return
     _remove_job(task_id)
     conn = _get_conn()
     # Clean up pipeline_state and cancel pending approval_requests up-front
@@ -2068,7 +2425,7 @@ def _filter_workflow_tools_for_profile(
     allow = set(_ordered_text_list(tool_policy.get("allow_tools")))
     capability = str(tool_policy.get("capability") or "read_only")
     filtered = list(requested)
-    if capability == "read_only" and not allow:
+    if capability == "read_only":
         filtered = [name for name in filtered if name not in _WORKFLOW_READ_ONLY_DEFAULT_DENY_TOOLS]
     if allow:
         mcp_allowed = "mcp" in allow or any(name.startswith("mcp_") for name in allow)
@@ -2083,14 +2440,19 @@ def _filter_workflow_tools_for_profile(
 def _workflow_profile_runtime_policy(
     task: dict,
     enabled_tool_names: Sequence[str],
+    *, single_snapshot: bool = False, profile_connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     from row_bot.agent_profiles import resolve_profile_for_run
 
     parent_approval = get_task_approval_mode(task)
+    options = {"single_snapshot": True} if single_snapshot else {}
+    if profile_connection is not None:
+        options["connection"] = profile_connection
     resolved = resolve_profile_for_run(
         _workflow_agent_profile_ref(task),
         parent_approval_mode=parent_approval,
         require_enabled=True,
+        **options,
     )
     profile_snapshot = dict(resolved["profile_snapshot"])
     tool_allowlist = _workflow_profile_tool_allowlist(profile_snapshot)
@@ -2110,6 +2472,193 @@ def _workflow_profile_runtime_policy(
         ),
         "warnings": list(resolved.get("warnings") or []),
     }
+
+
+def _reviewed_policy_revision(policy: dict) -> str:
+    captured = json.loads(json.dumps(policy))
+    captured.get("agent_profile_snapshot", {}).pop("snapshot_at", None)
+    return hashlib.sha256(json.dumps(captured, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def capture_task_run_review(task_id: str, enabled_tool_names: Sequence[str]) -> tuple[dict, str, dict]:
+    """Capture a task and one profile policy while their existing writer is held."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        task = _row_to_dict(row)
+        policy = _workflow_profile_runtime_policy(task, enabled_tool_names, single_snapshot=True, profile_connection=conn)
+        return task, _task_row_revision(row), policy
+    finally:
+        conn.close()
+
+
+def claim_reviewed_task_run(
+    task_id: str, thread_id: str, run_id: str, *, expected_task_revision: str,
+    expected_policy_revision: str, enabled_tool_names: Sequence[str],
+    validate: Callable[[], None], record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
+    refresh_enabled_tool_names: Callable[[], Sequence[str]] | None = None,
+) -> dict | None:
+    """Persist one dispatch reservation in the existing run and pipeline owners.
+
+    None means this exact run already exists. A starting run is deliberately
+    never redispatched after a crash; its side-effect boundary is uncertain.
+    """
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        validate()
+        existing = conn.execute("SELECT task_id,thread_id FROM task_runs WHERE id=?", (run_id,)).fetchone()
+        if existing is not None:
+            if existing["task_id"] != task_id or existing["thread_id"] != thread_id:
+                raise TaskMutationError("task_run_identity_conflict", task_id)
+            return None
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        if _task_row_revision(row) != expected_task_revision:
+            raise TaskMutationError("task_revision_conflict", task_id)
+        task = _row_to_dict(row)
+        if task.get("persistent_thread_id") and task["persistent_thread_id"] != thread_id:
+            raise TaskMutationError("task_run_target_conflict", task_id)
+        if refresh_enabled_tool_names is not None:
+            enabled_tool_names = refresh_enabled_tool_names()
+        policy = _workflow_profile_runtime_policy(task, enabled_tool_names, single_snapshot=True, profile_connection=conn)
+        if _reviewed_policy_revision(policy) != expected_policy_revision:
+            raise TaskMutationError("task_policy_revision_conflict", task_id)
+        if not task.get("notify_only") and not task.get("steps"):
+            raise TaskMutationError("task_has_no_steps", task_id)
+        captured = {
+            "v": 1, "task": task, "policy": policy,
+            "task_revision": expected_task_revision, "policy_revision": expected_policy_revision,
+            "run_id": run_id, "thread_id": thread_id,
+        }
+        from row_bot.runtime.executions import generation_registry
+        captured["server_epoch"] = generation_registry.server_epoch
+        config_json = json.dumps({"_reviewed_task_run": captured}, ensure_ascii=False)
+        if len(config_json.encode()) > 4 * 1024 * 1024:
+            raise TaskMutationError("task_metadata_too_large", task_id)
+        now = datetime.now().isoformat()
+        conn.execute(
+            "INSERT INTO task_runs (id,task_id,thread_id,started_at,status,steps_total,steps_done,task_name,task_icon) "
+            "VALUES (?,?,?,?,'starting',?,0,?,?)",
+            (run_id, task_id, thread_id, now, 0 if task.get("notify_only") else len(task["steps"]), task["name"], task["icon"]),
+        )
+        conn.execute(
+            "INSERT INTO pipeline_state (run_id,task_id,thread_id,current_step_index,step_outputs,status,config,created_at,updated_at) "
+            "VALUES (?,?,?,0,'{}','starting',?,?,?)",
+            (run_id, task_id, thread_id, config_json, now, now),
+        )
+        if record_commit is not None:
+            record_commit(conn, run_id)
+        validate()
+        conn.commit()
+        return captured
+    finally:
+        conn.close()
+
+
+def read_task_run(run_id: str) -> dict | None:
+    """Read bounded status without exposing prompt, trace or delivery payloads."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT id,task_id,thread_id,substr(status,1,80) AS status,"
+            "substr(started_at,1,80) AS started_at,substr(finished_at,1,80) AS finished_at,steps_total,steps_done "
+            "FROM task_runs WHERE id=?", (run_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def _reviewed_run_enter(
+    run_id: str, task_id: str, thread_id: str, captured: dict,
+    validate: Callable[[], None] | None,
+) -> None:
+    if validate is not None:
+        validate()
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT task_id,thread_id,status FROM task_runs WHERE id=?", (run_id,)).fetchone()
+        if row is None or row["task_id"] != task_id or row["thread_id"] != thread_id:
+            raise TaskMutationError("task_run_identity_conflict", task_id, committed=True)
+        if row["status"] == "stopping":
+            raise InterruptedError("reviewed task run stopped before dispatch")
+        if row["status"] not in {"starting", "running", "paused", "waiting_approval"}:
+            raise TaskMutationError("task_run_not_active", task_id, committed=True)
+        if validate is not None:
+            validate()
+        conn.execute("UPDATE task_runs SET status='running',finished_at=NULL WHERE id=?", (run_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    from row_bot.agent_runs import mirror_workflow_run_start
+    task, policy = captured["task"], captured["policy"]
+    mirror_workflow_run_start(
+        run_id, task_id=task_id, thread_id=thread_id, display_name=task["name"],
+        steps_total=0 if task.get("notify_only") else len(task["steps"]),
+        profile_id=policy["agent_profile_id"], profile_snapshot_json=policy["agent_profile_snapshot"],
+        approval_mode=policy["approval_mode"], model_override=task.get("model_override") or "",
+        tools_override=policy["tool_allowlist"] or None, skills_override=policy["skills_override"],
+    )
+
+
+def iter_task_run_snapshot(task_id: str) -> Iterator[dict]:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        rows = conn.execute(
+            "SELECT id,task_id,thread_id,substr(status,1,80) AS status,"
+            "substr(started_at,1,80) AS started_at,substr(finished_at,1,80) AS finished_at,steps_total,steps_done "
+            "FROM task_runs WHERE task_id=? ORDER BY started_at DESC,id DESC", (task_id,),
+        )
+        while batch := rows.fetchmany(128):
+            for row in batch:
+                yield dict(row)
+    finally:
+        conn.close()
+
+
+def stop_reviewed_task_run(task_id: str, run_id: str, *, validate: Callable[[], None]) -> tuple[bool, bool]:
+    """Request cancellation only for this durable run and its exact producers."""
+    from row_bot.runtime.executions import generation_registry
+
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        validate()
+        row = conn.execute("SELECT task_id,thread_id,status FROM task_runs WHERE id=?", (run_id,)).fetchone()
+        if row is None or row["task_id"] != task_id:
+            raise TaskMutationError("task_run_not_found", task_id)
+        handles = tuple(h for h in generation_registry.active(row["thread_id"])
+                        if h.domain == "workflow" and h.domain_id == run_id)
+        if row["status"] in {"completed", "completed_delivery_failed", "failed", "stopped", "blocked"}:
+            return False, bool(handles) and all(handle.producer_done.is_set() for handle in handles)
+        captured = conn.execute("SELECT config FROM pipeline_state WHERE run_id=?", (run_id,)).fetchone()
+        capture = json.loads(captured[0] or "{}").get("_reviewed_task_run") if captured else None
+        if not capture:
+            raise TaskMutationError("task_run_owner_required", task_id)
+        paused_here = (row["status"] == "paused" and not handles
+                       and capture.get("server_epoch") == generation_registry.server_epoch)
+        conn.execute("UPDATE task_runs SET status='stopping' WHERE id=?", (run_id,))
+        conn.execute("UPDATE approval_requests SET status='cancelled',responded_at=? WHERE run_id=? AND status='pending'",
+                     (datetime.now().isoformat(), run_id))
+        validate()
+        conn.commit()
+    finally:
+        conn.close()
+    for handle in handles:
+        generation_registry.cancel(handle, reason="user")
+    if paused_here:
+        _finish_run(run_id, "stopped", status_message="Stopped while waiting for approval")
+        return True, True
+    # Absence from this process is not proof that an interrupted or remote
+    # producer returned. Only actual handles provide quiescence evidence.
+    return True, bool(handles) and all(handle.producer_done.is_set() for handle in handles)
 
 
 def _mirror_workflow_agent_run_start(
@@ -2277,6 +2826,10 @@ def _finish_run(run_id: str, status: str = "completed",
         conn.close()
         return
     existing_status = str(row["status_message"] or "") if row else ""
+    if row and row["status"] == "stopping":
+        status = "stopped"
+        conn.execute("UPDATE approval_requests SET status='cancelled',responded_at=? WHERE run_id=? AND status='pending'",
+                     (datetime.now().isoformat(), run_id))
     status_message = _merge_memory_fallback_status(existing_status, status_message)
     conn.execute(
         "UPDATE task_runs SET status = ?, status_message = ?, finished_at = ? "
@@ -2324,7 +2877,7 @@ def _emit_buddy_workflow_event(
         logger.debug("Buddy workflow event failed", exc_info=True)
 
 
-def _fire_completion_triggers(completed_task_id: str) -> None:
+def _fire_completion_triggers(completed_task_id: str, *, validate: Callable[[], None] | None = None) -> None:
     """Check if any task has a trigger of type 'task_complete' matching this task.
     If so, fire those tasks in the background.
     """
@@ -2348,8 +2901,11 @@ def _fire_completion_triggers(completed_task_id: str) -> None:
             "Completion trigger: task '%s' completed → firing '%s'",
             completed_task_id, t["name"],
         )
+        _check_workflow_effect(validate)
         thread_id = _prepare_task_thread(t)
-        run_task_background(t["id"], thread_id, enabled_tools)
+        _check_workflow_effect(validate)
+        run_task_background(t["id"], thread_id, enabled_tools,
+                            **({"validate": validate} if validate is not None else {}))
 
 
 @_schema_retry
@@ -2758,7 +3314,21 @@ def get_task_channels(task: dict) -> list:
     return [ch for ch in _ch_reg.running_channels() if ch.name in selected]
 
 
-def _deliver_to_channel(task: dict, text: str) -> tuple[str, str]:
+class _WorkflowEffectDenied(PermissionError):
+    """An authoritative refusal must not become an ordinary delivery failure."""
+
+
+def _check_workflow_effect(validate: Callable[[], None] | None) -> None:
+    if validate is not None:
+        try:
+            validate()
+        except _WorkflowEffectDenied:
+            raise
+        except Exception as exc:
+            raise _WorkflowEffectDenied("task_run_authority_lost") from exc
+
+
+def _deliver_to_channel(task: dict, text: str, *, validate: Callable[[], None] | None = None) -> tuple[str, str]:
     """Send task output to the configured delivery channel (if any).
 
     Uses the channel registry for routing.
@@ -2802,11 +3372,14 @@ def _deliver_to_channel(task: dict, text: str) -> tuple[str, str]:
                         f"{ch.display_name} has no default target configured"
                     ) from exc
 
+        _check_workflow_effect(validate)
         ch.send_message(resolved_target, prefix + text)
         logger.info(
             "Delivery to %s succeeded for task %s", channel, task["name"],
         )
         return "delivered", f"Delivered to {channel}"
+    except _WorkflowEffectDenied:
+        raise
     except Exception as exc:
         logger.warning(
             "Delivery to %s failed for task %s: %s",
@@ -2815,7 +3388,7 @@ def _deliver_to_channel(task: dict, text: str) -> tuple[str, str]:
         return "delivery_failed", f"{channel} delivery failed: {exc}"
 
 
-def _deliver_to_channels(task: dict, text: str) -> tuple[str, str]:
+def _deliver_to_channels(task: dict, text: str, *, validate: Callable[[], None] | None = None) -> tuple[str, str]:
     """Send task output to all configured channels via ``get_task_channels``.
 
     Uses the unified ``channels`` field (null = workflow default).
@@ -2833,7 +3406,7 @@ def _deliver_to_channels(task: dict, text: str) -> tuple[str, str]:
     if not channels:
         # Fallback: legacy single-channel field
         if task.get("delivery_channel"):
-            return _deliver_to_channel(task, text)
+            return _deliver_to_channel(task, text, **({"validate": validate} if validate is not None else {}))
         return "", ""
 
     prefix = f"📋 {task['name']}\n\n"
@@ -2866,12 +3439,15 @@ def _deliver_to_channels(task: dict, text: str) -> tuple[str, str]:
                     failed.append(f"{ch.display_name} (no target configured)")
                     continue
 
+            _check_workflow_effect(validate)
             ch.send_message(target, prefix + text)
             delivered_to.append(ch.display_name)
             logger.info(
                 "Delivery to %s succeeded for task '%s'",
                 ch.name, task["name"],
             )
+        except _WorkflowEffectDenied:
+            raise
         except Exception as exc:
             failed.append(f"{ch.display_name}: {exc}")
             logger.warning(
@@ -2895,7 +3471,7 @@ def _workflow_final_status_for_delivery(delivery_status: str) -> str:
 
 def _push_approval_to_channels(task: dict, approval_id: str,
                                resume_token: str,
-                               approval_msg: str) -> None:
+                               approval_msg: str, *, validate: Callable[[], None] | None = None) -> None:
     """Push a task approval request to all configured channels.
 
     Uses the unified ``channels`` field (null = workflow default).
@@ -2919,9 +3495,12 @@ def _push_approval_to_channels(task: dict, approval_id: str,
                 "resume_token": resume_token,
                 "message": approval_msg,
             }
+            _check_workflow_effect(validate)
             msg_ref = ch.send_approval_request(target, {}, config)
             if msg_ref:
                 _store_approval_channel_ref(approval_id, ch.name, msg_ref)
+        except _WorkflowEffectDenied:
+            raise
         except Exception as exc:
             logger.warning("Failed to push approval to %s: %s", ch.name, exc)
 
@@ -3007,7 +3586,7 @@ def upsert_channel_thread_notification(
     text: str,
     payload: Mapping[str, Any] | None = None,
 ) -> dict | None:
-    """Create or refresh a durable notification intent for a channel thread."""
+    """Create an immutable durable notification intent for a channel thread."""
 
     clean_key = str(key or "").strip()
     clean_thread_id = str(thread_id or "").strip()
@@ -3039,26 +3618,15 @@ def upsert_channel_thread_notification(
             ),
         )
         row = conn.execute(
-            "SELECT status FROM channel_thread_notifications WHERE key = ?",
+            "SELECT * FROM channel_thread_notifications WHERE key = ?",
             (clean_key,),
         ).fetchone()
-        status = str(row["status"] if row else "")
-        if status != "delivered":
-            conn.execute(
-                "UPDATE channel_thread_notifications SET "
-                "thread_id = ?, channel = ?, target = ?, kind = ?, text = ?, "
-                "payload_json = ?, updated_at = ? WHERE key = ?",
-                (
-                    clean_thread_id,
-                    clean_channel,
-                    clean_target,
-                    clean_kind,
-                    clean_text,
-                    payload_text,
-                    now,
-                    clean_key,
-                ),
-            )
+        if row and tuple(row[field] for field in (
+            "thread_id", "channel", "target", "kind", "text", "payload_json",
+        )) != (
+            clean_thread_id, clean_channel, clean_target, clean_kind, clean_text, payload_text,
+        ):
+            raise ValueError("Notification key is already bound to another delivery.")
         conn.commit()
         row = conn.execute(
             "SELECT * FROM channel_thread_notifications WHERE key = ?",
@@ -3069,7 +3637,33 @@ def upsert_channel_thread_notification(
         conn.close()
 
 
-def mark_channel_thread_notification_delivered(key: str) -> bool:
+def claim_channel_thread_notification(key: str) -> dict | None:
+    """Reserve one attempt before dispatch; an interrupted send stays uncertain.
+
+    Only explicitly known pre-send failures may be retried. Historical generic
+    failures may have happened after a downstream effect and are not replayed.
+    """
+    key = str(key or "").strip()
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        changed = conn.execute(
+            "UPDATE channel_thread_notifications SET status = 'uncertain', "
+            "attempts = attempts + 1, last_error = 'Delivery outcome unconfirmed.', "
+            "updated_at = ? WHERE key = ? AND (status = 'pending' OR "
+            "(status = 'failed' AND last_error LIKE 'not_sent: %'))",
+            (datetime.now().isoformat(), str(key or "").strip()),
+        ).rowcount
+        row = conn.execute(
+            "SELECT * FROM channel_thread_notifications WHERE key = ?", (key,),
+        ).fetchone() if changed else None
+        conn.commit()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def mark_channel_thread_notification_delivered(key: str, *, attempt: int) -> bool:
     """Mark a parent-thread notification as delivered to its channel."""
 
     clean_key = str(key or "").strip()
@@ -3080,8 +3674,9 @@ def mark_channel_thread_notification_delivered(key: str) -> bool:
     try:
         conn.execute(
             "UPDATE channel_thread_notifications SET status = 'delivered', "
-            "last_error = '', updated_at = ?, delivered_at = ? WHERE key = ?",
-            (now, now, clean_key),
+            "last_error = '', updated_at = ?, delivered_at = ? WHERE key = ? "
+            "AND status = 'uncertain' AND attempts = ?",
+            (now, now, clean_key, attempt),
         )
         changed = conn.total_changes
         conn.commit()
@@ -3090,8 +3685,8 @@ def mark_channel_thread_notification_delivered(key: str) -> bool:
         conn.close()
 
 
-def mark_channel_thread_notification_failed(key: str, error: str) -> bool:
-    """Record a failed parent-thread channel notification attempt."""
+def mark_channel_thread_notification_failed(key: str, error: str, *, attempt: int) -> bool:
+    """Record a provably pre-send failure for the exact admitted attempt."""
 
     clean_key = str(key or "").strip()
     if not clean_key:
@@ -3101,9 +3696,9 @@ def mark_channel_thread_notification_failed(key: str, error: str) -> bool:
     try:
         conn.execute(
             "UPDATE channel_thread_notifications SET status = 'failed', "
-            "attempts = COALESCE(attempts, 0) + 1, last_error = ?, "
-            "updated_at = ? WHERE key = ?",
-            (str(error or "")[:1000], now, clean_key),
+            "last_error = ?, updated_at = ? WHERE key = ? "
+            "AND status = 'uncertain' AND attempts = ?",
+            ("not_sent: " + str(error or "")[:990], now, clean_key, attempt),
         )
         changed = conn.total_changes
         conn.commit()
@@ -3113,14 +3708,15 @@ def mark_channel_thread_notification_failed(key: str, error: str) -> bool:
 
 
 def list_pending_channel_thread_notifications(limit: int = 50) -> list[dict]:
-    """Return pending/failed channel-thread notifications for retry."""
+    """Return only pending or proven pre-send failures for retry."""
 
     safe_limit = max(1, min(500, int(limit or 50)))
     conn = _get_conn()
     try:
         rows = conn.execute(
             "SELECT * FROM channel_thread_notifications "
-            "WHERE status IN ('pending', 'failed') "
+            "WHERE status = 'pending' OR "
+            "(status = 'failed' AND last_error LIKE 'not_sent: %') "
             "ORDER BY created_at ASC LIMIT ?",
             (safe_limit,),
         ).fetchall()
@@ -3218,7 +3814,8 @@ def push_approval_to_parent_channel(approval_id: str) -> bool:
 
 
 def _resolve_approval_on_channels(approval_id: str, status: str,
-                                  source_channel: str = "web") -> None:
+                                  source_channel: str = "web", *,
+                                  validate: Callable[[], None] | None = None) -> None:
     """Update approval messages on all channels except the source.
 
     Called after ``respond_to_approval()`` to mark the approval as
@@ -3240,7 +3837,10 @@ def _resolve_approval_on_channels(approval_id: str, status: str,
             from row_bot.channels import registry as _ch_reg
             ch = _ch_reg.get(ch_name)
             if ch and ch.is_running():
+                _check_workflow_effect(validate)
                 ch.update_approval_message(msg_ref, status, source=source_channel)
+        except _WorkflowEffectDenied:
+            raise
         except Exception as exc:
             logger.warning(
                 "Failed to update approval on %s (ref=%s): %s",
@@ -3256,6 +3856,7 @@ def run_task_background(
     notification: bool = True,
     resume_step_outputs: dict[str, str] | None = None,
     resume_run_id: str | None = None,
+    *, reviewed_capture: dict | None = None, validate: Callable[[], None] | None = None,
 ) -> None:
     """Execute a task in a background thread.
 
@@ -3267,9 +3868,18 @@ def run_task_background(
     ``invoke_agent`` sequentially.  For notify-only tasks, a desktop
     notification is fired immediately with no agent invocation.
     """
-    task = get_task(task_id)
+    task = json.loads(json.dumps(reviewed_capture["task"])) if reviewed_capture else get_task(task_id)
+    if reviewed_capture and validate is not None:
+        validate()
     if not task:
         return
+
+    def _validate_effect():
+        _check_workflow_effect(validate)
+        if reviewed_capture and (read_task_run(str(reviewed_capture["run_id"])) or {}).get("status") == "stopping":
+            raise _WorkflowEffectDenied("task_run_stopping")
+
+    effect_kwargs = {"validate": _validate_effect} if validate is not None or reviewed_capture else {}
 
     logger.info("run_task_background: starting '%s' (id=%s, step=%d)",
                 task.get("name", "?"), task_id[:8], start_step)
@@ -3284,57 +3894,82 @@ def run_task_background(
                 "label": task.get("name", "Workflow running"),
             },
         )
+    except _WorkflowEffectDenied:
+        raise
     except Exception:
         logger.debug("Buddy workflow start event failed", exc_info=True)
 
     # ── Notify-only tasks (timer replacement) ────────────────────────
     if task.get("notify_only"):
-        label = task.get("notify_label") or task["name"]
-        from row_bot.notifications import notify
-        notify(
-            title="⏰ Row-Bot Reminder",
-            message=label,
-            sound="timer",
-            icon="⏰",
-        )
-        # Record run *before* delivery so Activity always has an entry
-        run_id = _record_run_start(task_id, thread_id, 0,
-                                   task_name=task["name"], task_icon=task["icon"])
+        run_id = ""
         try:
-            delivery_status, delivery_detail = _deliver_to_channels(
-                task, f"⏰ Reminder: {label}",
-            )
-        except Exception as exc:
-            logger.error("Notify-only delivery crashed for task %s: %s",
-                         task["name"], exc)
-            delivery_status = "delivery_failed"
-            delivery_detail = "channel delivery failed: " + str(exc)
-        update_task(task_id, last_run=datetime.now().isoformat())
-        final_status = _workflow_final_status_for_delivery(delivery_status)
-        _finish_run(run_id, final_status, status_message=delivery_detail)
-        _emit_buddy_workflow_event(
-            "done",
-            task_id=task_id,
-            thread_id=thread_id,
-            label=task.get("name", "Workflow done"),
-        )
-        # Fire any tasks triggered by this task's completion
-        if final_status.startswith("completed"):
-            try:
-                _fire_completion_triggers(task_id)
-            except Exception as exc_ct:
-                logger.error("Completion trigger error for %s: %s",
-                             task["name"], exc_ct)
-        if delivery_status == "delivery_failed":
+            if reviewed_capture:
+                run_id = str(reviewed_capture["run_id"])
+                _reviewed_run_enter(run_id, task_id, thread_id, reviewed_capture, validate)
+            else:
+                run_id = _record_run_start(task_id, thread_id, 0,
+                                          task_name=task["name"], task_icon=task["icon"])
+            label = task.get("notify_label") or task["name"]
+            from row_bot.notifications import notify
+            _validate_effect()
             notify(
-                title="⚠️ Delivery Failed",
-                message=f"{task['name']} — {delivery_detail}",
+                title="⏰ Row-Bot Reminder",
+                message=label,
                 sound="timer",
-                icon="⚠️",
+                icon="⏰",
             )
-        if task.get("delete_after_run"):
-            delete_task(task_id)
-        return
+            try:
+                _validate_effect()
+                delivery_status, delivery_detail = _deliver_to_channels(
+                    task, f"⏰ Reminder: {label}", **effect_kwargs,
+                )
+            except _WorkflowEffectDenied:
+                raise
+            except Exception as exc:
+                logger.error("Notify-only delivery crashed for task %s: %s",
+                             task["name"], exc)
+                delivery_status = "delivery_failed"
+                delivery_detail = "channel delivery failed: " + str(exc)
+            if not (reviewed_capture and task.get("delete_after_run")):
+                update_task(task_id, last_run=datetime.now().isoformat())
+            final_status = _workflow_final_status_for_delivery(delivery_status)
+            _finish_run(run_id, final_status, status_message=delivery_detail)
+            _emit_buddy_workflow_event(
+                "done",
+                task_id=task_id,
+                thread_id=thread_id,
+                label=task.get("name", "Workflow done"),
+            )
+            # Fire any tasks triggered by this task's completion
+            if final_status.startswith("completed"):
+                try:
+                    _validate_effect()
+                    _fire_completion_triggers(task_id, **effect_kwargs)
+                except _WorkflowEffectDenied:
+                    raise
+                except Exception as exc_ct:
+                    logger.error("Completion trigger error for %s: %s",
+                                 task["name"], exc_ct)
+            if delivery_status == "delivery_failed":
+                _validate_effect()
+                notify(
+                    title="⚠️ Delivery Failed",
+                    message=f"{task['name']} — {delivery_detail}",
+                    sound="timer",
+                    icon="⚠️",
+                )
+            if task.get("delete_after_run"):
+                _validate_effect()
+                delete_task(task_id, **({"expected_revision": reviewed_capture["task_revision"], "validate": _validate_effect, "preserve_conversations": True} if reviewed_capture else {}))
+            return
+
+        except BaseException as exc:
+            if run_id:
+                code = exc.code if isinstance(exc, TaskMutationError) else (
+                    str(exc) if isinstance(exc, _WorkflowEffectDenied) else "task_run_effect_unconfirmed"
+                )
+                _finish_run(run_id, "stopped" if isinstance(exc, InterruptedError) else "failed", status_message=code)
+            raise
 
     # ── Multi-step prompt tasks ──────────────────────────────────────
     prompts = task["prompts"]
@@ -3351,7 +3986,9 @@ def run_task_background(
     if not steps:
         steps = _prompts_to_steps(prompts)
     total = len(steps)
-    if resume_run_id:
+    if reviewed_capture and not resume_run_id:
+        run_id = str(reviewed_capture["run_id"])
+    elif resume_run_id:
         run_id = resume_run_id
         _update_run_progress(run_id, start_step)
     else:
@@ -3359,6 +3996,12 @@ def run_task_background(
                                    task_name=task["name"], task_icon=task["icon"])
 
     def _run():
+        if reviewed_capture:
+            try:
+                _reviewed_run_enter(run_id, task_id, thread_id, reviewed_capture, validate)
+            except BaseException as exc:
+                _workflow_entry_failed(run_id, thread_id, exc)
+                raise
         from row_bot.agent import invoke_agent, TaskStoppedError
         from row_bot.threads import _save_thread_meta, _list_threads
 
@@ -3400,16 +4043,22 @@ def run_task_background(
         if step_outputs:
             last_response = list(step_outputs.values())[-1]
 
-        # Determine effective approval mode (block/approve/allow_all)
-        try:
-            runtime_policy = _workflow_profile_runtime_policy(task, enabled_tool_names)
-        except Exception:
-            logger.exception(
-                "Task '%s' could not resolve Agent Profile policy; falling back to Default profile",
-                task.get("name", ""),
-            )
-            fallback_task = {**task, "agent_profile_id": DEFAULT_WORKFLOW_AGENT_PROFILE_ID}
-            runtime_policy = _workflow_profile_runtime_policy(fallback_task, enabled_tool_names)
+        # Reviewed runs use the exact admitted profile without legacy fallback.
+        if reviewed_capture:
+            runtime_policy = json.loads(json.dumps(reviewed_capture["policy"]))
+        else:
+            # Determine effective approval mode (block/approve/allow_all)
+            try:
+                runtime_policy = _workflow_profile_runtime_policy(task, enabled_tool_names)
+            except _WorkflowEffectDenied:
+                raise
+            except Exception:
+                logger.exception(
+                    "Task '%s' could not resolve Agent Profile policy; falling back to Default profile",
+                    task.get("name", ""),
+                )
+                fallback_task = {**task, "agent_profile_id": DEFAULT_WORKFLOW_AGENT_PROFILE_ID}
+                runtime_policy = _workflow_profile_runtime_policy(fallback_task, enabled_tool_names)
 
         approval_mode = str(runtime_policy["approval_mode"])
         effective_tool_names = list(runtime_policy["effective_tool_names"])
@@ -3445,6 +4094,8 @@ def run_task_background(
                     "agent_profile_snapshot": profile_snapshot,
                 },
             }
+            if reviewed_capture:
+                config["_reviewed_task_run"] = reviewed_capture
             if tool_allowlist:
                 config["configurable"]["tool_allowlist"] = tool_allowlist
 
@@ -3486,7 +4137,7 @@ def run_task_background(
                 approval_msg: str,
             ) -> None:
                 _push_approval_to_channels(
-                    task, approval_id, resume_token, approval_msg,
+                    task, approval_id, resume_token, approval_msg, **effect_kwargs,
                 )
 
             # Model override
@@ -3499,6 +4150,11 @@ def run_task_background(
 
             step_index = start_step
             while step_index < total:
+                if validate is not None:
+                    _validate_effect()
+                if reviewed_capture and (read_task_run(run_id) or {}).get("status") == "stopping":
+                    stopped = True
+                    break
                 step = steps[step_index]
                 step_id = step.get("id", f"step_{step_index + 1}")
                 step_type = step.get("type", "prompt")
@@ -3535,6 +4191,8 @@ def run_task_background(
                                 "label": _step_label,
                             },
                         )
+                    except _WorkflowEffectDenied:
+                        raise
                     except Exception:
                         logger.debug("Buddy workflow step event failed", exc_info=True)
                     # Apply per-step model override if present
@@ -3587,6 +4245,8 @@ def run_task_background(
                             finally:
                                 try:
                                     _record_run_recall_notices(run_id, generation_id)
+                                except _WorkflowEffectDenied:
+                                    raise
                                 except Exception:
                                     logger.debug(
                                         "Could not persist workflow memory fallback notice",
@@ -3723,10 +4383,11 @@ def run_task_background(
                                 )
                                 _task_log(f"⏸ Step {step_index + 1}: Paused for approval")
                                 _push_approval_to_channels(
-                                    task, approval_req_id, resume_token, approval_msg,
+                                    task, approval_req_id, resume_token, approval_msg, **effect_kwargs,
                                 )
                                 if notification:
                                     from row_bot.notifications import notify
+                                    _validate_effect()
                                     notify(
                                         title="⏸️ Approval Required",
                                         message=f"{task['name']}: {approval_msg}",
@@ -3746,6 +4407,8 @@ def run_task_background(
                             logger.info("Task '%s' stopped during step %d/%d",
                                         task["name"], step_index + 1, total)
                             break
+                        except _WorkflowEffectDenied:
+                            raise
                         except Exception as exc:
                             _task_log(f"✗ Step {step_index + 1} error: {str(exc)[:80]}")
                             err_str = str(exc).lower()
@@ -3767,6 +4430,8 @@ def run_task_background(
                             try:
                                 from row_bot.agent import repair_orphaned_tool_calls
                                 repair_orphaned_tool_calls(effective_tool_names, config)
+                            except _WorkflowEffectDenied:
+                                raise
                             except Exception:
                                 pass
 
@@ -3830,6 +4495,7 @@ def run_task_background(
                     # Notify user an approval is pending
                     if notification:
                         from row_bot.notifications import notify
+                        _validate_effect()
                         notify(
                             title="⏸️ Approval Required",
                             message=f"{task['name']}: {approval_msg}",
@@ -3892,6 +4558,7 @@ def run_task_background(
                                 config, _stop_event,
                                 parent_output=last_response if pass_output else "",
                                 depth=current_depth + 1,
+                                **effect_kwargs,
                             )
                             if child_result is not None:
                                 last_response = child_result
@@ -4059,6 +4726,8 @@ def run_task_background(
                                 f"{step_index + 1}: Agent {child_output['agent_run_id']} "
                                 f"{child_status or 'started'}"
                             )
+                        except _WorkflowEffectDenied:
+                            raise
                         except Exception as exc:
                             failure_message = str(exc)
                             step_outputs[step_id] = failure_message
@@ -4104,6 +4773,8 @@ def run_task_background(
                             for raw_output in step_outputs.values():
                                 try:
                                     parsed_output = json.loads(raw_output)
+                                except _WorkflowEffectDenied:
+                                    raise
                                 except Exception:
                                     continue
                                 candidate = str(parsed_output.get("agent_run_id") or "").strip()
@@ -4197,6 +4868,8 @@ def run_task_background(
                                 f"Step {step_index + 1}: Waiting for {len(run_ids)} required Agent run(s)"
                             )
                             break
+                    except _WorkflowEffectDenied:
+                        raise
                     except Exception as exc:
                         failure_message = str(exc)
                         step_outputs[step_id] = failure_message
@@ -4222,6 +4895,7 @@ def run_task_background(
                     notify_channel = step.get("channel", "desktop")
                     if notify_channel == "desktop":
                         from row_bot.notifications import notify as _notify
+                        _validate_effect()
                         _notify(
                             title=f"📋 {task['name']}",
                             message=notify_msg,
@@ -4231,10 +4905,13 @@ def run_task_background(
                     else:
                         # Use task's delivery channel mechanism
                         try:
+                            _validate_effect()
                             _deliver_to_channel(
                                 {**task, "delivery_channel": notify_channel},
-                                notify_msg,
+                                notify_msg, **effect_kwargs,
                             )
+                        except _WorkflowEffectDenied:
+                            raise
                         except Exception as exc:
                             logger.error(
                                 "Task '%s' step %d notify failed: %s",
@@ -4274,6 +4951,8 @@ def run_task_background(
                 try:
                     from row_bot.agent import repair_orphaned_tool_calls
                     repair_orphaned_tool_calls(effective_tool_names, config)
+                except _WorkflowEffectDenied:
+                    raise
                 except Exception:
                     pass
                 if failure_message:
@@ -4303,6 +4982,7 @@ def run_task_background(
                     _save_thread_meta(thread_id, thread_name)
                 if notification:
                     from row_bot.notifications import notify
+                    _validate_effect()
                     notify(
                         title="⏹️ Task Stopped",
                         message=f"{task['name']} was stopped.",
@@ -4323,13 +5003,15 @@ def run_task_background(
 
             # ── Determine final status ────────────────────────────────
             deliver_text = last_response or f"✅ Task '{task['name']}' completed."
+            _validate_effect()
             delivery_status, delivery_detail = _deliver_to_channels(
-                task, deliver_text,
+                task, deliver_text, **effect_kwargs,
             )
 
             final_status = _workflow_final_status_for_delivery(delivery_status)
             _finish_run(run_id, final_status, status_message=delivery_detail)
-            update_task(task_id, last_run=datetime.now().isoformat())
+            if not (reviewed_capture and task.get("delete_after_run")):
+                update_task(task_id, last_run=datetime.now().isoformat())
             logger.info("run_task_background: '%s' finished with status=%s",
                         task.get("name", "?"), final_status)
             _emit_buddy_workflow_event(
@@ -4342,7 +5024,10 @@ def run_task_background(
             # Fire any tasks triggered by this task's completion
             if final_status.startswith("completed"):
                 try:
-                    _fire_completion_triggers(task_id)
+                    _validate_effect()
+                    _fire_completion_triggers(task_id, **effect_kwargs)
+                except _WorkflowEffectDenied:
+                    raise
                 except Exception as exc:
                     logger.error("Completion trigger error for %s: %s",
                                  task["name"], exc)
@@ -4360,6 +5045,7 @@ def run_task_background(
                     suffix = f" → {delivery_detail}"
                 elif delivery_status == "delivery_failed":
                     suffix = f" (⚠️ {delivery_detail})"
+                _validate_effect()
                 notify(
                     title="⚡ Task Complete",
                     message=f"{task['name']} finished ({total} step{'s' if total != 1 else ''}).{suffix}",
@@ -4367,6 +5053,7 @@ def run_task_background(
                     icon="⚡",
                 )
                 if delivery_status == "delivery_failed":
+                    _validate_effect()
                     notify(
                         title="⚠️ Delivery Failed",
                         message=f"{task['name']} — {delivery_detail}",
@@ -4376,7 +5063,8 @@ def run_task_background(
 
             # Auto-delete one-shot tasks
             if task.get("delete_after_run"):
-                delete_task(task_id)
+                _validate_effect()
+                delete_task(task_id, **({"expected_revision": reviewed_capture["task_revision"], "validate": _validate_effect, "preserve_conversations": True} if reviewed_capture else {}))
 
         except Exception as exc:
             logger.error("Task %s crashed: %s", task["name"], exc)
@@ -4395,13 +5083,22 @@ def run_task_background(
             try:
                 from row_bot.tools.browser_tool import get_session_manager as _get_bsm
                 _get_bsm().kill_session(thread_id)
+            except _WorkflowEffectDenied:
+                raise
             except Exception:
                 pass
 
-    from row_bot.runtime.executions import generation_registry
+    from row_bot.runtime.executions import current_execution, generation_registry
+    owner = current_execution()
+    if (reviewed_capture and owner is not None and owner.domain == "workflow"
+            and owner.domain_id == run_id and owner.conversation_id == thread_id):
+        # Graph resume continues the same owned producer. Do not register a
+        # competing segment or acknowledge quiescence before its tail returns.
+        _run()
+        return
     t = generation_registry.thread(target=_run, conversation_id=thread_id,
                                    stop_event=threading.Event(), domain="workflow",
-                                   domain_id=str(uuid.uuid4()), name=f"task-{task_id}", resource_context=True,
+                                   domain_id=run_id if reviewed_capture else str(uuid.uuid4()), name=f"task-{task_id}", resource_context=True,
                                    on_entry_failure=lambda exc: _workflow_entry_failed(run_id, thread_id, exc))
     t.start()
 
@@ -5042,7 +5739,7 @@ def _save_pipeline_state(
         (
             run_id, task_id, thread_id, current_step_index,
             json.dumps(step_outputs), status, resume_token,
-            json.dumps(config, default=str), now, now,
+            json.dumps(config, default=str, ensure_ascii=not bool(config.get("_reviewed_task_run"))), now, now,
             *extra_vals,
         ),
     )
@@ -5623,6 +6320,22 @@ def respond_to_approval(resume_token: str, approved: bool,
             return True
         except ClientPlatformError:
             return False
+    if str(r.get("resume_kind") or "") in {"", "workflow"}:
+        state_row = conn.execute("SELECT thread_id,substr(config,1,4194304) AS config,length(CAST(config AS BLOB)) AS size "
+                                 "FROM pipeline_state WHERE run_id=?", (r["run_id"],)).fetchone()
+        try:
+            if state_row and state_row["size"] and state_row["size"] > 4 * 1024 * 1024:
+                raise ValueError("approval review is oversized")
+            captured = json.loads(state_row["config"] or "{}").get("_reviewed_task_run") if state_row else None
+        except (ValueError, AttributeError):
+            conn.close()
+            return False
+        if captured:
+            from row_bot.runtime.executions import generation_registry
+            if any(h.domain == "workflow" and h.domain_id == r["run_id"]
+                   for h in generation_registry.active(state_row["thread_id"])):
+                conn.close()
+                return False  # Keep the pending decision until its worker quiesces.
     # Check if the approval has expired
     timeout_at = r.get("timeout_at")
     if timeout_at and timeout_at < datetime.now().isoformat():
@@ -5726,6 +6439,124 @@ def claim_conversation_approval(approval_id: str, approved: bool, *, expected_pa
         conn.close()
 
 
+def _reviewed_task_approval_state(
+    conn: sqlite3.Connection, task_id: str, run_id: str, approval_id: str,
+) -> tuple[dict, dict, str]:
+    terms = []
+    for table, alias in (("approval_requests", "a"), ("pipeline_state", "p")):
+        for column in conn.execute(f"PRAGMA table_info({table})"):
+            quoted = str(column[1]).replace('"', '""')
+            terms.append(f'COALESCE(length(CAST({alias}."{quoted}" AS BLOB)),0)')
+    sizes = conn.execute(
+        "SELECT " + " + ".join(terms) + " "
+        "FROM approval_requests a JOIN pipeline_state p ON p.run_id=a.run_id "
+        "WHERE a.id=? AND a.task_id=? AND a.run_id=? AND p.task_id=?",
+        (approval_id, task_id, run_id, task_id),
+    ).fetchone()
+    if sizes is None:
+        raise TaskMutationError("task_approval_not_found", task_id)
+    if sizes[0] > 4 * 1024 * 1024:
+        raise TaskMutationError("task_metadata_too_large", task_id)
+    approval = dict(conn.execute("SELECT * FROM approval_requests WHERE id=?", (approval_id,)).fetchone())
+    state = dict(conn.execute("SELECT * FROM pipeline_state WHERE run_id=?", (run_id,)).fetchone())
+    revision = hashlib.sha256((_task_row_revision(approval) + "\n" + _task_row_revision(state)).encode()).hexdigest()
+    state["config"] = json.loads(state.get("config") or "{}")
+    state["step_outputs"] = json.loads(state.get("step_outputs") or "{}")
+    return approval, state, revision
+
+
+def read_task_approval_review(task_id: str, run_id: str, approval_id: str) -> tuple[dict, dict, str]:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        return _reviewed_task_approval_state(conn, task_id, run_id, approval_id)
+    finally:
+        conn.close()
+
+
+def iter_task_approval_snapshot(task_id: str, run_id: str) -> Iterator[tuple[dict, dict, str]]:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        state = None
+        state_revision = ""
+        state_size = 0
+        terms = []
+        for column in conn.execute("PRAGMA table_info(approval_requests)"):
+            quoted = str(column[1]).replace('"', '""')
+            terms.append(f'COALESCE(length(CAST("{quoted}" AS BLOB)),0)')
+        rows = conn.execute(
+            "SELECT id," + " + ".join(terms) + " AS size "
+            "FROM approval_requests WHERE task_id=? AND run_id=? AND status='pending' "
+            "ORDER BY requested_at,id", (task_id, run_id),
+        )
+        while batch := rows.fetchmany(128):
+            for identity in batch:
+                if identity["size"] + state_size > 4 * 1024 * 1024:
+                    raise TaskMutationError("task_metadata_too_large", task_id)
+                if state is None:
+                    approval, state, revision = _reviewed_task_approval_state(conn, task_id, run_id, str(identity["id"]))
+                    raw_state = dict(conn.execute("SELECT * FROM pipeline_state WHERE run_id=?", (run_id,)).fetchone())
+                    state_revision = _task_row_revision(raw_state)
+                    state_size = sum(len(str(value).encode()) for value in raw_state.values() if value is not None)
+                else:
+                    approval = dict(conn.execute("SELECT * FROM approval_requests WHERE id=?", (identity["id"],)).fetchone())
+                    revision = hashlib.sha256((_task_row_revision(approval) + "\n" + state_revision).encode()).hexdigest()
+                yield approval, state, revision
+    finally:
+        conn.close()
+
+
+def claim_reviewed_task_approval(
+    task_id: str, run_id: str, approval_id: str, *, expected_revision: str,
+    approved: bool, validate: Callable[[], None],
+    record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
+) -> tuple[dict, dict]:
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        validate()
+        approval, state, revision = _reviewed_task_approval_state(conn, task_id, run_id, approval_id)
+        if expected_revision != revision or approval["status"] != "pending" or state["status"] != "paused":
+            raise TaskMutationError("task_approval_revision_conflict", task_id)
+        capture = state["config"].get("_reviewed_task_run")
+        if not capture or approval.get("resume_kind") not in {None, "", "workflow"}:
+            raise TaskMutationError("task_approval_owner_required", task_id)
+        from row_bot.runtime.executions import generation_registry
+        if any(h.domain == "workflow" and h.domain_id == run_id
+               for h in generation_registry.active(state["thread_id"])):
+            raise TaskMutationError("task_run_draining", task_id)
+        if (capture.get("run_id") != run_id or capture.get("thread_id") != state["thread_id"]
+                or capture.get("task", {}).get("id") != task_id
+                or state.get("resume_token") != approval.get("resume_token")):
+            raise TaskMutationError("task_approval_revision_conflict", task_id)
+        if approval.get("timeout_at") and approval["timeout_at"] <= datetime.now().isoformat():
+            raise TaskMutationError("task_approval_expired", task_id)
+        if len(approval.get("message") or "") > 16384:
+            raise TaskMutationError("task_approval_review_incomplete", task_id)
+        conn.execute(
+            "UPDATE approval_requests SET status=?,responded_at=? WHERE id=? AND status='pending'",
+            ("approved" if approved else "denied", datetime.now().isoformat(), approval_id),
+        )
+        conn.execute("UPDATE pipeline_state SET status='resuming' WHERE run_id=?", (run_id,))
+        if record_commit is not None:
+            record_commit(conn, approval_id)
+        validate()
+        conn.commit()
+        return approval, state
+    finally:
+        conn.close()
+
+
+def resume_reviewed_task_approval(
+    approval: dict, state: dict, *, approved: bool, validate: Callable[[], None],
+) -> None:
+    validate()
+    _resolve_approval_on_channels(approval["id"], "approved" if approved else "denied", source_channel="web", validate=validate)
+    validate()
+    _resume_pipeline(approval["resume_token"], approved=approved, reviewed_state=state, validate=validate)
+
+
 def _check_approval_timeouts() -> None:
     """Check for expired approval requests and apply timeout action."""
     conn = _get_conn()
@@ -5790,6 +6621,7 @@ def _resume_graph_interrupted(
     enabled_tool_names: list[str],
     paused_step_index: int,
     approved: bool = True,
+    validate: Callable[[], None] | None = None,
 ) -> None:
     """Resume a graph-interrupted pipeline step in a background thread.
 
@@ -5808,13 +6640,15 @@ def _resume_graph_interrupted(
     run_id = state["run_id"]
     task_id = state["task_id"]
     config = state.get("config", {})
+    reviewed_capture = config.get("_reviewed_task_run")
+    reviewed_policy = reviewed_capture["policy"] if reviewed_capture else None
     config = {
         **config,
         "configurable": {
             **(config.get("configurable") or {}),
             "runtime_surface": "workflow",
             "runtime_mode": "agent",
-            "approval_mode": get_task_approval_mode(task),
+            "approval_mode": reviewed_policy["approval_mode"] if reviewed_policy else get_task_approval_mode(task),
         },
     }
     step_outputs = state.get("step_outputs", {})
@@ -5822,8 +6656,8 @@ def _resume_graph_interrupted(
     total = len(steps)
     paused_step = steps[paused_step_index] if paused_step_index < total else {}
     step_id = paused_step.get("id", f"step_{paused_step_index + 1}")
-    approval_mode = get_task_approval_mode(task)
-    effective_tool_names = enabled_tool_names
+    approval_mode = reviewed_policy["approval_mode"] if reviewed_policy else get_task_approval_mode(task)
+    effective_tool_names = list(reviewed_policy["effective_tool_names"]) if reviewed_policy else enabled_tool_names
 
     # Clear the "(paused)" suffix from the thread name
     from row_bot.threads import _save_thread_meta, _list_threads as _lt
@@ -5832,6 +6666,12 @@ def _resume_graph_interrupted(
         _save_thread_meta(thread_id, f"⚡ {task['name']} — {_ts}")
 
     def _run():
+        if reviewed_capture:
+            try:
+                _reviewed_run_enter(run_id, task_id, thread_id, reviewed_capture, validate)
+            except BaseException as exc:
+                _workflow_entry_failed(run_id, thread_id, exc)
+                raise
         _background_workflow_var.set(True)
         _approval_mode_var.set(approval_mode)
         _persistent_thread_var.set(bool(task.get("persistent_thread_id")))
@@ -5968,8 +6808,10 @@ def _resume_graph_interrupted(
                 )
                 _push_approval_to_channels(
                     task, approval_req_id, resume_token, approval_msg,
+                    **({"validate": validate} if validate is not None else {}),
                 )
                 from row_bot.notifications import notify
+                _check_workflow_effect(validate)
                 notify(
                     title="⏸️ Approval Required",
                     message=f"{task['name']}: {approval_msg}",
@@ -6038,17 +6880,19 @@ def _resume_graph_interrupted(
             notification=True,
             resume_step_outputs=step_outputs,
             resume_run_id=run_id,
+            reviewed_capture=reviewed_capture, validate=validate,
         )
 
     from row_bot.runtime.executions import generation_registry
     t = generation_registry.thread(target=_run, conversation_id=thread_id,
                                    stop_event=threading.Event(), domain="workflow",
-                                   domain_id=str(uuid.uuid4()), name=f"graph-resume-{task['name']}", resource_context=True,
+                                   domain_id=run_id if reviewed_capture else str(uuid.uuid4()), name=f"graph-resume-{task['name']}", resource_context=True,
                                    on_entry_failure=lambda exc: _workflow_entry_failed(run_id, thread_id, exc))
     t.start()
 
 
-def _resume_pipeline(resume_token: str, approved: bool = True) -> None:
+def _resume_pipeline(resume_token: str, approved: bool = True, *,
+                     reviewed_state: dict | None = None, validate: Callable[[], None] | None = None) -> None:
     """Resume a paused pipeline from saved state.
 
     *approved* is ``False`` when the user denied the approval.  For
@@ -6060,18 +6904,21 @@ def _resume_pipeline(resume_token: str, approved: bool = True) -> None:
     from row_bot.tools import registry as tool_registry
     from row_bot.threads import _save_thread_meta, _list_threads
 
-    state = _load_pipeline_state(resume_token)
+    state = reviewed_state if reviewed_state is not None else _load_pipeline_state(resume_token)
     if not state:
         logger.error("Cannot resume: no pipeline state for token %s", resume_token)
         return
 
-    task = get_task(state["task_id"])
+    reviewed_capture = state.get("config", {}).get("_reviewed_task_run")
+    task = json.loads(json.dumps(reviewed_capture["task"])) if reviewed_capture else get_task(state["task_id"])
+    if reviewed_capture and validate is not None:
+        validate()
     if not task:
         logger.error("Cannot resume: task %s not found", state["task_id"])
         return
 
     thread_id = state["thread_id"]
-    enabled = [t.name for t in tool_registry.get_enabled_tools()]
+    enabled = list(reviewed_capture["policy"]["effective_tool_names"]) if reviewed_capture else [t.name for t in tool_registry.get_enabled_tools()]
 
     steps = task["steps"]
     paused_step_index = state["current_step_index"]
@@ -6087,6 +6934,7 @@ def _resume_pipeline(resume_token: str, approved: bool = True) -> None:
             enabled_tool_names=enabled,
             paused_step_index=paused_step_index,
             approved=approved,
+            validate=validate,
         )
         return
 
@@ -6111,6 +6959,7 @@ def _resume_pipeline(resume_token: str, approved: bool = True) -> None:
                     notification=True,
                     resume_step_outputs=step_outputs,
                     resume_run_id=state["run_id"],
+                    reviewed_capture=reviewed_capture, validate=validate,
                 )
                 return
         # No target or "end" — stop the pipeline
@@ -6192,6 +7041,7 @@ def _resume_pipeline(resume_token: str, approved: bool = True) -> None:
         resume_run_id=resume_run,
         notification=True,
         resume_step_outputs=step_outputs,
+        reviewed_capture=reviewed_capture, validate=validate,
     )
 
 
@@ -6233,6 +7083,7 @@ def _run_subtask_sync(
     stop_event: threading.Event,
     parent_output: str = "",
     depth: int = 1,
+    *, validate: Callable[[], None] | None = None,
 ) -> str | None:
     """Run a subtask synchronously and return its final output.
 
@@ -6269,6 +7120,7 @@ def _run_subtask_sync(
 
         i = 0
         while i < len(steps):
+            _check_workflow_effect(validate)
             if stop_event.is_set():
                 return None
 
@@ -6303,6 +7155,7 @@ def _run_subtask_sync(
                         child_approval = get_task_approval_mode(child_task)
                         if child_approval == "allow_all":
                             from row_bot.agent import resume_invoke_agent
+                            _check_workflow_effect(validate)
                             result = resume_invoke_agent(
                                 effective_tools, config,
                                 approved=True, stop_event=stop_event,
@@ -6314,6 +7167,7 @@ def _run_subtask_sync(
                             # Block or approve — refuse since subtasks
                             # can't surface approval UI to the user.
                             from row_bot.agent import resume_invoke_agent
+                            _check_workflow_effect(validate)
                             denied_result = resume_invoke_agent(
                                 effective_tools, config,
                                 approved=False, stop_event=stop_event,
@@ -6338,6 +7192,8 @@ def _run_subtask_sync(
                         step_outputs[step_id] = last_output
                 except TaskStoppedError:
                     return None
+                except _WorkflowEffectDenied:
+                    raise
                 except Exception as exc:
                     logger.error(
                         "Subtask '%s' step %d failed: %s",
@@ -6384,6 +7240,7 @@ def _run_subtask_sync(
                 notify_channel = step.get("channel", "desktop")
                 if notify_channel == "desktop":
                     from row_bot.notifications import notify as _notify
+                    _check_workflow_effect(validate)
                     _notify(
                         title=f"📋 {child_task['name']}",
                         message=msg,
@@ -6395,7 +7252,10 @@ def _run_subtask_sync(
                         _deliver_to_channel(
                             {**child_task, "delivery_channel": notify_channel},
                             msg,
+                            **({"validate": validate} if validate is not None else {}),
                         )
+                    except _WorkflowEffectDenied:
+                        raise
                     except Exception as exc:
                         logger.error(
                             "Subtask '%s' step %d notify failed: %s",

@@ -461,10 +461,10 @@ def _wireframe_kit() -> Template:
         '  <div class="ph" style="height:110px;"></div>'
         '  <div class="ph" style="height:110px;"></div>'
         '</div>'
-        '<div class="ph" style="flex:1;min-height:260px;">\ud83d\udcca Main chart area</div>'
+        '<div class="ph" style="flex:1;min-height:260px;">\U0001f4ca Main chart area</div>'
         '<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">'
-        '  <div class="ph" style="height:200px;">\ud83d\udccb Table</div>'
-        '  <div class="ph" style="height:200px;">\ud83d\udcdd Activity</div>'
+        '  <div class="ph" style="height:200px;">\U0001f4cb Table</div>'
+        '  <div class="ph" style="height:200px;">\U0001f4dd Activity</div>'
         '</div>'
     )
     detail_body = (
@@ -482,7 +482,7 @@ def _wireframe_kit() -> Template:
         '      <div style="height:40px;background:#E5E7EB;border-radius:8px;margin-bottom:12px;"></div>'
         '      <div style="height:140px;background:#E5E7EB;border-radius:8px;"></div>'
         '    </div>'
-        '    <div class="ph" style="flex:1;min-height:160px;">\ud83d\udcce Attachments</div>'
+        '    <div class="ph" style="flex:1;min-height:160px;">\U0001f4ce Attachments</div>'
         '  </div>'
         '  <div style="display:flex;flex-direction:column;gap:16px;">'
         '    <div class="ph" style="flex-direction:column;align-items:stretch;padding:24px;">'
@@ -491,7 +491,7 @@ def _wireframe_kit() -> Template:
         '      <div style="height:24px;background:#E5E7EB;border-radius:4px;margin-bottom:8px;"></div>'
         '      <div style="height:24px;background:#E5E7EB;border-radius:4px;"></div>'
         '    </div>'
-        '    <div class="ph" style="flex:1;min-height:140px;">\ud83d\udcac Activity</div>'
+        '    <div class="ph" style="flex:1;min-height:140px;">\U0001f4ac Activity</div>'
         '  </div>'
         '</div>'
     )
@@ -517,7 +517,7 @@ def _wireframe_kit() -> Template:
         category="UI",
         description="Low-fidelity desktop wireframe: dashboard + detail, with sidebar navigation wired.",
         aspect_ratio="desktop",
-        icon="\ud83d\udd32",
+        icon="\U0001f532",
         mode="app_mockup",
         pages=[
             {"title": "Dashboard", "notes": "Dashboard shell with KPI row, chart, table, activity.", "html": _route("dashboard", "dashboard", dashboard_body)},

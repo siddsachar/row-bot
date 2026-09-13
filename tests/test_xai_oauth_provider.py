@@ -1382,7 +1382,8 @@ def test_xai_oauth_disconnect_removes_oauth_metadata_only(tmp_path, monkeypatch)
         ))
         disconnect_xai_oauth_metadata()
 
-        assert "xai_oauth" not in provider_config.load_provider_config().get("providers", {})
+        assert provider_config.load_provider_config()["providers"]["xai_oauth"]["configured"] is False
+        assert provider_config.load_provider_config()["providers"]["xai_oauth"]["oauth_bundle_ref"] == {"cleared": True}
         assert get_provider_secret("xai_oauth", "access_token") == ""
         assert get_provider_secret("xai_oauth", "refresh_token") == ""
     finally:

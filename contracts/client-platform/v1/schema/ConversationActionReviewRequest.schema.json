@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "ConversationActionExportFields": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ConversationActionExportFields",
+      "type": "object"
+    },
+    "ConversationActionPinFields": {
+      "additionalProperties": false,
+      "properties": {
+        "pinned": {
+          "title": "Pinned",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pinned"
+      ],
+      "title": "ConversationActionPinFields",
+      "type": "object"
+    },
+    "ConversationActionRenameFields": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "ConversationActionRenameFields",
+      "type": "object"
+    },
+    "ConversationExportConversationActionReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationActionExportFields"
+        },
+        "type": {
+          "const": "conversation.export",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationExportConversationActionReviewRequest",
+      "type": "object"
+    },
+    "ConversationPinConversationActionReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationActionPinFields"
+        },
+        "type": {
+          "const": "conversation.pin",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationPinConversationActionReviewRequest",
+      "type": "object"
+    },
+    "ConversationRenameConversationActionReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationActionRenameFields"
+        },
+        "type": {
+          "const": "conversation.rename",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationRenameConversationActionReviewRequest",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "conversation.export": "#/$defs/ConversationExportConversationActionReviewRequest",
+      "conversation.pin": "#/$defs/ConversationPinConversationActionReviewRequest",
+      "conversation.rename": "#/$defs/ConversationRenameConversationActionReviewRequest"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ConversationRenameConversationActionReviewRequest"
+    },
+    {
+      "$ref": "#/$defs/ConversationPinConversationActionReviewRequest"
+    },
+    {
+      "$ref": "#/$defs/ConversationExportConversationActionReviewRequest"
+    }
+  ]
+}

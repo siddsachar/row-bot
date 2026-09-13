@@ -24,6 +24,8 @@ const props = () => ({
   onSetup: vi.fn(),
   onOpenConversation: vi.fn(),
   onSearch: vi.fn(),
+  onOpenTasks: vi.fn(),
+  onOpenSettings: vi.fn(),
 });
 const resource = (
   id: string,
@@ -64,7 +66,7 @@ it('reads three bounded real libraries without creating or selecting a conversat
   expect(
     screen.getByText('Your conversations will appear here.'),
   ).toBeVisible();
-  expect(screen.getByText('No saved Decks yet.')).toBeVisible();
+  expect(screen.getByText('No saved designs yet.')).toBeVisible();
   expect(screen.getByText('No saved workspaces yet.')).toBeVisible();
   for (const callback of Object.values(callbacks))
     expect(callback).not.toHaveBeenCalled();
@@ -72,6 +74,17 @@ it('reads three bounded real libraries without creating or selecting a conversat
     screen.getByRole('link', { name: 'Open in current app' }),
   ).toHaveAttribute('href', '/');
   expect(screen.queryByRole('tab', { name: 'Monitor' })).toBeNull();
+});
+
+it('opens workflows and settings through their shared workspace routes', async () => {
+  const callbacks = props();
+  await act(async () => render(<Home {...callbacks} />));
+  fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  expect(callbacks.onOpenTasks).toHaveBeenCalledTimes(1);
+  expect(callbacks.onOpenSettings).toHaveBeenCalledTimes(1);
+  expect(callbacks.onNewChat).not.toHaveBeenCalled();
+  expect(callbacks.onSetup).not.toHaveBeenCalled();
 });
 
 it('shows six recent rows in service order with full titles and routes search to the full library', async () => {
@@ -112,7 +125,7 @@ it('delegates New chat and distinct domain starters to their shared owners', asy
   const callbacks = props();
   await act(async () => render(<Home {...callbacks} />));
   fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create design' }));
   fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
   fireEvent.click(
     screen.getByRole('button', { name: 'Browse all workspaces' }),
@@ -180,7 +193,7 @@ it('keeps unavailable entries truthful and bounds cards while preserving full-li
   expect(section.getByText('Unavailable')).toBeVisible();
   fireEvent.click(buttons[0]);
   expect(callbacks.onSetup).not.toHaveBeenCalled();
-  fireEvent.click(section.getByRole('button', { name: 'Browse all Decks' }));
+  fireEvent.click(section.getByRole('button', { name: 'Browse all designs' }));
   expect(callbacks.onSetup).toHaveBeenCalledWith({
     kind: 'artifact',
     mode: 'existing',
@@ -197,12 +210,12 @@ it('retries a failed section independently without misrepresenting failure as an
     screen.getByRole('region', { name: 'Designer library' }),
   );
   expect(section.getByRole('alert')).toBeVisible();
-  expect(section.queryByText('No saved Decks yet.')).toBeNull();
+  expect(section.queryByText('No saved designs yet.')).toBeNull();
   await act(async () =>
-    fireEvent.click(section.getByRole('button', { name: 'Retry Decks' })),
+    fireEvent.click(section.getByRole('button', { name: 'Retry designs' })),
   );
   expect(section.queryByRole('alert')).toBeNull();
-  expect(section.getByText('No saved Decks yet.')).toBeVisible();
+  expect(section.getByText('No saved designs yet.')).toBeVisible();
   expect(mock.controller.library).toHaveBeenCalledTimes(3);
   expect(mock.controller.recentConversations).toHaveBeenCalledTimes(1);
 });
@@ -227,8 +240,8 @@ it('aborts old session reads and never installs late resource data into a replac
   await act(async () => view.rerender(<Home {...callbacks} />));
   expect(oldSignal.aborted).toBe(true);
   await act(async () => resolveOld({ items: [resource('obsolete')] }));
-  expect(screen.queryByText('Deck ID: obsolete')).toBeNull();
-  expect(screen.getByText('No saved Decks yet.')).toBeVisible();
+  expect(screen.queryByText('Design ID: obsolete')).toBeNull();
+  expect(screen.getByText('No saved designs yet.')).toBeVisible();
   expect(mock.controller.recentConversations).toHaveBeenCalledTimes(2);
 });
 

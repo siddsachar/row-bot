@@ -11,6 +11,7 @@ import {
 } from 'react';
 import * as DockTabs from '@radix-ui/react-tabs';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { settingsLeaves } from '../settings/model';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import {
   ChevronLeft,
@@ -62,6 +63,7 @@ import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import ResourceSetup from './ResourceSetup';
 import ResourcePanel from '../panels/ResourcePanel';
+import BrowserLiveControls from '../browser/BrowserLiveControls';
 
 const Preferences = lazy(() => import('../settings/Preferences'));
 const subscriptions = new PanelSubscriptions();
@@ -124,6 +126,36 @@ const SamplePanel = memo(function SamplePanel({
   );
 });
 
+function BrowserPanel({ visible }: { visible: boolean }) {
+  const conversationId = useClientSelector(
+    (value) => value.selectedConversationId,
+  );
+  const { controller, browserControlOwner } = useRuntime();
+  const session = conversationId
+    ? browserControlOwner?.get()?.get(conversationId)
+    : undefined;
+  if (!visible) return null;
+  if (!conversationId || !session)
+    return (
+      <EmptyState title="Managed browser unavailable">
+        Open an authenticated conversation after pending browser actions are
+        resolved.
+      </EmptyState>
+    );
+  return (
+    <BrowserLiveControls
+      session={session}
+      load={controller.browserControls}
+      review={(action, payload, signal) =>
+        controller.reviewBrowserControl(conversationId, action, payload, signal)
+      }
+      execute={(command, review) =>
+        controller.executeBrowserControl(conversationId, command, review)
+      }
+    />
+  );
+}
+
 function PanelContent({
   panel,
   visible,
@@ -134,6 +166,8 @@ function PanelContent({
   return panel.descriptor.panel_kind === 'artifact.preview' ||
     panel.descriptor.panel_kind === 'workspace.inspector' ? (
     <ResourcePanel panel={panel} visible={visible} />
+  ) : panel.descriptor.panel_kind === 'browser.live' ? (
+    <BrowserPanel visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -320,7 +354,7 @@ export default function Workspace() {
   function setup(entry?: HomeSetupEntry) {
     overlay.open({
       title: 'New or open resource',
-      description: 'Create a Deck or register an existing coding folder.',
+      description: 'Create or open a design or coding workspace.',
       content: (
         <ResourceSetup
           conversationId={null}
@@ -363,6 +397,32 @@ export default function Workspace() {
                 void creation.newChat();
               },
             },
+            {
+              label: 'Workflows',
+              keywords: 'tasks reminders schedules',
+              run: () => {
+                overlay.close();
+                navigate('/tasks');
+              },
+            },
+            {
+              label: 'Settings',
+              keywords: 'configuration providers models',
+              run: () => {
+                overlay.close();
+                navigate('/settings');
+              },
+            },
+            ...settingsLeaves
+              .filter((leaf) => leaf.id !== 'preferences')
+              .map((leaf) => ({
+                label: `Open ${leaf.label} settings`,
+                keywords: leaf.category,
+                run: () => {
+                  overlay.close();
+                  navigate(leaf.href);
+                },
+              })),
             ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
               ? samplePanels
               : []
@@ -782,8 +842,7 @@ export default function Workspace() {
             onClick={() =>
               overlay.open({
                 title: 'New or open resource',
-                description:
-                  'Create a Deck or register an existing coding folder.',
+                description: 'Create or open a design or coding workspace.',
                 content: (
                   <ResourceSetup conversationId={null} onPanel={showPanel} />
                 ),
@@ -1018,6 +1077,8 @@ export default function Workspace() {
                     onNewChat={() => void creation.newChat()}
                     creatingChat={creation.creatingChat}
                     onSetup={setup}
+                    onOpenTasks={() => navigate('/tasks')}
+                    onOpenSettings={() => navigate('/settings')}
                     onOpenConversation={(id) => {
                       void controller.selectConversation(id);
                       navigate(`/conversations/${id}`);

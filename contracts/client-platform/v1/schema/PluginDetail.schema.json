@@ -1,0 +1,247 @@
+{
+  "$defs": {
+    "PluginCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        }
+      },
+      "required": [
+        "available",
+        "code"
+      ],
+      "title": "PluginCapability",
+      "type": "object"
+    },
+    "PluginField": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Options",
+          "type": "array"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "type": {
+          "maxLength": 64,
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "type",
+        "required",
+        "options",
+        "configured"
+      ],
+      "title": "PluginField",
+      "type": "object"
+    },
+    "PluginHealth": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/PluginHealthCheck"
+          },
+          "maxItems": 64,
+          "title": "Checks",
+          "type": "array"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "checks"
+      ],
+      "title": "PluginHealth",
+      "type": "object"
+    },
+    "PluginHealthCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "status"
+      ],
+      "title": "PluginHealthCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PluginCapability"
+      },
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "description": {
+      "maxLength": 2048,
+      "title": "Description",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "health": {
+      "$ref": "#/$defs/PluginHealth"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "permissions": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Permissions",
+      "type": "array"
+    },
+    "plugin_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Plugin Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "secrets": {
+      "items": {
+        "$ref": "#/$defs/PluginField"
+      },
+      "maxItems": 128,
+      "title": "Secrets",
+      "type": "array"
+    },
+    "settings": {
+      "items": {
+        "$ref": "#/$defs/PluginField"
+      },
+      "maxItems": 128,
+      "title": "Settings",
+      "type": "array"
+    },
+    "version": {
+      "maxLength": 64,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "plugin_id",
+    "revision",
+    "name",
+    "version",
+    "description",
+    "enabled",
+    "settings",
+    "secrets",
+    "health",
+    "permissions",
+    "capabilities"
+  ],
+  "title": "PluginDetail",
+  "type": "object"
+}

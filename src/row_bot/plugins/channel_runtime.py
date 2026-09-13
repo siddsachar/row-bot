@@ -11,16 +11,21 @@ import asyncio
 import inspect
 import logging
 import pathlib
-import queue
 import re
-import threading
 import time
 from collections.abc import Callable, Iterable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 
 from row_bot.channels.base import Channel
-from row_bot.channels.streaming import ChannelStreamConfig, ChannelStreamConsumer
+from row_bot.channels.streaming import (
+    ChannelDeliveryRejected,
+    ChannelStreamConfig,
+    ChannelStreamConsumer,
+    confirmed_channel_effect,
+    iter_channel_events,
+)
 from row_bot.plugins.api import (
     ChannelAttachment,
     ChannelAttachmentResult,
@@ -41,6 +46,7 @@ class _AgentTurn:
     interrupt_data: Any | None = None
     generated_files: list[str] = field(default_factory=list)
     delivered_final: bool = False
+    delivery_uncertain: bool = False
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -64,18 +70,21 @@ class _PluginCallbackStreamTransport:
         if self.callbacks.send_typing:
             await _maybe_await(self.callbacks.send_typing())
 
+    @confirmed_channel_effect
     async def start(self, text: str) -> Any:
         if not self.stream_active or not self.callbacks.start_stream:
-            raise RuntimeError("Plugin stream callbacks are unavailable")
+            raise ChannelDeliveryRejected("Plugin stream callbacks are unavailable")
         return await _maybe_await(self.callbacks.start_stream(text))
 
+    @confirmed_channel_effect
     async def update(self, handle: Any, text: str, *, final: bool = False) -> Any:
         if final and self.callbacks.finish_stream:
             return await _maybe_await(self.callbacks.finish_stream(handle, text))
         if not self.callbacks.update_stream:
-            raise RuntimeError("Plugin update_stream callback is unavailable")
+            raise ChannelDeliveryRejected("Plugin update_stream callback is unavailable")
         return await _maybe_await(self.callbacks.update_stream(handle, text))
 
+    @confirmed_channel_effect
     async def send_final(self, text: str) -> list[Any]:
         await _send_text(self.callbacks, text)
         return ["send_text"]
@@ -191,7 +200,7 @@ async def handle_plugin_channel_message(
                 generated_files=generated_files,
             )
 
-        if turn.answer:
+        if turn.answer and not turn.delivery_uncertain:
             goal_result = await _continue_goal_after_turn(
                 channel_name=message.channel_name,
                 thread_id=thread_id,
@@ -217,6 +226,7 @@ async def handle_plugin_channel_message(
             answer=turn.answer,
             handled=True,
             generated_files=generated_files,
+            error="delivery_unconfirmed" if turn.delivery_uncertain else "",
         )
     except Exception as exc:
         log.warning(
@@ -279,7 +289,7 @@ async def handle_plugin_channel_approval(
                 generated_files=generated_files,
             )
 
-        if turn.answer:
+        if turn.answer and not turn.delivery_uncertain:
             goal_result = await _continue_goal_after_turn(
                 channel_name=channel_name,
                 thread_id=_safe_thread_id(thread_id),
@@ -305,6 +315,7 @@ async def handle_plugin_channel_approval(
             answer=turn.answer,
             handled=True,
             generated_files=generated_files,
+            error="delivery_unconfirmed" if turn.delivery_uncertain else "",
         )
     except Exception as exc:
         log.warning(
@@ -638,19 +649,24 @@ async def _consume_stream_events(
         )
 
         async def _tracked_events():
-            async for event_type, payload in _iter_events_async(events_factory):
-                _track_generated_media(event_type, payload)
-                yield event_type, payload
+            async with aclosing(_iter_events_async(events_factory)) as events:
+                async for event_type, payload in events:
+                    _track_generated_media(event_type, payload)
+                    yield event_type, payload
 
         delivery = await consumer.consume_events(_tracked_events())
+        if delivery.error == "cancelled":
+            raise asyncio.CancelledError()
         answer = delivery.final_text.strip()
         interrupt_data = consumer.interrupt_data
         delivered_final = delivery.delivered
+        delivery_uncertain = delivery.uncertain
     else:
         answer_tokens: list[str] = []
         tool_reports: list[str] = []
         interrupt_data = None
         delivered_final = False
+        delivery_uncertain = False
         async for event_type, payload in _iter_events_async(events_factory):
             _track_generated_media(event_type, payload)
             if event_type == "token":
@@ -683,29 +699,14 @@ async def _consume_stream_events(
         interrupt_data=interrupt_data,
         generated_files=generated_files,
         delivered_final=delivered_final,
+        delivery_uncertain=delivery_uncertain,
     )
 
 
-async def _iter_events_async(
+def _iter_events_async(
     events_factory: Callable[[], Iterable[tuple[str, Any]]],
 ):
-    event_queue: queue.Queue[Any] = queue.Queue()
-
-    def _producer() -> None:
-        try:
-            for item in events_factory():
-                event_queue.put(item)
-        except Exception as exc:
-            event_queue.put(("error", str(exc)))
-        finally:
-            event_queue.put(None)
-
-    threading.Thread(target=_producer, daemon=True).start()
-    while True:
-        item = await asyncio.to_thread(event_queue.get)
-        if item is None:
-            break
-        yield item
+    return iter_channel_events(events_factory)
 
 
 def _tool_names(payload: Any) -> tuple[str, str]:
@@ -831,7 +832,7 @@ async def _run_goal_loop(
             deliver_final=True,
         )
         state["answer"] = turn.answer
-        state["delivered"] = turn.delivered_final
+        state["delivered"] = turn.delivered_final or turn.delivery_uncertain
         generated_files.extend(turn.generated_files)
         await _deliver_generated_files(turn.generated_files, callbacks)
         return turn.answer, turn.interrupt_data
@@ -877,7 +878,7 @@ async def _continue_goal_after_turn(
             deliver_final=True,
         )
         state["answer"] = turn.answer
-        state["delivered"] = turn.delivered_final
+        state["delivered"] = turn.delivered_final or turn.delivery_uncertain
         generated_files.extend(turn.generated_files)
         await _deliver_generated_files(turn.generated_files, callbacks)
         return turn.answer, turn.interrupt_data

@@ -12,7 +12,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.providers import xai_oauth as xai_auth
@@ -28,6 +28,24 @@ class ChatXAIOAuthResponses(BaseChatModel):
     timeout: float = 120.0
     http_client: Any | None = None
     reasoning_plan: Any | None = None
+    _probe_snapshot: Any = PrivateAttr(default=None)
+    _probe_validate: Any = PrivateAttr(default=None)
+    _captured_headers: Any = PrivateAttr(default=None)
+
+    def bind_captured_credentials(self, snapshot: tuple, validate: Any, *, headers: dict | None = None) -> None:
+        """Reuse the non-refreshing account binding for admitted durable workers."""
+        self.bind_probe_credentials(snapshot,validate)
+        self._captured_headers = dict(headers or {})
+
+    def bind_probe_credentials(self, snapshot: tuple, validate: Any) -> None:
+        """Bind a private captured account; reviewed probes never auto-refresh."""
+        import copy
+        self._probe_snapshot = copy.deepcopy(snapshot)
+        self._probe_validate = validate
+
+    def _validate_probe(self) -> None:
+        if self._probe_validate is not None:
+            self._probe_validate()
 
     @property
     def _llm_type(self) -> str:
@@ -50,6 +68,7 @@ class ChatXAIOAuthResponses(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         events = list(self._iter_response_events(self._request_body(messages, stop=stop, **kwargs)))
+        self._validate_probe()
         content = _assistant_text_from_events(events)
         tool_calls = _tool_calls_from_events(events)
         metadata = _response_metadata_from_events(events)
@@ -120,6 +139,8 @@ class ChatXAIOAuthResponses(BaseChatModel):
             "store": False,
             "stream": True,
         }
+        if self._probe_snapshot is not None and self._captured_headers is None:
+            body["max_output_tokens"] = 128
         tools = [_responses_tool(tool) for tool in kwargs.get("tools") or []]
         if tools:
             body["tools"] = tools
@@ -183,7 +204,10 @@ class ChatXAIOAuthResponses(BaseChatModel):
             if scope is not None and scope.is_cancelled():
                 logger.debug("xai_oauth_sse: stream cancelled model=%s", self.model_name)
                 return
-            logger.warning("xai_oauth_sse: stream failed: %s", exc)
+            if self._probe_snapshot is not None:
+                logger.warning("xai_oauth_sse: reviewed probe transport failed")
+            else:
+                logger.warning("xai_oauth_sse: stream failed: %s", exc)
             raise
         finally:
             for unregister in reversed(unregister_callbacks):
@@ -231,11 +255,18 @@ class ChatXAIOAuthResponses(BaseChatModel):
         return nullcontext(client.post(url, **kwargs))
 
     def _refresh_access_token_if_possible(self) -> bool:
-        credentials = xai_auth.xai_oauth_runtime_credentials(refresh_if_needed=False)
+        if self._probe_snapshot is not None:
+            return False
+        from dataclasses import replace
+        from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
+        captured = read_provider_oauth_bundle_snapshot('xai_oauth')
+        credentials = xai_auth.xai_oauth_runtime_credentials(refresh_if_needed=False, _snapshot=captured)
         if not credentials.refresh_token:
             return False
         refreshed = xai_auth.refresh_xai_oauth_token(credentials.refresh_token)
-        xai_auth.save_xai_oauth_tokens(refreshed)
+        refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or credentials.refresh_token,
+            id_token=refreshed.id_token or credentials.id_token, account_id=refreshed.account_id or credentials.account_id, user_id=refreshed.user_id or credentials.user_id)
+        xai_auth.save_xai_oauth_tokens(refreshed, expected_revision=captured[2])
         return True
 
     def _raise_for_status(self, response: Any) -> None:
@@ -244,14 +275,16 @@ class ChatXAIOAuthResponses(BaseChatModel):
             raise RuntimeError(_normalized_error(status_code, _safe_response_text(response)))
 
     def _headers(self, *, stream: bool = True) -> dict[str, str]:
-        credentials = xai_auth.xai_oauth_runtime_credentials(refresh_if_needed=True)
+        self._validate_probe()
+        credentials = xai_auth.xai_oauth_runtime_credentials(refresh_if_needed=self._probe_snapshot is None, _snapshot=self._probe_snapshot)
         if not credentials.access_token:
             raise RuntimeError("xAI OAuth access token is missing. Connect xAI Grok in Settings -> Providers.")
         return {
             "Authorization": f"Bearer {credentials.access_token}",
             "Accept": "text/event-stream" if stream else "application/json",
             "Content-Type": "application/json",
-            "User-Agent": xai_auth.xai_oauth_user_agent(),
+            "User-Agent": (self._captured_headers["User-Agent"] if self._captured_headers is not None
+                           else xai_auth.xai_oauth_user_agent()),
         }
 
 

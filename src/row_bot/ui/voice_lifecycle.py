@@ -1,11 +1,25 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from row_bot.ui.state import AppState, P
 
 logger = logging.getLogger(__name__)
+
+
+def start_voice_for_ui(start: Callable[[], int]) -> int | None:
+    """Claim voice before changing the visible composer or its binding."""
+    try:
+        return start()
+    except ValueError as exc:
+        if getattr(exc, "code", None) != "voice_session_busy":
+            raise
+        from nicegui import ui
+        ui.notify("Voice is active in another window or is still stopping. Try again when it finishes.",
+                  type="warning", close_button=True)
+        return None
 
 
 def stop_voice_for_thread_change(state: AppState, p: P | None, *, reason: str = "thread_change") -> bool:

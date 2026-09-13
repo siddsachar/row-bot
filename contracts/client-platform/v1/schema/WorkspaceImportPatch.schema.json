@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "next_offset": {
+      "anyOf": [
+        {
+          "maximum": 1048576,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Offset"
+    },
+    "pending_change_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Pending Change Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 16384,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pending_change_id",
+    "revision",
+    "text",
+    "next_offset"
+  ],
+  "title": "WorkspaceImportPatch",
+  "type": "object"
+}

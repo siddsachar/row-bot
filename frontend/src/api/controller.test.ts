@@ -1127,6 +1127,51 @@ describe('revisioned snapshot and independent selection', () => {
     value.suggestPanel({ ...suggestion, conversation_revision: '0' });
     expect(value.getSnapshot().suggestions).toEqual([]);
   });
+  it('suggests the shared managed-browser panel when browser tool activity arrives', async () => {
+    const transport = new FixtureTransport();
+    const initial = recorded<SubscriptionView>('F-P03', 'SubscriptionView')[0]
+      .snapshot;
+    transport.setSnapshot(initial);
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    const base = recorded<Event>('F-P03', 'Event')[0];
+    transport.emit({
+      cursor: 'browser-activity-1',
+      event: {
+        ...base,
+        event_id: 'browser-activity-1',
+        conversation_id: 'conversation-a',
+        projection_revision: '1',
+        source_sequence_start: '1',
+        source_sequence_end: '1',
+        server_epoch: initial.server_epoch,
+        type: 'tool.activity',
+        payload: {
+          state: 'tool_call',
+          tool_name: 'browser_navigate',
+          tool_call_id: 'browser-call-1',
+          message_id: 'browser-message-1',
+          pass_id: null,
+          segment_id: null,
+        },
+      },
+    } as EventRecord);
+    await flush();
+    expect(value.getSnapshot().suggestions).toEqual([
+      {
+        type: 'panel.suggested',
+        conversation_id: 'conversation-a',
+        conversation_revision: '1',
+        descriptor: {
+          panel_kind: 'browser.live',
+          title: 'Managed browser',
+          required_capabilities: ['browser_navigate'],
+        },
+      },
+    ]);
+  });
   it('coalesces reconnect and preserves a newer selection made during handshake', async () => {
     let resume!: () => void;
     class HandshakeBarrier extends FixtureTransport {
@@ -1590,6 +1635,70 @@ describe('event order, atomic reset and commands', () => {
     };
     await value.retryCommand('conversation-a', lost, 'lost-key');
     expect(transport.counters.commands).toBe(2);
+  });
+  it('explicitly reconciles a proven partial task save with its original command only', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    const command: Command = {
+      command_id: '00000000-0000-4000-8000-000000000091',
+      client_session_id: value.getSnapshot().handshake!.client_session_id,
+      type: 'task.create',
+      expected_revision: '0',
+      payload: {
+        fields: {
+          name: 'Synthetic workflow',
+          description: '',
+          icon: '',
+          prompts: ['Synthetic step'],
+          enabled: false,
+          schedule: null,
+          at: null,
+          notify_only: false,
+          notify_label: '',
+          channels: null,
+        },
+      },
+    };
+    const send = vi
+      .spyOn(transport, 'command')
+      .mockResolvedValueOnce({
+        command_id: command.command_id,
+        status: 'partial',
+        task_saved: true,
+        task_id: 'task-one',
+      })
+      .mockResolvedValueOnce({
+        command_id: command.command_id,
+        status: 'completed',
+        task_saved: true,
+        task_id: 'task-one',
+      });
+    await value.command(null, command, command.command_id);
+    expect(send).toHaveBeenCalledTimes(1);
+    await expect(
+      value.retryCommand(
+        null,
+        {
+          ...command,
+          payload: {
+            ...command.payload,
+            fields: {
+              ...command.payload.fields,
+              name: 'Changed',
+            },
+          },
+        },
+        command.command_id,
+      ),
+    ).rejects.toMatchObject({ code: 'idempotency_mismatch' });
+    expect(
+      (await value.retryCommand(null, command, command.command_id)).status,
+    ).toBe('completed');
+    expect(send).toHaveBeenCalledTimes(2);
+    await value.retryCommand(null, command, command.command_id);
+    expect(send).toHaveBeenCalledTimes(2);
   });
   it('retires settled command claims without blocking a long-lived session', async () => {
     vi.stubGlobal('crypto', webcrypto);

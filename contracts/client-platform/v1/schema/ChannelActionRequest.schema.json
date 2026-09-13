@@ -1,0 +1,81 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "channel_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Channel Id",
+      "type": "string"
+    },
+    "field_key": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Field Key"
+    },
+    "identity_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Identity Id"
+    },
+    "operation": {
+      "enum": [
+        "configure",
+        "start",
+        "stop",
+        "pair",
+        "revoke"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Value"
+    }
+  },
+  "required": [
+    "channel_id",
+    "revision",
+    "operation",
+    "field_key",
+    "value",
+    "identity_id"
+  ],
+  "title": "ChannelActionRequest",
+  "type": "object"
+}

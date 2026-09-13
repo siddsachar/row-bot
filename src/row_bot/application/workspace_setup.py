@@ -13,12 +13,54 @@ from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
 
+def _empty_workspace(command: dict, target: str, *, owner_id: str, key: str,
+                     authorized_folder: Any, previous: dict | None = None,
+                     validate: Any = None) -> tuple[dict, Any | None]:
+    """Keep directory recovery evidence inside the existing server admission receipt."""
+    from row_bot.developer.client_workspace import (
+        EmptyWorkspaceCreationError, EmptyWorkspaceRecovery, create_empty_workspace,
+    )
+    if authorized_folder is None:
+        raise ClientPlatformError("capability_revoked")
+    saved = (previous or {}).get("_empty_workspace")
+    recovery = EmptyWorkspaceRecovery(**saved) if saved else None
+    original = str((previous or {}).get("setup_command_id") or command["command_id"])
+    name = recovery.folder_name if recovery else command["payload"]["empty_workspace"]["folder_name"]
+    result = {**(previous or {}), "command_id": command["command_id"], "setup_command_id": original,
+              "status": "admitting", "resource_kind": "workspace", "setup_intent": "create",
+              "association_required": True, "confirmed_stages": (previous or {}).get("confirmed_stages", []),
+              **({"conversation_id": target} if target != "resources" else {})}
+    result.pop("code", None)
+    admissions.command_progress(owner_id, key, result)
+
+    def confirmed(value: EmptyWorkspaceRecovery) -> None:
+        result.update(resource_id=value.resource_id, _empty_workspace=asdict(value),
+                      folder_reselection_required=True)
+        admissions.command_progress(owner_id, key, result)
+
+    try:
+        registration = create_empty_workspace(authorized_folder, name, command_id=original,
+                                               persist_created=confirmed, recovery=recovery, validate=validate)
+    except EmptyWorkspaceCreationError as exc:
+        if exc.recovery is None and exc.code != "workspace_creation_unconfirmed":
+            raise ClientPlatformError(exc.code) from exc
+        result.update(status="partial", code=exc.code,
+                      folder_reselection_required=bool(result.get("_empty_workspace")))
+        admissions.command_progress(owner_id, key, result)
+        return result, None
+    result.update(resource_id=registration.workspace.resource_id,
+                  resource_revision=registration.workspace.revision)
+    if "created" not in result["confirmed_stages"]:
+        result["confirmed_stages"].append("created")
+    return result, registration
+
+
 def resource_choice(kind: str, identity: str, revision: str | None = None) -> dict:
     from row_bot import threads
     if kind == "artifact":
         from row_bot.designer.client_service import read_artifact
         value = read_artifact(identity)
-        if value.mode != "deck":
+        if value.mode not in {"deck", "document", "landing", "app_mockup", "storyboard"}:
             raise ClientPlatformError("capability_unavailable")
         origin = value.thread_id or value.missing_origin_thread_id
         current_revision = value.updated_at
@@ -63,17 +105,33 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
     from row_bot.conversation_resources import bind, list_bindings
     payload = command["payload"]
     continuing = command["type"] == "resource.continue"
+    empty_result = None
     if continuing:
         previous = service.receipt(owner_id, str(payload["setup_command_id"]))
         if previous.get("status") not in {"partial", "admitting"} or not previous.get("resource_id"):
             raise ClientPlatformError("invalid_command")
         if (previous.get("conversation_id") or "resources") != target:
             raise ClientPlatformError("action_denied")
+        if target != "resources":
+            current = service._metadata(target)
+            if str(current["client_revision"]) != command["expected_revision"]:
+                raise ClientPlatformError("revision_conflict", str(current["client_revision"]))
+        if validate:
+            validate()
+        raw_previous = admissions.receipt(owner_id, str(payload["setup_command_id"])) or {}
+        if raw_previous.get("_empty_workspace"):
+            previous["_empty_workspace"] = raw_previous["_empty_workspace"]
+            previous, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
+                authorized_folder=authorized_folder, previous=previous, validate=validate)
+            if registration is None:
+                return previous
+        elif payload.get("folder_grant") or not payload.get("expected_resource_revision"):
+            raise ClientPlatformError("invalid_command")
         kind, identity = previous["resource_kind"], previous["resource_id"]
         result = {k: v for k, v in previous.items() if k not in {"code", "current_revision"}}
         result.update(command_id=command["command_id"], status="partial")
         intent = previous.get("setup_intent", "create")
-        choice = resource_choice(kind, identity, payload["expected_resource_revision"])
+        choice = resource_choice(kind, identity, payload.get("expected_resource_revision"))
         conversation = None if target == "resources" else target
         needs_association = bool(previous.get("association_required")) and "associated" not in result.get("confirmed_stages", [])
     else:
@@ -83,7 +141,7 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
         if intent == "new_conversation" and (
             kind != "workspace" or target != "resources"
             or not payload.get("resource_id") or not payload.get("expected_resource_revision")
-            or any(payload.get(field) is not None for field in ("deck", "folder_grant", "expected_origin_id"))
+            or any(payload.get(field) is not None for field in ("deck", "artifact", "empty_workspace", "folder_grant", "expected_origin_id"))
         ):
             raise ClientPlatformError("invalid_command")
         if intent == "add" and target == "resources":
@@ -98,7 +156,7 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
             if identity:
                 raise ClientPlatformError("invalid_command")
             if kind == "artifact":
-                from row_bot.designer.client_service import DeckSetup, create_deck
+                from row_bot.designer.client_service import ArtifactSetup, DeckSetup, create_artifact, create_deck
                 identity = str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "deck"))
                 admissions.command_progress(owner_id, key, {
                     "command_id": command["command_id"], "setup_command_id": command["command_id"],
@@ -106,8 +164,21 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                     "setup_intent": intent, "association_required": True, "confirmed_stages": [],
                     **({"conversation_id": target} if target != "resources" else {}),
                 })
-                create_deck(identity, DeckSetup(**(payload.get("deck") or {})))
+                if payload.get("artifact") is not None:
+                    if payload.get("deck") is not None or payload.get("folder_grant") is not None:
+                        raise ClientPlatformError("invalid_command")
+                    create_artifact(identity, ArtifactSetup(**payload["artifact"]))
+                else:
+                    create_deck(identity, DeckSetup(**(payload.get("deck") or {})))
                 created = True
+            elif payload.get("empty_workspace") is not None:
+                if validate:
+                    validate()
+                empty_result, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
+                                                               authorized_folder=authorized_folder, validate=validate)
+                if registration is None:
+                    return empty_result
+                identity, created = registration.workspace.resource_id, registration.created
             else:
                 from row_bot.developer.client_workspace import register_existing_folder
                 if authorized_folder is None:
@@ -129,6 +200,8 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
         result = {"command_id": command["command_id"], "setup_command_id": command["command_id"],
                   "status": "partial", "resource_id": identity, "resource_kind": kind,
                   "resource_revision": choice["revision"], "confirmed_stages": ["created"] if created else []}
+        if empty_result:
+            result.update(_empty_workspace=empty_result["_empty_workspace"], folder_reselection_required=True)
         conversation = target if target != "resources" else choice["origin_conversation_id"]
         if intent == "new_conversation":
             # An explicit separate history never changes a saved origin, even
@@ -200,6 +273,7 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                          expected_resource_revision=binding_revision)
         binding = next(item for item in resources.bindings if item.kind == kind and item.resource_id == binding_identity)
         result.update(binding_id=binding.binding_id, revision=resources.revision, status="completed")
+        result["folder_reselection_required"] = False
         if "bound" not in result["confirmed_stages"]:
             result["confirmed_stages"].append("bound")
         persist()

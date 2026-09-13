@@ -1,0 +1,76 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "configured": {
+      "title": "Configured",
+      "type": "boolean"
+    },
+    "display_name": {
+      "maxLength": 256,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "externally_managed": {
+      "title": "Externally Managed",
+      "type": "boolean"
+    },
+    "provider_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "recovery_available": {
+      "title": "Recovery Available",
+      "type": "boolean"
+    },
+    "revision": {
+      "maxLength": 64,
+      "minLength": 64,
+      "title": "Revision",
+      "type": "string"
+    },
+    "runtime_state": {
+      "const": "unknown",
+      "default": "unknown",
+      "title": "Runtime State",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source": {
+      "enum": [
+        "environment",
+        "secret_file",
+        "conflict",
+        "session",
+        "keyring",
+        "encrypted_file",
+        "api_keys",
+        "unknown"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "storage_unavailable": {
+      "title": "Storage Unavailable",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "provider_id",
+    "revision",
+    "configured",
+    "source",
+    "externally_managed",
+    "storage_unavailable",
+    "recovery_available",
+    "display_name"
+  ],
+  "title": "ProviderSettingsSnapshot",
+  "type": "object"
+}

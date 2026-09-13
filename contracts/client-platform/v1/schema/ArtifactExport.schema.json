@@ -1,0 +1,109 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expires_at": {
+      "title": "Expires At",
+      "type": "number"
+    },
+    "export_id": {
+      "format": "uuid",
+      "title": "Export Id",
+      "type": "string"
+    },
+    "filename": {
+      "maxLength": 240,
+      "minLength": 1,
+      "title": "Filename",
+      "type": "string"
+    },
+    "format": {
+      "enum": [
+        "pdf",
+        "html",
+        "png",
+        "pptx"
+      ],
+      "title": "Format",
+      "type": "string"
+    },
+    "media_type": {
+      "maxLength": 128,
+      "title": "Media Type",
+      "type": "string"
+    },
+    "page_count": {
+      "minimum": 1,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "pptx_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "screenshot",
+            "structured"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Pptx Mode"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "maximum": 67108864,
+      "minimum": 1,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "status": {
+      "const": "ready",
+      "title": "Status",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "const": "external_assets_unavailable",
+        "type": "string"
+      },
+      "maxItems": 1,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "export_id",
+    "resource_id",
+    "resource_revision",
+    "format",
+    "pptx_mode",
+    "page_count",
+    "filename",
+    "media_type",
+    "size_bytes",
+    "sha256",
+    "status",
+    "warnings",
+    "expires_at"
+  ],
+  "title": "ArtifactExport",
+  "type": "object"
+}

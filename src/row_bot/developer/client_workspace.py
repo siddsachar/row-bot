@@ -1,4 +1,4 @@
-"""Read-only workspace pilot and metadata setup over existing Developer owners.
+"""Workspace queries and explicit setup over existing Developer owners.
 
 The application validates grants, session authority and bindings before calling
 this module. Domain checks repeat containment and revision validation. No helper
@@ -10,6 +10,10 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -60,6 +64,24 @@ class WorkspaceChoice:
 class WorkspaceRegistration:
     workspace: WorkspaceChoice
     created: bool
+
+
+@dataclass(frozen=True)
+class EmptyWorkspaceRecovery:
+    """Private server receipt; never accept this evidence from a renderer."""
+
+    command_id: str
+    folder_name: str
+    resource_id: str
+    parent_identity: str
+    directory_identity: str
+
+
+class EmptyWorkspaceCreationError(ValueError):
+    def __init__(self, code: str, recovery: EmptyWorkspaceRecovery | None = None) -> None:
+        super().__init__(code)
+        self.code = code
+        self.recovery = recovery
 
 
 @dataclass(frozen=True)
@@ -225,6 +247,164 @@ def register_existing_folder(selection: AuthorizedWorkspaceFolder) -> WorkspaceR
             return WorkspaceRegistration(_choice(existing), False)
         workspace = storage.add_or_update_local_workspace(str(verified))
         return WorkspaceRegistration(_choice(workspace), existing is None)
+
+
+def _empty_folder_name(name: str) -> str:
+    # Apply portable Windows component rules even on Unix: names travel between
+    # supported clients, and neither alternate streams nor devices are folders.
+    reserved = {"con", "prn", "aux", "nul", "conin$", "conout$"}
+    reserved.update(f"{prefix}{suffix}" for prefix in ("com", "lpt")
+                    for suffix in "123456789¹²³")
+    if (not isinstance(name, str) or not name or name != name.strip()
+            or name.endswith(".") or name.casefold() in {".", "..", ".git"}
+            or any(ord(char) < 32 or ord(char) == 127 or char in '<>:"/\\|?*' for char in name)
+            or name.split(".", 1)[0].casefold() in reserved):
+        raise EmptyWorkspaceCreationError("workspace_name_invalid")
+    try:
+        if len(name.encode("utf-8")) > 255:
+            raise ValueError
+    except (UnicodeError, ValueError):
+        raise EmptyWorkspaceCreationError("workspace_name_invalid") from None
+    return name
+
+
+def _empty_parent(selection: AuthorizedWorkspaceFolder) -> Path:
+    if not selection.selection_id:
+        raise EmptyWorkspaceCreationError("folder_selection_required")
+    try:
+        root = selection.scope_root.absolute()
+        relative = selection.path.absolute().relative_to(root).as_posix()
+        parent = scoped_workspace_path(root, "" if relative == "." else relative)
+        if not parent.is_dir():
+            raise ValueError
+        return parent
+    except (OSError, ValueError):
+        raise EmptyWorkspaceCreationError("folder_selection_denied") from None
+
+
+def _directory_identity(path: Path, *, parent: bool = False) -> str:
+    from row_bot.file_ownership import directory_identity
+    return directory_identity(path, parent=parent)
+
+
+@contextmanager
+def _empty_parent_guard(parent: Path, identity: str) -> Iterator[int | None]:
+    """Compatibility adapter for the shared native directory ownership guard."""
+    from row_bot.file_ownership import DirectoryOwnershipError, guard_directory
+    try:
+        with guard_directory(parent, identity) as descriptor:
+            yield descriptor
+    except DirectoryOwnershipError:
+        raise EmptyWorkspaceCreationError("folder_selection_denied") from None
+
+
+def _validate_empty_authority(validate: Callable[[], None] | None,
+                              recovery: EmptyWorkspaceRecovery | None = None) -> None:
+    if validate is None:
+        return
+    try:
+        validate()
+    except Exception as error:
+        if recovery is None:
+            raise
+        # Preserve already-persisted progress when authority expires after
+        # mkdir. Only stable public authorization codes escape this boundary.
+        code = getattr(error, "code", "action_denied")
+        if code not in {"capability_revoked", "action_denied", "resource_revision_conflict",
+                        "conversation_unavailable", "folder_selection_denied"}:
+            code = "action_denied"
+        raise EmptyWorkspaceCreationError(code, recovery) from None
+
+
+def create_empty_workspace(
+    selection: AuthorizedWorkspaceFolder, folder_name: str, *, command_id: str,
+    persist_created: Callable[[EmptyWorkspaceRecovery], None],
+    recovery: EmptyWorkspaceRecovery | None = None,
+    validate: Callable[[], None] | None = None,
+) -> WorkspaceRegistration:
+    """Create one explicitly named child, then register it without execution.
+
+    The application owns admission, grants and durable command identity. It
+    must save the private callback evidence before attempting later setup
+    stages and supply only its own saved evidence on explicit continuation.
+    mkdir and that receipt cannot be atomic: an interruption between them is
+    unconfirmed, never permission to adopt an existing directory on retry.
+    No file, directory, prior record, policy or association is overwritten.
+    """
+    name = _empty_folder_name(folder_name)
+    try:
+        if str(uuid.UUID(command_id)) != command_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise EmptyWorkspaceCreationError("invalid_command") from None
+    with storage.workspace_transaction():
+        _validate_empty_authority(validate, recovery)
+        parent = _empty_parent(selection)
+        parent_identity = _directory_identity(parent, parent=True)
+        with _empty_parent_guard(parent, parent_identity) as parent_fd:
+            target = parent / name
+            resource_id = storage._workspace_id_for_path(target)
+            if recovery is not None and (
+                recovery.command_id != command_id or recovery.folder_name != name
+                or recovery.resource_id != resource_id or recovery.parent_identity != parent_identity
+            ):
+                raise EmptyWorkspaceCreationError("workspace_recovery_conflict")
+            existing = storage.get_workspace(resource_id)
+            if recovery is None:
+                # A hidden/stale registry identity is not authority to replace it.
+                if existing is not None:
+                    raise EmptyWorkspaceCreationError("workspace_identity_conflict")
+                if os.path.lexists(target):
+                    raise EmptyWorkspaceCreationError("workspace_destination_exists")
+                if _directory_identity(_empty_parent(selection), parent=True) != parent_identity:
+                    raise EmptyWorkspaceCreationError("folder_selection_denied")
+                _validate_empty_authority(validate)
+                try:
+                    if parent_fd is None:
+                        target.mkdir(exist_ok=False)
+                    else:
+                        os.mkdir(name, dir_fd=parent_fd)
+                except FileExistsError:
+                    raise EmptyWorkspaceCreationError("workspace_destination_exists") from None
+                except OSError:
+                    raise EmptyWorkspaceCreationError("workspace_creation_denied") from None
+                try:
+                    scoped_workspace_path(parent, name)
+                    if _directory_identity(_empty_parent(selection), parent=True) != parent_identity:
+                        raise ValueError
+                    recovery = EmptyWorkspaceRecovery(command_id, name, resource_id,
+                                                      parent_identity, _directory_identity(target))
+                    persist_created(recovery)
+                except Exception:
+                    # Never remove a directory as rollback; receipt failure means
+                    # its creation cannot be safely inferred after a restart.
+                    raise EmptyWorkspaceCreationError("workspace_creation_unconfirmed") from None
+            try:
+                verified = scoped_workspace_path(_empty_parent(selection), name)
+                if (not verified.is_dir() or _directory_identity(verified) != recovery.directory_identity
+                        or _directory_identity(parent, parent=True) != recovery.parent_identity):
+                    raise ValueError
+            except (OSError, ValueError):
+                raise EmptyWorkspaceCreationError("workspace_recovery_conflict", recovery) from None
+            _validate_empty_authority(validate, recovery)
+            if existing is not None:
+                if Path(existing.path).absolute() != verified.absolute():
+                    raise EmptyWorkspaceCreationError("workspace_identity_conflict", recovery)
+                return WorkspaceRegistration(_choice(existing), False)
+            try:
+                if next(verified.iterdir(), None) is not None:
+                    raise EmptyWorkspaceCreationError("workspace_destination_not_empty", recovery)
+            except OSError:
+                raise EmptyWorkspaceCreationError("workspace_creation_denied", recovery) from None
+            _validate_empty_authority(validate, recovery)
+            try:
+                # Persist only the existing Developer record shape. In particular,
+                # no legacy helper may allocate a thread/worktree or infer Git.
+                workspace = DeveloperWorkspace(id=resource_id, name=name, path=str(verified))
+                storage.save_workspace(workspace)
+            except Exception:
+                raise EmptyWorkspaceCreationError("workspace_registration_failed", recovery) from None
+            return WorkspaceRegistration(_choice(workspace), True)
 
 
 def _page_cursor(cursor: str | None, scope: str, revision: str) -> int:

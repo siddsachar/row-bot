@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "CachedModelRow": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Categories",
+          "type": "array"
+        },
+        "context_window": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Window"
+        },
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "input_modalities": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Input Modalities",
+          "type": "array"
+        },
+        "installed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Installed"
+        },
+        "model_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "output_modalities": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Output Modalities",
+          "type": "array"
+        },
+        "pinned_surfaces": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Pinned Surfaces",
+          "type": "array"
+        },
+        "provider_display_name": {
+          "maxLength": 256,
+          "title": "Provider Display Name",
+          "type": "string"
+        },
+        "provider_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CachedReasoning"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "selection_ref": {
+          "maxLength": 647,
+          "minLength": 1,
+          "title": "Selection Ref",
+          "type": "string"
+        },
+        "tool_calling": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calling"
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_id",
+        "selection_ref",
+        "display_name",
+        "provider_display_name",
+        "categories",
+        "input_modalities",
+        "output_modalities",
+        "pinned_surfaces"
+      ],
+      "title": "CachedModelRow",
+      "type": "object"
+    },
+    "CachedReasoning": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_max": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Max"
+        },
+        "budget_min": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Min"
+        },
+        "can_disable": {
+          "title": "Can Disable",
+          "type": "boolean"
+        },
+        "default_effort": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Effort"
+        },
+        "default_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Enabled"
+        },
+        "mandatory": {
+          "title": "Mandatory",
+          "type": "boolean"
+        },
+        "supported_efforts": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Supported Efforts",
+          "type": "array"
+        },
+        "supports_budget": {
+          "title": "Supports Budget",
+          "type": "boolean"
+        },
+        "thinking_mode": {
+          "enum": [
+            "none",
+            "toggle",
+            "manual"
+          ],
+          "title": "Thinking Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "supported_efforts",
+        "can_disable",
+        "mandatory",
+        "supports_budget",
+        "thinking_mode"
+      ],
+      "title": "CachedReasoning",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "freshness": {
+      "enum": [
+        "fresh",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Freshness",
+      "type": "string"
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/CachedModelRow"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "revision",
+    "freshness",
+    "items",
+    "total"
+  ],
+  "title": "CachedModelPage",
+  "type": "object"
+}

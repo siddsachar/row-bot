@@ -267,7 +267,7 @@ def test_telegram_draft_overflow_preview_keeps_refreshing_until_final_send() -> 
     assert len(final_sends) == 2
 
 
-def test_telegram_final_edit_failure_falls_back_to_final_send() -> None:
+def test_telegram_uncertain_final_edit_never_sends_duplicate() -> None:
     async def run_case():
         chat = FakeChat(chat_type="group")
         chat.fail_next_message_final_edit = True
@@ -280,11 +280,10 @@ def test_telegram_final_edit_failure_falls_back_to_final_send() -> None:
 
     result, chat = asyncio.run(run_case())
 
-    assert result.delivered is True
-    assert result.fallback_sent is True
-    assert [text for op, text, _kwargs in chat.operations if op == "send"][
-        -1
-    ].endswith("final answer")
+    assert result.delivered is False
+    assert result.uncertain is True
+    assert result.fallback_sent is False
+    assert len([op for op, _text, _kwargs in chat.operations if op == "send"]) == 1
 
 
 def test_telegram_message_not_modified_is_success() -> None:

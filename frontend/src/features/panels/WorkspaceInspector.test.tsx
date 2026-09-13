@@ -6,6 +6,8 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import type { ClientController } from '../../api/controller';
+import { createWorkspaceEditSessions } from './workspace-edit-sessions';
 import type {
   WorkspaceInspector as Inspector,
   WorkspaceFile,
@@ -39,6 +41,151 @@ const fixture: Inspector = {
   todos: [],
   error: '',
 };
+
+function editingLifetime() {
+  const editable = {
+    resource_id: 'workspace',
+    conversation_id: 'chat-a',
+    relative_path: 'file-1.txt',
+    resource_revision: '1',
+    binding_id: 'binding',
+    binding_revision: '2',
+    target: 'workspace' as const,
+    status: 'text' as const,
+    content: 'Original',
+    digest: 'a'.repeat(64),
+  };
+  const state = {
+    selectedConversationId: 'chat-a',
+    loadingConversation: false,
+    handshake: {
+      client_session_id: 'session',
+      server_epoch: 'epoch',
+      instance_id: 'instance',
+    },
+    workspace: {
+      conversation_id: 'chat-a',
+      revision: '3',
+      resources: [
+        {
+          available: true,
+          resource_revision: '1',
+          binding: {
+            binding_id: 'binding',
+            revision: '2',
+            kind: 'workspace',
+            resource_id: 'workspace',
+          },
+        },
+      ],
+    },
+  };
+  const controller = {
+    getSnapshot: () => state,
+    subscribe: () => () => {},
+    workspaceEditableFile: vi.fn().mockResolvedValue(editable),
+    command: vi.fn(),
+    receipt: vi.fn(),
+    retryCommand: vi.fn(),
+  };
+  const owner = createWorkspaceEditSessions(
+    controller as unknown as ClientController,
+  );
+  const options = {
+    ...props(),
+    editableFile: controller.workspaceEditableFile,
+    saveFile: vi.fn(),
+    editSessions: owner.forBinding('chat-a', 'binding'),
+  };
+  return { controller, owner, options, editable };
+}
+
+it('retains the actual Inspector draft through hidden rendering and a full panel remount', async () => {
+  const { owner, controller, options } = editingLifetime();
+  const first = render(<WorkspaceInspector {...options} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit file' }));
+  fireEvent.change(
+    await screen.findByRole('textbox', { name: 'File contents' }),
+    { target: { value: 'Retained unsaved draft' } },
+  );
+  first.rerender(<WorkspaceInspector {...options} visible={false} />);
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  first.rerender(<WorkspaceInspector {...options} visible />);
+  expect(
+    await screen.findByRole('textbox', { name: 'File contents' }),
+  ).toHaveValue('Retained unsaved draft');
+  first.unmount();
+  const second = render(
+    <WorkspaceInspector
+      {...options}
+      editSessions={owner.forBinding('chat-a', 'binding')}
+    />,
+  );
+  expect(
+    await screen.findByRole('textbox', { name: 'File contents' }),
+  ).toHaveValue('Retained unsaved draft');
+  expect(controller.workspaceEditableFile).toHaveBeenCalledOnce();
+  second.unmount();
+  owner.dispose();
+});
+
+it('settles an actual Inspector save after unmount and remounts its completed content', async () => {
+  const { owner, controller, options, editable } = editingLifetime();
+  let finish!: (value: unknown) => void;
+  controller.command.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const first = render(<WorkspaceInspector {...options} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit file' }));
+  fireEvent.change(
+    await screen.findByRole('textbox', { name: 'File contents' }),
+    { target: { value: 'Saved while hidden' } },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save file' }));
+  await waitFor(() => expect(controller.command).toHaveBeenCalledOnce());
+  first.unmount();
+  const pendingView = render(
+    <WorkspaceInspector
+      {...options}
+      editSessions={owner.forBinding('chat-a', 'binding')}
+    />,
+  );
+  expect(
+    await screen.findByRole('textbox', { name: 'File contents' }),
+  ).toHaveValue('Saved while hidden');
+  expect(screen.getByRole('textbox', { name: 'File contents' })).toBeDisabled();
+  expect(owner.hasRetained()).toBe(true);
+  expect(controller.command).toHaveBeenCalledOnce();
+  pendingView.unmount();
+  await act(async () => {
+    finish({
+      status: 'completed',
+      workspace_edit: { ...editable, status: 'saved', digest: 'b'.repeat(64) },
+    });
+  });
+  const second = render(
+    <WorkspaceInspector
+      {...options}
+      editSessions={owner.forBinding('chat-a', 'binding')}
+    />,
+  );
+  expect(
+    await screen.findByRole('textbox', { name: 'File contents' }),
+  ).toHaveValue('Saved while hidden');
+  expect(
+    screen.getByText(
+      'File saved. Original bytes remain available in edit recovery.',
+    ),
+  ).toBeInTheDocument();
+  expect(controller.command).toHaveBeenCalledOnce();
+  expect(owner.hasRetained()).toBe(false);
+  second.unmount();
+  owner.dispose();
+});
 
 function props(): WorkspaceInspectorProps {
   return {
@@ -558,6 +705,35 @@ describe('read-only workspace Inspector', () => {
       <WorkspaceInspector {...next} visible={false} resourceRevision="2" />,
     );
     expect(next.load).toHaveBeenCalledTimes(calls);
+  });
+
+  it('waits for a refreshed snapshot before loading agent changes', async () => {
+    const refreshed = pending<Inspector>();
+    const options = props();
+    options.load = vi
+      .fn()
+      .mockResolvedValueOnce(fixture)
+      .mockReturnValueOnce(refreshed.promise);
+    render(<WorkspaceInspector {...options} />);
+    await screen.findByText('Fixture workspace');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh inspector' }));
+    const loadChanges = screen.getByRole('button', {
+      name: 'Load agent changes',
+    });
+    expect(loadChanges).toBeDisabled();
+    fireEvent.click(loadChanges);
+    expect(options.changeSets).not.toHaveBeenCalled();
+    await act(async () =>
+      refreshed.resolve({ ...fixture, snapshot_revision: '2' }),
+    );
+    await waitFor(() => expect(loadChanges).toBeEnabled());
+    fireEvent.click(loadChanges);
+    await waitFor(() => expect(options.changeSets).toHaveBeenCalledOnce());
+    expect(options.changeSets).toHaveBeenCalledWith(
+      '2',
+      undefined,
+      expect.any(AbortSignal),
+    );
   });
 
   it('keeps request scope when file A completes after file B', async () => {

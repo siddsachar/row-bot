@@ -1,0 +1,81 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "document.batch.pause",
+        "document.batch.resume",
+        "document.batch.cancel",
+        "document.job.cancel",
+        "document.job.retry",
+        "document.jobs.clear_finished"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "batch_ids": {
+      "items": {
+        "pattern": "^[A-Za-z0-9_-]{1,128}$",
+        "type": "string"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Batch Ids",
+      "type": "array"
+    },
+    "intent_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Intent Digest",
+      "type": "string"
+    },
+    "provider_work": {
+      "title": "Provider Work",
+      "type": "boolean"
+    },
+    "retains_work": {
+      "title": "Retains Work",
+      "type": "boolean"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "target_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Target Id"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "target_id",
+    "batch_ids",
+    "revision",
+    "intent_digest",
+    "provider_work",
+    "retains_work",
+    "review_id"
+  ],
+  "title": "DocumentControlReview",
+  "type": "object"
+}

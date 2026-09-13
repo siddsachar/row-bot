@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import importlib
 import pathlib
-import threading
 from types import SimpleNamespace
 
 from langchain_core.documents import Document
@@ -206,7 +205,12 @@ def test_graph_and_wiki_finalization_occurs_once_per_batch(tmp_path, monkeypatch
     jobs, extraction, service, job = _extracting_job(tmp_path, monkeypatch)
     service.mark_completed(job.id)
     calls = []
-    monkeypatch.setattr(jobs, "_finalize_shared_knowledge_indexes", lambda: calls.append("refresh"))
+    def refresh(*, cancelled):
+        assert callable(cancelled)
+        assert not cancelled()
+        calls.append("refresh")
+
+    monkeypatch.setattr(jobs, "_finalize_shared_knowledge_indexes", refresh)
     monkeypatch.setattr(jobs, "_notify_batch_complete", lambda *_args: None)
     supervisor = jobs.DocumentSupervisor(service)
 

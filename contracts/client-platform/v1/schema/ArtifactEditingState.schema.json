@@ -1,0 +1,264 @@
+{
+  "$defs": {
+    "ArtifactHistoryItem": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "maxLength": 256,
+          "title": "Author",
+          "type": "string"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 40,
+          "minLength": 1,
+          "pattern": "^[0-9]{1,20}(\\.[0-9]{1,12})?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "page_count": {
+          "minimum": 0,
+          "title": "Page Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "author",
+        "page_count",
+        "available"
+      ],
+      "title": "ArtifactHistoryItem",
+      "type": "object"
+    },
+    "ArtifactPage": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "index"
+      ],
+      "title": "ArtifactPage",
+      "type": "object"
+    },
+    "ArtifactTextElement": {
+      "additionalProperties": false,
+      "properties": {
+        "editable": {
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "tag": {
+          "maxLength": 64,
+          "title": "Tag",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 32768,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tag",
+        "text",
+        "editable"
+      ],
+      "title": "ArtifactTextElement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "canvas_height": {
+      "maximum": 16384,
+      "minimum": 1,
+      "title": "Canvas Height",
+      "type": "integer"
+    },
+    "canvas_width": {
+      "maximum": 16384,
+      "minimum": 1,
+      "title": "Canvas Width",
+      "type": "integer"
+    },
+    "element_count": {
+      "minimum": 0,
+      "title": "Element Count",
+      "type": "integer"
+    },
+    "element_next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Element Next Cursor"
+    },
+    "elements": {
+      "items": {
+        "$ref": "#/$defs/ArtifactTextElement"
+      },
+      "maxItems": 50,
+      "title": "Elements",
+      "type": "array"
+    },
+    "history": {
+      "items": {
+        "$ref": "#/$defs/ArtifactHistoryItem"
+      },
+      "maxItems": 50,
+      "title": "History",
+      "type": "array"
+    },
+    "history_count": {
+      "minimum": 0,
+      "title": "History Count",
+      "type": "integer"
+    },
+    "history_next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "History Next Cursor"
+    },
+    "mode": {
+      "enum": [
+        "deck",
+        "document",
+        "landing",
+        "app_mockup",
+        "storyboard"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "page_count": {
+      "minimum": 0,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "page_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Page Id",
+      "type": "string"
+    },
+    "page_next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Page Next Cursor"
+    },
+    "page_notes": {
+      "maxLength": 32768,
+      "title": "Page Notes",
+      "type": "string"
+    },
+    "page_title": {
+      "maxLength": 256,
+      "title": "Page Title",
+      "type": "string"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/ArtifactPage"
+      },
+      "maxItems": 50,
+      "title": "Pages",
+      "type": "array"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "mode",
+    "name",
+    "canvas_width",
+    "canvas_height",
+    "page_id",
+    "page_title",
+    "page_notes",
+    "pages",
+    "page_count",
+    "elements",
+    "element_count",
+    "history",
+    "history_count"
+  ],
+  "title": "ArtifactEditingState",
+  "type": "object"
+}

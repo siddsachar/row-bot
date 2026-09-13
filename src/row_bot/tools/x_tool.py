@@ -1062,7 +1062,7 @@ class XTool(BaseTool):
 
     def _x_post(self, action: str, text: str | None = None,
                 tweet_id: str | None = None,
-                media_paths: list[str] | None = None) -> str:
+                media_paths: list[str] | None = None, *, require_all_media: bool = False) -> str:
         """Execute a post/write operation on X."""
         token = self._get_valid_token()
         if not token:
@@ -1077,6 +1077,8 @@ class XTool(BaseTool):
             body: dict = {"text": text}
             if media_paths:
                 media_ids = self._upload_media_files(media_paths, token)
+                if require_all_media and len(media_ids) != len(media_paths):
+                    return "Media upload incomplete; no tweet was posted. Uploaded media may remain."
                 if media_ids:
                     body["media"] = {"media_ids": media_ids}
 

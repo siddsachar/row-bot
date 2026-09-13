@@ -132,3 +132,34 @@ def write_plugin(
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(skill, encoding="utf-8")
     return plugin_dir
+
+
+def prepare_worker_environment(modules: dict[str, object], plugin_dir: Path) -> Path:
+    """Explicit synthetic ready-generation fixture; no pip/dependency/network IO."""
+    import venv
+    from uuid import uuid4
+    from row_bot.plugins.manifest import parse_manifest
+    from row_bot.plugins.worker import prepared_worker
+
+    installer, state, devtools = (modules[key] for key in ("installer", "state", "devtools"))
+    plugin_id = parse_manifest(plugin_dir).id
+    enabled = state.is_plugin_enabled(plugin_id)
+    if plugin_dir.resolve() != (installer.PLUGINS_DIR / plugin_id).resolve():
+        if devtools.iter_linked_plugin_dirs().get(plugin_id) != plugin_dir.resolve():
+            assert devtools.link_plugin(plugin_dir).ok
+            if enabled:
+                state.set_plugin_enabled(plugin_id, True)
+    try:
+        return prepared_worker(plugin_id, plugin_dir).environment
+    except RuntimeError:
+        pass
+    operation = str(uuid4())
+    environment = installer._generation_path(plugin_id, operation, create=True)
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(environment)
+    old = state.get_plugin_environment_state(plugin_id)
+    updated = {**old, "active_operation_id": operation,
+        "operations": {**old.get("operations", {}), operation: {
+            "stage": "ready", "plugin_revision": installer.get_plugin_source_revision(plugin_id),
+            "environment_revision": installer._tree_revision(environment, source=False)}}}
+    state.set_plugin_environment_state(plugin_id, updated, expected=old)
+    return environment

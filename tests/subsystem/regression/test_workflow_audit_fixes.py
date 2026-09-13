@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -19,12 +20,14 @@ def test_workflow_audit_source_contracts_are_wired() -> None:
     sidebar_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
     command_center_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "command_center.py").read_text(encoding="utf-8")
 
-    run_task_background = tasks_source[tasks_source.index("def run_task_background"):][:30_000]
-    resume_start = tasks_source.index("def _resume_graph_interrupted")
-    resume_end = tasks_source.index("\ndef ", resume_start + 4)
-    resume_graph = tasks_source[resume_start:resume_end]
-    subtask_sync = tasks_source[tasks_source.index("def _run_subtask_sync"):][:5_000]
-    deliver_channels = tasks_source[tasks_source.index("def _deliver_to_channels"):][:2_000]
+    functions = {
+        node.name: ast.get_source_segment(tasks_source, node)
+        for node in ast.parse(tasks_source).body if isinstance(node, ast.FunctionDef)
+    }
+    run_task_background = functions["run_task_background"]
+    resume_graph = functions["_resume_graph_interrupted"]
+    subtask_sync = functions["_run_subtask_sync"]
+    deliver_channels = functions["_deliver_to_channels"]
 
     assert 'approval_mode == "block"' in run_task_background
     assert 'approval_mode == "allow_all"' in run_task_background

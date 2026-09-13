@@ -114,16 +114,16 @@ def test_discover_stop_refresh_and_shutdown_use_fake_runtime(monkeypatch) -> Non
     started = []
     stopped = []
 
-    class FakeRuntime:
+    class FakeRuntime(runtime.McpServerRuntime):
         def __init__(self, name: str, cfg: dict[str, Any]):
-            self.name = name
-            self.cfg = cfg
+            super().__init__(name, cfg)
 
         async def start(self):
             started.append(self.name)
 
         async def stop(self):
             stopped.append(self.name)
+            self.cleanup_complete = True
 
     monkeypatch.setattr(runtime, "McpServerRuntime", FakeRuntime)
     monkeypatch.setattr(runtime, "sdk_available", lambda: True)
@@ -154,10 +154,9 @@ def test_discover_stop_refresh_and_shutdown_use_fake_runtime(monkeypatch) -> Non
 def test_probe_reports_success_and_failure_without_real_transport(monkeypatch) -> None:
     from row_bot.mcp_client import runtime
 
-    class ProbeRuntime:
+    class ProbeRuntime(runtime.McpServerRuntime):
         def __init__(self, name: str, cfg: dict[str, Any]):
-            self.name = name
-            self.cfg = cfg
+            super().__init__(name, cfg)
             self.session = FakeSession()
 
         async def _connect(self):
@@ -165,7 +164,7 @@ def test_probe_reports_success_and_failure_without_real_transport(monkeypatch) -
                 raise RuntimeError("connect failed")
 
         async def close(self):
-            return None
+            self.cleanup_complete = True
 
     monkeypatch.setattr(runtime, "McpServerRuntime", ProbeRuntime)
 

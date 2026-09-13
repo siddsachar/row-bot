@@ -8,7 +8,7 @@ export const settingsGroups = [
   {
     id: 'knowledge',
     label: 'Knowledge and documents',
-    leaves: ['Knowledge', 'Documents'],
+    leaves: ['Knowledge', 'Documents', 'Wiki'],
   },
   {
     id: 'integrations',
@@ -18,7 +18,7 @@ export const settingsGroups = [
   {
     id: 'personal',
     label: 'Personal workspace',
-    leaves: ['Buddy', 'Tracker', 'Utilities', 'Preferences'],
+    leaves: ['Buddy', 'Goals', 'Tracker', 'Utilities', 'Preferences'],
   },
   { id: 'system', label: 'System and access', leaves: ['System'] },
 ] as const;
@@ -37,6 +37,8 @@ const aliases: Record<string, string> = {
   calendar: 'accounts',
   migration: 'preferences',
   search: 'tools',
+  profiles: 'goals',
+  'agent-profiles': 'goals',
 };
 export function resolveSetting(value: string) {
   const key = value.toLowerCase();

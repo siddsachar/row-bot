@@ -49,6 +49,27 @@ def test_trusted_runtime_injected_only_after_sanitization():
     assert "</script>" not in build_routes_payload(initial="home", order=["</script>"])
 
 
+def test_interactive_runtime_matches_the_only_added_shell_script_hash():
+    import base64
+    import hashlib
+    from row_bot.client_assets import _shell_headers
+    from row_bot.designer.runtime.loader import runtime_script_csp_source
+
+    project = DesignerProject(mode="app_mockup", pages=[DesignerPage(
+        html='<body><script>parent.unsafe=true</script><h1>Safe</h1></body>', route_id="home",
+        title='</script><script>parent.unsafe=true</script>',
+    )])
+    soup = BeautifulSoup(isolate_preview_html(render_multi_route_html(project), scripts=True), "html.parser")
+    executable = [tag.get_text() for tag in soup.find_all("script") if tag.get("type") != "application/json"]
+    assert len(executable) == 1
+    actual = "'sha256-" + base64.b64encode(hashlib.sha256(executable[0].encode()).digest()).decode() + "'"
+    assert actual == runtime_script_csp_source()
+    policy = _shell_headers(b"<html></html>")["Content-Security-Policy"]
+    script_policy = next(part.strip() for part in policy.split(";") if part.strip().startswith("script-src"))
+    assert script_policy.split() == ["script-src", "'self'", actual]
+    assert "parent.unsafe=true" not in executable[0]
+
+
 def test_preview_policy_denies_network_and_non_fragment_navigation():
     soup = BeautifulSoup(isolate_preview_html('<a href="/api/v1/" target="_top">Bad</a><a href="#section">Local</a>'), "html.parser")
     policy = soup.find("meta")["content"]

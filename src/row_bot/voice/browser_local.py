@@ -78,6 +78,8 @@ class BrowserLocalVoiceService:
         session_key: str,
         audio_bytes: bytes,
         content_type: str,
+        *,
+        validate: Callable[[], None] | None = None,
     ) -> str:
         mime = str(content_type or "").partition(";")[0].strip().lower()
         if mime not in ALLOWED_AUDIO_TYPES:
@@ -87,24 +89,35 @@ class BrowserLocalVoiceService:
         if len(audio_bytes) > MAX_INPUT_BYTES:
             raise BrowserVoiceError("audio_too_large", status_code=413)
         with self._job(session_key):
+            if validate is not None:
+                validate()
             if not self.voice_service.whisper_model_available():
                 raise BrowserVoiceError("whisper_model_missing", status_code=409)
             pcm = self._decode(audio_bytes)
+            if validate is not None:
+                validate()
             return self.voice_service.transcribe_pcm16(
                 pcm,
                 allow_download=False,
             )
 
-    def synthesize(self, session_key: str, text: str) -> bytes:
+    def synthesize(self, session_key: str, text: str, *,
+                   validate: Callable[[], None] | None = None) -> bytes:
         clean = str(text or "").strip()
         if not clean:
             raise BrowserVoiceError("text_required")
         if len(clean) > MAX_TEXT_CHARS:
             raise BrowserVoiceError("text_too_large", status_code=413)
         with self._job(session_key):
+            if validate is not None:
+                validate()
             if not self.tts_service.is_installed():
                 raise BrowserVoiceError("kokoro_model_missing", status_code=409)
+            if validate is not None:
+                validate()
             payload = self.tts_service.synthesize_wav_bytes(clean)
+            if validate is not None:
+                validate()
             if not payload or len(payload) > MAX_OUTPUT_BYTES:
                 raise BrowserVoiceError("audio_output_too_large", status_code=413)
             return payload

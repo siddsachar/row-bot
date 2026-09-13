@@ -1,0 +1,110 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "code": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Code",
+      "type": "string"
+    },
+    "content": {
+      "default": "",
+      "maxLength": 204800,
+      "title": "Content",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "digest": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Digest",
+      "type": "string"
+    },
+    "relative_path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Relative Path",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "review_token": {
+      "pattern": "^([0-9a-f]{64})?$",
+      "title": "Review Token",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "size_bytes": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "text",
+        "missing",
+        "binary",
+        "too_large",
+        "denied",
+        "sandbox_unprepared"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target": {
+      "enum": [
+        "workspace",
+        "sandbox_shadow"
+      ],
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_token",
+    "resource_id",
+    "conversation_id",
+    "relative_path",
+    "resource_revision",
+    "binding_id",
+    "binding_revision",
+    "target",
+    "status"
+  ],
+  "title": "WorkspaceEditableFile",
+  "type": "object"
+}

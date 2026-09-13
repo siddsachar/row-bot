@@ -286,8 +286,24 @@ def _fingerprint_snapshot(snapshot: InspectorSnapshot) -> str:
     return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
 
 
-def _collect_snapshot_sync(workspace_id: str, thread_id: str | None) -> InspectorSnapshot:
+def _inspector_change_sets(workspace_id: str, thread_id: str | None) -> list[ChangeSet]:
     from row_bot.developer.change_ledger import list_change_sets
+    from row_bot.runtime import admissions
+    rows = list_change_sets(workspace_id=workspace_id, thread_id=thread_id or "", include_reverted=True)
+    retained = []
+    for change in rows:
+        if not change.reverted:
+            retained.append(change)
+        elif change.undo_command_id:
+            metadata = admissions.read_command_metadata("developer-undo:" + change.thread_id, change.undo_command_id)
+            if (metadata and metadata["type"] == "workspace.undo.retained"
+                    and metadata["target"] == "workspace-undo:" + workspace_id + ":" + change.id
+                    and metadata["status"] not in {"completed", "rejected"}):
+                retained.append(change)
+    return retained
+
+
+def _collect_snapshot_sync(workspace_id: str, thread_id: str | None) -> InspectorSnapshot:
     from row_bot.developer.devcontainer import detect_devcontainer
     from row_bot.developer.review import list_changed_files
     from row_bot.developer.runtime import detect_project_commands
@@ -370,7 +386,7 @@ def _collect_snapshot_sync(workspace_id: str, thread_id: str | None) -> Inspecto
         todos=list_todos(thread_id),
         changed_files=changed_files,
         diff_stats=diff_stats,
-        agent_changes=list_change_sets(workspace_id=workspace.id, thread_id=thread_id or ""),
+        agent_changes=_inspector_change_sets(workspace.id, thread_id),
         command_specs=command_specs,
         devcontainer=devcontainer,
         sandbox_probe=sandbox_probe,

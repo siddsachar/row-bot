@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import types
 from typing import Any
 
 import pytest
@@ -102,11 +101,12 @@ def test_memory_edge_cases_and_data_integrity(tmp_path, monkeypatch) -> None:
     assert memory.find_by_subject("person", cross["subject"])["id"] == cross["id"]
 
 
-def test_dedup_and_save_merges_entities_aliases_relations_and_resets_reindex(tmp_path, monkeypatch) -> None:
+def test_dedup_and_save_merges_entities_aliases_relations_and_preserves_external_reindex_override(
+    tmp_path, monkeypatch
+) -> None:
     stack = fresh_memory_stack(tmp_path, monkeypatch)
     kg = stack["kg"]
     memory_extraction = stack["memory_extraction"]
-    monkeypatch.setattr(kg, "rebuild_index", lambda: None)
     monkeypatch.setattr(stack["memory_tool"], "_check_contradiction", lambda *_args, **_kwargs: None)
 
     extracted = [
@@ -144,7 +144,7 @@ def test_dedup_and_save_merges_entities_aliases_relations_and_resets_reindex(tmp
     assert emma is not None
     assert dublin is not None
     assert "Em" in emma["aliases"]
-    assert kg._skip_reindex is False
+    assert kg._skip_reindex is True
 
     relation_types = {
         relation["relation_type"]
@@ -160,7 +160,9 @@ def test_full_extraction_flow_uses_thread_messages_filters_and_dedups(tmp_path, 
     stack = fresh_memory_stack(tmp_path, monkeypatch)
     kg = stack["kg"]
     memory_extraction = stack["memory_extraction"]
-    monkeypatch.setattr(kg, "rebuild_index", lambda: None)
+    monkeypatch.setattr(
+        kg, "repair_projections", lambda **_kwargs: {"complete": True}
+    )
 
     threads = [
         ("thread-1", "Family", "", "2099-01-01T00:00:00"),

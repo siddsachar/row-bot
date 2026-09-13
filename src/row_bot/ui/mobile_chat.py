@@ -638,10 +638,12 @@ def _build_mobile_thread_composer(
             def _start_browser_voice() -> None:
                 from row_bot.ui.streaming import run_realtime_client_js
                 from row_bot.voice.browser_client import start_browser_voice_capture_js
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
 
+                if start_voice_for_ui(lambda: state.voice_coordinator.start_browser("talk")) is None:
+                    return
                 state.voice_enabled = True
                 state.voice_input_mode = "talk"
-                state.voice_coordinator.start_browser("talk")
                 run_realtime_client_js(
                     p,
                     start_browser_voice_capture_js(

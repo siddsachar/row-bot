@@ -5,7 +5,6 @@ import inspect
 import json
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +44,7 @@ def test_wiki_vault_filename_frontmatter_and_markdown_rendering(wiki_stack: dict
     assert len(wiki_vault._safe_filename("x" * 200)) <= 120
 
     entity = _entity()
-    assert wiki_vault._entity_md_path(entity).name == "Bob.md"
+    assert wiki_vault._entity_md_path(entity).name == wiki_vault._entity_filename(entity["id"]) + ".md"
     assert "person" in str(wiki_vault._entity_md_path(entity))
 
     frontmatter = wiki_vault._render_frontmatter(entity)
@@ -147,7 +146,7 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
 
     type_index = wiki_vault._render_type_index("person", [bob, tiny])
     assert "# Person" in type_index
-    assert "[[Bob]]" in type_index
+    assert f"[[{wiki_vault._entity_filename(bob['id'])}|Bob]]" in type_index
     assert "## Quick Notes" in type_index
     assert "**Tiny**" in type_index
 
@@ -165,8 +164,8 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
     assert stats["exported"] == 2
     assert stats["sparse"] == 1
     assert stats["types"] == 2
-    assert stats["orphans_removed"] == 1
-    assert not orphan.exists()
+    assert stats["orphans_removed"] == 0
+    assert orphan.read_text(encoding="utf-8") == "# Orphan\n"
     assert (wiki_stack["vault"] / "wiki" / "person" / "_index.md").exists()
     assert (wiki_stack["vault"] / "wiki" / "index.md").exists()
 
@@ -188,10 +187,10 @@ def test_wiki_cleanup_preserves_raw_and_conversations_and_ui_uses_knowledge_tab(
     (vault / "conversations").mkdir(parents=True, exist_ok=True)
     (vault / "conversations" / "chat.md").write_text("conversation", encoding="utf-8")
 
-    assert wiki_vault.clear_wiki_folder() == 3
-    assert not (vault / "wiki" / "person" / "Alice.md").exists()
-    assert not (vault / "wiki" / "concept" / "AI.md").exists()
-    assert not (vault / "wiki" / "index.md").exists()
+    assert wiki_vault.clear_wiki_folder() == 0
+    assert (vault / "wiki" / "person" / "Alice.md").read_text(encoding="utf-8") == "test"
+    assert (vault / "wiki" / "concept" / "AI.md").read_text(encoding="utf-8") == "test"
+    assert (vault / "wiki" / "index.md").read_text(encoding="utf-8") == "master"
     assert (vault / "raw" / "upload.pdf").exists()
     assert (vault / "conversations" / "chat.md").exists()
 

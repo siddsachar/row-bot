@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "change_set_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Change Set Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "change_set_id"
+  ],
+  "title": "WorkspaceUndoReviewRequest",
+  "type": "object"
+}

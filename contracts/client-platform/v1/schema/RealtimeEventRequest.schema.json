@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "RealtimeEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "default": "",
+          "maxLength": 8192,
+          "title": "Arguments",
+          "type": "string"
+        },
+        "call_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Call Id",
+          "type": "string"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "generation_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "item_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "output_item_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Output Item Id",
+          "type": "string"
+        },
+        "response_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Response Id",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "connected",
+            "disconnected",
+            "fatal_error",
+            "speech_started",
+            "speech_stopped",
+            "transcript_final",
+            "assistant_transcript_final",
+            "function_call_ready",
+            "consult_fallback_needed",
+            "output_started",
+            "output_item_started",
+            "response_done",
+            "response_cancelled",
+            "output_audio_done",
+            "barge_in_cancelled"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "type"
+      ],
+      "title": "RealtimeEvent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "event": {
+      "$ref": "#/$defs/RealtimeEvent"
+    },
+    "server_epoch": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Server Epoch",
+      "type": "string"
+    },
+    "voice_session_id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Voice Session Id",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "voice_session_id",
+    "server_epoch",
+    "event"
+  ],
+  "title": "RealtimeEventRequest",
+  "type": "object"
+}

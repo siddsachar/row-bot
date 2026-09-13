@@ -79,6 +79,7 @@ def save_memory(
     tags: str = "",
     source: str = "live",
     properties: dict | None = None,
+    *, validate=None,
 ) -> dict:
     """Create a new memory (entity) entry.
 
@@ -92,6 +93,7 @@ def save_memory(
         tags=tags,
         source=source,
         properties=properties,
+        **({"validate":validate} if validate is not None else {}),
     )
     return _entity_to_memory(entity)
 
@@ -106,6 +108,7 @@ def update_memory(
     aliases: str | None = None,
     source: str | None = None,
     properties: dict | None = None,
+    validate=None,
 ) -> dict | None:
     """Update an existing memory (entity)."""
     entity = _kg.update_entity(
@@ -117,6 +120,7 @@ def update_memory(
         tags=tags,
         source=source,
         properties=properties,
+        **({"validate":validate} if validate is not None else {}),
     )
     return _entity_to_memory(entity) if entity else None
 

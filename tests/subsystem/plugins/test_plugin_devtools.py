@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from .conftest import manifest_payload, write_plugin
+from .conftest import manifest_payload, prepare_worker_environment, write_plugin
 
 
 pytestmark = pytest.mark.subsystem
@@ -63,6 +63,7 @@ def test_local_link_reload_loads_enabled_plugin_from_source(
     assert devtools.iter_linked_plugin_dirs()["linked-plugin"] == plugin_dir.resolve()
 
     state.set_plugin_enabled("linked-plugin", True)
+    prepare_worker_environment(plugin_modules, plugin_dir)
     reloaded = devtools.reload_plugin("linked-plugin")
 
     assert reloaded.ok is True

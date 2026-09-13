@@ -73,3 +73,29 @@ def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = N
 def tool_enabled_by_default(is_destructive: bool) -> bool:
     """Default selection rule after a successful server test/discovery."""
     return not is_destructive
+
+
+def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = None) -> str:
+    """Describe known effects without treating an unrecognized name as read-only.
+
+    Reviewed browser interaction retains its existing approval policy; its
+    classification remains distinct from an observational/read-only operation.
+    Server annotations are hints, never evidence of an operating-system sandbox.
+    """
+    if is_destructive_tool(tool_name, description, tool_obj):
+        return "mutation"
+    if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is True:
+        return "read_only"
+    name = sanitize_name_component(tool_name)
+    if name in {
+        "browser_console_messages", "browser_network_requests", "browser_snapshot",
+        "browser_take_screenshot", "browser_wait_for",
+    }:
+        return "read_only"
+    if name in _BROWSER_SESSION_SAFE_TOOLS:
+        return "interaction"
+    if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is False:
+        return "unknown"
+    if re.match(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", name):
+        return "read_only"
+    return "unknown"

@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { Profiler } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ArtifactPreview as Preview } from '../../api/types';
@@ -77,6 +83,40 @@ it('renders an opaque iframe and navigates through exact page IDs', async () => 
   expect(screen.getByTitle('Slide preview: Closing')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Next slide' })).toBeDisabled();
 });
+
+it.each([
+  ['document', true, ''],
+  ['deck', true, ''],
+  ['landing', false, ''],
+  ['landing', true, 'allow-scripts'],
+  ['app_mockup', true, 'allow-scripts'],
+  ['storyboard', true, 'allow-scripts'],
+] as const)(
+  'keeps %s script permission %s in an opaque sandbox',
+  async (mode, scripts, sandbox) => {
+    const load = vi.fn(async () => ({
+      ...snapshot(),
+      mode,
+      scripts_allowed: scripts,
+    }));
+    await act(async () =>
+      render(
+        <ArtifactPreview
+          resourceId="deck-a"
+          resourceRevision="1"
+          visible
+          load={load}
+        />,
+      ),
+    );
+    const label = mode === 'deck' ? 'Slide' : 'Page';
+    expect(screen.getByTitle(`${label} preview: Opening`)).toHaveAttribute(
+      'sandbox',
+      sandbox,
+    );
+    expect(screen.getByRole('combobox', { name: label })).toBeEnabled();
+  },
+);
 
 it('does no hidden loading and retains exact HTML on unchanged refresh', async () => {
   const load = vi.fn(async (_pageId?: string, revision?: string) =>
@@ -203,7 +243,7 @@ it('fits the native isolated canvas to both viewport dimensions without refetchi
     ),
   );
   const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening'),
-    host = frame.parentElement!;
+    host = frame.parentElement!.parentElement!;
   let width = 756,
     height = 96;
   Object.defineProperty(host, 'clientWidth', { get: () => width });
@@ -267,7 +307,8 @@ it('ignores queued measurement callbacks after hiding and unmounting without loa
   await act(async () => {
     view = render(element(true));
   });
-  const host = screen.getByTitle('Slide preview: Opening').parentElement!;
+  const host = screen.getByTitle('Slide preview: Opening').parentElement!
+    .parentElement!;
   Object.defineProperty(host, 'clientWidth', { get: readWidth });
   Object.defineProperty(host, 'clientHeight', { get: readHeight });
   await act(async () => observers[0].notify());
@@ -289,6 +330,42 @@ it('ignores queued measurement callbacks after hiding and unmounting without loa
   expect(observers.at(-1)?.disconnect).toHaveBeenCalledOnce();
   await act(async () => observers.at(-1)?.notify());
   expect(load).toHaveBeenCalledTimes(2);
+});
+
+it('offers readable actual-size and width zoom without replacing the frame or fetching again', async () => {
+  const observers = resizeFixture();
+  const load = vi.fn(async () => snapshot());
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="1"
+        visible
+        load={load}
+      />,
+    ),
+  );
+  const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
+  const host = frame.parentElement!.parentElement!;
+  Object.defineProperty(host, 'clientWidth', { value: 480 });
+  Object.defineProperty(host, 'clientHeight', { value: 320 });
+  await act(async () => observers[0].notify());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
+    target: { value: 'actual' },
+  });
+  expect(frame.style.transform).toBe('scale(1)');
+  expect(host.style.overflow).toBe('auto');
+  expect(frame.parentElement!.style.width).toBe('1920px');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
+    target: { value: 'width' },
+  });
+  expect(frame.style.transform).toBe('scale(0.25)');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
+    target: { value: 'fit' },
+  });
+  expect(host.style.overflow).toBe('clip');
+  expect(screen.getByTitle('Slide preview: Opening')).toBe(frame);
+  expect(load).toHaveBeenCalledTimes(1);
 });
 
 it('removes cached private preview after binding revocation and offers an explicit scoped retry', async () => {
@@ -321,4 +398,113 @@ it('removes cached private preview after binding revocation and offers an explic
   );
   expect(load.mock.calls[2][1]).toBeUndefined();
   expect(screen.getByTitle('Slide preview: Opening')).toBeInTheDocument();
+});
+
+it('waits for the newly saved preview revision before allowing presentation', async () => {
+  let finish!: (value: Preview) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(snapshot())
+    .mockImplementationOnce(
+      () =>
+        new Promise<Preview>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  const presentation = { load: vi.fn(), preview: vi.fn() };
+  const view = render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      visible
+      load={load}
+      presentation={presentation}
+    />,
+  );
+  const button = await screen.findByRole('button', { name: 'Present design' });
+  await act(async () => {});
+  expect(button).toBeEnabled();
+  view.rerender(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-2"
+      visible
+      load={load}
+      presentation={presentation}
+    />,
+  );
+  expect(button).toBeDisabled();
+  await act(async () =>
+    finish({ ...snapshot(), resource_revision: 'resource-2' }),
+  );
+  expect(button).toBeEnabled();
+  expect(presentation.load).not.toHaveBeenCalled();
+});
+
+it('does not remount lifecycle controls against a stale preview revision', async () => {
+  let finish!: (value: Preview) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(snapshot())
+    .mockImplementationOnce(
+      () =>
+        new Promise<Preview>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  const lifecycleLoad = vi.fn(
+    async (_resourceId: string, resourceRevision: string) => ({
+      resource_id: 'deck-a',
+      resource_revision: resourceRevision,
+      mode: 'deck' as const,
+      page_count: 2,
+      capabilities: [],
+    }),
+  );
+  const props = {
+    resourceId: 'deck-a',
+    load,
+    lifecycle: { load: lifecycleLoad },
+    presentation: { load: vi.fn(), preview: vi.fn() },
+    createExport: vi.fn(),
+    downloadExport: vi.fn(),
+    sharing: {
+      prepare: vi.fn(),
+      execute: vi.fn(),
+      loadChannels: vi.fn(),
+    },
+  };
+  const view = render(
+    <ArtifactPreview {...props} resourceRevision="resource-1" visible />,
+  );
+  await waitFor(() =>
+    expect(lifecycleLoad).toHaveBeenCalledWith(
+      'deck-a',
+      'resource-1',
+      expect.any(AbortSignal),
+    ),
+  );
+  view.rerender(
+    <ArtifactPreview
+      {...props}
+      resourceRevision="resource-1"
+      visible={false}
+    />,
+  );
+  lifecycleLoad.mockClear();
+  view.rerender(
+    <ArtifactPreview {...props} resourceRevision="resource-2" visible />,
+  );
+  await act(async () => {});
+  expect(lifecycleLoad).not.toHaveBeenCalled();
+  await act(async () =>
+    finish({ ...snapshot(), resource_revision: 'resource-2' }),
+  );
+  await waitFor(() =>
+    expect(lifecycleLoad).toHaveBeenCalledWith(
+      'deck-a',
+      'resource-2',
+      expect.any(AbortSignal),
+    ),
+  );
 });

@@ -1,0 +1,75 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "full",
+        "motion",
+        "still",
+        "remove"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "config_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Config Revision",
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+    },
+    "source_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Command Id"
+    },
+    "source_pack_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Pack Id"
+    },
+    "source_pack_revision": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Pack Revision"
+    }
+  },
+  "required": [
+    "action",
+    "prompt",
+    "config_revision"
+  ],
+  "title": "BuddyHatchRequest",
+  "type": "object"
+}

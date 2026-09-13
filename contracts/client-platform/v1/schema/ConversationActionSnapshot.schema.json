@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "ConversationActionCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": {
+          "$ref": "#/$defs/ConversationActionCapability"
+        },
+        "export": {
+          "$ref": "#/$defs/ConversationActionCapability"
+        },
+        "pin": {
+          "$ref": "#/$defs/ConversationActionCapability"
+        },
+        "rename": {
+          "$ref": "#/$defs/ConversationActionCapability"
+        }
+      },
+      "required": [
+        "rename",
+        "pin",
+        "archive",
+        "export"
+      ],
+      "title": "ConversationActionCapabilities",
+      "type": "object"
+    },
+    "ConversationActionCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        }
+      },
+      "required": [
+        "available",
+        "code"
+      ],
+      "title": "ConversationActionCapability",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "$ref": "#/$defs/ConversationActionCapabilities"
+    },
+    "checkpoint_revision": {
+      "maxLength": 128,
+      "title": "Checkpoint Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "pinned": {
+      "title": "Pinned",
+      "type": "boolean"
+    },
+    "revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 256,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "conversation_id",
+    "revision",
+    "checkpoint_revision",
+    "title",
+    "pinned",
+    "capabilities"
+  ],
+  "title": "ConversationActionSnapshot",
+  "type": "object"
+}

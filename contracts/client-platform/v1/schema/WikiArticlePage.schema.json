@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "WikiArticleSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "article_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Article Id",
+          "type": "string"
+        },
+        "db_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Db Revision"
+        },
+        "entity_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entity Id"
+        },
+        "status": {
+          "enum": [
+            "unmanaged",
+            "conflict",
+            "unchanged",
+            "edited",
+            "legacy_review",
+            "missing"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        },
+        "vault_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vault Hash"
+        }
+      },
+      "required": [
+        "article_id",
+        "entity_id",
+        "title",
+        "status",
+        "vault_hash",
+        "db_revision"
+      ],
+      "title": "WikiArticleSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WikiArticleSummary"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "scope_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Scope Id",
+      "type": "string"
+    },
+    "total": {
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "scope_id",
+    "items",
+    "total",
+    "next_cursor"
+  ],
+  "title": "WikiArticlePage",
+  "type": "object"
+}

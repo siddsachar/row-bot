@@ -242,6 +242,9 @@ export async function newConversation(page: Page): Promise<string> {
     .getByRole('button', { name: 'New chat', exact: true })
     .click();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
+  await expect(
+    page.getByLabel('Opening conversation', { exact: true }),
+  ).toHaveCount(0);
   await expect(composer(page)).toBeVisible();
   await expect(composer(page)).toHaveCount(1);
   const id = new URL(page.url()).pathname.split('/').at(-1);
@@ -346,7 +349,7 @@ export async function assertControlTextUnclipped(
 export async function assertConversationSummaries(page: Page): Promise<void> {
   for (const label of [/^Steering queue$/, /^Activity \(/]) {
     const summary = page
-      .locator('.chat-workspace > details.activity > summary')
+      .locator('.chat-content > details.activity > summary')
       .filter({ hasText: label });
     if (await summary.count()) await assertControlTextUnclipped(summary);
   }

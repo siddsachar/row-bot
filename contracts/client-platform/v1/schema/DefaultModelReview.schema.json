@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "DefaultModelSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Id"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider Id"
+        },
+        "revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "saved_state": {
+          "enum": [
+            "saved",
+            "missing",
+            "unavailable"
+          ],
+          "title": "Saved State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "selection_ref": {
+          "anyOf": [
+            {
+              "maxLength": 647,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selection Ref"
+        }
+      },
+      "required": [
+        "revision",
+        "selection_ref",
+        "provider_id",
+        "model_id",
+        "saved_state",
+        "runtime_state"
+      ],
+      "title": "DefaultModelSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "model_id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "const": "provider.default_model.save",
+      "title": "Operation",
+      "type": "string"
+    },
+    "provider_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "settings_revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Settings Revision",
+      "type": "string"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/DefaultModelSnapshot"
+    }
+  },
+  "required": [
+    "settings_revision",
+    "provider_id",
+    "model_id",
+    "operation",
+    "action_digest",
+    "nonce",
+    "snapshot"
+  ],
+  "title": "DefaultModelReview",
+  "type": "object"
+}

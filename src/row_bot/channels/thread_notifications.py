@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from row_bot.agent_run_messages import (
@@ -17,6 +18,7 @@ from row_bot.agent_run_messages import (
 
 log = logging.getLogger(__name__)
 _LOCAL_APPEND_LOCK = threading.RLock()
+_RECONCILE_ADMISSION = threading.BoundedSemaphore(1)
 
 
 def _clean_text(value: Any) -> str:
@@ -274,36 +276,38 @@ def _skip_subagent_terminal_channel_update(run: Mapping[str, Any]) -> bool:
 
 def _deliver_record(record: Mapping[str, Any]) -> bool:
     key = _clean_text(record.get("key"))
-    channel_name = _clean_text(record.get("channel"))
-    target = _clean_text(record.get("target"))
-    text = _clean_text(record.get("text"))
-    if not key or not channel_name or not target or not text:
+    if not key:
         return False
     try:
         from row_bot.channels import registry as channel_registry
         from row_bot.tasks import (
+            claim_channel_thread_notification,
+            get_channel_thread_notification,
             mark_channel_thread_notification_delivered,
             mark_channel_thread_notification_failed,
         )
 
+        claimed = claim_channel_thread_notification(key)
+        if not claimed:
+            current = get_channel_thread_notification(key)
+            return bool(current and current["status"] == "delivered")
+        # Only the persisted identity is authoritative after admission.
+        channel_name = str(claimed["channel"])
+        target, text = str(claimed["target"]), str(claimed["text"])
+        attempt = int(claimed["attempts"])
         channel = channel_registry.get(channel_name)
         if not channel:
-            mark_channel_thread_notification_failed(key, f"Unknown channel: {channel_name}")
+            mark_channel_thread_notification_failed(key, "Unknown channel", attempt=attempt)
             return False
         if not channel.is_running():
-            mark_channel_thread_notification_failed(key, f"{channel.display_name} is not running")
+            mark_channel_thread_notification_failed(key, "Channel is not running", attempt=attempt)
             return False
         channel.send_message(target, text)
-        mark_channel_thread_notification_delivered(key)
-        return True
+        return mark_channel_thread_notification_delivered(key, attempt=attempt)
     except Exception as exc:
-        try:
-            from row_bot.tasks import mark_channel_thread_notification_failed
-
-            mark_channel_thread_notification_failed(key, str(exc))
-        except Exception:
-            log.debug("Could not mark channel notification failed", exc_info=True)
-        log.warning("Parent-thread channel notification failed for %s: %s", key, exc)
+        # Once dispatch can have started, neither a transport exception nor a
+        # failed receipt commit proves that the destination received nothing.
+        log.warning("Parent-thread channel delivery remains unconfirmed: %s", type(exc).__name__)
         return False
 
 
@@ -333,6 +337,11 @@ def deliver_parent_thread_notification(
         )
 
         existing = get_channel_thread_notification(clean_key)
+        if existing and (
+            existing["thread_id"] != clean_thread_id or existing["kind"] != clean_kind
+            or existing["text"] != clean_text
+        ):
+            return False
         metadata = dict(ui_metadata or {})
         metadata.setdefault("channel_notification_key", clean_key)
         appended_locally = False
@@ -424,6 +433,21 @@ def notify_agent_run_terminal(run_or_id: Mapping[str, Any] | str) -> bool:
 
 
 def reconcile_pending_channel_notifications(limit: int = 50) -> int:
+    """Reconcile a bounded batch with independent destination workers.
+
+    A slow destination occupies one of eight slots, not a global dispatch
+    lock. This synchronous call owns its workers until actual return; concurrent
+    reconciliation requests leave durable pending work for the next pass.
+    """
+    if not _RECONCILE_ADMISSION.acquire(blocking=False):
+        return 0
+    try:
+        return _reconcile_pending_channel_notifications(limit)
+    finally:
+        _RECONCILE_ADMISSION.release()
+
+
+def _reconcile_pending_channel_notifications(limit: int) -> int:
     """Retry pending late parent-thread channel notifications."""
 
     try:
@@ -433,6 +457,18 @@ def reconcile_pending_channel_notifications(limit: int = 50) -> int:
     except Exception:
         log.debug("Could not load pending channel thread notifications", exc_info=True)
         return 0
+    destinations: dict[tuple[str, str], list[dict]] = {}
+    for record in records:
+        destination = (str(record["channel"]), str(record["target"]))
+        destinations.setdefault(destination, []).append(record)
+    if not destinations:
+        return 0
+    with ThreadPoolExecutor(max_workers=min(8, len(destinations)),
+                            thread_name_prefix="channel-notification") as workers:
+        return sum(workers.map(_reconcile_destination, destinations.values()))
+
+
+def _reconcile_destination(records: list[dict]) -> int:
     delivered = 0
     for record in records:
         payload: dict[str, Any] = {}

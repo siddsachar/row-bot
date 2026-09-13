@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import wraps
+import hmac
 import logging
 import os
-from typing import Any
+import re
+from typing import Any, Callable
+import uuid
 
 import row_bot.api_keys as api_keys
 import row_bot.secret_store as secret_store
 
-from row_bot.providers.config import load_provider_config, update_provider_config
+from row_bot.providers.config import (
+    load_provider_config, provider_config_revision, provider_config_transaction,
+    save_provider_config, update_provider_config,
+)
 from row_bot.providers.models import AuthMethod, ProviderHealth
 
 logger = logging.getLogger(__name__)
@@ -27,14 +34,281 @@ PROVIDER_API_KEY_ENV: dict[str, str] = {
     "minimax": "MINIMAX_API_KEY",
 }
 PROVIDER_SECRET_CHUNK_SIZE = 512
+OAUTH_PROVIDER_IDS = frozenset({"codex", "claude_subscription", "xai_oauth"})
+OAUTH_SECRET_NAMES = ("access_token", "refresh_token", "id_token", "user_id", "account")
 CHUNK_MARKER_SUFFIX = "__chunks"
 CHUNK_VALUE_PREFIX = "v1:"
 _session_provider_secrets: dict[tuple[str, str], str] = {}
 _last_storage_warning = ""
 
 
+def _serialized_provider_writer(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with provider_config_transaction():
+            return function(*args, **kwargs)
+    return wrapped
+
+
+def _active_api_key(provider_id: str) -> dict | None:
+    entry = load_provider_config(strict=True).get("providers", {}).get(provider_id, {})
+    return entry.get("credential_ref") if isinstance(entry, dict) else None
+
+
+def _custom_credential_endpoint(provider_id: str, cfg: dict) -> dict | None:
+    if not re.fullmatch(r"custom_openai_[a-z0-9][a-z0-9_-]{0,63}", provider_id):
+        return None
+    endpoint_id = provider_id.removeprefix("custom_openai_")
+    return next((item for item in cfg.get("custom_endpoints", [])
+                 if isinstance(item, dict) and item.get("id") == endpoint_id), None)
+
+
+def _custom_credential_scope_matches(provider_id: str, cfg: dict) -> bool:
+    endpoint = _custom_credential_endpoint(provider_id, cfg)
+    entry = cfg.get("providers", {}).get(provider_id, {})
+    return endpoint is not None and endpoint.get("credential_scope") == entry.get("credential_scope")
+
+
+def _uses_staged_api_key(provider_id: str) -> bool:
+    if provider_id in PROVIDER_API_KEY_ENV:
+        return _active_api_key(provider_id) is not None
+    if not re.fullmatch(r"custom_openai_[a-z0-9][a-z0-9_-]{0,63}", provider_id):
+        return False
+    cfg = load_provider_config(strict=True)
+    return _custom_credential_endpoint(provider_id, cfg) is not None or isinstance(cfg.get("providers", {}).get(provider_id, {}).get("credential_ref"), dict)
+
+
+def _read_api_key_ref(provider_id: str, reference: dict) -> str:
+    return _read_immutable_secret_ref(provider_id, reference, "api_key")
+
+
+def _read_immutable_secret_ref(provider_id: str, reference: dict, slot: str) -> str:
+    if not isinstance(reference, dict):
+        raise secret_store.SecretStoreError("invalid saved credential reference")
+    if reference == {"cleared": True}:
+        return ""
+    generation, count = reference.get("generation"), reference.get("chunks")
+    if not isinstance(generation, str) or not re.fullmatch(r"[a-f0-9]{32}", generation) or type(count) is not int or not 1 <= count <= 32:
+        raise secret_store.SecretStoreError("invalid saved credential reference")
+    parts = []
+    for index in range(count):
+        part = secret_store.get_secret(f"{slot}.g.{generation}.{index:02d}", namespace=_namespace(provider_id))
+        if not isinstance(part, str) or not part or len(part) > PROVIDER_SECRET_CHUNK_SIZE:
+            raise secret_store.SecretStoreError("saved credential is unavailable")
+        parts.append(part)
+    return "".join(parts)
+
+
+def _stage_immutable_secret(provider_id: str, value: str, slot: str, validate: Callable[[], None]) -> dict:
+    generation = uuid.uuid4().hex
+    chunks = [value[index:index + PROVIDER_SECRET_CHUNK_SIZE] for index in range(0, len(value), PROVIDER_SECRET_CHUNK_SIZE)]
+    storage = ""
+    for index, chunk in enumerate(chunks):
+        validate()
+        storage = secret_store.set_secret(f"{slot}.g.{generation}.{index:02d}", chunk, namespace=_namespace(provider_id))
+        if storage not in {"keyring", "encrypted_file"}:
+            raise secret_store.SecretStoreError("durable credential storage unavailable")
+    reference = {"generation": generation, "chunks": len(chunks), "storage": storage}
+    if not hmac.compare_digest(_read_immutable_secret_ref(provider_id, reference, slot).encode(), value.encode()):
+        raise secret_store.SecretStoreError("credential storage verification failed")
+    return reference
+
+
+def _external_api_key(provider_id: str) -> str:
+    """Retain file/environment authority; distinguish our legacy env projection."""
+    env_var = PROVIDER_API_KEY_ENV.get(provider_id)
+    if not env_var:
+        return ""
+    file_value = secret_store.read_server_secret(env_var, allowed_names=frozenset(PROVIDER_API_KEY_ENV.values()))
+    env_value = os.environ.get(env_var, "")
+    if file_value:
+        if env_value and env_value != file_value:
+            raise secret_store.SecretStoreError("provider secret file conflicts with environment")
+        return file_value
+    if env_value:
+        stored = api_keys._get_stored_key(env_var) or api_keys._legacy_plaintext_keys().get(env_var, "")
+        if env_value != stored and env_value != api_keys._session_keys.get(env_var):
+            return env_value
+    return ""
+
+
+@_serialized_provider_writer
+def replace_provider_api_key(provider_id: str, value: str | None, *,
+                             validate: Callable[[], None] = lambda: None, restore: bool = False,
+                             command_proof: dict | None = None,
+                             publish: Callable[[dict[str, Any]], None] | None = None,
+                             prepare_config: Callable[[dict[str, Any]], None] | None = None) -> dict:
+    """Verify a staged secure value before publishing its canonical reference.
+
+    Previous bytes remain in their existing secure owner for explicit recovery.
+    No provider call, session fallback, or delete-before-write is permitted.
+    """
+    custom_provider = bool(re.fullmatch(r"custom_openai_[a-z0-9][a-z0-9_-]{0,63}", provider_id))
+    if (provider_id not in PROVIDER_API_KEY_ENV and not custom_provider) or (value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 16384)):
+        raise ValueError("invalid_command")
+    validate()
+    if _external_api_key(provider_id):
+        raise secret_store.SecretStoreError("externally managed provider secret is read-only")
+    cfg = load_provider_config(strict=True)
+    revision = provider_config_revision(cfg)
+    if prepare_config is not None:
+        prepare_config(cfg)
+    entry = cfg.setdefault("providers", {}).setdefault(provider_id, {})
+    endpoint = _custom_credential_endpoint(provider_id, cfg) if custom_provider else None
+    if custom_provider and endpoint is None and (value is not None or restore):
+        raise ValueError("not_found")
+    previous = entry.get("credential_ref", {"legacy": True})
+    reference = {"cleared": True}
+    storage = ""
+    if restore:
+        reference = entry.get("credential_ref", {"legacy": True}) if custom_provider and not _custom_credential_scope_matches(provider_id, cfg) else entry.get("credential_previous")
+        if not isinstance(reference, dict):
+            raise ValueError("provider_recovery_unavailable")
+        if reference != {"legacy": True}:
+            _read_api_key_ref(provider_id, reference)
+        else:
+            # The original legacy store is retained, never reconstructed from metadata.
+            env_var = PROVIDER_API_KEY_ENV.get(provider_id)
+            if custom_provider and _get_session_provider_secret(provider_id, "api_key"):
+                raise ValueError("provider_recovery_unavailable")
+            if not ((api_keys.get_key(env_var) if env_var else "") or _get_provider_secret_value(provider_id, "api_key")):
+                raise ValueError("provider_recovery_unavailable")
+        storage = str(reference.get("storage") or "keyring")
+    elif value is not None:
+        reference = _stage_immutable_secret(provider_id, value, "api_key", validate)
+        storage = reference["storage"]
+    validate()
+    if _external_api_key(provider_id):
+        raise secret_store.SecretStoreError("externally managed provider secret is read-only")
+    if reference == {"legacy": True}:
+        entry.pop("credential_ref", None)
+    else:
+        entry["credential_ref"] = reference
+    entry["credential_previous"] = previous
+    entry.update({"provider_id": provider_id, "auth_method": AuthMethod.API_KEY.value,
+                  "configured": reference != {"cleared": True}, "source": storage,
+                  "secret_storage": storage, "health": ProviderHealth.UNKNOWN.value,
+                  "fingerprint": "", "last_error": "",
+                  "updated_at": datetime.now(timezone.utc).isoformat()})
+    if command_proof is not None:
+        entry["credential_command"] = dict(command_proof)
+    else:
+        entry.pop("credential_command", None)
+    if endpoint is not None:
+        scope = endpoint.get("credential_scope")
+        if not isinstance(scope, str) or not re.fullmatch(r"[a-f0-9]{32}", scope):
+            scope = uuid.uuid4().hex
+            endpoint["credential_scope"] = scope
+        entry["credential_scope"] = scope
+    if publish is not None:
+        publish(cfg)
+    validate()
+    save_provider_config(cfg, expected_revision=revision)
+    # A saved legacy key may have been copied into os.environ by api_keys.apply_keys.
+    # Retire only that exact app projection after publication; retain stored bytes.
+    env_var = PROVIDER_API_KEY_ENV.get(provider_id)
+    projected = os.environ.get(env_var) if env_var else None
+    if projected and projected == (api_keys._get_stored_key(env_var) or api_keys._legacy_plaintext_keys().get(env_var, "")):
+        os.environ.pop(env_var, None)
+    return provider_secret_status(provider_id)
+
+
 def _namespace(provider_id: str) -> str:
     return f"providers:{provider_id}"
+
+
+def _oauth_bundle_values(provider_id: str, reference: dict) -> dict[str, str]:
+    if reference == {"cleared": True}:
+        return {name: "" for name in OAUTH_SECRET_NAMES}
+    if not isinstance(reference, dict) or set(reference) != {"values"} or not isinstance(reference["values"], dict) or not set(reference["values"]).issubset(OAUTH_SECRET_NAMES):
+        raise secret_store.SecretStoreError("invalid_oauth_bundle_reference")
+    return {name: _read_immutable_secret_ref(provider_id, reference["values"][name], f"oauth.{name}")
+            if name in reference["values"] else "" for name in OAUTH_SECRET_NAMES}
+
+
+@_serialized_provider_writer
+def read_provider_oauth_bundle_snapshot(provider_id: str) -> tuple[dict[str, str], dict, str]:
+    """Capture one credential generation and metadata; never refresh accounts."""
+    if provider_id not in OAUTH_PROVIDER_IDS:
+        raise ValueError("invalid_subscription_provider")
+    cfg = load_provider_config(strict=True)
+    entry = cfg.get("providers", {}).get(provider_id, {})
+    if "oauth_bundle_ref" in entry:
+        values = _oauth_bundle_values(provider_id, entry["oauth_bundle_ref"])
+    else:
+        values = {name: get_provider_secret(provider_id, name) for name in OAUTH_SECRET_NAMES}
+    return values, dict(entry), provider_config_revision(cfg)
+
+
+@_serialized_provider_writer
+def replace_provider_oauth_bundle(provider_id: str, values: dict[str, str] | None, *,
+                                 update_metadata: Callable[[dict], None],
+                                 expected_revision: str | None = None,
+                                 validate: Callable[[], None] = lambda: None,
+                                 command_proof: dict | None = None) -> dict:
+    """Publish verified immutable token generations together with account metadata.
+
+    None disconnects through a tombstone. Previous secure bytes are retained;
+    no session fallback or external CLI credential mutation is allowed.
+    """
+    from row_bot.providers.config import ProviderConfigError
+    if provider_id not in OAUTH_PROVIDER_IDS or (values is not None and (not isinstance(values, dict) or not set(values).issubset(OAUTH_SECRET_NAMES))):
+        raise ValueError("invalid_subscription_credentials")
+    if values is not None:
+        for value in values.values():
+            if not isinstance(value, str) or len(value.encode("utf-8", errors="surrogatepass")) > 16384 or any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+                raise ValueError("invalid_subscription_credentials")
+    validate()
+    cfg = load_provider_config(strict=True)
+    revision = provider_config_revision(cfg)
+    if expected_revision is not None and revision != expected_revision:
+        raise ProviderConfigError("revision_conflict")
+    old = cfg.get("providers", {}).get(provider_id, {})
+    previous = {"reference": old.get("oauth_bundle_ref", {"legacy": True}),
+                "metadata": {key: value for key, value in old.items() if key not in {"oauth_bundle_previous", "oauth_bundle_ref", "oauth_bundle_command"}}}
+    if values is None and old.get("oauth_bundle_ref") == {"cleared": True} and isinstance(old.get("oauth_bundle_previous"), dict):
+        previous = old["oauth_bundle_previous"]
+    reference = {"cleared": True} if values is None else {"values": {
+        name: _stage_immutable_secret(provider_id, value, f"oauth.{name}", validate)
+        for name, value in values.items() if value}}
+    update_metadata(cfg)
+    entry = cfg.setdefault("providers", {}).setdefault(provider_id, {})
+    entry.update({"provider_id": provider_id, "oauth_bundle_ref": reference, "oauth_bundle_previous": previous})
+    if values is None:
+        entry.update({"configured": False, "health": ProviderHealth.MISSING_AUTH.value})
+    else:
+        entry["secret_storage"] = "keyring" if all(ref["storage"] == "keyring" for ref in reference["values"].values()) else "encrypted_file"
+    if command_proof is not None:
+        entry["oauth_bundle_command"] = dict(command_proof)
+    else:
+        entry.pop("oauth_bundle_command", None)
+    validate()
+    save_provider_config(cfg, expected_revision=revision)
+    for name in OAUTH_SECRET_NAMES:
+        _delete_session_provider_secret(provider_id, name)
+    return dict(entry)
+
+
+@_serialized_provider_writer
+def disconnect_provider_oauth_metadata(provider_id: str, *, update_metadata: Callable[[dict], None],
+                                       expected_revision: str | None = None,
+                                       validate: Callable[[], None] = lambda: None) -> None:
+    """Retain token accessibility for the legacy metadata-only disconnect option."""
+    from row_bot.providers.config import ProviderConfigError
+    if provider_id not in OAUTH_PROVIDER_IDS:
+        raise ValueError("invalid_subscription_provider")
+    validate()
+    cfg = load_provider_config(strict=True)
+    revision = provider_config_revision(cfg)
+    if expected_revision is not None and revision != expected_revision:
+        raise ProviderConfigError("revision_conflict")
+    previous = cfg.get("providers", {}).get(provider_id, {})
+    retained = {name: previous[name] for name in ("oauth_bundle_ref", "oauth_bundle_previous") if name in previous}
+    update_metadata(cfg)
+    if retained:
+        cfg.setdefault("providers", {}).setdefault(provider_id, {}).update({**retained, "provider_id": provider_id, "configured": False})
+    validate()
+    save_provider_config(cfg, expected_revision=revision)
 
 
 def _credential_name(credential_name: str) -> str:
@@ -155,6 +429,7 @@ def _get_provider_secret_value(provider_id: str, name: str) -> str:
         return ""
 
 
+@_serialized_provider_writer
 def set_provider_secret(
     provider_id: str,
     credential_name: str,
@@ -166,6 +441,17 @@ def set_provider_secret(
     provider_id = str(provider_id).strip()
     name = _credential_name(credential_name)
     text = str(value)
+    if provider_id in OAUTH_PROVIDER_IDS and name in OAUTH_SECRET_NAMES:
+        cfg = load_provider_config(strict=True)
+        if "oauth_bundle_ref" in cfg.get("providers", {}).get(provider_id, {}):
+            values, _, revision = read_provider_oauth_bundle_snapshot(provider_id)
+            values[name] = text
+            replace_provider_oauth_bundle(provider_id, values, expected_revision=revision,
+                update_metadata=lambda current: current["providers"][provider_id].update({"configured": bool(values["access_token"])}))
+            return
+    if name == "api_key" and _uses_staged_api_key(provider_id):
+        replace_provider_api_key(provider_id, text)
+        return
     if name == "api_key":
         env_var = PROVIDER_API_KEY_ENV.get(provider_id)
         if env_var and secret_store.read_server_secret(
@@ -216,6 +502,27 @@ def set_provider_secret(
 def get_provider_secret(provider_id: str, credential_name: str = "api_key") -> str:
     provider_id = str(provider_id).strip()
     name = _credential_name(credential_name)
+    if provider_id in OAUTH_PROVIDER_IDS and name in OAUTH_SECRET_NAMES:
+        cfg = load_provider_config(strict=True)
+        entry = cfg.get("providers", {}).get(provider_id, {})
+        if "oauth_bundle_ref" in entry:
+            return _oauth_bundle_values(provider_id, entry["oauth_bundle_ref"])[name]
+    if name == "api_key" and provider_id.startswith("custom_openai_"):
+        cfg = load_provider_config(strict=True)
+        entry = cfg.get("providers", {}).get(provider_id, {})
+        endpoint = _custom_credential_endpoint(provider_id, cfg)
+        if entry.get("credential_scope") is not None or entry.get("credential_ref") is not None or (entry and endpoint and endpoint.get("credential_scope")):
+            if not _custom_credential_scope_matches(provider_id, cfg):
+                return ""
+            if entry.get("credential_ref") is not None:
+                return _read_api_key_ref(provider_id, entry["credential_ref"])
+    if name == "api_key" and provider_id in PROVIDER_API_KEY_ENV:
+        external = _external_api_key(provider_id)
+        if external:
+            return external
+        active = _active_api_key(provider_id)
+        if active is not None:
+            return _read_api_key_ref(provider_id, active)
     if name == "api_key":
         env_var = PROVIDER_API_KEY_ENV.get(provider_id)
         if env_var:
@@ -236,9 +543,21 @@ def get_provider_secret(provider_id: str, credential_name: str = "api_key") -> s
     return _get_provider_secret_value(provider_id, name)
 
 
+@_serialized_provider_writer
 def delete_provider_secret(provider_id: str, credential_name: str = "api_key") -> None:
     provider_id = str(provider_id).strip()
     name = _credential_name(credential_name)
+    if provider_id in OAUTH_PROVIDER_IDS and name in OAUTH_SECRET_NAMES:
+        cfg = load_provider_config(strict=True)
+        if "oauth_bundle_ref" in cfg.get("providers", {}).get(provider_id, {}):
+            values, _, revision = read_provider_oauth_bundle_snapshot(provider_id)
+            values[name] = ""
+            replace_provider_oauth_bundle(provider_id, values, expected_revision=revision,
+                update_metadata=lambda current: current["providers"][provider_id].update({"configured": bool(values["access_token"])}))
+            return
+    if name == "api_key" and _uses_staged_api_key(provider_id):
+        replace_provider_api_key(provider_id, None)
+        return
     if name == "api_key":
         env_var = PROVIDER_API_KEY_ENV.get(provider_id)
         if env_var and secret_store.read_server_secret(
@@ -277,6 +596,44 @@ def delete_provider_secret(provider_id: str, credential_name: str = "api_key") -
 def provider_secret_status(provider_id: str, credential_name: str = "api_key") -> dict[str, Any]:
     provider_id = str(provider_id).strip()
     name = _credential_name(credential_name)
+    if provider_id in OAUTH_PROVIDER_IDS and name in OAUTH_SECRET_NAMES:
+        cfg = load_provider_config(strict=True)
+        entry = cfg.get("providers", {}).get(provider_id, {})
+        if "oauth_bundle_ref" in entry:
+            try:
+                value = _oauth_bundle_values(provider_id, entry["oauth_bundle_ref"])[name]
+                return {"configured": bool(value), "source": str(entry.get("secret_storage") or ""), "fingerprint": secret_store.fingerprint(value)}
+            except (secret_store.SecretStoreError, ValueError):
+                return {"configured": False, "source": "", "fingerprint": "", "error": "secure storage unavailable"}
+    if name == "api_key" and provider_id.startswith("custom_openai_"):
+        cfg = load_provider_config(strict=True)
+        entry = cfg.get("providers", {}).get(provider_id, {})
+        endpoint = _custom_credential_endpoint(provider_id, cfg)
+        if entry.get("credential_scope") is not None or entry.get("credential_ref") is not None or (entry and endpoint and endpoint.get("credential_scope")):
+            if not _custom_credential_scope_matches(provider_id, cfg):
+                return {"configured": False, "source": "", "fingerprint": "", "recovery_required": True}
+            if entry.get("credential_ref") is not None:
+                try:
+                    value = _read_api_key_ref(provider_id, entry["credential_ref"])
+                    return {"configured": bool(value), "source": entry["credential_ref"].get("storage", ""), "fingerprint": secret_store.fingerprint(value)}
+                except (secret_store.SecretStoreError, ValueError):
+                    return {"configured": False, "source": "", "fingerprint": "", "error": "secure storage unavailable"}
+    if name == "api_key" and provider_id in PROVIDER_API_KEY_ENV:
+        try:
+            external = _external_api_key(provider_id)
+            if external:
+                env_var = PROVIDER_API_KEY_ENV[provider_id]
+                file_value = secret_store.read_server_secret(env_var, allowed_names=frozenset(PROVIDER_API_KEY_ENV.values()))
+                return {"configured": True, "source": "secret_file" if file_value else "environment",
+                        "externally_managed": True, "fingerprint": secret_store.fingerprint(external)}
+            active = _active_api_key(provider_id)
+            if active is not None:
+                value = _read_api_key_ref(provider_id, active)
+                return {"configured": bool(value), "source": active.get("storage", ""),
+                        "fingerprint": secret_store.fingerprint(value)}
+        except (secret_store.SecretStoreError, ValueError):
+            return {"configured": False, "source": "", "fingerprint": "",
+                    "error": "secure storage unavailable", "externally_managed": bool(os.environ.get(PROVIDER_API_KEY_ENV[provider_id]))}
     value = ""
     source = ""
     if name == "api_key" and provider_id in PROVIDER_API_KEY_ENV:

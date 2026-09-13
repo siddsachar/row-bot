@@ -1,0 +1,300 @@
+{
+  "$defs": {
+    "DeveloperGitState": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 256,
+          "title": "Branch",
+          "type": "string"
+        },
+        "detached": {
+          "title": "Detached",
+          "type": "boolean"
+        },
+        "dirty": {
+          "title": "Dirty",
+          "type": "boolean"
+        },
+        "is_git": {
+          "title": "Is Git",
+          "type": "boolean"
+        },
+        "is_root": {
+          "title": "Is Root",
+          "type": "boolean"
+        },
+        "remote_configured": {
+          "title": "Remote Configured",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "plain_folder"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "tracking_summary": {
+          "maxLength": 512,
+          "title": "Tracking Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "is_git",
+        "is_root",
+        "branch",
+        "detached",
+        "dirty",
+        "remote_configured",
+        "tracking_summary"
+      ],
+      "title": "DeveloperGitState",
+      "type": "object"
+    },
+    "DeveloperRepositoryCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        }
+      },
+      "required": [
+        "available",
+        "code"
+      ],
+      "title": "DeveloperRepositoryCapability",
+      "type": "object"
+    },
+    "DeveloperSandboxState": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_mode": {
+          "enum": [
+            "local",
+            "docker"
+          ],
+          "title": "Execution Mode",
+          "type": "string"
+        },
+        "image": {
+          "maxLength": 256,
+          "title": "Image",
+          "type": "string"
+        },
+        "network": {
+          "enum": [
+            "off",
+            "ask",
+            "on"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "owned_processes": {
+          "maximum": 256,
+          "minimum": 0,
+          "title": "Owned Processes",
+          "type": "integer"
+        },
+        "pending_imports": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Pending Imports",
+          "type": "integer"
+        },
+        "runtime_status": {
+          "const": "not_probed",
+          "title": "Runtime Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "execution_mode",
+        "network",
+        "image",
+        "pending_imports",
+        "owned_processes",
+        "runtime_status"
+      ],
+      "title": "DeveloperSandboxState",
+      "type": "object"
+    },
+    "DeveloperWorktreeState": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 256,
+          "title": "Branch",
+          "type": "string"
+        },
+        "cleanup_state": {
+          "enum": [
+            "preserve",
+            "requested",
+            "completed",
+            "failed"
+          ],
+          "title": "Cleanup State",
+          "type": "string"
+        },
+        "current": {
+          "title": "Current",
+          "type": "boolean"
+        },
+        "has_error": {
+          "title": "Has Error",
+          "type": "boolean"
+        },
+        "owned_by_conversation": {
+          "title": "Owned By Conversation",
+          "type": "boolean"
+        },
+        "seeded_current_changes": {
+          "title": "Seeded Current Changes",
+          "type": "boolean"
+        },
+        "source_dirty": {
+          "title": "Source Dirty",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "failed",
+            "preserved",
+            "archived"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "worktree_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Worktree Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "worktree_id",
+        "branch",
+        "status",
+        "cleanup_state",
+        "current",
+        "owned_by_conversation",
+        "source_dirty",
+        "seeded_current_changes",
+        "has_error"
+      ],
+      "title": "DeveloperWorktreeState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DeveloperRepositoryCapability"
+      },
+      "maxProperties": 20,
+      "title": "Availability",
+      "type": "object"
+    },
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "repository": {
+      "$ref": "#/$defs/DeveloperGitState"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "sandbox": {
+      "$ref": "#/$defs/DeveloperSandboxState"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "trusted": {
+      "title": "Trusted",
+      "type": "boolean"
+    },
+    "workspace_name": {
+      "maxLength": 256,
+      "title": "Workspace Name",
+      "type": "string"
+    },
+    "worktrees": {
+      "items": {
+        "$ref": "#/$defs/DeveloperWorktreeState"
+      },
+      "maxItems": 32,
+      "title": "Worktrees",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "resource_id",
+    "conversation_id",
+    "binding_id",
+    "binding_revision",
+    "resource_revision",
+    "revision",
+    "workspace_name",
+    "trusted",
+    "repository",
+    "worktrees",
+    "sandbox",
+    "availability"
+  ],
+  "title": "DeveloperRepositorySnapshot",
+  "type": "object"
+}

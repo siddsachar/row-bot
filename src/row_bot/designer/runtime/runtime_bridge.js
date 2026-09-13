@@ -199,8 +199,19 @@
 
     // ── Parent → child control (editor sync) ──────────────────────
     window.addEventListener("message", function (ev) {
-        var data = ev.data || {};
+        if (ev.source !== window.parent) return;
+        var data = ev.data;
+        if (!data || typeof data !== "object" || Array.isArray(data)) return;
         if (data.target !== "row-bot-runtime") return;
+        var field = data.type === "navigate" ? "route" :
+            data.type === "toggle_state" ? "key" :
+            data.type === "play_media" ? "assetId" : "";
+        if (!field || Object.keys(data).some(function (key) {
+            return key !== "target" && key !== "type" && key !== field;
+        })) return;
+        var value = data[field];
+        if (typeof value !== "string" || !value.length || value.length > 4096 ||
+            /[\u0000-\u001f\u007f]/.test(value)) return;
         if (data.type === "navigate") setActiveRoute(data.route);
         else if (data.type === "toggle_state") toggleState(data.key);
         else if (data.type === "play_media") playMedia(data.assetId);

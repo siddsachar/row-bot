@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "ProviderStatusRow": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_methods": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Auth Methods",
+          "type": "array"
+        },
+        "catalog_state": {
+          "enum": [
+            "cached",
+            "verified_empty",
+            "unavailable",
+            "error"
+          ],
+          "title": "Catalog State",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "group": {
+          "enum": [
+            "local",
+            "subscription",
+            "api",
+            "custom"
+          ],
+          "title": "Group",
+          "type": "string"
+        },
+        "model_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Count"
+        },
+        "provider_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "display_name",
+        "group",
+        "auth_methods",
+        "catalog_state",
+        "model_count"
+      ],
+      "title": "ProviderStatusRow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "freshness": {
+      "enum": [
+        "fresh",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Freshness",
+      "type": "string"
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "providers": {
+      "items": {
+        "$ref": "#/$defs/ProviderStatusRow"
+      },
+      "maxItems": 512,
+      "title": "Providers",
+      "type": "array"
+    },
+    "refresh_running": {
+      "title": "Refresh Running",
+      "type": "boolean"
+    },
+    "revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total_models": {
+      "minimum": 0,
+      "title": "Total Models",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "revision",
+    "freshness",
+    "refresh_running",
+    "providers",
+    "total_models"
+  ],
+  "title": "ProviderStatusSnapshot",
+  "type": "object"
+}

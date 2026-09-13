@@ -11,6 +11,7 @@ type BrowserEvidence = {
   networkMode: 'external-abort-routing' | 'native-with-verified-csp';
   console: { type: string; text: string }[];
   pageErrors: string[];
+  pageErrorDetails: { name: string; stack: string }[];
   network: { event: string; path: string; status?: number }[];
   blockedExternal: string[];
 };
@@ -97,6 +98,7 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
       ),
   ).toBe(true);
   expect(directives.get('img-src')).toEqual(["'self'", 'data:', 'blob:']);
+  expect(directives.get('media-src')).toEqual(["'self'", 'blob:']);
   expect(directives.get('font-src')).toEqual(["'self'", 'data:']);
   expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"]);
   expect(directives.get('frame-src')).toEqual(["'self'"]);
@@ -116,6 +118,7 @@ export const test = base.extend<{
           : 'external-abort-routing',
         console: [],
         pageErrors: [],
+        pageErrorDetails: [],
         network: [],
         blockedExternal: [],
       };
@@ -144,9 +147,13 @@ export const test = base.extend<{
             text: safeText(event.text()),
           }),
         );
-        observed.on('pageerror', (error) =>
-          evidence.pageErrors.push(safeText(error.message)),
-        );
+        observed.on('pageerror', (error) => {
+          evidence.pageErrors.push(safeText(error.message));
+          evidence.pageErrorDetails.push({
+            name: error.name,
+            stack: safeText(error.stack ?? ''),
+          });
+        });
         observed.on('response', (response) =>
           evidence.network.push({
             event: 'response',
@@ -223,16 +230,27 @@ export async function accessibility(
   ]);
   const opaquePreviewScope = [];
   if (options.opaquePreview) {
-    const selector = '[aria-label="Design preview"] iframe[sandbox=""]';
+    const selector =
+      '[aria-label="Design preview"] iframe[sandbox=""], [aria-label="Design preview"] iframe[sandbox="allow-scripts"]';
     const frames = page.locator(selector);
     for (let index = 0; index < (await frames.count()); index++) {
       const frame = frames.nth(index);
-      await expect(frame).toHaveAttribute('sandbox', '');
-      await expect(frame).toHaveAttribute('title', /^Slide preview: .+/);
+      const sandbox = await frame.getAttribute('sandbox');
+      expect(['', 'allow-scripts']).toContain(sandbox);
+      await expect(frame).toHaveAttribute(
+        'title',
+        /^(?:(Slide|Page) preview|Presentation|Thumbnail): .+/,
+      );
+      const title = await frame.getAttribute('title');
+      if (title?.startsWith('Presentation:') || title?.startsWith('Thumbnail:'))
+        expect(sandbox, 'Presentation artwork must remain script-free').toBe(
+          '',
+        );
       opaquePreviewScope.push({
         selector,
         index,
         title: await frame.getAttribute('title'),
+        sandbox,
       });
     }
     if (opaquePreviewScope.length) builder.exclude(selector);
@@ -241,7 +259,7 @@ export async function accessibility(
   await writeEvidence(testInfo, name, {
     opaquePreviewScope,
     scope: opaquePreviewScope.length
-      ? 'Only generated artwork inside the named opaque, script-disabled preview iframe is excluded from axe injection. Chrome and controls remain scanned; iframe title/sandbox are asserted and artwork geometry/visual evidence is separate. No sandbox or CSP permission is changed.'
+      ? 'Only generated artwork inside the named opaque preview iframe is excluded from cross-frame axe injection. Chrome and controls remain scanned; iframe title/sandbox are asserted and artwork geometry/visual evidence is separate. Artwork accessibility requires separate verification. No sandbox or CSP permission is changed.'
       : 'Complete default axe context; no preview exclusions.',
     violations: result.violations,
     incomplete: result.incomplete,

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import pathlib
 import tempfile
+from contextlib import nullcontext
+from collections.abc import Callable
 
 from row_bot.channels import registry as channel_registry
 from row_bot.designer.export import (
@@ -56,6 +58,11 @@ def share_project_to_channel(
     text: str = "",
     pages: str | None = None,
     pptx_mode: str = "screenshot",
+    validate: Callable[[], None] | None = None,
+    checkpoint: Callable[[str, int, int], None] | None = None,
+    directory: pathlib.Path | None = None,
+    strict: bool = False,
+    publisher: Callable[..., dict] | None = None,
 ) -> dict:
     """Share a project to an active outbound channel."""
     channel = channel_registry.get(channel_name)
@@ -68,22 +75,44 @@ def share_project_to_channel(
     delivery_mode = (delivery or "link").lower().strip()
     caption = text.strip() or project.name
 
+    def send(call, index: int, total: int):
+        if validate:
+            validate()
+        if checkpoint:
+            checkpoint('send_started', index, total)
+        try:
+            if validate:
+                validate()
+        except Exception:
+            if checkpoint:
+                checkpoint('send_not_started', index, total)
+            raise
+        call()
+        if checkpoint:
+            checkpoint('send_submitted', index, total)
+
+    if strict and (validate is None or checkpoint is None):
+        raise ValueError('sharing_admission_required')
+    if strict and ((delivery_mode == 'link' and publisher is None)
+                   or (delivery_mode != 'link' and directory is None)):
+        raise ValueError('sharing_retained_owner_required')
+
     if delivery_mode == "link":
-        published = publish_project(project, pages, ensure_public=True)
+        published = (publisher or publish_project)(project, pages, ensure_public=True)
         message = text.strip() or f"{project.name}\n{published['url']}"
-        channel.send_message(resolved_target, message)
+        send(lambda: channel.send_message(resolved_target, message), 0, 1)
         return {
             "success": True,
             "detail": f"Shared published link via {channel.display_name}.",
             "url": published["url"],
         }
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with (nullcontext(str(directory)) if directory is not None else tempfile.TemporaryDirectory()) as tmp_dir:
         if delivery_mode == "slides":
             if channel.capabilities.photo_out:
                 image_paths = export_png_files(project, pages, directory=tmp_dir)
                 for idx, path in enumerate(image_paths):
-                    channel.send_photo(resolved_target, str(path), caption=caption if idx == 0 else None)
+                    send(lambda: channel.send_photo(resolved_target, str(path), caption=caption if idx == 0 else None), idx, len(image_paths))
                 return {
                     "success": True,
                     "detail": f"Shared {len(image_paths)} slide image(s) via {channel.display_name}.",
@@ -92,10 +121,10 @@ def share_project_to_channel(
             if not channel.capabilities.document_out:
                 raise ValueError(f"{channel.display_name} cannot send photos or documents.")
             png_zip = export_png(project, pages, directory=tmp_dir)
-            zip_path = next(iter(pathlib.Path(tmp_dir).glob("*.zip")), None)
+            zip_path = pathlib.Path(getattr(png_zip, 'saved_path', '')) if strict else next(iter(pathlib.Path(tmp_dir).glob("*.zip")), None)
             if zip_path is None:
                 raise RuntimeError(f"Expected slide ZIP export, got {len(png_zip)} bytes with no file path.")
-            channel.send_document(resolved_target, str(zip_path), caption=caption)
+            send(lambda: channel.send_document(resolved_target, str(zip_path), caption=caption), 0, 1)
             return {
                 "success": True,
                 "detail": f"Shared slide ZIP via {channel.display_name}.",
@@ -123,7 +152,7 @@ def share_project_to_channel(
         file_path = next(iter(pathlib.Path(tmp_dir).glob(f"*{suffix}")), None)
         if file_path is None:
             raise RuntimeError(f"Expected a {suffix} export for channel sharing.")
-        channel.send_document(resolved_target, str(file_path), caption=caption)
+        send(lambda: channel.send_document(resolved_target, str(file_path), caption=caption), 0, 1)
         return {
             "success": True,
             "detail": f"Shared {file_path.name} via {channel.display_name}.",
@@ -136,17 +165,40 @@ def share_project_to_x(
     *,
     text: str = "",
     pages: str | None = None,
+    validate: Callable[[], None] | None = None,
+    checkpoint: Callable[[str, int, int], None] | None = None,
+    directory: pathlib.Path | None = None,
+    strict: bool = False,
 ) -> dict:
     """Post up to four slide images to X using the existing X tool integration."""
     from row_bot.tools.x_tool import XTool
 
     tweet_text = text.strip() or project.name
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        media_paths = [str(path) for path in export_png_files(project, pages, directory=tmp_dir)[:4]]
+    if strict and (validate is None or checkpoint is None or directory is None):
+        raise ValueError('sharing_admission_required')
+    with (nullcontext(str(directory)) if directory is not None else tempfile.TemporaryDirectory()) as tmp_dir:
+        selected = export_png_files(project, pages, directory=tmp_dir)
+        if strict and len(selected) > 4:
+            raise ValueError('sharing_media_limit')
+        media_paths = [str(path) for path in selected[:4]]
         if not media_paths:
             raise ValueError("No slides were selected for X sharing.")
-        result = XTool()._x_post("post", text=tweet_text, media_paths=media_paths)
+        if validate:
+            validate()
+        if checkpoint:
+            checkpoint('send_started', 0, 1)
+        try:
+            if validate:
+                validate()
+        except Exception:
+            if checkpoint:
+                checkpoint('send_not_started', 0, 1)
+            raise
+        result = XTool()._x_post("post", text=tweet_text, media_paths=media_paths,
+                               **({'require_all_media': True} if strict else {}))
+        if checkpoint:
+            checkpoint('send_submitted' if result.startswith('Tweet posted successfully!') else 'send_uncertain', 0, 1)
 
     return {
         "success": result.startswith("Tweet posted successfully!"),

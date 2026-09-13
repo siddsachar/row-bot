@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "pattern": "^[A-Za-z0-9_-]{1,128}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "batch_id",
+    "revision"
+  ],
+  "title": "DocumentProcessingReviewRequest",
+  "type": "object"
+}

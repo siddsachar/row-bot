@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from uuid import uuid4
 
@@ -15,12 +14,20 @@ from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 pytestmark = pytest.mark.subsystem
 
 
-@pytest.fixture
-def service(tmp_path, monkeypatch):
-    from row_bot import threads, tasks, agent_profiles
+def _isolated_service():
     from row_bot.application.client_platform import ClientPlatformService
     from row_bot.projection.conversation import ConversationProjection
     from row_bot.runtime.executions import GenerationRuntimeRegistry
+
+    result = ClientPlatformService()
+    result.registry = GenerationRuntimeRegistry()
+    result.projection = ConversationProjection(result.registry.server_epoch)
+    return result
+
+
+@pytest.fixture
+def service(tmp_path, monkeypatch):
+    from row_bot import threads, tasks, agent_profiles
     from row_bot.tools import registry as tools
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
@@ -34,9 +41,7 @@ def service(tmp_path, monkeypatch):
     connection = sqlite3.connect(threads.DB_PATH, check_same_thread=False)
     monkeypatch.setattr(threads, "checkpointer", threads._DeletionAwareSqliteSaver(connection))
     monkeypatch.setattr(tools, "get_enabled_tools", lambda: [])
-    result = ClientPlatformService()
-    result.registry = GenerationRuntimeRegistry()
-    result.projection = ConversationProjection(result.registry.server_epoch)
+    result = _isolated_service()
     yield result
     result.registry.shutdown()
     for handle in result.registry.active():

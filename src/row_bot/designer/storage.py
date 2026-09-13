@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import tempfile
 import threading
 import time
 from typing import Optional
+from collections.abc import Callable
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.designer.state import DesignerProject
@@ -27,6 +29,10 @@ ASSETS_DIR = DESIGNER_DIR / "assets"
 _REPLACE_RETRIES = 5
 _REPLACE_BACKOFF_SECONDS = 0.05
 _REPLACE_RETRY_WINERRORS = {5, 32}
+_READ_RETRIES = 5
+_READ_BACKOFF_SECONDS = 0.05
+_READ_RETRY_ERRNOS = {errno.EACCES, errno.EPERM}
+_READ_RETRY_WINERRORS = {5, 32, 33}
 _MAX_PERSISTED_STEM_LENGTH = 64
 _PROJECT_SAVE_LOCKS: dict[str, threading.RLock] = {}
 _PROJECT_SAVE_LOCKS_GUARD = threading.Lock()
@@ -145,6 +151,30 @@ def _write_json_atomic(path: pathlib.Path, payload: dict) -> None:
             os.close(fd)
 
 
+def _read_json_with_access_retry(path: pathlib.Path) -> object:
+    """Read JSON through a bounded retry for transient access denial.
+
+    Windows scanners and indexers can briefly retain a handle immediately
+    after an atomic replacement.  Retry only access and sharing violations;
+    malformed JSON and every other filesystem failure keep their existing
+    behavior.
+    """
+
+    for attempt in range(_READ_RETRIES):
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except PermissionError as exc:
+            retryable = (
+                exc.errno in _READ_RETRY_ERRNOS
+                or getattr(exc, "winerror", None) in _READ_RETRY_WINERRORS
+            )
+            if not retryable or attempt >= _READ_RETRIES - 1:
+                raise
+            time.sleep(_READ_BACKOFF_SECONDS * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
 def save_reference_bytes(project_id: str, reference_id: str, original_name: str, data: bytes) -> str:
     """Persist one project reference file and return its stored filename."""
     _ensure_dirs()
@@ -156,8 +186,105 @@ def save_reference_bytes(project_id: str, reference_id: str, original_name: str,
     return stored_name
 
 
-def save_asset_bytes(project_id: str, asset_id: str, original_name: str, data: bytes) -> str:
+def save_asset_bytes(project_id: str, asset_id: str, original_name: str, data: bytes, *,
+                     require_absent: bool = False, validate: Callable[[], None] | None = None) -> str:
     """Persist one project asset file and return its stored filename."""
+    if require_absent:
+        from row_bot.thread_cleanup import resolve_managed_path
+        from row_bot.developer.client_workspace import _empty_parent_guard, _directory_identity
+        from row_bot.developer.edits import _rename_edit_no_replace
+        import stat
+
+        if validate is None or not isinstance(data, bytes) or not 0 < len(data) <= 32 * 1024 * 1024:
+            raise ValueError('asset_admission_required')
+        if (not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', asset_id)
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', project_id)
+                or not isinstance(original_name, str) or any(char in original_name for char in '/\\:\x00\r\n')):
+            raise ValueError('asset_identity_invalid')
+        asset_dir = resolve_managed_path(ASSETS_DIR, project_id)
+        suffix = pathlib.Path(original_name).suffix.lower()[:16]
+        stored_name = f'{asset_id}-{_sanitize_asset_stem(original_name)}{suffix}'
+        destination = resolve_managed_path(asset_dir, stored_name)
+        validate()
+        if os.name != 'nt':
+            from uuid import uuid4
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            with _empty_parent_guard(ASSETS_DIR.parent, _directory_identity(ASSETS_DIR.parent, parent=True)) as parent_fd:
+                try:
+                    os.mkdir(ASSETS_DIR.name, dir_fd=parent_fd)
+                except FileExistsError:
+                    pass
+                assets_fd = os.open(ASSETS_DIR.name, flags, dir_fd=parent_fd)
+                try:
+                    try:
+                        os.mkdir(project_id, dir_fd=assets_fd)
+                    except FileExistsError:
+                        pass
+                    directory_fd = os.open(project_id, flags, dir_fd=assets_fd)
+                    try:
+                        directory_info = os.fstat(directory_fd)
+                        if not os.path.samestat(directory_info, asset_dir.lstat()):
+                            raise ValueError('asset_publication_changed')
+                        # Every effect is relative to the admitted directory,
+                        # including publication after an external parent swap.
+                        temporary_name = f'.asset-{uuid4().hex}.tmp'
+                        fd = os.open(temporary_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                     0o600, dir_fd=directory_fd)
+                        with os.fdopen(fd, 'wb') as handle:
+                            handle.write(data)
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                            created = os.fstat(handle.fileno())
+                        validate()
+                        if not os.path.samestat(directory_info, asset_dir.lstat()):
+                            raise ValueError('asset_publication_changed')
+                        _rename_edit_no_replace(pathlib.Path(temporary_name), pathlib.Path(stored_name),
+                                                src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+                        fd = os.open(stored_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+                        with os.fdopen(fd, 'rb') as handle:
+                            if not os.path.samestat(created, os.fstat(handle.fileno())):
+                                raise ValueError('asset_publication_changed')
+                            captured = handle.read(len(data) + 1)
+                            finished = os.fstat(handle.fileno())
+                        named = os.stat(stored_name, dir_fd=directory_fd, follow_symlinks=False)
+                        if (not os.path.samestat(created, named) or captured != data or named.st_nlink != 1
+                                or not os.path.samestat(directory_info, asset_dir.lstat())
+                                or (created.st_size, created.st_mtime_ns) != (finished.st_size, finished.st_mtime_ns)):
+                            raise ValueError('asset_publication_changed')
+                        return stored_name
+                    finally:
+                        os.close(directory_fd)
+                finally:
+                    os.close(assets_fd)
+        with _empty_parent_guard(ASSETS_DIR.parent, _directory_identity(ASSETS_DIR.parent, parent=True)):
+            ASSETS_DIR.mkdir(exist_ok=True)
+            with _empty_parent_guard(ASSETS_DIR, _directory_identity(ASSETS_DIR, parent=True)):
+                asset_dir.mkdir(exist_ok=True)
+                with _empty_parent_guard(asset_dir, _directory_identity(asset_dir, parent=True)):
+                    if os.path.lexists(destination):
+                        raise FileExistsError('asset_already_exists')
+                    fd, temporary = _reserve_temp_path(destination)
+                    with os.fdopen(fd, 'wb') as handle:
+                        handle.write(data)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                        created = os.fstat(handle.fileno())
+                    validate()
+                    named = temporary.lstat()
+                    if (not os.path.samestat(created, named) or not stat.S_ISREG(named.st_mode)
+                            or named.st_nlink != 1 or named.st_size != len(data)):
+                        raise ValueError('asset_publication_changed')
+                    _rename_edit_no_replace(temporary, destination)
+                    with destination.open('rb') as handle:
+                        if not os.path.samestat(created, os.fstat(handle.fileno())):
+                            raise ValueError('asset_publication_changed')
+                        captured = handle.read(len(data) + 1)
+                        finished = os.fstat(handle.fileno())
+                    named = destination.lstat()
+                    if (not os.path.samestat(created, named) or captured != data or named.st_nlink != 1
+                            or (created.st_size, created.st_mtime_ns) != (finished.st_size, finished.st_mtime_ns)):
+                        raise ValueError('asset_publication_changed')
+                    return stored_name
     _ensure_dirs()
     asset_dir = _project_asset_dir(project_id)
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -280,8 +407,7 @@ def get_project_metadata(project_id: str) -> dict[str, str] | None:
     path = resolve_managed_path(PROJECTS_DIR, f"{project_id}.json")
     if not path.is_file():
         return None
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
+    data = _read_json_with_access_retry(path)
     if not isinstance(data, dict) or str(data.get("id", "")) != project_id:
         raise ValueError("Artifact metadata does not match its registered identity")
     return {key: str(data.get(key) or "") for key in ("id", "name", "updated_at")}

@@ -1,6 +1,6 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -11,16 +11,35 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
-  --radius-control: 6px;
+  --radius-control: 3px;
   --radius-panel: 10px;
   --radius-dialog: 14px;
   --control-size: 44px;
+  --panel-padding: 16px;
+  --content-gap: 16px;
   --motion-fast: 100ms;
   --motion-overlay: 160ms;
   --shadow-raised: 0 4px 16px var(--overlay-scrim);
   --shadow-modal: 0 16px 48px var(--overlay-scrim);
   color: var(--text-primary);
   background: var(--canvas);
+}
+.task-graph-editor ol {
+  padding-inline-start: 24px;
+}
+.task-graph-editor li,
+.task-graph-editor legend,
+.task-graph-editor button {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.task-editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }
 .suggestion {
   display: flex;
@@ -286,7 +305,20 @@ svg {
   flex: 1;
   gap: 12px;
 }
-.chat-workspace > .conversation-heading {
+.chat-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  gap: 8px;
+  overscroll-behavior: contain;
+}
+.chat-content > :not(.transcript) {
+  flex-shrink: 0;
+}
+.chat-content > .conversation-heading {
   align-items: center;
   flex-wrap: wrap;
 }
@@ -305,6 +337,9 @@ svg {
   border-radius: var(--radius-control);
 }
 .transcript {
+  /* Chrome follows NiceGUI's 14/21 scale; conversation reading stays 16/24. */
+  font-size: 16px;
+  line-height: 24px;
   min-height: 100px;
   flex: 1 1 200px;
   overflow: auto;
@@ -342,6 +377,8 @@ svg {
 }
 .composer {
   flex-shrink: 0;
+  max-height: 70%;
+  overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
   padding: 12px;
@@ -393,22 +430,25 @@ svg {
   border-top: 1px solid var(--border-subtle);
   font-size: 13px;
 }
-.chat-workspace > .activity {
+.chat-content > .activity {
   flex: 0 0 auto;
 }
-.chat-workspace > .activity:empty {
+.chat-content > .activity:empty {
   display: none;
 }
-.chat-workspace > details.activity > summary {
+.chat-content > details.activity > summary {
   min-height: var(--control-size);
   padding: 12px 8px;
   cursor: pointer;
 }
-.chat-workspace > details.activity > summary:focus-visible {
+.chat-content > details.activity > summary:focus-visible {
   outline-offset: -2px;
 }
 .activity li {
   overflow-wrap: anywhere;
+}
+.activity .message-media {
+  max-height: 120px;
 }
 .run-status {
   margin: 0;
@@ -655,6 +695,10 @@ svg {
   text-decoration: none;
   color: var(--text-primary);
 }
+.settings-results > li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .settings-results a:hover {
   background: var(--surface-hover);
 }
@@ -888,7 +932,7 @@ small {
 }
 .field {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   font-size: 14px;
   line-height: 20px;
 }
@@ -900,9 +944,13 @@ small {
   gap: 16px;
   grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
 }
+.field-row > .button {
+  align-self: end;
+  justify-self: start;
+}
 .stack {
   display: grid;
-  gap: 16px;
+  gap: var(--content-gap);
 }
 .actions {
   display: flex;
@@ -914,7 +962,7 @@ small {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
   background: var(--surface);
-  padding: 24px;
+  padding: var(--panel-padding);
 }
 .surface-effect {
   background: var(--surface-raised);
@@ -1017,6 +1065,13 @@ small {
   z-index: 70;
   background: var(--overlay-scrim);
   animation: appear var(--motion-overlay) ease-out;
+}
+.panel-controls {
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  flex-shrink: 1;
 }
 .dialog {
   position: fixed;
@@ -1334,10 +1389,18 @@ progress {
   --radius-card: 10px;
   --radius-shell: 12px;
   --card-tint: linear-gradient(180deg, #ffffff0d, #ffffff04);
-  --shadow-card: inset 0 1px 0 #ffffff0d, 0 3px 10px #0000001a;
+  --card-border: #ffffff17;
+  --card-border-top: #ffffff24;
+  --card-border-bottom: #00000026;
+  --shadow-card:
+    inset 0 1px 0 #ffffff12, inset 0 -1px 0 #0000001f, 0 3px 10px #00000059,
+    0 1px 3px #00000033;
   --shadow-shell: inset 1px 1px 2px #ffffff07, 3px 3px 12px #00000026;
 }
 :root[data-theme='light'] {
+  --card-border: var(--border-subtle);
+  --card-border-top: var(--border-subtle);
+  --card-border-bottom: var(--border-subtle);
   --card-tint: linear-gradient(180deg, #ffffff, #ffffff80);
   --shadow-card: inset 0 1px 0 #ffffff, 0 2px 8px #17212b0a;
   --shadow-shell: 0 2px 12px #17212b0d;
@@ -1355,9 +1418,12 @@ progress {
   object-fit: contain;
 }
 .brand-name {
-  color: var(--brand-accent);
-  font-size: 22px;
-  font-weight: 700;
+  /* The smaller reference label needs normal-text contrast in every theme. */
+  color: var(--text-link);
+  font-size: 18.4px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 .brand-compact .brand-glyph {
   width: 32px;
@@ -1397,7 +1463,9 @@ progress {
 }
 .nav-conversations,
 .home-resource-card {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--card-border);
+  border-top-color: var(--card-border-top);
+  border-bottom-color: var(--card-border-bottom);
   border-radius: var(--radius-card);
   background: var(--card-tint);
   box-shadow: var(--shadow-card);
@@ -1437,7 +1505,7 @@ progress {
 .chat-workspace {
   gap: 8px;
 }
-.chat-workspace > .conversation-heading {
+.chat-content > .conversation-heading {
   padding-inline-end: 66px;
   gap: 8px;
 }
@@ -1461,8 +1529,10 @@ progress {
   margin: 6px 0;
 }
 .message-user {
-  background: var(--surface-raised);
-  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--canvas));
+  border: 1px solid transparent;
+  margin-inline-start: 0;
+  border-radius: 8px;
 }
 .transcript {
   padding: 4px 0;
@@ -1484,6 +1554,8 @@ progress {
   padding: 8px;
   resize: vertical;
   box-shadow: none;
+  font-size: 15.2px;
+  line-height: 21px;
 }
 .composer-toolbar,
 .composer-control-cluster {
@@ -1495,6 +1567,20 @@ progress {
 }
 .composer-toolbar {
   justify-content: space-between;
+}
+.conversation-voice > .surface {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+.voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.voice-controls > p {
+  flex-basis: 100%;
 }
 .composer-control-cluster {
   flex: 1 1 240px;
@@ -1711,6 +1797,14 @@ progress {
 @media (pointer: fine) and (min-width: 1024px) {
   :root[data-density='compact'] {
     --control-size: 34px;
+    --panel-padding: 12px;
+    --content-gap: 12px;
+  }
+  :root[data-density='compact'] .button:not(.icon-button) {
+    padding-block: 4px;
+  }
+  :root[data-density='compact'] .input:not(textarea) {
+    padding-block: 4px;
   }
   :root[data-density='compact'] .composer-control {
     min-height: 34px;
@@ -1725,6 +1819,11 @@ progress {
   }
   .composer-control {
     min-height: 44px;
+  }
+  .composer .message-composer {
+    /* Keep focused text entry legible without mobile browser auto-zoom. */
+    font-size: 16px;
+    line-height: 24px;
   }
   .workspace-columns {
     padding: 0 4px 4px;
@@ -1762,7 +1861,7 @@ progress {
   .conversation {
     padding: 6px 8px 8px;
   }
-  .chat-workspace > .conversation-heading {
+  .chat-content > .conversation-heading {
     padding-inline-end: 0;
   }
   .conversation > .conversation-heading {
@@ -1855,13 +1954,6 @@ progress {
     width: 100%;
     justify-content: space-between;
     margin: 0;
-  }
-  .conversation {
-    display: block;
-  }
-  .chat-workspace {
-    min-height: 100%;
-    flex: none;
   }
   .conversation-heading {
     flex-wrap: wrap;
@@ -1986,6 +2078,25 @@ progress {
 }
 
 /* Activity rows retain their established full target while menus stay compact. */
-.chat-workspace > details.activity > summary {
+.chat-content > details.activity > summary {
   min-height: 44px;
+}
+
+.buddy-avatar {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: var(--radius-control);
+}
+
+.buddy-look {
+  flex-direction: column;
+  min-width: 112px;
+}
+
+.navigation .buddy-avatar {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
 }

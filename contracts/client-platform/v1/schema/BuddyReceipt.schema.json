@@ -1,0 +1,208 @@
+{
+  "$defs": {
+    "BuddyHatchResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "completed_clips": {
+          "maximum": 6,
+          "minimum": 0,
+          "title": "Completed Clips",
+          "type": "integer"
+        },
+        "has_still": {
+          "title": "Has Still",
+          "type": "boolean"
+        },
+        "job_id": {
+          "maxLength": 128,
+          "title": "Job Id",
+          "type": "string"
+        },
+        "pack_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pack Id"
+        },
+        "retained_copy": {
+          "title": "Retained Copy",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "selected": {
+          "title": "Selected",
+          "type": "boolean"
+        },
+        "stage": {
+          "maxLength": 80,
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "total_clips": {
+          "maximum": 6,
+          "minimum": 0,
+          "title": "Total Clips",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "command_id",
+        "job_id",
+        "status",
+        "stage",
+        "pack_id",
+        "selected",
+        "completed_clips",
+        "total_clips",
+        "code",
+        "retained_copy",
+        "has_still"
+      ],
+      "title": "BuddyHatchResult",
+      "type": "object"
+    },
+    "BuddyRemoval": {
+      "additionalProperties": false,
+      "properties": {
+        "config_changed": {
+          "title": "Config Changed",
+          "type": "boolean"
+        },
+        "pack_id": {
+          "maxLength": 128,
+          "title": "Pack Id",
+          "type": "string"
+        },
+        "retained_copy": {
+          "const": true,
+          "title": "Retained Copy",
+          "type": "boolean"
+        },
+        "status": {
+          "const": "removed",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "pack_id",
+        "retained_copy",
+        "config_changed"
+      ],
+      "title": "BuddyRemoval",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "buddy_revision": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Buddy Revision"
+    },
+    "cancel_requested": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cancel Requested"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "hatch": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BuddyHatchResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "removal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BuddyRemoval"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "admitting",
+        "accepted",
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "BuddyReceipt",
+  "type": "object"
+}

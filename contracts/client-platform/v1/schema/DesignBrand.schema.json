@@ -1,0 +1,100 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "accent_color": {
+      "maxLength": 128,
+      "title": "Accent Color",
+      "type": "string"
+    },
+    "bg_color": {
+      "maxLength": 128,
+      "title": "Bg Color",
+      "type": "string"
+    },
+    "body_font": {
+      "maxLength": 128,
+      "title": "Body Font",
+      "type": "string"
+    },
+    "heading_font": {
+      "maxLength": 128,
+      "title": "Heading Font",
+      "type": "string"
+    },
+    "logo_asset_id": {
+      "maxLength": 128,
+      "title": "Logo Asset Id",
+      "type": "string"
+    },
+    "logo_max_height": {
+      "maximum": 16384,
+      "minimum": 0,
+      "title": "Logo Max Height",
+      "type": "integer"
+    },
+    "logo_mode": {
+      "enum": [
+        "auto",
+        "manual"
+      ],
+      "title": "Logo Mode",
+      "type": "string"
+    },
+    "logo_padding": {
+      "maximum": 16384,
+      "minimum": 0,
+      "title": "Logo Padding",
+      "type": "integer"
+    },
+    "logo_position": {
+      "enum": [
+        "top_left",
+        "top_right",
+        "bottom_left",
+        "bottom_right"
+      ],
+      "title": "Logo Position",
+      "type": "string"
+    },
+    "logo_scope": {
+      "enum": [
+        "all",
+        "first"
+      ],
+      "title": "Logo Scope",
+      "type": "string"
+    },
+    "primary_color": {
+      "maxLength": 128,
+      "title": "Primary Color",
+      "type": "string"
+    },
+    "secondary_color": {
+      "maxLength": 128,
+      "title": "Secondary Color",
+      "type": "string"
+    },
+    "text_color": {
+      "maxLength": 128,
+      "title": "Text Color",
+      "type": "string"
+    }
+  },
+  "required": [
+    "primary_color",
+    "secondary_color",
+    "accent_color",
+    "bg_color",
+    "text_color",
+    "heading_font",
+    "body_font",
+    "logo_asset_id",
+    "logo_mode",
+    "logo_scope",
+    "logo_position",
+    "logo_max_height",
+    "logo_padding"
+  ],
+  "title": "DesignBrand",
+  "type": "object"
+}

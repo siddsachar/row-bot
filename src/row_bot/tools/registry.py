@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+import copy
 import pathlib
-import tempfile
 from typing import TYPE_CHECKING
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot import tool_configuration
 
 if TYPE_CHECKING:
     from row_bot.tools.base import BaseTool
@@ -45,6 +45,7 @@ _active_config_path = _CONFIG_PATH
 _tools: dict[str, "BaseTool"] = {}          # name → tool instance
 _enabled: dict[str, bool] = {}              # name → enabled flag (runtime cache)
 _tool_configs: dict[str, dict] = {}         # name → {key: value} (tool-specific config)
+_CONFIG_LOCK = tool_configuration.LOCK
 
 
 # ── Config persistence ───────────────────────────────────────────────────────
@@ -64,25 +65,8 @@ def _load_config() -> dict:
     return _read_config(_config_path())
 
 
-def _write_config_atomic(path: pathlib.Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd: int | None = None
-    tmp_path: pathlib.Path | None = None
-    try:
-        fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=path.parent)
-        tmp_path = pathlib.Path(tmp_name)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            fd = None
-            json.dump(payload, handle, indent=2, ensure_ascii=False)
-        tmp_path.replace(path)
-    finally:
-        if fd is not None:
-            os.close(fd)
-        if tmp_path is not None and tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                logger.debug("Failed to remove temp tools config %s", tmp_path, exc_info=True)
+def _write_config_atomic(path: pathlib.Path, payload: dict, *, expected_digest: str | None = None) -> None:
+    tool_configuration.legacy_publish(path, payload, expected_digest=expected_digest)
 
 
 def _apply_saved_config(tool: "BaseTool", saved: dict) -> None:
@@ -143,19 +127,29 @@ def _ensure_config_scope() -> None:
 
 def _save_config():
     """Persist the current enabled/disabled map and tool configs to disk."""
-    _ensure_config_scope()
-    _write_config_atomic(_config_path(), {"tools": _enabled, "tool_configs": _tool_configs})
+    with _CONFIG_LOCK:
+        _ensure_config_scope()
+        saved = tool_configuration.read_saved(_config_path())
+        document = tool_configuration.editable_document(saved)
+        tool_configuration.tools_map(document).update(copy.deepcopy(_enabled))
+        configs = document.setdefault("tool_configs", {})
+        for name, values in _tool_configs.items():
+            if name in configs and type(configs[name]) is not dict:
+                raise tool_configuration.ToolConfigurationError("tool_configuration_unavailable")
+            configs.setdefault(name, {}).update(copy.deepcopy(values))
+        _write_config_atomic(_config_path(), document, expected_digest=saved.digest)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
 def register(tool: "BaseTool") -> None:
     """Register a tool instance.  Called by each tool module at import time."""
     logger.debug("Registering tool: %s", tool.name)
-    _ensure_config_scope()
-    _tools[tool.name] = tool
-    # If the user already toggled this tool, honour that; otherwise use default
-    saved = _load_config()
-    _apply_saved_config(tool, saved)
+    with _CONFIG_LOCK:
+        _ensure_config_scope()
+        _tools[tool.name] = tool
+        # If the user already toggled this tool, honour that; otherwise use default
+        saved = _load_config()
+        _apply_saved_config(tool, saved)
 
 
 def get_all_tools() -> list["BaseTool"]:
@@ -175,12 +169,17 @@ def is_enabled(name: str) -> bool:
 
 
 def set_enabled(name: str, value: bool) -> None:
-    tool = get_tool(name)
-    if tool is None:
-        raise KeyError(f"Unknown tool '{name}'")
+    with _CONFIG_LOCK:
+        _ensure_config_scope()
+        tool = get_tool(name)
+        if tool is None:
+            raise KeyError(f"Unknown tool '{name}'")
+        saved = tool_configuration.read_saved(_config_path())
+        document = tool_configuration.editable_document(saved)
+        tool_configuration.tools_map(document)[tool.name] = value
+        _write_config_atomic(_config_path(), document, expected_digest=saved.digest)
+        _enabled[tool.name] = value
     logger.info("Tool '%s' %s", tool.name, "enabled" if value else "disabled")
-    _enabled[tool.name] = value
-    _save_config()
     _invalidate_agent_cache()
     # Also invalidate the task tool-inference keyword map
     try:
@@ -192,6 +191,46 @@ def set_enabled(name: str, value: bool) -> None:
 
 def get_tool(name: str) -> "BaseTool | None":
     return _tools.get(name)
+
+
+def get_passive_tool_records() -> list[dict]:
+    """Copy registered metadata without defaults, scope migration or tool code."""
+    from row_bot.agent_tool_catalog import _passive_tool_fields
+    from itertools import islice
+
+    same_scope = get_row_bot_data_dir(create=False) / "tools_config.json" == _active_config_path
+    enabled = _enabled.copy() if same_scope else {}
+    return [
+        {**_passive_tool_fields(name, tool), "enabled": enabled.get(name)}
+        for name, tool in islice(_tools.copy().items(), 10001)
+    ]
+
+
+def read_policy_snapshot() -> dict:
+    """Observe saved policy and loaded registrations without readiness probes."""
+    import inspect
+
+    path = get_row_bot_data_dir(create=False) / "tools_config.json"
+    saved = tool_configuration.read_saved(path)
+    with _CONFIG_LOCK:
+        if len(_tools) > 10000:
+            raise ValueError("tool_policy_unavailable")
+        same_scope = path == _active_config_path
+        registrations = []
+        for name, tool in sorted(_tools.items()):
+            destructive = inspect.getattr_static(tool, "destructive_tool_names", None)
+            if type(destructive) in (set, frozenset):
+                if len(destructive) > 1000 or any(type(item) is not str or len(item) > 256 for item in destructive):
+                    raise ValueError("tool_policy_unavailable")
+                effects = sorted(destructive)
+            else:
+                # A dynamic descriptor may depend on saved policy, but reading
+                # it here must not construct tools or discover providers.
+                effects = {"descriptor": id(destructive)}
+            registrations.append((name, id(tool), _enabled.get(name) if same_scope else None, effects))
+        return {"saved_revision": saved.digest, "registrations": registrations,
+            "tool_configs": copy.deepcopy(_tool_configs) if same_scope else {},
+            "global_config": copy.deepcopy(_global_config) if same_scope else {}}
 
 
 def get_all_required_api_keys() -> dict[str, str]:
@@ -212,10 +251,17 @@ def get_tool_config(tool_name: str, key: str, default=None):
 
 def set_tool_config(tool_name: str, key: str, value):
     """Write a config value for a tool and persist."""
-    _ensure_config_scope()
+    with _CONFIG_LOCK:
+        _ensure_config_scope()
+        saved = tool_configuration.read_saved(_config_path())
+        document = tool_configuration.editable_document(saved)
+        values = document.setdefault("tool_configs", {}).setdefault(tool_name, {})
+        if type(values) is not dict:
+            raise tool_configuration.ToolConfigurationError("tool_configuration_unavailable")
+        values[key] = copy.deepcopy(value)
+        _write_config_atomic(_config_path(), document, expected_digest=saved.digest)
+        _tool_configs.setdefault(tool_name, {})[key] = value
     logger.info("Tool config updated: %s.%s", tool_name, key)
-    _tool_configs.setdefault(tool_name, {})[key] = value
-    _save_config()
     _invalidate_agent_cache()
 
 
@@ -246,12 +292,15 @@ def get_global_config(key: str, default=None):
 
 def set_global_config(key: str, value) -> None:
     """Write a global config value and persist."""
-    _ensure_config_scope()
-    _global_config[key] = value
-    # Merge into the config file alongside tools and tool_configs
-    saved = _load_config()
-    saved["global"] = _global_config
-    _write_config_atomic(_config_path(), saved)
+    global _global_config
+    with _CONFIG_LOCK:
+        _ensure_config_scope()
+        saved = tool_configuration.read_saved(_config_path())
+        document = tool_configuration.editable_document(saved)
+        values = document.setdefault("global", {})
+        values[key] = copy.deepcopy(value)
+        _write_config_atomic(_config_path(), document, expected_digest=saved.digest)
+        _global_config = copy.deepcopy(values)
     _invalidate_agent_cache()
 
 

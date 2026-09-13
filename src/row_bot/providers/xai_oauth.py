@@ -211,15 +211,19 @@ def xai_oauth_client_id_status(value: str | None = None) -> dict[str, Any]:
     }
 
 
-def save_xai_oauth_client_id(client_id: str) -> dict[str, Any]:
+def save_xai_oauth_client_id(client_id: str, *, expected_revision: str | None = None,
+    validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
     """Persist a user-provided, non-secret xAI OAuth client id in provider config."""
-    from row_bot.providers.config import update_provider_config
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
     resolved_client_id, _, _ = _resolve_xai_oauth_client_id(client_id, require=True)
     now = _utcnow().isoformat()
     fingerprint = secret_store.fingerprint(resolved_client_id)
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
         entry.update({
             "provider_id": XAI_OAUTH_PROVIDER_ID,
@@ -233,17 +237,27 @@ def save_xai_oauth_client_id(client_id: str) -> dict[str, Any]:
         })
         entry.setdefault("configured", False)
 
+        if command_proof is not None:
+            entry["subscription_options_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_options_command", None)
+        validate()
+
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {}))
 
 
-def clear_xai_oauth_client_id_override() -> dict[str, Any]:
+def clear_xai_oauth_client_id_override(*, expected_revision: str | None = None,
+    validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
     """Clear the saved xAI OAuth client id override and return to the built-in default."""
-    from row_bot.providers.config import update_provider_config
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
     now = _utcnow().isoformat()
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
         entry["provider_id"] = XAI_OAUTH_PROVIDER_ID
         entry["auth_method"] = AuthMethod.OAUTH_PKCE.value
@@ -258,6 +272,12 @@ def clear_xai_oauth_client_id_override() -> dict[str, Any]:
         entry["oauth_client_id_override_cleared_at"] = now
         entry.setdefault("configured", False)
 
+        if command_proof is not None:
+            entry["subscription_options_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_options_command", None)
+        validate()
+
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {}))
 
@@ -269,9 +289,10 @@ def start_xai_oauth_flow(
     scopes: tuple[str, ...] | list[str] | str | None = None,
     redirect_uri: str | None = None,
     discovery_url: str = XAI_OAUTH_DISCOVERY_URL,
+    persist_discovery: bool = True,
 ) -> XAIOAuthFlow:
     resolved_client_id = _xai_oauth_client_id(client_id)
-    discovery = fetch_xai_oauth_discovery(http_client=http_client, discovery_url=discovery_url)
+    discovery = fetch_xai_oauth_discovery(http_client=http_client, discovery_url=discovery_url, persist=persist_discovery)
     verifier, challenge = _new_pkce_pair()
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(24)
@@ -369,11 +390,13 @@ def wait_for_xai_oauth_loopback_authorization(
     ready_callback: Any | None = None,
     cancel_event: Any | None = None,
     timeout_seconds: float | None = None,
+    receive_timeout: float | None = None,
 ) -> XAIOAuthAuthorization:
     """Wait for one xAI OAuth loopback callback and return a validated authorization."""
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from socketserver import TCPServer
     import html
+    import io
     import webbrowser
 
     parsed_redirect = urlparse(flow.redirect_uri)
@@ -399,11 +422,39 @@ def wait_for_xai_oauth_loopback_authorization(
         handler.end_headers()
         handler.wfile.write(body)
 
+    class _BoundedCallbackReader(io.RawIOBase):
+        """Strict clients cannot hold the listener with a trickled header."""
+        def __init__(self, connection: Any):
+            self.connection = connection
+            self.deadline = time.monotonic() + max(0.05, min(1.0, float(receive_timeout)))
+
+        def readable(self) -> bool:
+            return True
+
+        def readinto(self, buffer: Any) -> int:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0 or (cancel_event is not None and cancel_event.is_set()):
+                raise TimeoutError("Sign-in callback receive ended.")
+            self.connection.settimeout(remaining)
+            size = self.connection.recv_into(buffer)
+            if time.monotonic() >= self.deadline or (cancel_event is not None and cancel_event.is_set()):
+                raise TimeoutError("Sign-in callback receive ended.")
+            return size
+
     class _CallbackHandler(BaseHTTPRequestHandler):
+        def setup(self) -> None:
+            super().setup()
+            if receive_timeout is not None:
+                self.rfile.close()
+                self.rfile = io.BufferedReader(_BoundedCallbackReader(self.connection))
+
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
             return
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib callback
+            if receive_timeout is not None and (len(self.path.encode("utf-8")) > 16384 or (cancel_event is not None and cancel_event.is_set())):
+                _write_page(self, 400, "Sign-in unavailable", "Return to Row-Bot to continue.")
+                return
             request = urlparse(self.path)
             if request.path != XAI_OAUTH_REDIRECT_PATH:
                 result["error"] = XAIOAuthError(
@@ -422,6 +473,12 @@ def wait_for_xai_oauth_loopback_authorization(
             _write_page(self, 200, "xAI Grok connected", "You can close this browser tab and return to Row-Bot.")
 
     class _LoopbackHTTPServer(HTTPServer):
+        def get_request(self):
+            connection, address = super().get_request()
+            if receive_timeout is not None:
+                connection.settimeout(max(0.05, min(1.0, receive_timeout)))
+            return connection, address
+
         def server_bind(self) -> None:
             TCPServer.server_bind(self)
             host, port = self.socket.getsockname()[:2]
@@ -569,60 +626,21 @@ def refresh_xai_oauth_token(
     return _token_set_from_payload(payload, fallback_refresh_token=token)
 
 
-def save_xai_oauth_tokens(token_set: XAIOAuthTokenSet) -> dict[str, Any]:
-    from row_bot.providers.auth_store import set_provider_secret
-    from row_bot.providers.config import update_provider_config
+def save_xai_oauth_tokens(token_set: XAIOAuthTokenSet, *, expected_revision: str | None = None,
+                            validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
+    from row_bot.providers.auth_store import replace_provider_oauth_bundle
 
     if not token_set.access_token:
-        raise XAIOAuthError("xAI OAuth token response did not include an access token.", kind="missing_access_token")
-    set_provider_secret(
-        XAI_OAUTH_PROVIDER_ID,
-        "access_token",
-        token_set.access_token,
-        source=AuthMethod.OAUTH_PKCE.value,
-        auth_method=AuthMethod.OAUTH_PKCE,
-    )
-    if token_set.refresh_token:
-        set_provider_secret(
-            XAI_OAUTH_PROVIDER_ID,
-            "refresh_token",
-            token_set.refresh_token,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
-    if token_set.id_token:
-        set_provider_secret(
-            XAI_OAUTH_PROVIDER_ID,
-            "id_token",
-            token_set.id_token,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
-    if token_set.user_id:
-        set_provider_secret(
-            XAI_OAUTH_PROVIDER_ID,
-            "user_id",
-            token_set.user_id,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
-    if token_set.account_id:
-        set_provider_secret(
-            XAI_OAUTH_PROVIDER_ID,
-            "account",
-            token_set.account_id,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
+        raise ValueError("missing_access_token")
 
     token_metadata = xai_oauth_token_metadata(token_set.access_token, token_set.id_token)
-    client_status = xai_oauth_client_id_status()
-    client_override = xai_oauth_saved_client_id_override()
     fingerprint = secret_store.fingerprint(token_set.access_token)
     now = _utcnow().isoformat()
     scopes = token_set.scopes or tuple(token_metadata.get("scopes") or ())
 
     def _update(cfg: dict[str, Any]) -> None:
+        client_status = xai_oauth_client_id_status()
+        client_override = xai_oauth_saved_client_id_override()
         entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
         entry.update({
             "provider_id": XAI_OAUTH_PROVIDER_ID,
@@ -653,17 +671,13 @@ def save_xai_oauth_tokens(token_set: XAIOAuthTokenSet) -> dict[str, Any]:
             entry.pop("client_id", None)
         entry.pop("last_runtime_probe", None)
 
-    cfg = update_provider_config(_update)
-    return dict(cfg.get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {}))
+    return replace_provider_oauth_bundle(XAI_OAUTH_PROVIDER_ID, {"access_token": token_set.access_token, "refresh_token": token_set.refresh_token, "id_token": token_set.id_token, "account": token_set.account_id, "user_id": token_set.user_id},
+        update_metadata=_update, expected_revision=expected_revision, validate=validate, command_proof=command_proof)
 
 
-def disconnect_xai_oauth_metadata(*, remove_row_bot_tokens: bool = True) -> None:
-    from row_bot.providers.auth_store import delete_provider_secret
-    from row_bot.providers.config import update_provider_config
-
-    if remove_row_bot_tokens:
-        for credential_name in ("access_token", "refresh_token", "id_token", "user_id", "account"):
-            delete_provider_secret(XAI_OAUTH_PROVIDER_ID, credential_name)
+def disconnect_xai_oauth_metadata(*, remove_row_bot_tokens: bool = True, expected_revision: str | None = None,
+                                  validate: Any = lambda: None, command_proof: dict | None = None) -> None:
+    from row_bot.providers.auth_store import replace_provider_oauth_bundle, disconnect_provider_oauth_metadata
 
     def _update(cfg: dict[str, Any]) -> None:
         providers = cfg.setdefault("providers", {})
@@ -697,25 +711,32 @@ def disconnect_xai_oauth_metadata(*, remove_row_bot_tokens: bool = True) -> None
                 **preserved,
             }
 
-    update_provider_config(_update)
+    if remove_row_bot_tokens:
+        replace_provider_oauth_bundle(XAI_OAUTH_PROVIDER_ID, None, update_metadata=_update,
+            expected_revision=expected_revision, validate=validate, command_proof=command_proof)
+    else:
+        disconnect_provider_oauth_metadata(XAI_OAUTH_PROVIDER_ID, update_metadata=_update,
+            expected_revision=expected_revision, validate=validate)
 
 
 def xai_oauth_runtime_credentials(
     *,
     refresh_if_needed: bool = True,
     http_client: Any | None = None,
+    _snapshot: tuple | None = None,
 ) -> XAIOAuthTokenSet:
-    from row_bot.providers.auth_store import get_provider_secret
-    from row_bot.providers.config import load_provider_config
+    from dataclasses import replace
+    from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
 
-    provider_cfg = load_provider_config().get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {})
+    captured, provider_cfg, revision = _snapshot if _snapshot is not None else read_provider_oauth_bundle_snapshot(XAI_OAUTH_PROVIDER_ID)
+
     if provider_cfg.get("auth_method") != AuthMethod.OAUTH_PKCE.value:
         return XAIOAuthTokenSet(access_token="")
-    access_token = get_provider_secret(XAI_OAUTH_PROVIDER_ID, "access_token")
-    refresh_token = get_provider_secret(XAI_OAUTH_PROVIDER_ID, "refresh_token")
-    id_token = get_provider_secret(XAI_OAUTH_PROVIDER_ID, "id_token")
-    user_id = get_provider_secret(XAI_OAUTH_PROVIDER_ID, "user_id")
-    account_id = get_provider_secret(XAI_OAUTH_PROVIDER_ID, "account")
+    access_token = captured["access_token"]
+    refresh_token = captured["refresh_token"]
+    id_token = captured["id_token"]
+    user_id = captured["user_id"]
+    account_id = captured["account"]
     expires_at = str(provider_cfg.get("expires_at") or "")
     scopes = _string_tuple(provider_cfg.get("scopes") or provider_cfg.get("scope"))
 
@@ -731,7 +752,8 @@ def xai_oauth_runtime_credentials(
 
     if refresh_if_needed and refresh_token and (not access_token or _expires_soon(expires_at, skew_seconds=300)):
         refreshed = refresh_xai_oauth_token(refresh_token, http_client=http_client)
-        saved = save_xai_oauth_tokens(refreshed)
+        refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or refresh_token, id_token=refreshed.id_token or id_token, account_id=refreshed.account_id or account_id, user_id=refreshed.user_id or user_id)
+        saved = save_xai_oauth_tokens(refreshed, expected_revision=revision)
         access_token = refreshed.access_token
         refresh_token = refreshed.refresh_token or refresh_token
         id_token = refreshed.id_token or id_token
@@ -765,8 +787,11 @@ def check_xai_oauth_token_health(
     refresh_if_needed: bool = True,
     http_client: Any | None = None,
 ) -> XAIOAuthTokenHealth:
+    from dataclasses import replace
+    from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
     try:
-        credentials = xai_oauth_runtime_credentials(refresh_if_needed=False)
+        captured = read_provider_oauth_bundle_snapshot(XAI_OAUTH_PROVIDER_ID)
+        credentials = xai_oauth_runtime_credentials(refresh_if_needed=False, _snapshot=captured)
     except Exception as exc:
         return XAIOAuthTokenHealth("error", f"Could not read xAI OAuth credentials: {_redact_text(str(exc))}")
 
@@ -785,7 +810,8 @@ def check_xai_oauth_token_health(
     if should_refresh:
         try:
             refreshed = refresh_xai_oauth_token(credentials.refresh_token, http_client=http_client)
-            saved = save_xai_oauth_tokens(refreshed)
+            refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or credentials.refresh_token, id_token=refreshed.id_token or credentials.id_token, account_id=refreshed.account_id or credentials.account_id, user_id=refreshed.user_id or credentials.user_id)
+            saved = save_xai_oauth_tokens(refreshed, expected_revision=captured[2])
             credentials = XAIOAuthTokenSet(
                 access_token=refreshed.access_token,
                 refresh_token=refreshed.refresh_token or credentials.refresh_token,
@@ -852,6 +878,7 @@ def fetch_xai_oauth_discovery(
     *,
     http_client: Any | None = None,
     discovery_url: str = XAI_OAUTH_DISCOVERY_URL,
+    persist: bool = True,
 ) -> dict[str, Any]:
     if not _is_xai_owned_https_url(discovery_url):
         raise XAIOAuthError("xAI OAuth discovery URL must be an HTTPS xAI-owned URL.", kind="unsafe_discovery_url")
@@ -888,7 +915,8 @@ def fetch_xai_oauth_discovery(
         "token_endpoint": token_endpoint,
         "fetched_at": _utcnow().isoformat(),
     }
-    _save_discovery(discovery)
+    if persist:
+        _save_discovery(discovery)
     return discovery
 
 
@@ -1050,8 +1078,9 @@ def list_xai_oauth_model_infos_for_status() -> list[ModelInfo]:
     return _load_catalog_cache()
 
 
-def save_xai_oauth_runtime_probe(probe: dict[str, Any]) -> dict[str, Any]:
-    from row_bot.providers.config import update_provider_config
+def save_xai_oauth_runtime_probe(probe: dict[str, Any], *, expected_revision: str | None = None,
+    validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
     safe_probe = dict(probe or {})
     safe_probe["provider_id"] = XAI_OAUTH_PROVIDER_ID
@@ -1065,9 +1094,18 @@ def save_xai_oauth_runtime_probe(probe: dict[str, Any]) -> dict[str, Any]:
     safe_probe["errors"] = errors[:5]
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
         entry["last_runtime_probe"] = dict(safe_probe)
         entry["last_error"] = "" if safe_probe.get("ok") else "; ".join(errors[:2])
+
+        if command_proof is not None:
+            entry["subscription_probe_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_probe_command", None)
+        validate()
 
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {}).get("last_runtime_probe", {}))
@@ -1110,8 +1148,9 @@ def _xai_oauth_vision_probe_summary(safe_probes: list[dict[str, Any]]) -> dict[s
     return summary
 
 
-def save_xai_oauth_vision_probe_results(probes: list[dict[str, Any]]) -> dict[str, Any]:
-    from row_bot.providers.config import update_provider_config
+def save_xai_oauth_vision_probe_results(probes: list[dict[str, Any]], *, expected_revision: str | None = None,
+    validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
     safe_probes = [
         _safe_xai_oauth_vision_probe(probe)
@@ -1121,10 +1160,18 @@ def save_xai_oauth_vision_probe_results(probes: list[dict[str, Any]]) -> dict[st
     summary = _xai_oauth_vision_probe_summary(safe_probes)
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
         entry["last_vision_probe"] = dict(summary)
+        if command_proof is not None:
+            entry["subscription_probe_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_probe_command", None)
         cache = entry.get("catalog_cache")
         if not isinstance(cache, dict) or not isinstance(cache.get("models"), list):
+            validate()
             return
         rows_by_model_id = {
             str(row.get("id") or row.get("model_id") or ""): row
@@ -1160,6 +1207,8 @@ def save_xai_oauth_vision_probe_results(probes: list[dict[str, Any]]) -> dict[st
                     row["input_modalities"] = sorted(input_modalities)
                     row["capabilities"] = sorted(capabilities)
                     row["vision_probe_added_vision"] = False
+
+        validate()
 
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {}).get("last_vision_probe", {}))
@@ -1220,8 +1269,16 @@ def run_xai_oauth_vision_probe(
     model_name: str = "",
     *,
     chat_model: Any | None = None,
+    strict: bool = False,
+    expected_revision: str | None = None,
+    validate: Any = lambda: None,
+    command_proof: dict | None = None,
 ) -> dict[str, Any]:
     from langchain_core.messages import HumanMessage
+
+    if strict and (chat_model is None or not isinstance(expected_revision, str) or len(expected_revision) != 64 or not isinstance(model_name, str) or not model_name.strip() or len(model_name.encode("utf-8")) > 512):
+        raise ValueError("invalid_subscription_probe_model")
+    validate()
 
     model_id = str(model_name or "").strip()
     candidate_model_ids: list[str] = [model_id] if model_id else []
@@ -1258,10 +1315,12 @@ def run_xai_oauth_vision_probe(
                 from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
 
                 model = ChatXAIOAuthResponses(model_name=candidate_model_id, timeout=90.0)
+            validate()
             response = model.invoke([HumanMessage(content=[
                 {"type": "text", "text": "Reply with the word image if an image input was received."},
                 {"type": "image_url", "image_url": {"url": _probe_image_data_url()}},
             ])])
+            validate()
             text = _probe_text_content(response).lower()
             result["ok"] = "image" in text
             if not result["ok"]:
@@ -1282,15 +1341,25 @@ def run_xai_oauth_vision_probe(
     }
     if probe_all_candidates:
         return save_xai_oauth_vision_probe_results(results or [fallback_result])
+    if strict:
+        fallback_result["error"] = "" if fallback_result["ok"] else "probe_failed"
+        return save_xai_oauth_vision_probe_results([fallback_result], expected_revision=expected_revision, validate=validate, command_proof=command_proof)
     return save_xai_oauth_vision_probe(fallback_result)
-
 
 def run_xai_oauth_runtime_probe(
     model_name: str = "",
     *,
     chat_model: Any | None = None,
+    strict: bool = False,
+    expected_revision: str | None = None,
+    validate: Any = lambda: None,
+    command_proof: dict | None = None,
 ) -> dict[str, Any]:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    if strict and (chat_model is None or not isinstance(expected_revision, str) or len(expected_revision) != 64 or not isinstance(model_name, str) or not model_name.strip() or len(model_name.encode("utf-8")) > 512):
+        raise ValueError("invalid_subscription_probe_model")
+    validate()
 
     model_id = str(model_name or "").strip()
     model_infos = [] if model_id else list_xai_oauth_model_infos(force_refresh=True)
@@ -1324,7 +1393,9 @@ def run_xai_oauth_runtime_probe(
             model = ChatXAIOAuthResponses(model_name=model_id, timeout=90.0)
 
         expected = "row-bot-xai-smoke-ok"
+        validate()
         text_response = model.invoke([HumanMessage(content=f"Reply with exactly this text and nothing else: {expected}")])
+        validate()
         text = _probe_text_content(text_response).strip().strip("`").strip()
         result["chat_ok"] = expected in text
         if not result["chat_ok"]:
@@ -1332,7 +1403,9 @@ def run_xai_oauth_runtime_probe(
 
         tool_model = model.bind_tools([_probe_calculate_tool()], tool_choice="calculate")
         tool_prompt = "Use the calculate tool for the expression 1 + 1. Do not answer in text."
+        validate()
         tool_response = tool_model.invoke([HumanMessage(content=tool_prompt)])
+        validate()
         tool_calls = [
             dict(call)
             for call in (getattr(tool_response, "tool_calls", None) or [])
@@ -1345,6 +1418,7 @@ def run_xai_oauth_runtime_probe(
             result["errors"].append(f"tools: expected calculate tool call, got {names or 'none'}")
         else:
             call_id = str(calculate_call.get("id") or "call_row_bot_xai_probe")
+            validate()
             replay_response = model.invoke([
                 HumanMessage(content=tool_prompt),
                 AIMessage(content="", tool_calls=[{
@@ -1355,6 +1429,7 @@ def run_xai_oauth_runtime_probe(
                 }]),
                 ToolMessage(content="1 + 1 = 2", name="calculate", tool_call_id=call_id),
             ])
+            validate()
             result["tool_round_trip"] = replay_response is not None
 
         if vision_model_id:
@@ -1363,10 +1438,12 @@ def run_xai_oauth_runtime_probe(
                 from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
 
                 vision_model = ChatXAIOAuthResponses(model_name=vision_model_id, timeout=90.0)
+            validate()
             vision_response = vision_model.invoke([HumanMessage(content=[
                 {"type": "text", "text": "Reply with the word image if an image input was received."},
                 {"type": "image_url", "image_url": {"url": _probe_image_data_url()}},
             ])])
+            validate()
             vision_text = _probe_text_content(vision_response).lower()
             result["vision_ok"] = "image" in vision_text
             if result["vision_ok"] is not True:
@@ -1376,6 +1453,7 @@ def run_xai_oauth_runtime_probe(
         if result["tool_calling"] is None:
             result["tool_calling"] = False
         if result["tool_round_trip"] is None:
+            validate()
             result["tool_round_trip"] = False
         if result["vision_probed"] and result["vision_ok"] is None:
             result["vision_ok"] = False
@@ -1386,8 +1464,10 @@ def run_xai_oauth_runtime_probe(
         and result.get("tool_round_trip") is True
         and (not result.get("vision_probed") or result.get("vision_ok") is True)
     )
+    if strict:
+        result["errors"] = [] if result["ok"] else ["probe_failed"]
+        return save_xai_oauth_runtime_probe(result, expected_revision=expected_revision, validate=validate, command_proof=command_proof)
     return save_xai_oauth_runtime_probe(result)
-
 
 def seed_recommended_xai_oauth_quick_choices(*, max_choices: int = 1) -> list[dict[str, Any]]:
     from row_bot.providers.config import load_provider_config

@@ -10,6 +10,8 @@ sanitizer exemption; trusted injection always follows sanitation.
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
 import pathlib
 from functools import lru_cache
 
@@ -26,6 +28,13 @@ def read_runtime_assets() -> tuple[str, str]:
     js_text = _JS_PATH.read_text(encoding="utf-8")
     css_text = _CSS_PATH.read_text(encoding="utf-8")
     return js_text, css_text
+
+
+def runtime_script_csp_source() -> str:
+    """Exact trusted inline runtime digest, independent of generated route data."""
+    js_text, _ = read_runtime_assets()
+    digest = hashlib.sha256(("\n" + js_text + "\n").encode("utf-8")).digest()
+    return "'sha256-" + base64.b64encode(digest).decode("ascii") + "'"
 
 
 def build_routes_payload(

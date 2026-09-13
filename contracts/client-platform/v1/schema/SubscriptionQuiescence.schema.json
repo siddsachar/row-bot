@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "quiescent": {
+      "title": "Quiescent",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "quiescent"
+  ],
+  "title": "SubscriptionQuiescence",
+  "type": "object"
+}

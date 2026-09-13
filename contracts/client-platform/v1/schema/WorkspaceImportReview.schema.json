@@ -1,0 +1,133 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "approval_required": {
+      "title": "Approval Required",
+      "type": "boolean"
+    },
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "directories": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Directories",
+      "type": "array"
+    },
+    "files": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Files",
+      "type": "array"
+    },
+    "git_policy_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Git Policy Revision",
+      "type": "string"
+    },
+    "host_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Host Revision",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "patch_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Patch Digest",
+      "type": "string"
+    },
+    "pending_change_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Pending Change Id",
+      "type": "string"
+    },
+    "pending_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Pending Revision",
+      "type": "string"
+    },
+    "policy_decision": {
+      "enum": [
+        "allow",
+        "ask",
+        "block"
+      ],
+      "title": "Policy Decision",
+      "type": "string"
+    },
+    "policy_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "conversation_id",
+    "resource_revision",
+    "binding_id",
+    "binding_revision",
+    "pending_change_id",
+    "pending_revision",
+    "patch_digest",
+    "host_revision",
+    "git_policy_revision",
+    "policy_revision",
+    "policy_decision",
+    "approval_required",
+    "files",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "WorkspaceImportReview",
+  "type": "object"
+}

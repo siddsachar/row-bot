@@ -41,6 +41,18 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it('uses the reference navigation width only for fresh layouts and preserves a saved 240px choice', () => {
+  const hook = renderHook(() => useWorkspaceLayout('instance', 'a'));
+  expect(hook.result.current[0].navigation.size).toBe(300);
+  act(() =>
+    hook.result.current[1]((layout) => resizeRegion(layout, 'navigation', 240)),
+  );
+  hook.unmount();
+  const restored = renderHook(() => useWorkspaceLayout('instance', 'a'));
+  expect(restored.result.current[0].navigation.size).toBe(240);
+  expect(restored.result.current[0].navigation.restoreSize).toBe(240);
+});
+
 it('restores A after A-B-C navigation and rejects a captured A layout setter while C is current', () => {
   const hook = renderHook(
     ({ conversation }) => useWorkspaceLayout('instance', conversation),
@@ -55,7 +67,7 @@ it('restores A after A-B-C navigation and rejects a captured A layout setter whi
   hook.rerender({ conversation: 'c' });
   act(() => oldSetter((layout) => resizeRegion(layout, 'navigation', 310)));
   expect(hook.result.current[0].panels).toHaveLength(0);
-  expect(hook.result.current[0].navigation.size).toBe(240);
+  expect(hook.result.current[0].navigation.size).toBe(300);
   expect(
     localStorage.getItem(scopedLayoutStorageKey('instance', 'a', 1440)),
   ).toBe(savedA);

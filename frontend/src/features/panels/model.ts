@@ -50,7 +50,7 @@ export type PanelRegistration = {
 /** Bundled renderers only. Server descriptors cannot register code or routes. */
 export const panelRegistry = {
   'artifact.preview': {
-    title: 'Deck preview',
+    title: 'Design preview',
     resourceKinds: ['artifact'],
     requiresResource: true,
     capabilities: [],
@@ -61,6 +61,13 @@ export const panelRegistry = {
     resourceKinds: ['workspace'],
     requiresResource: true,
     capabilities: [],
+    compact: 'tab',
+  },
+  'browser.live': {
+    title: 'Managed browser',
+    resourceKinds: [],
+    requiresResource: false,
+    capabilities: ['browser_navigate'],
     compact: 'tab',
   },
   'fake.info': {
@@ -127,7 +134,7 @@ export function createPanelLayout(width = 1440, height = 900): PanelLayout {
       widthClass: widthClass(width),
       width,
       height,
-      navigation: { size: 240, restoreSize: 240, collapsed: false },
+      navigation: { size: 300, restoreSize: 300, collapsed: false },
       side: { size: 420, restoreSize: 420, collapsed: false },
       bottom: { size: 240, restoreSize: 240, collapsed: false },
       panels: [],

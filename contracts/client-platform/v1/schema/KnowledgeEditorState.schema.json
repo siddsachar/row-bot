@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "KnowledgeEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "maxLength": 128,
+          "title": "Created At",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/$defs/KnowledgeFields"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "projection_state": {
+          "const": "unknown",
+          "title": "Projection State",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "saved_state": {
+          "const": "saved",
+          "title": "Saved State",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "archived",
+            "needs_review",
+            "superseded"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 128,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "fields",
+        "status",
+        "created_at",
+        "updated_at",
+        "saved_state",
+        "projection_state"
+      ],
+      "title": "KnowledgeEntity",
+      "type": "object"
+    },
+    "KnowledgeFields": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "maxLength": 4096,
+          "title": "Aliases",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 32768,
+          "title": "Description",
+          "type": "string"
+        },
+        "entity_type": {
+          "enum": [
+            "concept",
+            "event",
+            "fact",
+            "media",
+            "organisation",
+            "person",
+            "place",
+            "preference",
+            "project",
+            "self_knowledge",
+            "skill"
+          ],
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        },
+        "tags": {
+          "maxLength": 4096,
+          "title": "Tags",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_type",
+        "subject",
+        "description",
+        "aliases",
+        "tags"
+      ],
+      "title": "KnowledgeFields",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KnowledgeEntity"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "entity_types": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 11,
+      "title": "Entity Types",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "entity",
+    "entity_types"
+  ],
+  "title": "KnowledgeEditorState",
+  "type": "object"
+}

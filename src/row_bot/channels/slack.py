@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
+import re as _re
 import threading
 import time
 from pathlib import Path
@@ -41,9 +42,12 @@ from row_bot.channels import auth as ch_auth
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.streaming import (
     ChannelDeliveryResult,
+    ChannelDeliveryUncertain,
+    confirmed_channel_effect,
     ChannelRateLimitError,
     ChannelStreamConfig,
     ChannelStreamConsumer,
+    consume_channel_producer,
     default_split_text,
 )
 from row_bot.threads import _save_thread_meta
@@ -60,8 +64,6 @@ def _agent_mod():
 # ──────────────────────────────────────────────────────────────────────
 # Markdown → Slack mrkdwn converter
 # ──────────────────────────────────────────────────────────────────────
-import re as _re
-
 def _md_to_mrkdwn(text: str) -> str:
     """Convert standard Markdown to Slack mrkdwn format.
 
@@ -483,6 +485,7 @@ class SlackStreamTransport:
     async def send_typing(self) -> None:
         return None
 
+    @confirmed_channel_effect
     async def start(self, text: str):
         mode = self._select_mode()
         self._selected_mode = mode
@@ -492,12 +495,13 @@ class SlackStreamTransport:
                 handle = await self._native_start(text)
                 self._native_text = str(text or "")
                 return handle
-            except Exception:
+            except NotImplementedError:
                 log.info("Slack native stream failed; falling back to edit", exc_info=True)
                 self._selected_mode = "edit"
                 self.transport_name = "slack:edit"
         return await self._edit_start(text)
 
+    @confirmed_channel_effect
     async def update(self, handle, text: str, *, final: bool = False):
         if self._selected_mode == "native":
             return await self._native_update(handle, text, final=final)
@@ -513,6 +517,7 @@ class SlackStreamTransport:
                 raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
             raise
 
+    @confirmed_channel_effect
     async def send_final(self, text: str) -> list[Any]:
         refs: list[Any] = []
         for chunk in self.split_text(str(text or "")):
@@ -523,6 +528,8 @@ class SlackStreamTransport:
                     **self._thread_kwargs(),
                 )
             except Exception as exc:
+                if refs:
+                    raise ChannelDeliveryUncertain("Slack multipart delivery incomplete") from exc
                 retry_after = _slack_retry_after(exc)
                 if retry_after is not None:
                     raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
@@ -753,8 +760,6 @@ async def _stream_agent_turn_to_slack(
     *,
     thread_ts: str | None = None,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _slack_stream_config()
     transport = SlackStreamTransport(
         client,
@@ -763,29 +768,14 @@ async def _stream_agent_turn_to_slack(
         thread_ts=thread_ts,
     )
     consumer = ChannelStreamConsumer(transport, stream_config)
-    agent_future = loop.run_in_executor(None, _run_agent_sync, user_text, config, event_queue)
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _run_agent_sync(user_text, config, sink),
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="slack",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="slack", delivery=delivery,
+    )
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _stream_agent_resume_to_slack(
@@ -797,8 +787,6 @@ async def _stream_agent_resume_to_slack(
     interrupt_ids: list[str] | None = None,
     thread_ts: str | None = None,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _slack_stream_config()
     transport = SlackStreamTransport(
         client,
@@ -807,37 +795,16 @@ async def _stream_agent_resume_to_slack(
         thread_ts=thread_ts,
     )
     consumer = ChannelStreamConsumer(transport, stream_config)
-    agent_future = loop.run_in_executor(
-        None,
-        lambda: _resume_agent_sync(
-            config,
-            approved,
-            interrupt_ids=interrupt_ids,
-            event_queue=event_queue,
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _resume_agent_sync(
+            config, approved, interrupt_ids=interrupt_ids, event_queue=sink,
         ),
     )
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="slack", delivery=delivery,
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="slack",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _send_slack_safe_text(
@@ -1057,7 +1024,7 @@ def _slack_goal_callbacks(client, say, *, channel_id: str, thread_ts: str | None
         delivery = state.get("delivery")
         if (
             delivery
-            and delivery.delivered
+            and (delivery.delivered or delivery.uncertain)
             and str(delivery.final_text or "").strip() == str(message or "").strip()
         ):
             state["delivery"] = None
@@ -1242,7 +1209,7 @@ async def _handle_dm(event: dict, say, client) -> None:
             interrupt_ids=interrupt_ids,
             thread_ts=thread_ts,
         )
-        if answer and not delivery.delivered:
+        if answer and not delivery.delivered and not delivery.uncertain:
             await _send_slack_safe_text(say, channel_id, answer, thread_ts=thread_ts)
         for img_bytes in captured:
             try:
@@ -1463,7 +1430,7 @@ async def _handle_dm(event: dict, say, client) -> None:
                 log.warning("Failed to send Slack video: %s", exc)
         return
 
-    if clean_answer:
+    if clean_answer and not delivery.uncertain:
         await say(_md_to_mrkdwn(clean_answer), channel=channel_id)
     for url in yt_urls:
         await say(url, channel=channel_id)
@@ -1641,7 +1608,7 @@ async def _handle_interrupt_button(body: dict, client, *, approved: bool) -> Non
         )
         return
 
-    if answer and not delivery.delivered:
+    if answer and not delivery.delivered and not delivery.uncertain:
         await _post_slack_safe_text(client, channel_id, answer, thread_ts=thread_ts)
 
     for img_bytes in captured_images:

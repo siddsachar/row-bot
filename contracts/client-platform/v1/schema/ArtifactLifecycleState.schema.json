@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "ArtifactLifecycleCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "maxLength": 512,
+          "title": "Detail",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "presentation",
+            "thumbnails",
+            "export.html",
+            "export.pdf",
+            "export.png",
+            "export.pptx",
+            "publish.local",
+            "publish.remote",
+            "share.channel",
+            "share.x"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "review_required": {
+          "title": "Review Required",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "check_on_use",
+            "unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "state",
+        "detail",
+        "review_required"
+      ],
+      "title": "ArtifactLifecycleCapability",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/ArtifactLifecycleCapability"
+      },
+      "maxItems": 10,
+      "minItems": 10,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "deck",
+        "document",
+        "landing",
+        "app_mockup",
+        "storyboard"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "page_count": {
+      "maximum": 200,
+      "minimum": 1,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "mode",
+    "page_count",
+    "capabilities"
+  ],
+  "title": "ArtifactLifecycleState",
+  "type": "object"
+}

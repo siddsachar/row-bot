@@ -7,6 +7,8 @@ import logging
 import os
 import pathlib
 import shutil
+import stat
+from itertools import islice
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -91,11 +93,16 @@ class BuddyPack:
         return manifest
 
 
-def _load_manifest(path: pathlib.Path) -> dict[str, Any]:
+def _load_manifest(path: pathlib.Path, *, strict_root: pathlib.Path | None = None) -> dict[str, Any]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(read_buddy_asset(path, root=strict_root, limit=65536).decode("utf-8")
+                         if strict_root is not None else path.read_text(encoding="utf-8"))
+        if strict_root is not None and not isinstance(raw, dict):
+            raise ValueError("buddy_pack_unavailable")
         return raw if isinstance(raw, dict) else {}
     except Exception:
+        if strict_root is not None:
+            raise ValueError("buddy_pack_unavailable") from None
         logger.warning("Failed to load Buddy pack manifest %s", path, exc_info=True)
         return {}
 
@@ -113,8 +120,13 @@ def _pack_dir_for(pack_id: str) -> pathlib.Path:
     return _BUILTIN_PACKS_DIR / pack_id
 
 
-def _resolve_pack_asset_path(value: str, *, base_dir: pathlib.Path, pack_dir: pathlib.Path, pack_id: str) -> pathlib.Path:
+def _resolve_pack_asset_path(value: str, *, base_dir: pathlib.Path, pack_dir: pathlib.Path, pack_id: str,
+                             strict: bool = False) -> pathlib.Path:
     candidate = pathlib.Path(value or "").expanduser()
+    if strict:
+        # Keep the named path intact so subsequent no-follow ownership checks
+        # see any symbolic link; never resolve away that evidence.
+        return candidate if candidate.is_absolute() else base_dir / candidate
     if not candidate.is_absolute():
         return (base_dir / candidate).resolve()
 
@@ -143,10 +155,13 @@ def _resolve_pack_asset_path(value: str, *, base_dir: pathlib.Path, pack_dir: pa
     return resolved
 
 
-def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
+def load_buddy_pack(pack_id: str = "glyph", *, strict: bool = False) -> BuddyPack:
+    if strict and (not isinstance(pack_id, str) or not 1 <= len(pack_id) <= 128
+                   or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in pack_id)):
+        raise ValueError("buddy_pack_unavailable")
     pack_dir = _pack_dir_for(pack_id)
     manifest_path = pack_dir / "manifest.json"
-    manifest = _load_manifest(manifest_path)
+    manifest = _load_manifest(manifest_path, strict_root=pack_dir if strict else None)
     runtime = str(manifest.get("runtime") or "")
     if not runtime:
         has_motion_manifest = bool(manifest.get("motion_pack_path")) or (pack_dir / "motions" / "manifest.json").exists()
@@ -167,8 +182,10 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
         base_dir=pack_dir,
         pack_dir=pack_dir,
         pack_id=pack_id,
+        strict=strict,
     )
-    motion_manifest = _load_manifest(motion_manifest_path) if motion_manifest_path != manifest_path.resolve() else manifest
+    motion_manifest = (_load_manifest(motion_manifest_path, strict_root=pack_dir if strict else None)
+                       if motion_manifest_path != manifest_path.resolve() else manifest)
     clips = motion_manifest.get("clips") if isinstance(motion_manifest.get("clips"), dict) else {}
     motion_clips: dict[str, pathlib.Path] = {}
     for clip_id, entry in clips.items():
@@ -179,6 +196,7 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
             base_dir=motion_manifest_path.parent,
             pack_dir=pack_dir,
             pack_id=pack_id,
+            strict=strict,
         )
         motion_clips[str(clip_id)] = clip_path
     preview_value = str(manifest.get("preview") or manifest.get("preview_path") or "preview.png")
@@ -187,6 +205,7 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
         base_dir=pack_dir,
         pack_dir=pack_dir,
         pack_id=pack_id,
+        strict=strict,
     )
     animation_map = motion_manifest.get("animation_map") if isinstance(motion_manifest.get("animation_map"), dict) else {}
     pack = BuddyPack(
@@ -203,18 +222,75 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
         animation_map={str(k): str(v) for k, v in animation_map.items()},
         motion_clips=motion_clips,
     )
+    if strict:
+        if (pack.id != pack_id or len(pack.name) > 256 or len(pack.version) > 128
+                or len(pack.animation_map) > 64 or len(pack.motion_clips) > 16
+                or len(pack.inputs) > 16
+                or pack.runtime not in {"rive", "generated_still", "generated_motion_pack"}):
+            raise ValueError("buddy_pack_unavailable")
+        for path in (pack.preview_path, *pack.motion_clips.values()) if pack.runtime.startswith("generated_") else (pack.riv_path,):
+            _buddy_asset_identity(path, root=pack_dir)
+        if any(len(key) > 128 or len(value) > 128 for key, value in pack.animation_map.items()):
+            raise ValueError("buddy_pack_unavailable")
+        if any(not key or len(key) > 128 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in key)
+               for key in pack.motion_clips):
+            raise ValueError("buddy_pack_unavailable")
     return validate_buddy_pack(pack)
 
 
-def list_buddy_packs() -> list[BuddyPack]:
+def list_buddy_packs(*, strict: bool = False) -> list[BuddyPack]:
     pack_ids: set[str] = set()
     for base in (_BUILTIN_PACKS_DIR, _USER_PACKS_DIR):
         if base.exists():
-            pack_ids.update(path.name for path in base.iterdir() if path.is_dir())
+            entries = list(islice(base.iterdir(), 4097)) if strict else base.iterdir()
+            if strict and len(entries) > 4096:
+                raise ValueError("buddy_pack_limit")
+            pack_ids.update(path.name for path in entries if path.is_dir())
     packs: list[BuddyPack] = []
     for pack_id in sorted(pack_ids):
-        packs.append(load_buddy_pack(pack_id))
+        packs.append(load_buddy_pack(pack_id, strict=strict))
     return packs
+
+
+def _buddy_asset_identity(path: pathlib.Path, *, root: pathlib.Path) -> tuple[int, int, int, int]:
+    """Validate a contained regular leaf without following a substituted ancestor."""
+    from row_bot.developer.client_workspace import _empty_parent_guard, _directory_identity
+    try:
+        if ".." in path.parts or ".." in root.parts:
+            raise ValueError
+        path.absolute().relative_to(root.absolute())
+        with _empty_parent_guard(path.parent, _directory_identity(path.parent, parent=True)) as parent:
+            info = os.stat(path.name, dir_fd=parent, follow_symlinks=False) if parent is not None else path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or getattr(info, "st_file_attributes", 0) & 0x400 or not 0 < info.st_size <= 64 * 1024 * 1024):
+                raise ValueError
+            return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+    except (OSError, ValueError):
+        raise ValueError("buddy_asset_unavailable") from None
+
+
+def read_buddy_asset(path: pathlib.Path, *, root: pathlib.Path, limit: int = 64 * 1024 * 1024) -> bytes:
+    """Opened-handle bounded read; never serve arbitrary manifest paths."""
+    from row_bot.developer.client_workspace import _empty_parent_guard, _directory_identity
+    try:
+        before = _buddy_asset_identity(path, root=root)
+        if before[2] > limit:
+            raise ValueError
+        with _empty_parent_guard(path.parent, _directory_identity(path.parent, parent=True)) as parent:
+            fd = os.open(path.name if parent is not None else path,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0), dir_fd=parent)
+            with os.fdopen(fd, "rb") as handle:
+                opened = os.fstat(handle.fileno())
+                if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != before or opened.st_nlink != 1:
+                    raise ValueError
+                data = handle.read(limit + 1)
+                finished = os.fstat(handle.fileno())
+            if (len(data) > limit or (finished.st_dev, finished.st_ino, finished.st_size, finished.st_mtime_ns) != before
+                    or _buddy_asset_identity(path, root=root) != before):
+                raise ValueError
+            return data
+    except (OSError, ValueError):
+        raise ValueError("buddy_asset_unavailable") from None
 
 
 def delete_generated_buddy_pack(pack_id: str) -> str:

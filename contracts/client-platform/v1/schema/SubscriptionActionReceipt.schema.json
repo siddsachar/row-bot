@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "SubscriptionAccountSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_storage": {
+          "enum": [
+            "durable",
+            "session",
+            "unknown"
+          ],
+          "title": "Credential Storage",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "has_recovery": {
+          "title": "Has Recovery",
+          "type": "boolean"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription",
+            "xai_oauth"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "saved_state": {
+          "enum": [
+            "disconnected",
+            "saved",
+            "metadata_only",
+            "unavailable"
+          ],
+          "title": "Saved State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "revision",
+        "saved_state",
+        "credential_storage",
+        "has_recovery",
+        "expires_at",
+        "runtime_state"
+      ],
+      "title": "SubscriptionAccountSnapshot",
+      "type": "object"
+    },
+    "SubscriptionAccountsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "#/$defs/SubscriptionAccountSnapshot"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Accounts",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "accounts"
+      ],
+      "title": "SubscriptionAccountsSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "accounts": {
+      "$ref": "#/$defs/SubscriptionAccountsSnapshot"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "published": {
+      "title": "Published",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "rejected",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "published",
+    "accounts"
+  ],
+  "title": "SubscriptionActionReceipt",
+  "type": "object"
+}

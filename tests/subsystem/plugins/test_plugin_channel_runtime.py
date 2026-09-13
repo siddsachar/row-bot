@@ -259,7 +259,7 @@ def test_plugin_channel_streaming_callbacks_receive_updates(
     assert recorder.texts == []
 
 
-def test_plugin_channel_stream_finish_failure_falls_back_to_text(
+def test_plugin_channel_uncertain_finish_never_sends_duplicate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_common_runtime(monkeypatch)
@@ -295,7 +295,8 @@ def test_plugin_channel_stream_finish_failure_falls_back_to_text(
     )
 
     assert result.answer == "final answer"
-    assert texts == ["final answer"]
+    assert result.error == "delivery_unconfirmed"
+    assert texts == []
 
 
 def test_plugin_channel_streaming_send_text_only_falls_back(

@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "WikiArticle": {
+      "additionalProperties": false,
+      "properties": {
+        "article_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Article Id",
+          "type": "string"
+        },
+        "database_text": {
+          "anyOf": [
+            {
+              "maxLength": 196608,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Database Text"
+        },
+        "db_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Db Revision"
+        },
+        "entity_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entity Id"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        },
+        "vault_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Vault Hash",
+          "type": "string"
+        },
+        "vault_text": {
+          "maxLength": 196608,
+          "title": "Vault Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "article_id",
+        "entity_id",
+        "title",
+        "vault_text",
+        "vault_hash",
+        "database_text",
+        "db_revision"
+      ],
+      "title": "WikiArticle",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "wiki.configure",
+        "wiki.publish",
+        "wiki.rebuild",
+        "wiki.import",
+        "wiki.sync"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "articles": {
+      "items": {
+        "$ref": "#/$defs/WikiArticle"
+      },
+      "maxItems": 50,
+      "title": "Articles",
+      "type": "array"
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Enabled"
+    },
+    "entity_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entity Id"
+    },
+    "entity_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entity Revision"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "scope_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Scope Id",
+      "type": "string"
+    },
+    "source_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Revision"
+    },
+    "vault_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Vault Revision"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "scope_id",
+    "revision",
+    "source_revision",
+    "vault_revision",
+    "articles",
+    "enabled",
+    "action_digest",
+    "review_id"
+  ],
+  "title": "WikiReview",
+  "type": "object"
+}

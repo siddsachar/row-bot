@@ -109,7 +109,7 @@ def _runtime_model_name(model_name: str | None) -> str:
     return parsed[1] if parsed else raw
 
 
-def _ollama_runtime_model_name(model_name: str | None) -> str:
+def _ollama_runtime_model_name(model_name: str | None, *, allow_probe: bool = True) -> str:
     """Resolve local Ollama family aliases to an installed daemon tag.
 
     Ollama accepts and displays model families such as ``llama3`` in some UI
@@ -118,7 +118,7 @@ def _ollama_runtime_model_name(model_name: str | None) -> str:
     daemon has one unambiguous installed match.
     """
     runtime_model = _runtime_model_name(model_name).strip()
-    if not runtime_model or ":" in runtime_model:
+    if not runtime_model or ":" in runtime_model or not allow_probe:
         return runtime_model
     try:
         local_models = list_local_models()
@@ -423,43 +423,41 @@ def _migrate_context_settings(settings: dict | None) -> tuple[dict, bool]:
 
 
 def _load_settings() -> dict:
-    """Load persisted model settings, or return defaults."""
-    raw: dict = {}
+    """Load and migrate through the same canonical settings writer as clients."""
+    from row_bot.providers.saved_model_settings import read_saved_model_settings, update_saved_model_settings
     try:
-        if _SETTINGS_PATH.exists():
-            loaded = json.loads(_SETTINGS_PATH.read_text())
-            raw = loaded if isinstance(loaded, dict) else {}
+        raw, _revision, exists = read_saved_model_settings(_SETTINGS_PATH)
+        migrated, changed = _migrate_context_settings(raw)
+        if changed and exists:
+            # Re-read under writer admission rather than overwrite a newer choice.
+            return update_saved_model_settings(lambda current: _migrate_context_settings(current)[0], path=_SETTINGS_PATH)
+        return migrated
     except Exception:
-        logger.warning("Failed to load model settings from %s", _SETTINGS_PATH, exc_info=True)
-    migrated, changed = _migrate_context_settings(raw)
-    if changed and _SETTINGS_PATH.exists():
-        try:
-            _DATA_DIR.mkdir(parents=True, exist_ok=True)
-            _SETTINGS_PATH.write_text(json.dumps(migrated, indent=2))
-        except Exception:
-            logger.warning("Failed to persist model settings migration", exc_info=True)
-    return migrated
+        logger.warning("Model settings could not be loaded")
+        return _migrate_context_settings({})[0]
 
 
 def _save_settings(settings: dict):
-    """Merge and persist model settings without dropping unrelated keys."""
+    """Merge and persist without dropping unrelated keys or racing other writers."""
     from row_bot.docs_capture import is_docs_real_data_capture
-
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
     if is_docs_real_data_capture():
         logger.warning("Suppressed model-settings write during authorized real-data docs capture")
         return
-    existing: dict = {}
-    try:
-        if _SETTINGS_PATH.exists():
-            loaded = json.loads(_SETTINGS_PATH.read_text())
-            existing = loaded if isinstance(loaded, dict) else {}
-    except Exception:
-        logger.warning("Failed to merge existing model settings", exc_info=True)
-    existing, _changed = _migrate_context_settings(existing)
-    existing.update(dict(settings or {}))
-    merged, _changed = _migrate_context_settings(existing)
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _SETTINGS_PATH.write_text(json.dumps(merged, indent=2))
+    def merge(existing):
+        existing, _changed = _migrate_context_settings(existing)
+        existing.update(dict(settings or {}))
+        if "model" in settings:
+            existing.pop("default_model_command", None)
+        return _migrate_context_settings(existing)[0]
+    update_saved_model_settings(merge, path=_SETTINGS_PATH)
+
+
+def adopt_saved_default(model_ref: str) -> None:
+    """Adopt a published choice for future work without creating/unloading clients."""
+    global _current_model, _llm_instance
+    _current_model = model_ref
+    _llm_instance = None
 
 
 def _load_cloud_cache() -> dict:
@@ -764,7 +762,7 @@ def get_llm_for(model_name: str, num_ctx: int | None = None, *, reasoning_plan=N
     return _override_llm_cache[key]
 
 
-def get_model_max_context(model_name: str | None = None) -> int | None:
+def get_model_max_context(model_name: str | None = None, *, allow_probe: bool = True) -> int | None:
     """Query Ollama for the model's native max context length.
 
     For cloud models, returns the hardcoded context size from the catalog.
@@ -801,9 +799,11 @@ def get_model_max_context(model_name: str | None = None) -> int | None:
         except (TypeError, ValueError):
             return None
         return cloud_context if cloud_context > 0 else None
-    name = _ollama_runtime_model_name(raw_name)
+    name = _ollama_runtime_model_name(raw_name, **({"allow_probe":False} if not allow_probe else {}))
     if name in _model_max_ctx_cache:
         return _model_max_ctx_cache[name]
+    if not allow_probe:
+        return None
     client = _ollama_client()
     metadata: dict | None = None
     try:
@@ -884,7 +884,7 @@ def _resolved_context_identity(model_name: str):
         return None
 
 
-def get_context_policy(model_name: str | None = None) -> ContextPolicy:
+def get_context_policy(model_name: str | None = None, *, allow_probe: bool = True) -> ContextPolicy:
     """Return the resolved context policy for the given (or active) model."""
     name = model_name or _active_model_override.get() or _current_model
     resolved = _resolved_context_identity(name)
@@ -898,7 +898,7 @@ def get_context_policy(model_name: str | None = None) -> ContextPolicy:
         or is_cloud_model(name)
     )
 
-    model_max = get_model_max_context(name)
+    model_max = get_model_max_context(name, **({"allow_probe":False} if not allow_probe else {}))
     model_max_int = _coerce_context_size(model_max, 0) if model_max else 0
     native_max = model_max_int if model_max_int > 0 else None
     cache_entry = _cloud_cache_entry_for(name, provider_id) if remote_policy else None
@@ -944,7 +944,8 @@ def get_context_policy(model_name: str | None = None) -> ContextPolicy:
 
     observed_limit = None
     if provider_id == "ollama" and not remote_policy:
-        observed_limit = _observed_local_context.get(_ollama_runtime_model_name(name))
+        observed_limit = _observed_local_context.get(_ollama_runtime_model_name(name,
+            **({"allow_probe":False} if not allow_probe else {})))
 
     candidates = [
         int(value)
@@ -1022,7 +1023,7 @@ def get_context_policy(model_name: str | None = None) -> ContextPolicy:
     )
 
 
-def get_context_size(model_name: str | None = None) -> int:
+def get_context_size(model_name: str | None = None, *, allow_probe: bool = True) -> int:
     """Return the *effective* context size for the given (or current) model.
 
     - **Cloud models** use ``min(user_cloud_cap, model_native_max)``.
@@ -1035,7 +1036,7 @@ def get_context_size(model_name: str | None = None) -> int:
     2. Thread-local ``_active_model_override`` (set by agent.py).
     3. Global ``_current_model``.
     """
-    policy = get_context_policy(model_name)
+    policy = get_context_policy(model_name, **({"allow_probe":False} if not allow_probe else {}))
     if policy.effective_limit_tokens:
         return policy.effective_limit_tokens
     # Deprecated compatibility integer for unrelated legacy budgets. Main
@@ -1090,7 +1091,7 @@ def set_cloud_context_size(size: int):
         # Context policy changes must remain saveable while a provider is
         # disconnected.  Recreate the transport lazily on the next request.
         _llm_instance = None
-    _save_settings(_context_settings_payload(model=_current_model))
+    _save_settings(_context_settings_payload())
 
 
 def clear_cloud_context_override() -> None:
@@ -1102,7 +1103,7 @@ def clear_cloud_context_override() -> None:
     if is_cloud_model(_current_model):
         # Clearing an override is a local policy edit, not a provider call.
         _llm_instance = None
-    _save_settings(_context_settings_payload(model=_current_model))
+    _save_settings(_context_settings_payload())
 
 
 def set_context_size(size: int):
@@ -1120,7 +1121,7 @@ def set_context_size(size: int):
             model=_ollama_runtime_model_name(_current_model),
             num_ctx=_local_num_ctx_for(_current_model),
         )
-    _save_settings(_context_settings_payload(model=_current_model))
+    _save_settings(_context_settings_payload())
 
 
 def set_context_size_auto() -> None:
@@ -1134,7 +1135,7 @@ def set_context_size_auto() -> None:
             model=_ollama_runtime_model_name(_current_model),
             num_ctx=_local_num_ctx_for(_current_model),
         )
-    _save_settings(_context_settings_payload(model=_current_model))
+    _save_settings(_context_settings_payload())
 
 
 def record_observed_local_context(model_name: str, context_length: int | None) -> None:

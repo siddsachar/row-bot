@@ -7,12 +7,11 @@ Replaces the flat ``memories`` table with a connected graph of **entities**
 Architecture
 ~~~~~~~~~~~~
 * **SQLite** is the durable store (WAL mode, same ``~/.row-bot/memory.db``).
-* **NetworkX** ``MultiDiGraph`` is an in-memory mirror rebuilt on startup from
-  SQLite.  All reads hit the graph; all writes go to SQLite first, then
-  update NetworkX and the FAISS index atomically.
-* **FAISS** vector index is preserved for semantic recall — embeddings are
-  built from each entity's combined text (type + subject + description +
-  aliases + properties).
+* **NetworkX** ``MultiDiGraph`` is a process-local mirror refreshed against
+  SQLite's source revision when graph traversal is requested.
+* **FAISS** flat numeric generations serve semantic recall only after safe
+  decoding, embedding fingerprint and complete source coverage checks. SQLite
+  records pending projection work and atomically selects each generation.
 
 Migration
 ~~~~~~~~~
@@ -27,6 +26,7 @@ Public API is consumed by ``memory.py`` (thin backward-compatible wrapper),
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -36,8 +36,12 @@ import sqlite3
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 import threading
 
@@ -48,19 +52,14 @@ from row_bot.data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-# Lock protecting FAISS index reads/writes — FAISS is not thread-safe
-# and concurrent access from agent + extraction threads causes segfaults.
-_faiss_lock = threading.Lock()
-
 # Lock protecting the in-memory NetworkX graph.  Multiple threads
 # (live saves, extraction timer, dream daemon) mutate the graph
 # concurrently.  RLock is used because nested calls exist (e.g.
 # _dedup_and_save → save_memory → save_entity → add_relation).
 _graph_lock = threading.RLock()
 
-# When True, save_entity / update_entity / delete_entity skip the
-# per-call rebuild_index().  Callers must call rebuild_index() once
-# after the batch.  Used by the extraction pipeline.
+# Legacy compatibility override for callers/tests that explicitly own repair.
+# Shipped extraction callers use context-local projection_batch instead.
 _skip_reindex = False
 
 # PDF extraction and web scraping can introduce lone UTF-16 surrogates
@@ -280,29 +279,45 @@ def normalize_relation_type(relation_type: str) -> str:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _wiki_export_entity(entity: dict) -> None:
-    """Export an entity to the wiki vault (if enabled).  Non-blocking.
-
-    Skipped when ``_skip_reindex`` is True (batch extraction) — a single
-    ``rebuild_vault()`` is called at the end of the extraction run instead.
-    """
-    if _skip_reindex:
+    """Best-effort immediate projection; unacknowledged work remains durable."""
+    if _skip_reindex or _projection_batch.get() is not None:
         return
     try:
-        import row_bot.wiki_vault as wiki_vault
-        if wiki_vault.is_enabled():
-            wiki_vault.export_entity(entity)
-    except Exception as exc:
-        logger.debug("Wiki export skipped: %s", exc)
+        from row_bot import wiki_vault
+        if not wiki_vault.is_enabled():
+            return
+        conn = _get_conn()
+        try:
+            item = conn.execute("SELECT revision FROM knowledge_projection_work WHERE entity_id=?",
+                                (entity["id"],)).fetchone()
+        finally:
+            conn.close()
+        current = get_entity(entity["id"])
+        if current is None:
+            return
+        result = wiki_vault.export_entity_projection(current)
+        if not result.complete:
+            return
+        if item is not None:
+            _ack_wiki_work(entity["id"], item[0])
+    except Exception:
+        logger.debug("Wiki projection remains pending", exc_info=True)
 
 
 def _wiki_delete_entity(entity: dict) -> None:
-    """Remove an entity's .md file from the wiki vault (if enabled)."""
+    """Synchronous ownership-aware retirement; callers can retry failures."""
+    from row_bot import wiki_vault
+    if not wiki_vault.is_enabled():
+        return
+    conn = _get_conn()
     try:
-        import row_bot.wiki_vault as wiki_vault
-        if wiki_vault.is_enabled():
-            wiki_vault.delete_entity_md(entity)
-    except Exception as exc:
-        logger.debug("Wiki delete skipped: %s", exc)
+        item = conn.execute("SELECT revision FROM knowledge_projection_work WHERE entity_id=?",
+                            (entity["id"],)).fetchone()
+    finally:
+        conn.close()
+    wiki_vault.delete_entity_md(entity, only_if_entity_absent=True)
+    if item is not None:
+        _ack_wiki_work(entity["id"], item[0])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -357,44 +372,11 @@ def _delete_fts_rows(conn: sqlite3.Connection, entity_id: str) -> None:
 
 
 def _upsert_fts_entity(entity: dict) -> None:
-    """Best-effort sync from the durable entity row into the FTS index."""
-    entity_id = entity.get("id")
-    if not entity_id:
-        return
-    conn = _get_conn()
-    try:
-        if not _ensure_fts(conn):
-            return
-        _delete_fts_rows(conn, entity_id)
-        conn.execute(
-            f"INSERT INTO {_FTS_TABLE} "
-            "(entity_id, subject, aliases, tags, description) VALUES (?, ?, ?, ?, ?)",
-            (
-                entity_id,
-                _sanitize_text(entity.get("subject", "") or ""),
-                _sanitize_text(entity.get("aliases", "") or ""),
-                _sanitize_text(entity.get("tags", "") or ""),
-                _sanitize_text(entity.get("description", "") or ""),
-            ),
-        )
-        conn.commit()
-    except Exception as exc:
-        logger.debug("Memory FTS upsert skipped for %s: %s", entity_id, exc)
-    finally:
-        conn.close()
+    """Compatibility hook: canonical entity triggers publish lexical rows."""
 
 
 def _delete_fts_entity(entity_id: str) -> None:
-    conn = _get_conn()
-    try:
-        if not _ensure_fts(conn):
-            return
-        _delete_fts_rows(conn, entity_id)
-        conn.commit()
-    except Exception as exc:
-        logger.debug("Memory FTS delete skipped for %s: %s", entity_id, exc)
-    finally:
-        conn.close()
+    """Compatibility hook: deletion and lexical retirement share a transaction."""
 
 
 def _clear_fts_index() -> None:
@@ -410,34 +392,44 @@ def _clear_fts_index() -> None:
         conn.close()
 
 
-def rebuild_fts_index() -> int:
-    """Rebuild the optional lexical memory index. Returns indexed row count."""
+def rebuild_fts_index(*, validate: Callable[[], None] | None = None) -> int:
+    """Reconcile lexical rows in one source transaction, or report failure."""
     conn = _get_conn()
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
         if not _ensure_fts(conn):
-            return 0
-        rows = conn.execute(
-            "SELECT id, subject, aliases, tags, description FROM entities"
-        ).fetchall()
+            raise KnowledgeProjectionIncomplete("Memory lexical indexing is unavailable")
         conn.execute(f"DELETE FROM {_FTS_TABLE}")
-        for row in rows:
-            entity = dict(row)
-            conn.execute(
-                f"INSERT INTO {_FTS_TABLE} "
-                "(entity_id, subject, aliases, tags, description) VALUES (?, ?, ?, ?, ?)",
-                (
-                    entity["id"],
-                    _sanitize_text(entity.get("subject", "") or ""),
-                    _sanitize_text(entity.get("aliases", "") or ""),
-                    _sanitize_text(entity.get("tags", "") or ""),
-                    _sanitize_text(entity.get("description", "") or ""),
-                ),
-            )
+        conn.execute(f"""INSERT INTO {_FTS_TABLE}(rowid,entity_id,subject,aliases,tags,description)
+            SELECT rowid,id,subject,aliases,tags,description FROM entities""")
+        count = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        conn.execute("UPDATE knowledge_projection_state SET lexical_error=NULL WHERE singleton=1")
+        if validate is not None:
+            validate()
         conn.commit()
-        return len(rows)
-    except Exception as exc:
-        logger.debug("Memory FTS rebuild skipped: %s", exc)
-        return 0
+        return count
+    finally:
+        conn.close()
+
+
+def _lexical_projection_current() -> bool:
+    """Validate source/lexical correspondence without rewriting current rows."""
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        if _projection_state(conn)["lexical_error"] is not None:
+            return False
+        mismatch = conn.execute("""SELECT EXISTS(
+            SELECT 1 FROM entities e LEFT JOIN entities_fts f ON f.rowid=e.rowid
+            WHERE f.entity_id IS NOT e.id OR f.subject IS NOT e.subject
+                OR f.aliases IS NOT e.aliases OR f.tags IS NOT e.tags
+                OR f.description IS NOT e.description
+        ) OR (SELECT COUNT(*) FROM entities)!=(SELECT COUNT(*) FROM entities_fts)""").fetchone()[0]
+        return not mismatch
+    except sqlite3.DatabaseError:
+        return False
     finally:
         conn.close()
 
@@ -512,6 +504,1006 @@ def fts_search_entities(query: str, limit: int = 20) -> list[dict]:
     return hits
 
 
+# Canonical SQLite records pending projection work and the one selected vector
+# generation. Projection files are immutable, rebuildable derived data.
+_projection_lock = threading.RLock()
+_PROJECTION_METADATA_BYTES = 32 * 1024 * 1024
+_PROJECTION_ENTITY_BYTES = 2 * 1024 * 1024
+_PROJECTION_BATCH_BYTES = 8 * 1024 * 1024
+_SEMANTIC_TEXT_VERSION = 2
+_generation_read_state = threading.local()
+
+
+def _lock_generation_handle(handle, *, exclusive: bool, blocking: bool):
+    """Return an unlock callback, or None for a contended nonblocking lease."""
+    if os.name != "nt":
+        import errno
+        import fcntl
+
+        flags = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        try:
+            fcntl.flock(handle.fileno(), flags | (0 if blocking else fcntl.LOCK_NB))
+        except OSError as exc:
+            if not blocking and exc.errno in {errno.EAGAIN, errno.EACCES}:
+                return None
+            raise
+        return lambda: fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class Overlapped(ctypes.Structure):
+        _fields_ = [("Internal", ctypes.c_size_t), ("InternalHigh", ctypes.c_size_t),
+                    ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                    ("hEvent", wintypes.HANDLE)]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.LockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                 wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(Overlapped)]
+    kernel.LockFileEx.restype = wintypes.BOOL
+    kernel.UnlockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                   wintypes.DWORD, ctypes.POINTER(Overlapped)]
+    kernel.UnlockFileEx.restype = wintypes.BOOL
+    native = msvcrt.get_osfhandle(handle.fileno())
+    overlap = Overlapped()
+    flags = (2 if exclusive else 0) | (0 if blocking else 1)
+    if not kernel.LockFileEx(native, flags, 0, 1, 0, ctypes.byref(overlap)):
+        error = ctypes.get_last_error()
+        if not blocking and error == 33:  # ERROR_LOCK_VIOLATION
+            return None
+        raise ctypes.WinError(error)
+
+    def unlock():
+        if not kernel.UnlockFileEx(native, 0, 1, 0, ctypes.byref(overlap)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    return unlock
+
+
+@contextmanager
+def _generation_access(*, exclusive: bool = False, blocking: bool = True):
+    """Protect immutable readers/builders across processes; never delete the lock."""
+    depth = getattr(_generation_read_state, "depth", 0)
+    if depth:
+        # A writer cannot retire a generation still used by its own call stack.
+        yield not exclusive
+        return
+    _VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = _VECTOR_DIR / ".generation-readers.lock"
+    if lock_path.is_symlink():
+        raise KnowledgeProjectionIncomplete("Knowledge generation lock requires recovery")
+    with lock_path.open("a+b") as handle:
+        if os.fstat(handle.fileno()).st_nlink != 1:
+            raise KnowledgeProjectionIncomplete("Knowledge generation lock ownership is ambiguous")
+        if os.fstat(handle.fileno()).st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        unlock = _lock_generation_handle(handle, exclusive=exclusive, blocking=blocking)
+        if unlock is None:
+            yield False
+            return
+        _generation_read_state.depth = 0 if exclusive else 1
+        try:
+            yield True
+        finally:
+            _generation_read_state.depth = depth
+            unlock()
+
+
+@dataclass
+class ProjectionBatch:
+    """Outcome of one explicitly bounded, context-local projection drain."""
+
+    result: dict[str, object] | None = None
+
+
+_projection_batch: ContextVar[ProjectionBatch | None] = ContextVar("knowledge_projection_batch", default=None)
+
+
+@contextmanager
+def projection_batch(*, max_entities: int = 256, cancelled: Callable[[], bool] | None = None,
+                     drain_on_exit: bool = True) -> Iterator[ProjectionBatch]:
+    """Coalesce upsert/wiki attempts; source commits and removals remain immediate."""
+    if type(max_entities) is not int or not 1 <= max_entities <= 1000:
+        raise ValueError("max_entities must be between 1 and 1000")
+    if type(drain_on_exit) is not bool:
+        raise ValueError("drain_on_exit must be a boolean")
+    existing = _projection_batch.get()
+    if existing is not None:
+        yield existing
+        return
+    batch = ProjectionBatch()
+    token = _projection_batch.set(batch)
+    try:
+        yield batch
+    except BaseException:
+        # Source work was admitted transactionally and remains available to retry.
+        raise
+    else:
+        _projection_batch.reset(token)
+        token = None
+        if drain_on_exit:
+            batch.result = repair_projections(max_entities=max_entities, cancelled=cancelled)
+    finally:
+        if token is not None:
+            _projection_batch.reset(token)
+
+
+class KnowledgeProjectionIncomplete(RuntimeError):
+    """Canonical knowledge is saved but a required projection is incomplete."""
+
+
+def _initialize_projections(conn: sqlite3.Connection, *, lexical: bool) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_projection_state (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        revision INTEGER NOT NULL DEFAULT 0,
+        generation TEXT,
+        vector_revision INTEGER NOT NULL DEFAULT -1,
+        vector_error TEXT,
+        lexical_error TEXT
+    )""")
+    fresh = conn.execute("INSERT OR IGNORE INTO knowledge_projection_state(singleton) VALUES(1)").rowcount == 1
+    conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_vector_generations (
+        generation TEXT PRIMARY KEY,
+        previous_generation TEXT,
+        manifest_hash TEXT,
+        retiring INTEGER NOT NULL DEFAULT 0,
+        validated_segments INTEGER NOT NULL DEFAULT 0,
+        attempts INTEGER NOT NULL DEFAULT 0
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_projection_work (
+        entity_id TEXT PRIMARY KEY,
+        revision INTEGER NOT NULL,
+        semantic_pending INTEGER NOT NULL DEFAULT 1,
+        wiki_pending INTEGER NOT NULL DEFAULT 1,
+        deleted_type TEXT,
+        deleted_source TEXT
+    )""")
+    # Initial installed-data admission is inert: no embedding/model/wiki work.
+    conn.execute("""INSERT OR IGNORE INTO knowledge_projection_work(entity_id,revision)
+        SELECT id,(SELECT revision FROM knowledge_projection_state WHERE singleton=1)
+        FROM entities WHERE (SELECT generation FROM knowledge_projection_state WHERE singleton=1) IS NULL""")
+    for operation, row in (("INSERT", "NEW"), ("UPDATE", "NEW"), ("DELETE", "OLD")):
+        deleted_type = "OLD.entity_type" if operation == "DELETE" else "NULL"
+        deleted_source = "OLD.source" if operation == "DELETE" else "NULL"
+        conn.execute(f"""CREATE TRIGGER IF NOT EXISTS knowledge_entity_{operation.lower()}
+            AFTER {operation} ON entities BEGIN
+            UPDATE knowledge_projection_state SET revision=revision+1 WHERE singleton=1;
+            INSERT INTO knowledge_projection_work(entity_id,revision,semantic_pending,wiki_pending,deleted_type,deleted_source)
+            VALUES({row}.id,(SELECT revision FROM knowledge_projection_state WHERE singleton=1),1,1,{deleted_type},{deleted_source})
+            ON CONFLICT(entity_id) DO UPDATE SET revision=excluded.revision,
+                semantic_pending=1,wiki_pending=1,deleted_type=excluded.deleted_type,deleted_source=excluded.deleted_source;
+            END""")
+        endpoints = (("OLD", "NEW") if operation == "UPDATE" else (row,))
+        work = ""
+        for endpoint in endpoints:
+            for field in ("source_id", "target_id"):
+                work += f"""INSERT INTO knowledge_projection_work(entity_id,revision,semantic_pending,wiki_pending)
+                    VALUES({endpoint}.{field},(SELECT revision FROM knowledge_projection_state WHERE singleton=1),0,1)
+                    ON CONFLICT(entity_id) DO UPDATE SET revision=excluded.revision,wiki_pending=1;\n"""
+        conn.execute(f"""CREATE TRIGGER IF NOT EXISTS knowledge_relation_{operation.lower()}
+            AFTER {operation} ON relations BEGIN
+            UPDATE knowledge_projection_state SET revision=revision+1 WHERE singleton=1;
+            {work} END""")
+    if lexical:
+        if fresh:
+            conn.execute("DELETE FROM entities_fts")
+            conn.execute("""INSERT INTO entities_fts(rowid,entity_id,subject,aliases,tags,description)
+                SELECT rowid,id,subject,aliases,tags,description FROM entities""")
+        fields = "rowid,entity_id,subject,aliases,tags,description"
+        values = "NEW.rowid,NEW.id,NEW.subject,NEW.aliases,NEW.tags,NEW.description"
+        for operation in ("INSERT", "UPDATE", "DELETE"):
+            deletion = "" if operation == "INSERT" else "DELETE FROM entities_fts WHERE rowid=OLD.rowid;"
+            insertion = "" if operation == "DELETE" else f"INSERT INTO entities_fts({fields}) VALUES({values});"
+            conn.execute(f"""CREATE TRIGGER IF NOT EXISTS knowledge_fts_{operation.lower()}
+                AFTER {operation} ON entities BEGIN
+                {deletion}
+                {insertion} END""")
+    conn.execute("UPDATE knowledge_projection_state SET lexical_error=? WHERE singleton=1",
+                 (None if lexical else "fts_unavailable",))
+
+
+def _projection_state(conn: sqlite3.Connection | None = None) -> dict:
+    owned = conn is None
+    conn = conn or _get_conn()
+    try:
+        row = conn.execute("SELECT * FROM knowledge_projection_state WHERE singleton=1").fetchone()
+        if row is None:
+            raise KnowledgeProjectionIncomplete("Knowledge projection state is unavailable")
+        return dict(row)
+    finally:
+        if owned:
+            conn.close()
+
+
+def _semantic_hash(entity: dict) -> str:
+    return hashlib.sha256(_entity_text(entity).encode("utf-8")).hexdigest()
+
+
+def _projection_file(directory: pathlib.Path, name: str, limit: int) -> bytes:
+    resolved = (directory / name).resolve(strict=True)
+    if resolved.parent != directory.resolve(strict=True):
+        raise ValueError("Knowledge projection file escapes generation")
+    with resolved.open("rb") as handle:
+        value = handle.read(limit + 1)
+    if len(value) > limit:
+        raise ValueError("Knowledge projection exceeds publication budget")
+    return value
+
+
+def _read_generation_segment(directory: pathlib.Path, segment: dict, dimension: int):
+    from row_bot.flat_vector_storage import MAX_VECTOR_BYTES, decode_flat_vectors
+
+    data = _projection_file(directory, segment["name"], MAX_VECTOR_BYTES)
+    if hashlib.sha256(data).hexdigest() != segment["sha256"]:
+        raise ValueError("Knowledge vector and metadata publication disagree")
+    return decode_flat_vectors(data, expected_dimension=dimension,
+                               expected_count=segment["count"], expected_metric="inner_product")
+
+
+def _load_vector_generation(state: dict, *, fingerprint: dict | None = None, validate_vectors: bool = True,
+                            retiring: bool = False):
+    generation = state.get("generation")
+    if not isinstance(generation, str) or not re.fullmatch(r"[a-f0-9]{32}", generation):
+        raise ValueError("No validated knowledge vector generation")
+    root = _VECTOR_DIR / "generations"
+    directory = root / (f".retiring-{generation}" if retiring else generation)
+    if directory.resolve(strict=True).parent != root.resolve(strict=True):
+        raise ValueError("Knowledge generation escapes index owner")
+    metadata = json.loads(_projection_file(directory, "manifest.json", _PROJECTION_METADATA_BYTES))
+    if (type(metadata) is not dict or metadata.get("version") != 1
+            or metadata.get("text_version") != _SEMANTIC_TEXT_VERSION
+            or metadata.get("generation") != generation):
+        raise ValueError("Knowledge generation metadata is incompatible")
+    stored = metadata.get("embedding")
+    if type(stored) is not dict or (fingerprint is not None and stored != fingerprint):
+        raise ValueError("Knowledge generation embedding fingerprint changed")
+    identifiers, hashes, segments = metadata.get("ids"), metadata.get("source_hashes"), metadata.get("segments")
+    if (type(identifiers) is not list or type(hashes) is not list or type(segments) is not list
+            or len(identifiers) != len(hashes)
+            or any(type(value) is not str or not value for value in identifiers)
+            or len(set(identifiers)) != len(identifiers) or identifiers != sorted(identifiers)
+            or any(type(value) is not str or not re.fullmatch(r"[a-f0-9]{64}", value) for value in hashes)):
+        raise ValueError("Knowledge generation coverage is invalid")
+    offset = 0
+    for number, segment in enumerate(segments):
+        if (type(segment) is not dict or segment.get("name") != f"segment-{number:06d}.faiss"
+                or type(segment.get("count")) is not int or not 0 < segment["count"] <= 2000
+                or type(segment.get("start")) is not int or segment["start"] != offset
+                or type(segment.get("sha256")) is not str or not re.fullmatch(r"[a-f0-9]{64}", segment["sha256"])):
+            raise ValueError("Knowledge vector segment coverage is invalid")
+        if validate_vectors:
+            _read_generation_segment(directory, segment, stored.get("dimension"))
+        offset += segment["count"]
+    if offset != len(identifiers):
+        raise ValueError("Knowledge segment and identity counts disagree")
+    return metadata, directory
+
+
+def _retirement_protected(conn: sqlite3.Connection) -> tuple[str, str]:
+    selected = _projection_state(conn)["generation"] or ""
+    row = conn.execute("SELECT previous_generation FROM knowledge_vector_generations WHERE generation=?",
+                       (selected,)).fetchone()
+    previous = (row[0] if row else None) or ""
+    return selected, previous
+
+
+def _retirement_candidates(conn: sqlite3.Connection, limit: int | None = None):
+    selected, previous = _retirement_protected(conn)
+    suffix = " LIMIT ?" if limit is not None else ""
+    params = (selected, previous, limit) if limit is not None else (selected, previous)
+    return conn.execute("""SELECT * FROM knowledge_vector_generations
+        WHERE generation!=? AND generation!=? ORDER BY attempts,rowid""" + suffix, params)
+
+
+def _retirement_pending() -> int:
+    conn = _get_conn()
+    try:
+        return conn.execute("""SELECT COUNT(*) FROM knowledge_vector_generations
+            WHERE generation!=? AND generation!=?""", _retirement_protected(conn)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _retire_vector_generations(*, max_generations: int = 8, cancelled=None) -> dict[str, object]:
+    """Bounded retirement of registered obsolete projections, with reader leases.
+
+    Unknown, legacy, modified and malformed bytes stay in place. Retirement
+    first captures the whole obsolete directory with an exclusive rename; its
+    durable registry record and unchanged manifest support interrupted retries.
+    """
+    from row_bot.document_jobs import _rename_source_no_replace
+    from row_bot.flat_vector_storage import MAX_VECTOR_BYTES
+
+    if type(max_generations) is not int or not 1 <= max_generations <= 32:
+        raise ValueError("Generation retirement limit must be between 1 and 32")
+    retired, failures, byte_count, file_count = 0, [], 0, 0
+    with _generation_access(exclusive=True, blocking=False) as acquired:
+        if not acquired:
+            return {"retired": 0, "pending": _retirement_pending(), "deferred": "readers_active", "failures": []}
+        conn = _get_conn()
+        try:
+            work = [dict(row) for row in _retirement_candidates(conn, max_generations)]
+        finally:
+            conn.close()
+        for item in work:
+            if byte_count >= MAX_VECTOR_BYTES or file_count >= 16:
+                break
+            generation = item["generation"]
+            conn = _get_conn()
+            try:
+                _cancel_projection(cancelled)
+                conn.execute("UPDATE knowledge_vector_generations SET attempts=attempts+1 WHERE generation=?", (generation,))
+                _cancel_projection(cancelled)
+                conn.commit()
+            finally:
+                conn.close()
+            if not isinstance(generation, str) or not re.fullmatch(r"[a-f0-9]{32}", generation):
+                failures.append("unverified_generation")
+                continue
+            try:
+                # Recheck canonical selection before marking retirement. No SQL
+                # lock is held while waiting for the process-wide reader lease.
+                conn = _get_conn()
+                try:
+                    _cancel_projection(cancelled)
+                    conn.execute("BEGIN IMMEDIATE")
+                    if generation in _retirement_protected(conn):
+                        continue
+                    _cancel_projection(cancelled)
+                    conn.execute("UPDATE knowledge_vector_generations SET retiring=MAX(retiring,1) WHERE generation=?", (generation,))
+                    _cancel_projection(cancelled)
+                    conn.commit()
+                finally:
+                    conn.close()
+                root = (_VECTOR_DIR / "generations").resolve(strict=True)
+                original = root / generation
+                captured = root / f".retiring-{generation}"
+                if (original.is_symlink() or original.is_junction()
+                        or captured.is_symlink() or captured.is_junction()):
+                    raise ValueError("Generation ownership is ambiguous")
+                if original.exists():
+                    if captured.exists():
+                        raise ValueError("Generation retirement names conflict")
+                    if original.resolve(strict=True).parent != root:
+                        raise ValueError("Generation retirement escapes its owner")
+                directory = original if original.exists() else captured
+                if not directory.exists():
+                    if item["retiring"] == 3:
+                        conn = _get_conn()
+                        try:
+                            _cancel_projection(cancelled)
+                            conn.execute("DELETE FROM knowledge_vector_generations WHERE generation=?", (generation,))
+                            _cancel_projection(cancelled)
+                            conn.commit()
+                        finally:
+                            conn.close()
+                        retired += 1
+                        continue
+                    raise ValueError("Registered generation is missing")
+                if directory.resolve(strict=True).parent != root:
+                    raise ValueError("Generation retirement escapes its owner")
+                manifest_path = directory / "manifest.json"
+                if item["retiring"] == 3 and not manifest_path.exists():
+                    _cancel_projection(cancelled)
+                    directory.rmdir()
+                    conn = _get_conn()
+                    try:
+                        _cancel_projection(cancelled)
+                        conn.execute("DELETE FROM knowledge_vector_generations WHERE generation=?", (generation,))
+                        _cancel_projection(cancelled)
+                        conn.commit()
+                    finally:
+                        conn.close()
+                    retired += 1
+                    continue
+                data = _projection_file(directory, "manifest.json", _PROJECTION_METADATA_BYTES)
+                if hashlib.sha256(data).hexdigest() != item["manifest_hash"]:
+                    raise ValueError("Modified generation retained")
+                metadata, _ = _load_vector_generation({"generation": generation}, validate_vectors=False,
+                                                       retiring=directory == captured)
+                expected = {"manifest.json", *(segment["name"] for segment in metadata["segments"])}
+                actual = {path.name for path in directory.iterdir()}
+                if actual - expected:
+                    raise ValueError("Unrecognized generation files retained")
+                if (item["retiring"] < 2 or directory == original) and actual != expected:
+                    raise ValueError("Incomplete generation retained")
+                if item["retiring"] < 2:
+                    validated = item["validated_segments"]
+                    if type(validated) is not int or not 0 <= validated <= len(metadata["segments"]):
+                        raise ValueError("Generation validation progress is invalid")
+                    for segment in metadata["segments"][validated:]:
+                        path = directory / segment["name"]
+                        if path.is_symlink() or path.stat().st_nlink != 1:
+                            raise ValueError("Generation file ownership is ambiguous")
+                        size = path.stat().st_size
+                        if file_count >= 16 or byte_count + size > MAX_VECTOR_BYTES:
+                            break
+                        _read_generation_segment(directory, segment, metadata["embedding"].get("dimension"))
+                        byte_count += size
+                        file_count += 1
+                        validated += 1
+                        conn = _get_conn()
+                        try:
+                            _cancel_projection(cancelled)
+                            conn.execute("UPDATE knowledge_vector_generations SET validated_segments=? WHERE generation=?",
+                                         (validated, generation))
+                            _cancel_projection(cancelled)
+                            conn.commit()
+                        finally:
+                            conn.close()
+                    if validated != len(metadata["segments"]):
+                        break
+                    conn = _get_conn()
+                    try:
+                        _cancel_projection(cancelled)
+                        conn.execute("UPDATE knowledge_vector_generations SET retiring=2 WHERE generation=?", (generation,))
+                        _cancel_projection(cancelled)
+                        conn.commit()
+                    finally:
+                        conn.close()
+                if directory == original:
+                    _cancel_projection(cancelled)
+                    _rename_source_no_replace(original, captured)
+                    directory = captured
+                    manifest_path = captured / "manifest.json"
+                    if (captured.is_symlink() or captured.is_junction() or captured.resolve(strict=True).parent != root
+                            or {path.name for path in captured.iterdir()} != expected
+                            or hashlib.sha256(_projection_file(captured, "manifest.json", _PROJECTION_METADATA_BYTES)).hexdigest()
+                            != item["manifest_hash"]):
+                        raise ValueError("Generation changed during retirement capture")
+                remaining = False
+                for segment in metadata["segments"]:
+                    path = captured / segment["name"]
+                    if not path.exists():
+                        continue
+                    if path.is_symlink() or path.stat().st_nlink != 1:
+                        raise ValueError("Generation file ownership is ambiguous")
+                    size = path.stat().st_size
+                    if file_count >= 16 or byte_count + size > MAX_VECTOR_BYTES:
+                        remaining = True
+                        break
+                    before = path.stat()
+                    _read_generation_segment(captured, segment, metadata["embedding"].get("dimension"))
+                    after = path.stat()
+                    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+                            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+                        raise ValueError("Generation changed during retirement")
+                    _cancel_projection(cancelled)
+                    path.unlink()
+                    byte_count += size
+                    file_count += 1
+                if remaining:
+                    break
+                if manifest_path.is_symlink() or manifest_path.stat().st_nlink != 1:
+                    raise ValueError("Generation manifest ownership is ambiguous")
+                if hashlib.sha256(_projection_file(captured, "manifest.json", _PROJECTION_METADATA_BYTES)).hexdigest() != item["manifest_hash"]:
+                    raise ValueError("Generation manifest changed during retirement")
+                conn = _get_conn()
+                try:
+                    _cancel_projection(cancelled)
+                    conn.execute("UPDATE knowledge_vector_generations SET retiring=3 WHERE generation=?", (generation,))
+                    _cancel_projection(cancelled)
+                    conn.commit()
+                finally:
+                    conn.close()
+                _cancel_projection(cancelled)
+                manifest_path.unlink()
+                _cancel_projection(cancelled)
+                captured.rmdir()  # Never recursively remove unknown content.
+                conn = _get_conn()
+                try:
+                    _cancel_projection(cancelled)
+                    conn.execute("DELETE FROM knowledge_vector_generations WHERE generation=?", (generation,))
+                    _cancel_projection(cancelled)
+                    conn.commit()
+                finally:
+                    conn.close()
+                retired += 1
+            except (OSError, ValueError, TypeError, KeyError):
+                failures.append("generation_retirement_incomplete")
+    return {"retired": retired, "pending": _retirement_pending(), "deferred": None, "failures": failures}
+
+
+def _cancel_projection(cancelled) -> None:
+    if cancelled is not None and cancelled():
+        raise KnowledgeProjectionIncomplete("Knowledge projection cancelled")
+
+
+def _persist_projection_failure(code: str) -> None:
+    conn = _get_conn()
+    try:
+        conn.execute("UPDATE knowledge_projection_state SET vector_error=? WHERE singleton=1", (code,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _projection_source_batches(conn: sqlite3.Connection, batch_size: int) -> Iterator[list[sqlite3.Row]]:
+    if type(batch_size) is not int or not 1 <= batch_size <= 256:
+        raise ValueError("Projection batch size must be between 1 and 256")
+    # Check sizes in SQLite before materializing saved text in Python. Large
+    # canonical records remain intact and explicitly require projection repair.
+    fields = "id entity_type subject description aliases tags properties source created_at updated_at".split()
+    size = "+".join(f"COALESCE(length(CAST({field} AS BLOB)),0)" for field in fields)
+    cursor = conn.execute(f"SELECT rowid,({size}) AS byte_size FROM entities ORDER BY id")
+    rows, byte_count = [], 0
+    for item in cursor:
+        if item["byte_size"] > _PROJECTION_ENTITY_BYTES:
+            raise KnowledgeProjectionIncomplete("Saved knowledge exceeds the projection text budget")
+        if rows and (len(rows) == batch_size or byte_count + item["byte_size"] > _PROJECTION_BATCH_BYTES):
+            yield rows
+            rows, byte_count = [], 0
+        rows.append(conn.execute("SELECT * FROM entities WHERE rowid=?", (item["rowid"],)).fetchone())
+        byte_count += item["byte_size"]
+    if rows:
+        yield rows
+
+
+def _publish_vector_projection(*, cancelled=None, allow_embedding: bool = True,
+                               max_embeddings: int | None = None,
+                               entity_ids: set[str] | None = None) -> None:
+    with _generation_access():
+        if not _reuse_current_vector_projection(cancelled=cancelled):
+            _build_vector_projection(cancelled=cancelled, allow_embedding=allow_embedding,
+                                     max_embeddings=max_embeddings, entity_ids=entity_ids)
+    _retire_vector_generations(**({"cancelled":cancelled} if cancelled is not None else {}))
+
+
+def _reuse_current_vector_projection(*, cancelled=None) -> bool:
+    """Acknowledge a verified semantic no-op under current source admission."""
+    from row_bot.embedding_config import active_embedding_metadata
+
+    _cancel_projection(cancelled)
+    captured = _projection_state()
+    status, loaded = _read_vector_readiness()
+    if not status["ready"] or loaded is None:
+        return False
+    metadata, _directory = loaded
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _cancel_projection(cancelled)
+        current = _projection_state(conn)
+        if (current["revision"] != captured["revision"] or current["generation"] != captured["generation"]
+                or metadata["embedding"] != active_embedding_metadata()):
+            return False
+        # Full-row/wiki changes (including recalled_at) keep their own pending
+        # work; only validated complete semantic coverage can be acknowledged.
+        conn.execute("UPDATE knowledge_projection_work SET semantic_pending=0 WHERE revision<=?",
+                     (captured["revision"],))
+        conn.execute("DELETE FROM knowledge_projection_work WHERE semantic_pending=0 AND wiki_pending=0")
+        conn.execute("UPDATE knowledge_projection_state SET vector_revision=?,vector_error=NULL WHERE singleton=1",
+                     (captured["revision"],))
+        _cancel_projection(cancelled)
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def _build_vector_projection(*, cancelled=None, allow_embedding: bool = True,
+                               max_embeddings: int | None = None,
+                               entity_ids: set[str] | None = None) -> None:
+    """Build one immutable source cut and select it with SQLite write admission."""
+    import faiss
+    from row_bot.embedding_config import active_embedding_metadata, get_embedding_config
+    from row_bot.flat_vector_storage import MAX_VECTOR_BYTES, MAX_VECTOR_DIMENSION
+
+    with _projection_lock:
+        _cancel_projection(cancelled)
+        config = deepcopy(get_embedding_config())
+        fingerprint = active_embedding_metadata(config)
+        dimension = fingerprint["dimension"]
+        if type(dimension) is not int or not 1 <= dimension <= MAX_VECTOR_DIMENSION:
+            raise ValueError("Invalid knowledge embedding dimension")
+        batch_size = config["batch_size"]
+        previous_state = _projection_state()
+        previous = None
+        previous_rows = {}
+        if previous_state["generation"]:
+            try:
+                old_metadata, previous = _load_vector_generation(previous_state, fingerprint=fingerprint, validate_vectors=False)
+                previous_rows = {identifier: (index, old_metadata["source_hashes"][index])
+                                 for index, identifier in enumerate(old_metadata["ids"])}
+            except (OSError, ValueError, TypeError, KeyError):
+                if not allow_embedding:
+                    raise KnowledgeProjectionIncomplete("Existing knowledge vectors require recovery before removal")
+                previous = None
+        elif not allow_embedding:
+            # No selected semantic projection ever exposed these entities.
+            return
+
+        generation = uuid.uuid4().hex
+        directory = _VECTOR_DIR / "generations" / generation
+        directory.mkdir(parents=True, exist_ok=False)
+        segment_rows = min(2000, (MAX_VECTOR_BYTES - 64) // (dimension * 4))
+        segments = []
+        index = faiss.IndexFlatIP(dimension)
+        previous_segment = None
+        previous_segment_number = -1
+        invalid_segments = set()
+        old_starts = [item["start"] for item in old_metadata["segments"]] if previous is not None else []
+
+        def prior_vector(position):
+            nonlocal previous_segment, previous_segment_number
+            import bisect
+            number = bisect.bisect_right(old_starts, position) - 1
+            if number in invalid_segments:
+                return None
+            if number != previous_segment_number:
+                previous_segment = None
+                try:
+                    previous_segment = _read_generation_segment(previous, old_metadata["segments"][number], dimension)
+                except (OSError, ValueError, TypeError, KeyError):
+                    if not allow_embedding:
+                        raise KnowledgeProjectionIncomplete("Existing knowledge vectors require recovery before removal") from None
+                    invalid_segments.add(number)
+                    return None
+                previous_segment_number = number
+            return previous_segment.vectors[position - old_starts[number]]
+
+        def flush_segment():
+            nonlocal index
+            if not index.ntotal:
+                return
+            name = f"segment-{len(segments):06d}.faiss"
+            faiss.write_index(index, str(directory / name))
+            data = _projection_file(directory, name, MAX_VECTOR_BYTES)
+            segment = {"name": name, "start": sum(item["count"] for item in segments),
+                       "count": index.ntotal, "sha256": hashlib.sha256(data).hexdigest()}
+            _read_generation_segment(directory, segment, dimension)
+            segments.append(segment)
+            index = faiss.IndexFlatIP(dimension)
+
+        conn = _get_conn()
+        ids, source_hashes = [], []
+        coverage_bytes = 0
+        embedding = None
+        embedded_count = 0
+        try:
+            conn.execute("BEGIN")
+            captured = _projection_state(conn)
+            if captured["generation"] != previous_state["generation"]:
+                raise KnowledgeProjectionIncomplete("Knowledge projection changed before rebuild")
+            for rows in _projection_source_batches(conn, batch_size):
+                _cancel_projection(cancelled)
+                batch = []
+                pending_texts = []
+                for row in rows:
+                    entity = dict(row)
+                    digest = _semantic_hash(entity)
+                    prior = previous_rows.get(entity["id"])
+                    retained = prior_vector(prior[0]) if prior is not None and prior[1] == digest else None
+                    if retained is not None:
+                        batch.append((entity["id"], digest, retained, None))
+                    elif (allow_embedding and (entity_ids is None or entity["id"] in entity_ids)
+                          and (max_embeddings is None or embedded_count < max_embeddings)):
+                        batch.append((entity["id"], digest, None, len(pending_texts)))
+                        pending_texts.append(_entity_text(entity))
+                        embedded_count += 1
+                vectors = None
+                if pending_texts:
+                    embedding = embedding or _get_embedding_model(config=config)
+                    raw = embedding.embed_documents(pending_texts)
+                    _cancel_projection(cancelled)
+                    vectors = np.asarray(raw, dtype=np.float32)
+                    if vectors.shape != (len(pending_texts), dimension) or not np.isfinite(vectors).all():
+                        raise ValueError("Knowledge embedding batch shape or values are invalid")
+                    norms = np.linalg.norm(vectors.astype(np.float64), axis=1, keepdims=True)
+                    norms[norms == 0] = 1
+                    vectors = (vectors / norms).astype(np.float32)
+                if batch:
+                    added = np.empty((len(batch), dimension), dtype=np.float32)
+                    for offset, (identifier, digest, old, pending) in enumerate(batch):
+                        added[offset] = old if pending is None else vectors[pending]
+                        ids.append(identifier)
+                        source_hashes.append(digest)
+                    coverage_bytes += sum(len(json.dumps(item[0], ensure_ascii=False).encode("utf-8")) + 70 for item in batch)
+                    if coverage_bytes > _PROJECTION_METADATA_BYTES:
+                        raise ValueError("Knowledge coverage metadata exceeds publication budget")
+                    offset = 0
+                    while offset < len(added):
+                        remaining = segment_rows - index.ntotal
+                        count = min(remaining, len(added) - offset)
+                        index.add(added[offset:offset + count])
+                        offset += count
+                        if index.ntotal == segment_rows:
+                            flush_segment()
+        finally:
+            conn.close()
+
+        _cancel_projection(cancelled)
+        flush_segment()
+        metadata = {
+            "version": 1, "text_version": _SEMANTIC_TEXT_VERSION,
+            "generation": generation, "source_revision": captured["revision"],
+            "embedding": fingerprint, "ids": ids, "source_hashes": source_hashes,
+            "segments": segments,
+        }
+        encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        if len(encoded) > _PROJECTION_METADATA_BYTES:
+            raise ValueError("Knowledge metadata exceeds publication budget")
+        with (directory / "manifest.json").open("xb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _load_vector_generation({"generation": generation}, fingerprint=fingerprint)
+        _cancel_projection(cancelled)
+        conn = _get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            _cancel_projection(cancelled)
+            current = _projection_state(conn)
+            if (current["revision"] != captured["revision"]
+                    or current["generation"] != captured["generation"]
+                    or active_embedding_metadata() != fingerprint):
+                raise KnowledgeProjectionIncomplete("Knowledge changed during projection; retry required")
+            conn.execute("""UPDATE knowledge_projection_state SET generation=?,vector_revision=?,vector_error=NULL
+                WHERE singleton=1""", (generation, captured["revision"]))
+            conn.execute("""INSERT INTO knowledge_vector_generations(generation,previous_generation,manifest_hash)
+                VALUES(?,?,?)""", (generation, captured["generation"], hashlib.sha256(encoded).hexdigest()))
+            conn.execute("""UPDATE knowledge_projection_work SET semantic_pending=0
+                WHERE revision<=? AND NOT EXISTS(SELECT 1 FROM entities WHERE id=entity_id)""",
+                         (captured["revision"],))
+            conn.executemany("""UPDATE knowledge_projection_work SET semantic_pending=0
+                WHERE entity_id=? AND revision<=?""",
+                             ((identifier, captured["revision"]) for identifier in ids))
+            conn.execute("DELETE FROM knowledge_projection_work WHERE semantic_pending=0 AND wiki_pending=0")
+            _cancel_projection(cancelled)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def rebuild_index(*, cancelled: Callable[[], bool] | None = None) -> None:
+    try:
+        _publish_vector_projection(cancelled=cancelled)
+    except Exception:
+        _persist_projection_failure("rebuild_incomplete")
+        raise
+
+
+def _upsert_index(entity_id: str) -> None:
+    # Durable work is admitted by SQLite, even if this synchronous attempt fails.
+    if _projection_batch.get() is not None:
+        return
+    try:
+        _publish_vector_projection(entity_ids={entity_id}, max_embeddings=1)
+    except Exception:
+        _persist_projection_failure("upsert_incomplete")
+        raise
+
+
+def _remove_from_index(entity_id: str, *, cancelled: Callable[[], bool] | None = None) -> None:
+    try:
+        _publish_vector_projection(allow_embedding=False, **({"cancelled": cancelled} if cancelled is not None else {}))
+    except Exception:
+        _persist_projection_failure("removal_incomplete")
+        raise
+
+
+def _vector_readiness():
+    with _generation_access():
+        return _read_vector_readiness()
+
+
+def _read_vector_readiness():
+    from row_bot.embedding_config import active_embedding_metadata
+
+    state = _projection_state()
+    if not state["generation"]:
+        return {"state": "missing", "ready": False, "detail": "The memory vector index needs a complete rebuild."}, None
+    try:
+        metadata, vectors = _load_vector_generation(state)
+    except (OSError, ValueError, TypeError, KeyError):
+        return {"state": "failed", "ready": False, "detail": "The memory vector generation could not be validated."}, None
+    if metadata["embedding"] != active_embedding_metadata():
+        return {"state": "stale", "ready": False, "detail": "The memory vector index does not match the selected embedding model."}, None
+    coverage = dict(zip(metadata["ids"], metadata["source_hashes"]))
+    count = 0
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        for batch in _projection_source_batches(conn, 256):
+            for row in batch:
+                entity = dict(row)
+                count += 1
+                if coverage.get(entity["id"]) != _semantic_hash(entity):
+                    return {"state": "pending", "ready": False, "detail": "Saved knowledge has pending semantic projection work."}, None
+    except (KnowledgeProjectionIncomplete, ValueError, TypeError, RecursionError):
+        return {"state": "failed", "ready": False, "detail": "Saved knowledge exceeds safe projection bounds."}, None
+    finally:
+        conn.close()
+    if count != len(coverage):
+        return {"state": "pending", "ready": False, "detail": "Knowledge vector coverage does not match current entities."}, None
+    if _projection_state()["revision"] != state["revision"]:
+        return {"state": "pending", "ready": False, "detail": "Knowledge changed while vector coverage was checked."}, None
+    return {"state": "ready", "ready": True, "detail": "The memory vector index completely covers current knowledge."}, (metadata, vectors)
+
+
+def memory_vector_status() -> dict[str, object]:
+    return dict(_vector_readiness()[0], retirement_pending=_retirement_pending())
+
+
+def _ack_wiki_work(entity_id: str, revision: int, *, validate=None) -> None:
+    conn = _get_conn()
+    try:
+        if validate is not None:
+            conn.execute("BEGIN IMMEDIATE")
+            validate()
+        conn.execute("UPDATE knowledge_projection_work SET wiki_pending=0 WHERE entity_id=? AND revision=?",
+                     (entity_id, revision))
+        conn.execute("DELETE FROM knowledge_projection_work WHERE semantic_pending=0 AND wiki_pending=0")
+        if validate is not None:
+            validate()
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _repair_wiki_work(*, max_entities: int, cancelled=None, validate=None) -> tuple[int, bool]:
+    from row_bot import wiki_vault
+
+    if not wiki_vault.is_enabled():
+        return 0, True
+    conn = _get_conn()
+    try:
+        work = [dict(row) for row in conn.execute("""SELECT * FROM knowledge_projection_work
+            WHERE wiki_pending=1 ORDER BY revision,entity_id LIMIT ?""", (max_entities,))]
+    finally:
+        conn.close()
+    live, deleted = [], []
+
+    def captured_entities():
+        # Stream rows rather than retaining a max_entities-sized collection of
+        # full descriptions. The wiki owner checks each exact row under its
+        # one writer transaction; work is acknowledged after it releases that.
+        for item in work:
+            _cancel_projection(cancelled)
+            entity = get_entity(item["entity_id"])
+            if entity is None:
+                deleted.append(item)
+            else:
+                live.append(item)
+                yield entity
+
+    strict = {"validate":validate} if validate is not None else {}
+    outcomes = wiki_vault.export_entities_projection(captured_entities(), cancelled=cancelled, **strict)
+    completed = 0
+    for item, outcome in zip(live, outcomes, strict=True):
+        if not outcome.complete:
+            continue
+        _ack_wiki_work(item["entity_id"], item["revision"], **strict)
+        completed += 1
+    for item in deleted:
+        _cancel_projection(cancelled)
+        wiki_vault.delete_entity_md({"id": item["entity_id"], "entity_type": item["deleted_type"] or "fact",
+                                     "source": item["deleted_source"] or ""}, only_if_entity_absent=True, **strict)
+        _ack_wiki_work(item["entity_id"], item["revision"], **strict)
+        completed += 1
+    return completed, all(outcome.complete for outcome in outcomes)
+
+
+def repair_projections(*, max_entities: int = 256, cancelled: Callable[[], bool] | None = None,
+                       validate: Callable[[], None] | None = None) -> dict[str, object]:
+    """Explicit bounded embedding/wiki repair; remaining source work stays durable."""
+    if type(max_entities) is not int or not 1 <= max_entities <= 1000:
+        raise ValueError("max_entities must be between 1 and 1000")
+    if validate is not None:
+        original_cancelled = cancelled
+        def cancelled():
+            validate()
+            return bool(original_cancelled and original_cancelled())
+    _cancel_projection(cancelled)
+    _ensure_graph()
+    # FTS has its own source transaction and no provider dependency.
+    if not _lexical_projection_current():
+        rebuild_fts_index(**({"validate":validate} if validate is not None else {}))
+    failures = []
+    try:
+        _publish_vector_projection(cancelled=cancelled, max_embeddings=max_entities)
+    except Exception:
+        if validate is not None:
+            raise
+        _persist_projection_failure("repair_incomplete")
+        failures.append("semantic_projection_incomplete")
+    completed = 0
+    try:
+        completed, wiki_complete = _repair_wiki_work(max_entities=max_entities, cancelled=cancelled,
+            **({"validate":validate} if validate is not None else {}))
+        if not wiki_complete:
+            failures.append("wiki_projection_incomplete")
+    except Exception:
+        if validate is not None:
+            raise
+        failures.append("wiki_projection_incomplete")
+    conn = _get_conn()
+    try:
+        pending = dict(conn.execute("""SELECT COALESCE(SUM(semantic_pending),0) AS semantic,
+            COALESCE(SUM(wiki_pending),0) AS wiki FROM knowledge_projection_work""").fetchone())
+    finally:
+        conn.close()
+    from row_bot import wiki_vault
+    wiki_enabled = wiki_vault.is_enabled()
+    retirement_pending = _retirement_pending()
+    return {"complete": not failures and not pending["semantic"] and (not wiki_enabled or not pending["wiki"])
+            and not retirement_pending,
+            "pending": pending, "wiki_enabled": wiki_enabled, "wiki_completed": completed,
+            "retirement_pending": retirement_pending, "failures": failures}
+
+
+def semantic_search(query: str, top_k: int = 5, threshold: float = 0.5, *, for_auto_recall: bool = False) -> list[dict]:
+    with _generation_access():
+        return _search_vector_generation(query, top_k, threshold, for_auto_recall=for_auto_recall)
+
+
+def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_auto_recall: bool) -> list[dict]:
+    import faiss
+
+    status, loaded = _vector_readiness()
+    if not status["ready"]:
+        if _projection_batch.get() is not None:
+            # Internal dedup may reuse unchanged prior candidates while its own
+            # new rows remain pending. It never repairs implicitly or advertises
+            # this incomplete cut as ready to ordinary application recall.
+            if status["state"] != "pending":
+                raise MemorySemanticUnavailable(f"memory_index_{status['state']}", str(status["detail"]))
+            from row_bot.embedding_config import active_embedding_metadata
+            try:
+                loaded = _load_vector_generation(_projection_state(), fingerprint=active_embedding_metadata())
+            except (OSError, ValueError, TypeError, KeyError):
+                raise MemorySemanticUnavailable("memory_index_failed", "Prior knowledge vectors could not be validated.") from None
+        elif for_auto_recall:
+            raise MemorySemanticUnavailable(f"memory_index_{status['state']}", str(status["detail"]))
+        else:
+            rebuild_index()
+            status, loaded = _vector_readiness()
+    if loaded is None:
+        raise MemorySemanticUnavailable(f"memory_index_{status['state']}", str(status["detail"]))
+    metadata, directory = loaded
+    if not metadata["ids"]:
+        return []
+    dimension = metadata["embedding"]["dimension"]
+    from row_bot.embedding_config import active_embedding_metadata, get_embedding_config
+    config = deepcopy(get_embedding_config())
+    if active_embedding_metadata(config) != metadata["embedding"]:
+        raise MemorySemanticUnavailable("memory_index_stale", "The memory embedding model changed during recall.")
+    embedding = _get_embedding_model(for_auto_recall=for_auto_recall, config=config)
+    raw = embedding.embed_query(query)
+    if active_embedding_metadata() != metadata["embedding"]:
+        raise MemorySemanticUnavailable("memory_index_stale", "The memory embedding model changed during recall.")
+    query_vector = np.asarray(raw, dtype=np.float32)
+    if query_vector.shape != (dimension,) or not np.isfinite(query_vector).all():
+        raise MemorySemanticUnavailable("memory_query_invalid", "The memory query vector is invalid.")
+    norm = np.linalg.norm(query_vector.astype(np.float64)) or 1
+    query_vector = (query_vector / norm).astype(np.float32).reshape(1, -1)
+    limit = max(1, int(top_k))
+    candidates = []
+    for segment in metadata["segments"]:
+        vectors = _read_generation_segment(directory, segment, dimension)
+        index = faiss.IndexFlatIP(dimension)
+        index.add(vectors.vectors)
+        scores, positions = index.search(query_vector, min(limit, vectors.count))
+        for score, position in zip(scores[0], positions[0]):
+            if position < 0 or score < threshold:
+                continue
+            offset = segment["start"] + int(position)
+            candidates.append((float(score), offset))
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        del candidates[limit:]
+        del index, vectors
+    results = []
+    for score, position in candidates:
+        entity = get_entity(metadata["ids"][position])
+        if entity is not None and _semantic_hash(entity) == metadata["source_hashes"][position]:
+            entity["score"] = round(score, 4)
+            results.append(entity)
+    return results
+
+
 def _init_db() -> None:
     """Create entities + relations tables (idempotent)."""
     conn = _get_conn()
@@ -566,7 +1558,7 @@ def _init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique
         ON relations(source_id, target_id, relation_type)
     """)
-    _ensure_fts(conn)
+    _initialize_projections(conn, lexical=_ensure_fts(conn))
 
     conn.commit()
     conn.close()
@@ -705,52 +1697,36 @@ _scrub_surrogates()
 
 _graph: nx.MultiDiGraph = nx.MultiDiGraph()
 _graph_ready = False
+_graph_revision = -1
 
 
 def _load_graph() -> None:
-    """Populate the NetworkX graph from SQLite.  Called once at startup."""
-    global _graph, _graph_ready
+    """Publish one complete SQLite snapshot into this process's graph mirror."""
+    global _graph, _graph_ready, _graph_revision
     with _graph_lock:
-        _graph = nx.MultiDiGraph()
         conn = _get_conn()
-
-        # Load entities as nodes
-        for row in conn.execute("SELECT * FROM entities").fetchall():
-            row = dict(row)
-            _graph.add_node(row["id"], **row)
-
-        # Load relations as edges (use relation id as edge key)
-        for row in conn.execute("SELECT * FROM relations").fetchall():
-            row = dict(row)
-            if row["source_id"] in _graph and row["target_id"] in _graph:
-                _graph.add_edge(
-                    row["source_id"],
-                    row["target_id"],
-                    key=row["id"],
-                    id=row["id"],
-                    relation_type=row["relation_type"],
-                    confidence=row["confidence"],
-                    properties=row["properties"],
-                    source=row["source"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"],
-                )
-
-        _graph_ready = True
-        logger.info(
-            "Knowledge graph loaded: %d entities, %d relations",
-            _graph.number_of_nodes(),
-            _graph.number_of_edges(),
-        )
-        conn.close()
+        try:
+            conn.execute("BEGIN")
+            revision = _projection_state(conn)["revision"]
+            graph = nx.MultiDiGraph()
+            for row in conn.execute("SELECT * FROM entities"):
+                entity = dict(row)
+                graph.add_node(entity["id"], **entity)
+            for row in conn.execute("SELECT * FROM relations"):
+                relation = dict(row)
+                if relation["source_id"] in graph and relation["target_id"] in graph:
+                    graph.add_edge(relation["source_id"], relation["target_id"], key=relation["id"], **relation)
+            _graph, _graph_revision, _graph_ready = graph, revision, True
+        finally:
+            conn.close()
 
 
 def _ensure_graph() -> nx.MultiDiGraph:
-    """Return the graph, loading from SQLite if needed."""
-    global _graph_ready
-    if not _graph_ready:
-        _load_graph()
-    return _graph
+    """Use the canonical revision to invalidate this process's graph mirror."""
+    with _graph_lock:
+        if not _graph_ready or _graph_revision != _projection_state()["revision"]:
+            _load_graph()
+        return _graph
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -766,15 +1742,15 @@ class MemorySemanticUnavailable(RuntimeError):
         super().__init__(self.detail)
 
 
-def _get_embedding_model(*, for_auto_recall: bool = False):
+def _get_embedding_model(*, for_auto_recall: bool = False, config: dict | None = None):
     """Return the shared embedding model using the appropriate load path."""
     if for_auto_recall:
         from row_bot.documents import get_embedding_model_for_recall
 
-        return get_embedding_model_for_recall()
+        return get_embedding_model_for_recall(config=config) if config is not None else get_embedding_model_for_recall()
     from row_bot.documents import get_embedding_model
 
-    return get_embedding_model()
+    return get_embedding_model(config=config) if config is not None else get_embedding_model()
 
 
 def _entity_text(entity: dict) -> str:
@@ -797,157 +1773,17 @@ def _entity_text(entity: dict) -> str:
             props = json.loads(props)
         except (json.JSONDecodeError, TypeError):
             props = {}
+    if isinstance(props, dict):
+        props = {key: value for key, value in props.items() if key != "recalled_at"}
     if props:
-        parts.append(" ".join(f"{k}:{v}" for k, v in props.items()))
+        parts.append(json.dumps(props, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return " | ".join(p for p in parts if p)
 
 
-def rebuild_index() -> None:
-    """(Re)build the FAISS index from all entities in SQLite."""
-    import faiss as _faiss
-    from row_bot.embedding_config import write_index_metadata
-    from row_bot.stability import log_performance_snapshot
-
-    started = time.perf_counter()
-    entities = list_entities(limit=100_000)
-    _VECTOR_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not entities:
-        emb = _get_embedding_model()
-        dim = len(emb.embed_query("test"))
-        index = _faiss.IndexFlatIP(dim)
-        with _faiss_lock:
-            _faiss.write_index(index, str(_VECTOR_DIR / "index.faiss"))
-            (_VECTOR_DIR / "id_map.json").write_text("[]")
-            write_index_metadata(_VECTOR_DIR)
-        return
-
-    emb = _get_embedding_model()
-    texts = [_entity_text(e) for e in entities]
-    vectors = emb.embed_documents(texts)
-    arr = np.array(vectors, dtype=np.float32)
-    norms = np.linalg.norm(arr, axis=1, keepdims=True)
-    norms[norms == 0] = 1
-    arr = arr / norms
-
-    dim = arr.shape[1]
-    index = _faiss.IndexFlatIP(dim)
-    index.add(arr)
-
-    with _faiss_lock:
-        _faiss.write_index(index, str(_VECTOR_DIR / "index.faiss"))
-        id_map = [e["id"] for e in entities]
-        (_VECTOR_DIR / "id_map.json").write_text(json.dumps(id_map))
-        write_index_metadata(_VECTOR_DIR)
-    logger.info(
-        "Rebuilt FAISS index with %d entities in %.3fs",
-        len(id_map),
-        time.perf_counter() - started,
-    )
-    log_performance_snapshot("memory-faiss-rebuild")
 
 
-def _upsert_index(entity_id: str) -> None:
-    """Add or update a single entity in the FAISS index incrementally.
-
-    Much faster than ``rebuild_index()`` because it only embeds one text
-    and appends/replaces one vector.  Stale duplicate entries (from
-    updates) are cleaned up on the next ``rebuild_index()`` call.
-    """
-    import faiss as _faiss
-
-    _VECTOR_DIR.mkdir(parents=True, exist_ok=True)
-    index_path = _VECTOR_DIR / "index.faiss"
-    map_path = _VECTOR_DIR / "id_map.json"
-    from row_bot.embedding_config import index_metadata_matches, write_index_metadata
-
-    entity = get_entity(entity_id)
-    if not entity:
-        return
-
-    emb = _get_embedding_model()
-    text = _entity_text(entity)
-    vec = np.array(emb.embed_query(text), dtype=np.float32).reshape(1, -1)
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-
-    with _faiss_lock:
-        # Load existing index, or create empty one
-        if index_path.exists() and map_path.exists() and index_metadata_matches(_VECTOR_DIR):
-            index = _faiss.read_index(str(index_path))
-            id_map: list[str] = json.loads(map_path.read_text())
-        else:
-            if index_path.exists() and not index_metadata_matches(_VECTOR_DIR):
-                logger.warning("Memory FAISS index is stale for active embedding model; starting compatible index")
-            dim = vec.shape[1]
-            index = _faiss.IndexFlatIP(dim)
-            id_map = []
-
-        # If entity already in id_map (update), remove old entry
-        if entity_id in id_map:
-            old_idx = id_map.index(entity_id)
-            # Rebuild without the old vector — IndexFlatIP doesn't
-            # support removal, so reconstruct from remaining vectors
-            n = index.ntotal
-            if n > 1:
-                all_vecs = np.vstack([index.reconstruct(i) for i in range(n) if i != old_idx])
-                new_map = [eid for i, eid in enumerate(id_map) if i != old_idx]
-                dim = all_vecs.shape[1]
-                index = _faiss.IndexFlatIP(dim)
-                index.add(all_vecs)
-                id_map = new_map
-            else:
-                dim = vec.shape[1]
-                index = _faiss.IndexFlatIP(dim)
-                id_map = []
-
-        # Append new vector
-        index.add(vec)
-        id_map.append(entity_id)
-
-        _faiss.write_index(index, str(index_path))
-        map_path.write_text(json.dumps(id_map))
-        write_index_metadata(_VECTOR_DIR)
 
 
-def _remove_from_index(entity_id: str) -> None:
-    """Remove a single entity from the FAISS index without full rebuild.
-
-    Much faster than ``rebuild_index()`` because it only reconstructs
-    existing vectors — no embedding calls needed.
-    """
-    import faiss as _faiss
-
-    index_path = _VECTOR_DIR / "index.faiss"
-    map_path = _VECTOR_DIR / "id_map.json"
-
-    with _faiss_lock:
-        if not index_path.exists() or not map_path.exists():
-            return
-        index = _faiss.read_index(str(index_path))
-        id_map: list[str] = json.loads(map_path.read_text())
-        if entity_id not in id_map:
-            return
-
-        old_idx = id_map.index(entity_id)
-        n = index.ntotal
-        if n > 1:
-            all_vecs = np.vstack(
-                [index.reconstruct(i) for i in range(n) if i != old_idx]
-            )
-            new_map = [eid for i, eid in enumerate(id_map) if i != old_idx]
-            dim = all_vecs.shape[1]
-            index = _faiss.IndexFlatIP(dim)
-            index.add(all_vecs)
-            id_map = new_map
-        else:
-            dim = index.d
-            index = _faiss.IndexFlatIP(dim)
-            id_map = []
-
-        _faiss.write_index(index, str(index_path))
-        map_path.write_text(json.dumps(id_map))
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -968,6 +1804,9 @@ def save_entity(
     tags: str = "",
     properties: dict | None = None,
     source: str = "live",
+    entity_id: str | None = None,
+    expected_user: dict | None = None,
+    validate: Callable[[], None] | None = None,
 ) -> dict:
     """Create a new entity in the knowledge graph.
 
@@ -1001,25 +1840,10 @@ def save_entity(
             f"Must be one of: {', '.join(sorted(VALID_ENTITY_TYPES))}"
         )
 
-    # Prevent duplicate User entities — redirect to update if one exists
-    if _normalize_subject(subject) == "user":
-        existing_user = find_by_subject(None, "User")
-        if existing_user:
-            # Merge description if new content adds info
-            old_desc = existing_user.get("description", "") or ""
-            new_desc = description.strip()
-            if new_desc and new_desc.lower() not in old_desc.lower():
-                merged = f"{old_desc}. {new_desc}".strip(". ") if old_desc else new_desc
-            else:
-                merged = old_desc
-            updated = update_entity(
-                existing_user["id"],
-                merged or old_desc,
-                entity_type="person",
-            )
-            return updated if updated else existing_user
+    strict_create = entity_id is not None or validate is not None
+    canonical_user = _normalize_subject(subject) == "user"
 
-    entity_id = uuid.uuid4().hex[:12]
+    entity_id = entity_id or uuid.uuid4().hex[:12]
     now = datetime.now().isoformat()
     props_json = json.dumps(properties or {})
 
@@ -1029,15 +1853,60 @@ def save_entity(
     _aliases = _sanitize_text(aliases.strip())
     _tags = _sanitize_text(tags.strip())
 
-    conn.execute(
-        "INSERT INTO entities "
-        "(id, entity_type, subject, description, aliases, tags, properties, source, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (entity_id, entity_type, _subject, _description,
-         _aliases, _tags, props_json, source.strip(), now, now),
-    )
-    conn.commit()
-    conn.close()
+    row = None
+    try:
+        if strict_create or canonical_user:
+            conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        if canonical_user:
+            # Resolve both legacy and reviewed User creates under the same
+            # SQLite writer admission. Never insert from an earlier read.
+            def matches_user(subject_value, aliases_value):
+                if strict_create and (len(subject_value or "") > 8192 or len(aliases_value or "") > 8192):
+                    raise ValueError("Entity identity exceeds review budget")
+                return int(any(_normalize_subject(value) == "user" for value in
+                               [subject_value or "", *(aliases_value or "").split(",")]))
+            conn.create_function("client_matches_user", 2, matches_user)
+            if strict_create:
+                deadline = time.monotonic() + 2.0
+                conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 1024 * 1024)
+                conn.set_progress_handler(lambda: time.monotonic() >= deadline, 1000)
+            current = conn.execute(
+                "SELECT * FROM entities WHERE client_matches_user(subject,aliases) "
+                "ORDER BY (entity_type='person') DESC,updated_at DESC,id LIMIT 1"
+            ).fetchone()
+            if strict_create:
+                conn.set_progress_handler(None, 0)
+                if (dict(current) if current else None) != expected_user:
+                    raise ValueError("Canonical User changed after review")
+                if current is not None:
+                    if validate is not None:
+                        validate()
+                    return dict(current)
+            elif current is not None:
+                old_desc = current["description"] or ""
+                new_desc = description.strip()
+                merged = old_desc
+                if new_desc and new_desc.lower() not in old_desc.lower():
+                    merged = f"{old_desc}. {new_desc}".strip(". ") if old_desc else new_desc
+                entity_id = current["id"]
+                conn.execute("UPDATE entities SET description=?,entity_type='person',updated_at=? WHERE id=?",
+                             (_sanitize_text(merged.strip()), now, entity_id))
+                row = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO entities "
+                "(id, entity_type, subject, description, aliases, tags, properties, source, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (entity_id, entity_type, _subject, _description,
+                 _aliases, _tags, props_json, source.strip(), now, now),
+            )
+        if validate is not None:
+            validate()
+        conn.commit()
+    finally:
+        conn.close()
 
     entity = {
         "id": entity_id,
@@ -1052,12 +1921,11 @@ def save_entity(
         "updated_at": now,
     }
 
+    if row is not None:
+        entity = dict(row)
     _upsert_fts_entity(entity)
 
     # Update NetworkX
-    with _graph_lock:
-        g = _ensure_graph()
-        g.add_node(entity_id, **entity)
 
     # Update FAISS (skipped during batch extraction)
     if not _skip_reindex:
@@ -1087,11 +1955,15 @@ def update_entity(
     tags: str | None = None,
     properties: dict | None = None,
     source: str | None = None,
+    expected_updated_at: str | None = None,
+    expected_entity: dict | None = None,
+    validate: Callable[[], None] | None = None,
 ) -> dict | None:
     """Update an existing entity's fields.
 
     Only ``description`` is required.  Pass other kwargs to update those
-    fields as well.  Returns the updated entity dict, or None if not found.
+    fields as well. Returns None if missing or an optional revision/snapshot
+    changed. The full snapshot also protects properties updated without a timestamp.
     """
     now = datetime.now().isoformat()
     fields = ["description = ?", "updated_at = ?"]
@@ -1119,35 +1991,82 @@ def update_entity(
         params.append(source.strip())
 
     params.append(entity_id)
+    revision_clause = ""
+    if expected_updated_at is not None:
+        revision_clause = " AND updated_at = ?"
+        params.append(expected_updated_at)
     conn = _get_conn()
-    cur = conn.execute(
-        f"UPDATE entities SET {', '.join(fields)} WHERE id = ?",
-        params,
-    )
-    conn.commit()
-    if cur.rowcount == 0:
+    try:
+        if expected_entity is not None or validate is not None:
+            conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        if expected_entity is not None:
+            current = conn.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
+            if current is None or dict(current) != expected_entity:
+                return None
+        cur = conn.execute(
+            f"UPDATE entities SET {', '.join(fields)} WHERE id = ?{revision_clause}",
+            params,
+        )
+        row = None
+        if cur.rowcount:
+            row = conn.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
+        if validate is not None:
+            validate()
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+    finally:
         conn.close()
-        return None
-
-    row = conn.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
-    conn.close()
 
     if row:
         entity = dict(row)
         _upsert_fts_entity(entity)
-        # Update NetworkX node
-        with _graph_lock:
-            g = _ensure_graph()
-            if entity_id in g:
-                g.nodes[entity_id].update(entity)
-            else:
-                g.add_node(entity_id, **entity)
         if not _skip_reindex:
             _upsert_index(entity_id)
         # Wiki vault export (non-blocking)
         _wiki_export_entity(entity)
         return entity
     return None
+
+
+def update_entity_properties_pair(first: tuple[dict, dict], second: tuple[dict, dict], *,
+                                  validate: Callable[[], None] | None = None) -> tuple[dict | None, dict | None]:
+    """Publish two reviewed property changes atomically in the canonical store."""
+    pairs = (first, second)
+    if first[0]["id"] == second[0]["id"]:
+        raise ValueError("Paired entity updates require distinct identities")
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        for expected, _props in pairs:
+            current = conn.execute("SELECT * FROM entities WHERE id=?", (expected["id"],)).fetchone()
+            if current is None or dict(current) != expected:
+                return None, None
+        now = datetime.now().isoformat()
+        for expected, props in pairs:
+            if validate is not None:
+                validate()
+            conn.execute("UPDATE entities SET properties=?,updated_at=? WHERE id=?",
+                         (json.dumps(props), now, expected["id"]))
+        rows = tuple(dict(conn.execute("SELECT * FROM entities WHERE id=?", (expected["id"],)).fetchone())
+                     for expected, _props in pairs)
+        if validate is not None:
+            validate()
+        conn.commit()
+    finally:
+        conn.close()
+    if not _skip_reindex and _projection_batch.get() is None:
+        # Both rows committed together: publish their bounded work together,
+        # rather than attempting incomplete one-row coverage twice.
+        _publish_vector_projection(entity_ids={entity["id"] for entity in rows}, max_embeddings=2)
+    for entity in rows:
+        _upsert_fts_entity(entity)
+        _wiki_export_entity(entity)
+    return rows
 
 
 def delete_entity(entity_id: str) -> bool:
@@ -1164,10 +2083,6 @@ def delete_entity(entity_id: str) -> bool:
     deleted = cur.rowcount > 0
     if deleted:
         _delete_fts_entity(entity_id)
-        with _graph_lock:
-            g = _ensure_graph()
-            if entity_id in g:
-                g.remove_node(entity_id)  # also removes incident edges
         if not _skip_reindex:
             _remove_from_index(entity_id)
         # Wiki vault cleanup
@@ -1176,45 +2091,75 @@ def delete_entity(entity_id: str) -> bool:
     return deleted
 
 
-def delete_entities_by_source(source: str) -> int:
+def delete_entities_by_source(source: str, *, retry_entities: list[dict] | None = None,
+                              validate: Callable[[], None] | None = None) -> int:
     """Delete all entities (and their relations via FK CASCADE) matching *source*.
 
     Re-syncs the NetworkX graph and rebuilds the FAISS index once at the end.
-    Returns the number of entities deleted.
+    Returns the number of entities deleted. A durable removal owner may supply
+    previously captured entities to retry projection/wiki cleanup after commit.
     """
     conn = _get_conn()
-    rows = conn.execute(
-        "SELECT id, entity_type, subject, description FROM entities WHERE source = ?",
-        (source,),
-    ).fetchall()
-    if not rows:
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        rows = conn.execute(
+            "SELECT * FROM entities WHERE source = ?",
+            (source,),
+        ).fetchall()
+        if not rows and retry_entities is None:
+            return 0
+
+        from row_bot import wiki_vault
+        if retry_entities is not None:
+            captured = {str(entity["id"]): entity for entity in retry_entities}
+            for row in rows:
+                expected = captured.get(str(row["id"]))
+                if expected is None or expected.get("wiki_revision") != wiki_vault._source_revision(dict(row)):
+                    raise ValueError("Derived knowledge changed after removal capture; preserve for review")
+
+        current_ids = [row["id"] for row in rows]
+        cleanup_entities = {}
+        for entity in retry_entities or []:
+            current = conn.execute("SELECT source FROM entities WHERE id=?", (str(entity["id"]),)).fetchone()
+            if current is None or current[0] == source:
+                cleanup_entities[str(entity["id"])] = entity
+        cleanup_entities.update({str(row["id"]): dict(dict(row), wiki_revision=wiki_vault._source_revision(dict(row)))
+                                 for row in rows})
+        conn.execute(
+            "DELETE FROM entities WHERE source = ?", (source,),
+        )
+        # Also delete relations that reference this source (orphaned by other docs)
+        conn.execute("DELETE FROM relations WHERE source = ?", (source,))
+        if validate is not None:
+            validate()
+        conn.commit()
+    finally:
         conn.close()
-        return 0
 
-    ids = [r[0] for r in rows]
-    conn.execute(
-        f"DELETE FROM entities WHERE id IN ({','.join('?' * len(ids))})", ids,
-    )
-    # Also delete relations that reference this source (orphaned by other docs)
-    conn.execute("DELETE FROM relations WHERE source = ?", (source,))
-    conn.commit()
-    conn.close()
 
-    with _graph_lock:
-        g = _ensure_graph()
-        for eid in ids:
-            if eid in g:
-                g.remove_node(eid)
-
-    if not _skip_reindex:
-        rebuild_index()
-    rebuild_fts_index()
+    if validate is None:
+        _remove_from_index("")
+        rebuild_fts_index()
+    else:
+        def cancelled():
+            validate()
+            return False
+        _remove_from_index("", cancelled=cancelled)
+        rebuild_fts_index(validate=validate)
 
     # Wiki vault cleanup
-    for r in rows:
-        _wiki_delete_entity(dict(zip(("id", "entity_type", "subject", "description"), r)))
+    for entity in cleanup_entities.values():
+        if validate is not None:
+            validate()
+        if retry_entities is None and validate is None:
+            _wiki_delete_entity(entity)
+        else:
+            wiki_vault.delete_entity_md(entity, only_if_entity_absent=True,
+                                       **({"validate": validate} if validate is not None else {}))
 
-    return len(ids)
+    return len(current_ids)
 
 
 def delete_entities_by_source_prefix(prefix: str) -> int:
@@ -1254,6 +2199,29 @@ def list_entities(
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def iter_entities_snapshot(
+    entity_type: str | None = None, *, batch_size: int = 256,
+) -> Iterator[dict]:
+    """Yield a complete, consistent SQLite snapshot in bounded read batches."""
+    if not 1 <= batch_size <= 1000:
+        raise ValueError("batch_size must be between 1 and 1000")
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        if entity_type:
+            cursor = conn.execute(
+                "SELECT * FROM entities WHERE entity_type = ? ORDER BY id",
+                (entity_type.lower().strip(),),
+            )
+        else:
+            cursor = conn.execute("SELECT * FROM entities ORDER BY id")
+        while rows := cursor.fetchmany(batch_size):
+            for row in rows:
+                yield dict(row)
+    finally:
+        conn.close()
 
 
 def list_entity_summaries(
@@ -1406,107 +2374,22 @@ def find_by_subject(
 
 # ── Auto-link helpers ────────────────────────────────────────────────────────
 
-def _ensure_user_entity() -> str:
+def _ensure_user_entity(*, validate: Callable[[], None] | None = None) -> str:
     """Return the ID of the canonical 'User' entity, creating it if needed."""
+    if validate is not None:
+        validate()
     existing = find_by_subject(None, "User")
     if existing:
         return existing["id"]
-    entity = save_entity("person", "User", "The user of this system")
+    entity = save_entity("person", "User", "The user of this system",
+                         **({"validate":validate} if validate is not None else {}))
     return entity["id"]
 
 
 
 
-def memory_vector_status() -> dict[str, object]:
-    """Return whether auto-recall can use the existing memory vector index."""
-    from row_bot.embedding_config import index_metadata_matches
-
-    index_path = _VECTOR_DIR / "index.faiss"
-    map_path = _VECTOR_DIR / "id_map.json"
-    if not index_path.exists() or not map_path.exists():
-        return {
-            "state": "missing",
-            "ready": False,
-            "detail": "The memory vector index has not been built.",
-        }
-    if not index_metadata_matches(_VECTOR_DIR):
-        return {
-            "state": "stale",
-            "ready": False,
-            "detail": "The memory vector index does not match the selected embedding model.",
-        }
-    return {
-        "state": "ready",
-        "ready": True,
-        "detail": "The memory vector index is ready.",
-    }
 
 
-def semantic_search(
-    query: str,
-    top_k: int = 5,
-    threshold: float = 0.5,
-    *,
-    for_auto_recall: bool = False,
-) -> list[dict]:
-    """Return the top-k entities most semantically similar to *query*.
-
-    Each result dict has an extra ``score`` key (cosine similarity, 0–1).
-    Only results with score >= *threshold* are returned.
-    """
-    import faiss as _faiss
-
-    index_path = _VECTOR_DIR / "index.faiss"
-    map_path = _VECTOR_DIR / "id_map.json"
-    vector_status = memory_vector_status()
-    if not vector_status["ready"]:
-        if for_auto_recall:
-            raise MemorySemanticUnavailable(
-                f"memory_index_{vector_status['state']}",
-                str(vector_status["detail"]),
-            )
-        rebuild_index()
-    if not index_path.exists():
-        return []
-
-    try:
-        with _faiss_lock:
-            index = _faiss.read_index(str(index_path))
-            if index.ntotal == 0:
-                return []
-            id_map: list[str] = json.loads(map_path.read_text())
-    except Exception as exc:
-        if for_auto_recall:
-            raise MemorySemanticUnavailable(
-                "memory_index_failed",
-                "The memory vector index could not be read.",
-            ) from exc
-        raise
-
-    emb = _get_embedding_model(for_auto_recall=for_auto_recall)
-    qvec = np.array(emb.embed_query(query), dtype=np.float32).reshape(1, -1)
-    qvec = qvec / (np.linalg.norm(qvec) or 1)
-
-    k = min(top_k, index.ntotal)
-    scores, indices = index.search(qvec, k)
-
-    results = []
-    _seen_ids: set[str] = set()
-    for score, idx in zip(scores[0], indices[0]):
-        if idx < 0 or idx >= len(id_map):
-            continue
-        if float(score) < threshold:
-            continue
-        eid = id_map[idx]
-        if eid in _seen_ids:
-            continue  # dedup stale vectors from incremental updates
-        _seen_ids.add(eid)
-        entity = get_entity(eid)
-        if entity:
-            entity["score"] = round(float(score), 4)
-            results.append(entity)
-
-    return results
 
 
 def find_duplicate(
@@ -1540,6 +2423,9 @@ def add_relation(
     confidence: float = 1.0,
     properties: dict | None = None,
     source: str = "live",
+    relation_id: str | None = None,
+    expected_entities: tuple[dict, dict] | None = None,
+    validate: Callable[[], None] | None = None,
 ) -> dict | None:
     """Create a directed relation (edge) between two entities.
 
@@ -1578,15 +2464,9 @@ def add_relation(
         )
         return None
 
-    # Validate both endpoints exist
+    strict = expected_entities is not None or validate is not None
     conn = _get_conn()
-    src = conn.execute("SELECT id FROM entities WHERE id = ?", (source_id,)).fetchone()
-    tgt = conn.execute("SELECT id FROM entities WHERE id = ?", (target_id,)).fetchone()
-    if not src or not tgt:
-        conn.close()
-        return None
-
-    rel_id = uuid.uuid4().hex[:12]
+    rel_id = relation_id or uuid.uuid4().hex[:12]
     now = datetime.now().isoformat()
     props_json = json.dumps(properties or {})
     relation_type = normalize_relation_type(relation_type)
@@ -1600,6 +2480,23 @@ def add_relation(
         )
 
     try:
+        if strict:
+            conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        endpoints = [conn.execute("SELECT * FROM entities WHERE id=?", (identifier,)).fetchone()
+                     for identifier in (source_id, target_id)]
+        if any(row is None for row in endpoints):
+            return None
+        if expected_entities is not None and tuple(dict(row) for row in endpoints) != expected_entities:
+            return None
+        if strict:
+            existing = conn.execute("SELECT * FROM relations WHERE source_id=? AND target_id=? AND relation_type=?",
+                                    (source_id, target_id, relation_type)).fetchone()
+            if existing is not None:
+                if validate is not None:
+                    validate()
+                return dict(existing)
         conn.execute(
             "INSERT INTO relations "
             "(id, source_id, target_id, relation_type, confidence, properties, source, created_at, updated_at) "
@@ -1607,13 +2504,16 @@ def add_relation(
             (rel_id, source_id, target_id, relation_type, confidence,
              props_json, source, now, now),
         )
+        if validate is not None:
+            validate()
         conn.commit()
     except sqlite3.IntegrityError:
-        # Duplicate edge — already exists, nothing to do
-        conn.close()
+        if strict:
+            raise
+        # Legacy duplicate-edge contract is unchanged.
         return None
-
-    conn.close()
+    finally:
+        conn.close()
 
     rel = {
         "id": rel_id,
@@ -1628,9 +2528,6 @@ def add_relation(
     }
 
     # Update NetworkX (use relation ID as edge key for deterministic removal)
-    with _graph_lock:
-        g = _ensure_graph()
-        g.add_edge(source_id, target_id, key=rel_id, **rel)
 
     # Re-export both endpoints so .md Connections sections stay current
     for eid in (source_id, target_id):
@@ -1693,31 +2590,33 @@ def get_relations(
     return results
 
 
-def delete_relation(relation_id: str) -> bool:
-    """Delete a relation by ID.  Returns True if deleted."""
+def delete_relation(relation_id: str, *, expected_relation: dict | None = None,
+                    expected_entities: tuple[dict, dict] | None = None,
+                    validate: Callable[[], None] | None = None) -> bool:
+    """Delete an exact relation, optionally guarded by edge/endpoint snapshots."""
     conn = _get_conn()
-    # Read before delete so we can update NetworkX
-    row = conn.execute("SELECT * FROM relations WHERE id = ?", (relation_id,)).fetchone()
-    if not row:
+    try:
+        if expected_relation is not None or expected_entities is not None or validate is not None:
+            conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        current = conn.execute("SELECT * FROM relations WHERE id=?", (relation_id,)).fetchone()
+        if current is None:
+            return False
+        row = dict(current)
+        if expected_relation is not None and row != expected_relation:
+            return False
+        if expected_entities is not None:
+            endpoints = [conn.execute("SELECT * FROM entities WHERE id=?", (row[key],)).fetchone()
+                         for key in ("source_id", "target_id")]
+            if any(value is None for value in endpoints) or tuple(dict(value) for value in endpoints) != expected_entities:
+                return False
+        conn.execute("DELETE FROM relations WHERE id=?", (relation_id,))
+        if validate is not None:
+            validate()
+        conn.commit()
+    finally:
         conn.close()
-        return False
-    row = dict(row)
-    conn.execute("DELETE FROM relations WHERE id = ?", (relation_id,))
-    conn.commit()
-    conn.close()
-
-    with _graph_lock:
-        g = _ensure_graph()
-        src, tgt = row["source_id"], row["target_id"]
-        # MultiDiGraph: remove by key (relation ID) to preserve parallel edges
-        if g.has_edge(src, tgt, key=relation_id):
-            g.remove_edge(src, tgt, key=relation_id)
-        elif g.has_edge(src, tgt):
-            # Fallback: edge exists but key doesn't match (legacy data)
-            # Find the edge with matching relation id
-            edge_keys = [k for k, d in g[src][tgt].items() if d.get("id") == relation_id]
-            for k in edge_keys:
-                g.remove_edge(src, tgt, key=k)
 
     # Re-export both endpoints so .md Connections sections stay current
     for eid in (row["source_id"], row["target_id"]):
@@ -2625,7 +3524,7 @@ def delete_all_entities() -> int:
 
     if count:
         rebuild_index()
-        _clear_fts_index()
+        rebuild_fts_index()
 
     # Clean wiki vault files
     try:

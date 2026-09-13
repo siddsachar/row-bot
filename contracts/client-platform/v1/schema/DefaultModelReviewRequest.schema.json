@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "model_id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "settings_revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Settings Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "settings_revision",
+    "provider_id",
+    "model_id"
+  ],
+  "title": "DefaultModelReviewRequest",
+  "type": "object"
+}

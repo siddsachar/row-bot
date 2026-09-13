@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from collections.abc import Callable
+import time
 
 import requests
 from requests import HTTPError
@@ -182,3 +184,42 @@ class OpenAIRealtimeProvider:
             error = event.get("error") if isinstance(event.get("error"), dict) else {}
             return RealtimeProviderEvent(type="error", text=str(error.get("message") or event.get("message") or "Realtime error"), raw=event)
         return None
+
+    def exchange_sdp(self, sdp: bytes, *, client_secret: str, validate: Callable[[], None]) -> bytes:
+        """One bounded SDP exchange using only the already admitted ephemeral key."""
+        from row_bot.voice.client_transport import DictationError
+        if (not isinstance(sdp, bytes) or not sdp.startswith(b"v=0") or len(sdp) > 1024 * 1024
+                or not isinstance(client_secret, str) or not 1 <= len(client_secret) <= 4096
+                or any(character in client_secret for character in "\r\n")):
+            raise DictationError("invalid_voice_sdp")
+        started = time.monotonic()
+        def current() -> None:
+            validate()
+            if time.monotonic() - started >= 25:
+                raise DictationError("realtime_exchange_timeout")
+        current()
+        # A read can remain blocked for at most five seconds beyond the last
+        # deadline check. Redirects and requests-level retries are not admitted.
+        response = requests.post(CALLS_URL, data=sdp, headers={"Authorization": "Bearer " + client_secret,
+            "Content-Type": "application/sdp", "Accept": "application/sdp"},
+            timeout=(5, 5), stream=True, allow_redirects=False)
+        try:
+            current()
+            if not 200 <= response.status_code < 300:
+                code = "realtime_auth_unavailable" if response.status_code in {401, 403} else \
+                    "realtime_quota_or_rate_limit" if response.status_code == 429 else "realtime_provider_unavailable"
+                raise DictationError(code)
+            if response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/sdp":
+                raise DictationError("invalid_voice_sdp")
+            data = bytearray()
+            for chunk in response.iter_content(chunk_size=16384):
+                current()
+                if len(data) + len(chunk) > 1024 * 1024:
+                    raise DictationError("voice_sdp_too_large")
+                data.extend(chunk)
+            current()
+            if not data.startswith(b"v=0"):
+                raise DictationError("invalid_voice_sdp")
+            return bytes(data)
+        finally:
+            response.close()

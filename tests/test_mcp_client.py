@@ -30,6 +30,10 @@ class McpClientFoundationTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._old_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
         os.environ["ROW_BOT_DATA_DIR"] = self._tmp.name
+        from row_bot import tasks
+        database = patch.object(tasks, "_DB_PATH", str(Path(self._tmp.name) / "tasks.db"))
+        database.start()
+        self.addCleanup(database.stop)
 
     def tearDown(self) -> None:
         try:
@@ -745,11 +749,12 @@ class McpClientFoundationTests(unittest.TestCase):
         server_script = Path(self._tmp.name, "stdio_echo_server.py")
         server_script.write_text(textwrap.dedent("""
             from mcp.server.fastmcp import FastMCP
+            from mcp.types import ToolAnnotations
 
             mcp = FastMCP("Row-Bot Test MCP")
 
 
-            @mcp.tool()
+            @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
             def echo(message: str) -> str:
                 return f"echo:{message}"
 

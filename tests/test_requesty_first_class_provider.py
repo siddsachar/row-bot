@@ -415,7 +415,8 @@ def test_requesty_settings_and_setup_wizard_are_wired():
     assert "requesty" in _api_key_provider_ids()
     assert _api_key_provider_action_state({"provider_id": "requesty"})["can_manage_api_key"] is True
     assert _api_key_provider_ui("requesty").validator_name == "validate_requesty_key"
-    assert "set_provider_secret(provider_id, \"api_key\", value" in provider_settings_source
+    assert "from row_bot.providers.credential_controls import save_api_key" in provider_settings_source
+    assert "status = save_api_key(provider_id, value)" in provider_settings_source
     assert "provider_key_saved" in provider_settings_source
     assert "Requesty API Key (optional)" in setup_source
     assert '("requesty", requesty_val)' in setup_source

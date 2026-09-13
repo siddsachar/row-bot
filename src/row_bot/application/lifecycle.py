@@ -30,17 +30,31 @@ def _close_live_content() -> None:
     close()
 
 
+def _close_client_voice() -> bool:
+    from row_bot.application.client_platform import client_platform_service
+    return client_platform_service.close_voice()
+
+
+def _close_client_settings() -> bool:
+    from row_bot.application.client_platform import client_platform_service
+    return client_platform_service.close_settings()
+
+
 class ApplicationLifecycle:
     """Recover durable facts before commands, then stop producers before views."""
 
     def __init__(self, *, registry: Any = generation_registry,
                  recover: Callable[[str], Any] = admissions.recover,
                  shutdown_inspector: Callable[[], Awaitable[None]] = _shutdown_inspector,
-                 close_live_content: Callable[[], None] = _close_live_content) -> None:
+                 close_live_content: Callable[[], None] = _close_live_content,
+                 close_voice: Callable[[], bool] = _close_client_voice,
+                 close_settings: Callable[[], bool] = _close_client_settings) -> None:
         self.registry = registry
         self._recover = recover
         self._shutdown_inspector = shutdown_inspector
         self._close_live_content = close_live_content
+        self._close_voice = close_voice
+        self._close_settings = close_settings
         self._lock = asyncio.Lock()
         self._started = False
         self._closed = False
@@ -61,6 +75,8 @@ class ApplicationLifecycle:
         """Request cancellation and report actual quiescence within a bounded wait."""
         async with self._lock:
             self._closed = True
+            voice_quiesced = self._close_voice()
+            settings_quiesced = self._close_settings()
             self.registry.shutdown()
             handles = self.registry.active()
             if handles:
@@ -75,11 +91,15 @@ class ApplicationLifecycle:
             pending = self.registry.active()
             if pending:
                 logger.warning("Headless shutdown has %d producers still stopping", len(pending))
-            elif not self._content_closed:
+            elif voice_quiesced and settings_quiesced and not self._content_closed:
                 self._close_live_content()
                 self._content_closed = True
-            return {"status": "stopping" if pending else "quiesced",
-                    "pending_executions": [handle.execution_id for handle in pending]}
+            if not voice_quiesced:
+                logger.warning("Client voice work is still stopping")
+            return {"status": "stopping" if pending or not voice_quiesced or not settings_quiesced else "quiesced",
+                    "pending_executions": [handle.execution_id for handle in pending],
+                    **({"pending_voice": True} if not voice_quiesced else {}),
+                    **({"pending_settings": True} if not settings_quiesced else {})}
 
 
 application_lifecycle = ApplicationLifecycle()

@@ -1,0 +1,84 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "publish",
+        "channel",
+        "x"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "channel_name": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Channel Name"
+    },
+    "delivery": {
+      "default": "link",
+      "enum": [
+        "link",
+        "slides",
+        "pdf",
+        "pptx",
+        "html"
+      ],
+      "title": "Delivery",
+      "type": "string"
+    },
+    "pages": {
+      "default": "all",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Pages",
+      "type": "string"
+    },
+    "pptx_mode": {
+      "default": "screenshot",
+      "enum": [
+        "screenshot",
+        "structured"
+      ],
+      "title": "Pptx Mode",
+      "type": "string"
+    },
+    "remote": {
+      "default": false,
+      "title": "Remote",
+      "type": "boolean"
+    },
+    "target": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target"
+    },
+    "text": {
+      "default": "",
+      "maxLength": 10000,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "ArtifactShareOptions",
+  "type": "object"
+}

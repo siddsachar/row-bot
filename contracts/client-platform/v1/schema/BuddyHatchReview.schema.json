@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "full",
+        "motion",
+        "still",
+        "remove"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "config_revision": {
+      "maxLength": 128,
+      "title": "Config Revision",
+      "type": "string"
+    },
+    "image_model": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Image Model"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "provider_calls": {
+      "maximum": 7,
+      "minimum": 0,
+      "title": "Provider Calls",
+      "type": "integer"
+    },
+    "review_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Review Id",
+      "type": "string"
+    },
+    "video_model": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Video Model"
+    }
+  },
+  "required": [
+    "review_id",
+    "action",
+    "config_revision",
+    "image_model",
+    "video_model",
+    "provider_calls",
+    "nonce"
+  ],
+  "title": "BuddyHatchReview",
+  "type": "object"
+}

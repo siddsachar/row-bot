@@ -1329,6 +1329,10 @@ from row_bot.api.v1.routes import install_client_platform
 from row_bot.application.client_platform import client_platform_service
 from row_bot.application.folder_selections import FolderSelections
 from row_bot.native_client import select_existing_workspace_folder
+from row_bot.voice.browser_local import get_browser_local_voice_service
+
+client_platform_service.bind_voice(state.voice_coordinator,
+                                   browser_service=get_browser_local_voice_service)
 
 install_client_platform(app, client_platform_service, instance_id=client_platform_service.instance_id,
                         folder_selections=FolderSelections(picker=select_existing_workspace_folder))

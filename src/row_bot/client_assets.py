@@ -152,14 +152,19 @@ def default_client_asset_root() -> Path:
 
 
 def _shell_headers(content: bytes) -> dict[str, str]:
+    from row_bot.designer.runtime.loader import runtime_script_csp_source
+
     parser = _ShellScripts()
     parser.feed(content.decode("utf-8"))
     hashes = " ".join("'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
                       for script in parser.inline)
+    # srcdoc inherits this policy. The exact packaged runtime is injected after
+    # sanitation; arbitrary generated scripts never receive permission.
+    hashes += " " + runtime_script_csp_source()
     return {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
             "font-src 'self' data:; object-src 'none'; frame-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
 
 
@@ -176,7 +181,7 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
     try:
         assets = load_client_assets(asset_root or default_client_asset_root())
         shell_headers = _shell_headers(assets["index.html"].content)
-    except (AssetValidationError, UnicodeError):
+    except (AssetValidationError, UnicodeError, OSError):
         assets = {}
         shell_headers = {}
 

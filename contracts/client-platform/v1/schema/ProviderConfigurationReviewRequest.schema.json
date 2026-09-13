@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "ProviderEndpointFields": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_required": {
+          "default": false,
+          "title": "Auth Required",
+          "type": "boolean"
+        },
+        "base_url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "context_window": {
+          "anyOf": [
+            {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Window"
+        },
+        "display_name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint_id": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Endpoint Id",
+          "type": "string"
+        },
+        "execution_location": {
+          "default": "local",
+          "enum": [
+            "local",
+            "remote"
+          ],
+          "title": "Execution Location",
+          "type": "string"
+        },
+        "extra_body_json": {
+          "default": "{}",
+          "maxLength": 16384,
+          "title": "Extra Body Json",
+          "type": "string"
+        },
+        "profile": {
+          "default": "generic_openai",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Profile",
+          "type": "string"
+        },
+        "reasoning_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Reasoning Mode",
+          "type": "string"
+        },
+        "supports_reasoning_content": {
+          "default": false,
+          "title": "Supports Reasoning Content",
+          "type": "boolean"
+        },
+        "supports_reasoning_replay": {
+          "default": false,
+          "title": "Supports Reasoning Replay",
+          "type": "boolean"
+        },
+        "thinking_budget": {
+          "anyOf": [
+            {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thinking Budget"
+        },
+        "tool_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Tool Mode",
+          "type": "string"
+        },
+        "vision_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Vision Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "endpoint_id",
+        "display_name",
+        "base_url"
+      ],
+      "title": "ProviderEndpointFields",
+      "type": "object"
+    },
+    "ProviderEndpointIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "endpoint_id": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Endpoint Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "endpoint_id"
+      ],
+      "title": "ProviderEndpointIdentity",
+      "type": "object"
+    },
+    "ProviderModelPin": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "surface": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Surface",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_id",
+        "surface"
+      ],
+      "title": "ProviderModelPin",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "fields": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProviderEndpointFields"
+        },
+        {
+          "$ref": "#/$defs/ProviderEndpointIdentity"
+        },
+        {
+          "$ref": "#/$defs/ProviderModelPin"
+        }
+      ],
+      "title": "Fields"
+    },
+    "operation": {
+      "enum": [
+        "provider.endpoint.create",
+        "provider.endpoint.save",
+        "provider.endpoint.delete",
+        "provider.endpoint.probe",
+        "provider.endpoint.refresh",
+        "provider.model.pin",
+        "provider.model.unpin"
+      ],
+      "title": "Operation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation",
+    "configuration_revision",
+    "fields"
+  ],
+  "title": "ProviderConfigurationReviewRequest",
+  "type": "object"
+}

@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "ProviderEndpointFields": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_required": {
+          "default": false,
+          "title": "Auth Required",
+          "type": "boolean"
+        },
+        "base_url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "context_window": {
+          "anyOf": [
+            {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Window"
+        },
+        "display_name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint_id": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Endpoint Id",
+          "type": "string"
+        },
+        "execution_location": {
+          "default": "local",
+          "enum": [
+            "local",
+            "remote"
+          ],
+          "title": "Execution Location",
+          "type": "string"
+        },
+        "extra_body_json": {
+          "default": "{}",
+          "maxLength": 16384,
+          "title": "Extra Body Json",
+          "type": "string"
+        },
+        "profile": {
+          "default": "generic_openai",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Profile",
+          "type": "string"
+        },
+        "reasoning_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Reasoning Mode",
+          "type": "string"
+        },
+        "supports_reasoning_content": {
+          "default": false,
+          "title": "Supports Reasoning Content",
+          "type": "boolean"
+        },
+        "supports_reasoning_replay": {
+          "default": false,
+          "title": "Supports Reasoning Replay",
+          "type": "boolean"
+        },
+        "thinking_budget": {
+          "anyOf": [
+            {
+              "maximum": 10000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thinking Budget"
+        },
+        "tool_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Tool Mode",
+          "type": "string"
+        },
+        "vision_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Vision Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "endpoint_id",
+        "display_name",
+        "base_url"
+      ],
+      "title": "ProviderEndpointFields",
+      "type": "object"
+    },
+    "ProviderEndpointSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "$ref": "#/$defs/ProviderEndpointFields"
+        },
+        "model_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Count"
+        },
+        "probe_state": {
+          "enum": [
+            "agent_ready",
+            "chat_only",
+            "unavailable",
+            "unknown"
+          ],
+          "title": "Probe State",
+          "type": "string"
+        },
+        "provider_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "fields",
+        "probe_state",
+        "model_count"
+      ],
+      "title": "ProviderEndpointSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ProviderEndpointSnapshot"
+      },
+      "maxItems": 20,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "profiles": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Profiles",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items",
+    "total",
+    "next_cursor",
+    "profiles"
+  ],
+  "title": "ProviderConfigurationPage",
+  "type": "object"
+}

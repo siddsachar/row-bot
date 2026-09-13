@@ -25,7 +25,7 @@ export default function ResourceTargets({
         const current = choices.find((resource) =>
           selected.includes(resource.binding.binding_id),
         );
-        const label = kind === 'artifact' ? 'Deck' : 'Folder';
+        const label = kind === 'artifact' ? 'Design' : 'Folder';
         const currentName = current
           ? `${current.title}${choices.filter((other) => other.title === current.title).length > 1 ? ` · ${current.binding.resource_id}` : ''}${current.available ? '' : ' (unavailable)'}`
           : 'None';

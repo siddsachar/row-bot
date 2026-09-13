@@ -462,8 +462,6 @@ def open_settings(
         load_processed_files,
         rebuild_vector_store_from_vault,
         release_document_embedding_resources,
-        remove_document,
-        reset_vector_store,
     )
     from row_bot.embedding_config import (
         CLOUD_MODELS,
@@ -1487,25 +1485,10 @@ def open_settings(
                         def _make_delete(
                             doc_id=identifier,
                             name=display_name,
-                            legacy=is_legacy,
                         ):
-                            async def _do_delete():
-                                import row_bot.knowledge_graph as kg
-                                n = ui.notification(f"Removing {name}...", type="ongoing", spinner=True, timeout=None)
-                                try:
-                                    await run.io_bound(remove_document, doc_id)
-                                    source = (
-                                        f"document:{name}"
-                                        if legacy
-                                        else f"document:{doc_id}"
-                                    )
-                                    await run.io_bound(kg.delete_entities_by_source, source)
-                                    n.dismiss()
-                                    ui.notify(f"Removed {name}", type="info")
-                                    _reopen("Documents")
-                                except Exception as exc:
-                                    n.dismiss()
-                                    ui.notify(f"Delete failed: {exc}", type="negative")
+                            def _do_delete():
+                                from row_bot.ui.document_removal import open_document_removal
+                                open_document_removal(doc_id, name, lambda: _reopen("Documents"))
                             return _do_delete
 
                         ui.button(icon="delete", on_click=_make_delete()).props(
@@ -1529,16 +1512,12 @@ def open_settings(
                 _clearing_docs = True
                 try:
                     confirm = await ui.run_javascript(
-                        "confirm('Clear ALL documents? This will remove all indexed files and their extracted knowledge. This cannot be undone.')",
+                        "confirm('Remove ALL documents from search and delete their extracted knowledge? Local recovery copies will be retained.')",
                         timeout=30,
                     )
                     if confirm:
-                        import row_bot.knowledge_graph as kg
-                        reset_vector_store()
-                        document_job_service.clear_document_records()
-                        kg.delete_entities_by_source_prefix("document:")
-                        ui.notify("All documents and extracted knowledge cleared.", type="info")
-                        _reopen("Documents")
+                        from row_bot.ui.document_removal import open_document_removal
+                        open_document_removal(None, "all documents", lambda: _reopen("Documents"))
                 finally:
                     _clearing_docs = False
 
@@ -4769,7 +4748,6 @@ def open_settings(
                         _metric_chip("conversations", conv_count, icon="forum")
 
             # ── Vault sync detection ──────────────────────────────
-            edited = []
             sync_container = ui.column().classes("w-full")
 
             def _check_vault_sync() -> None:
@@ -4787,13 +4765,27 @@ def open_settings(
                     ui.label(
                         f"{len(edited_now)} file{'s' if len(edited_now) != 1 else ''} edited in vault."
                     ).classes("text-warning text-sm")
+                    from row_bot.ui.wiki_review import open_wiki_import_review
+                    for item in edited_now:
+                        with ui.row().classes("w-full items-center gap-2"):
+                            ui.label(item.get("subject") or "Untitled article").classes("flex-1")
+                            ui.label(
+                                "Review required" if item.get("status") in {"conflict", "legacy_review"}
+                                else "Vault edit"
+                            ).classes("text-sm text-grey-6")
+                            ui.button(
+                                "Review versions", icon="compare_arrows",
+                                on_click=lambda _event=None, value=item: open_wiki_import_review(
+                                    value, on_saved=lambda: _reopen("Knowledge")),
+                            ).props("flat dense no-caps")
 
                     def _sync_vault_now():
                         try:
                             result = wiki_vault.sync_all_from_vault()
                             ui.notify(
-                                f"Synced {result['synced']} file(s) from vault",
-                                type="positive",
+                                f"Synced {result['synced']} file(s) from vault. "
+                                f"{result['failed']} file(s) need review or could not be imported.",
+                                type="warning" if result["failed"] else "positive",
                             )
                             _reopen("Knowledge")
                         except Exception as exc:
@@ -4809,33 +4801,6 @@ def open_settings(
                     icon="sync",
                     on_click=_check_vault_sync,
                 ).props("flat dense no-caps")
-            if edited:
-                with ui.card().classes("w-full bg-amber-1 border-l-4").style("border-color: #ff9800"):
-                    with ui.row().classes("items-center gap-2"):
-                        ui.icon("sync_problem", color="amber-8").classes("text-lg")
-                        ui.label(
-                            f"{len(edited)} file{'s' if len(edited) != 1 else ''} edited in vault"
-                        ).classes("font-bold text-amber-10")
-                    ui.label(
-                        f"These files were modified outside {APP_DISPLAY_NAME}. "
-                        "Sync to import changes into the knowledge graph."
-                    ).classes("text-xs text-grey-7")
-
-                    def _sync_vault():
-                        try:
-                            result = wiki_vault.sync_all_from_vault()
-                            ui.notify(
-                                f"✅ Synced {result['synced']} file(s) from vault",
-                                type="positive",
-                            )
-                            _reopen("Knowledge")
-                        except Exception as exc:
-                            ui.notify(f"Sync failed: {exc}", type="negative")
-
-                    ui.button("🔄 Sync from Vault", on_click=_sync_vault).props(
-                        "flat color=amber-8"
-                    )
-
             with ui.row().classes("gap-2"):
                 def _rebuild():
                     try:

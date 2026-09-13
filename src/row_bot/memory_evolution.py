@@ -6,11 +6,10 @@ so memory.py and older callers stay compatible.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import json
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -243,17 +242,36 @@ def append_journal(
         logger.debug("Failed to append memory evolution journal", exc_info=True)
 
 
-def _update_entity_properties(entity_id: str, props: dict[str, Any]) -> dict | None:
+def _update_entity_properties(entity_id: str, props: dict[str, Any], *, expected_entity: dict | None = None,
+                              validate: Callable[[], None] | None = None) -> dict | None:
     import row_bot.knowledge_graph as kg
 
-    entity = kg.get_entity(entity_id)
+    entity = expected_entity if expected_entity is not None else kg.get_entity(entity_id)
     if not entity:
         return None
     return kg.update_entity(
         entity_id,
         entity.get("description", "") or "",
         properties=props,
+        **({"expected_entity": expected_entity} if expected_entity is not None else {}),
+        **({"validate": validate} if validate is not None else {}),
     )
+
+
+def status_properties(entity: dict, status: str, *, reason: str = "", extra: dict | None = None) -> dict:
+    """Prepare existing lifecycle properties without performing a write."""
+    props = normalize_properties(
+        get_properties(entity),
+        source=entity.get("source", ""),
+        entity_type=entity.get("entity_type", ""),
+    )
+    props["status"] = normalize_status(status)
+    props["last_evolved_at"] = now_iso()
+    if reason:
+        props["review_reason" if props["status"] == "needs_review" else "evolution_reason"] = reason
+    if extra:
+        props.update(extra)
+    return props
 
 
 def set_status(
@@ -263,25 +281,21 @@ def set_status(
     reason: str = "",
     actor: str = "system",
     extra: dict | None = None,
+    expected_entity: dict | None = None,
+    validate: Callable[[], None] | None = None,
 ) -> dict | None:
     import row_bot.knowledge_graph as kg
 
-    entity = kg.get_entity(entity_id)
+    entity = expected_entity if expected_entity is not None else kg.get_entity(entity_id)
     if not entity:
         return None
-    props = normalize_properties(
-        get_properties(entity),
-        source=entity.get("source", ""),
-        entity_type=entity.get("entity_type", ""),
-    )
-    old_status = props.get("status", "active")
-    props["status"] = normalize_status(status)
-    props["last_evolved_at"] = now_iso()
-    if reason:
-        props["review_reason" if props["status"] == "needs_review" else "evolution_reason"] = reason
-    if extra:
-        props.update(extra)
-    updated = _update_entity_properties(entity_id, props)
+    old_status = normalize_status(get_properties(entity).get("status"))
+    props = status_properties(entity, status, reason=reason, extra=extra)
+    updated = _update_entity_properties(entity_id, props, expected_entity=expected_entity, validate=validate)
+    if updated is None:
+        return None
+    if validate is not None:
+        validate()
     append_journal(
         "set_status",
         entity_id=entity_id,
@@ -300,6 +314,7 @@ def mark_needs_review(
     *,
     actor: str = "system",
     incoming: dict | None = None,
+    validate: Callable[[], None] | None = None,
 ) -> dict | None:
     extra = {"review_reason": reason[:500]}
     if incoming:
@@ -308,23 +323,12 @@ def mark_needs_review(
             for key in ("subject", "category", "entity_type", "content", "description", "source")
             if incoming.get(key)
         }
-    return set_status(entity_id, "needs_review", reason=reason, actor=actor, extra=extra)
+    return set_status(entity_id, "needs_review", reason=reason, actor=actor, extra=extra,
+                       **({"validate":validate} if validate is not None else {}))
 
 
-def mark_superseded(
-    old_id: str,
-    new_id: str,
-    *,
-    reason: str = "",
-    actor: str = "system",
-) -> tuple[dict | None, dict | None]:
-    import row_bot.knowledge_graph as kg
-
-    old = kg.get_entity(old_id)
-    new = kg.get_entity(new_id)
-    if not old or not new:
-        return None, None
-
+def superseded_properties(old: dict, new: dict) -> tuple[dict, dict]:
+    """Prepare the existing two-sided supersession properties without writes."""
     old_props = normalize_properties(
         get_properties(old),
         source=old.get("source", ""),
@@ -335,17 +339,42 @@ def mark_superseded(
         source=new.get("source", ""),
         entity_type=new.get("entity_type", ""),
     )
-    old_status = old_props.get("status", "active")
     old_props["status"] = "superseded"
-    old_props["superseded_by"] = new_id
+    old_props["superseded_by"] = new["id"]
     old_props["last_evolved_at"] = now_iso()
-    supersedes = list(dict.fromkeys([*(new_props.get("supersedes") or []), old_id]))
+    supersedes = list(dict.fromkeys([*(new_props.get("supersedes") or []), old["id"]]))
     new_props["supersedes"] = supersedes[:SUPERSEDES_MAX_ITEMS]
     new_props["status"] = normalize_status(new_props.get("status"))
     new_props["last_evolved_at"] = now_iso()
 
-    updated_old = _update_entity_properties(old_id, old_props)
-    updated_new = _update_entity_properties(new_id, new_props)
+    return old_props, new_props
+
+
+def mark_superseded(
+    old_id: str,
+    new_id: str,
+    *,
+    reason: str = "",
+    actor: str = "system",
+    expected_entities: tuple[dict, dict] | None = None,
+    validate: Callable[[], None] | None = None,
+) -> tuple[dict | None, dict | None]:
+    import row_bot.knowledge_graph as kg
+
+    old = expected_entities[0] if expected_entities is not None else kg.get_entity(old_id)
+    new = expected_entities[1] if expected_entities is not None else kg.get_entity(new_id)
+    if old_id == new_id or (expected_entities is not None and (old["id"], new["id"]) != (old_id, new_id)):
+        return None, None
+    if not old or not new:
+        return None, None
+
+    old_status = normalize_status(get_properties(old).get("status"))
+    old_props, new_props = superseded_properties(old, new)
+    updated_old, updated_new = kg.update_entity_properties_pair((old, old_props), (new, new_props), validate=validate)
+    if not updated_old or not updated_new:
+        return updated_old, updated_new
+    if validate is not None:
+        validate()
     append_journal(
         "supersede",
         entity_ids=[old_id, new_id],
@@ -359,19 +388,10 @@ def mark_superseded(
     return updated_old, updated_new
 
 
-def mark_user_modified(
-    entity_id: str,
-    *,
-    actor: str = "manual",
-    source_context: dict | None = None,
-    status: str | None = "active",
-) -> dict | None:
-    import row_bot.knowledge_graph as kg
-
-    entity = kg.get_entity(entity_id)
-    if not entity:
-        return None
-    props = merge_properties(
+def user_modified_properties(entity: dict, *, actor: str = "manual", source_context: dict | None = None,
+                             status: str | None = "active") -> dict:
+    """Prepare the canonical manual-edit provenance for one atomic save."""
+    return merge_properties(
         get_properties(entity),
         {"status": status or "active"},
         source=entity.get("source", ""),
@@ -380,7 +400,28 @@ def mark_user_modified(
         source_context=source_context,
         high_authority=True,
     )
-    updated = _update_entity_properties(entity_id, props)
+
+
+def mark_user_modified(
+    entity_id: str,
+    *,
+    actor: str = "manual",
+    source_context: dict | None = None,
+    status: str | None = "active",
+    expected_entity: dict | None = None,
+    validate: Callable[[], None] | None = None,
+) -> dict | None:
+    import row_bot.knowledge_graph as kg
+
+    entity = expected_entity if expected_entity is not None else kg.get_entity(entity_id)
+    if not entity:
+        return None
+    props = user_modified_properties(entity, actor=actor, source_context=source_context, status=status)
+    updated = _update_entity_properties(entity_id, props, expected_entity=expected_entity, validate=validate)
+    if updated is None:
+        return None
+    if validate is not None:
+        validate()
     append_journal(
         "user_modified",
         entity_id=entity_id,

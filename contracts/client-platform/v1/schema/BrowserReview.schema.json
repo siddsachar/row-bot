@@ -1,0 +1,103 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "browser.navigate",
+        "browser.take_over",
+        "browser.check",
+        "browser.back",
+        "browser.end"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "approval_required": {
+      "const": true,
+      "title": "Approval Required",
+      "type": "boolean"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "origin_and_path": {
+      "maxLength": 2048,
+      "title": "Origin And Path",
+      "type": "string"
+    },
+    "policy_action": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Policy Action",
+      "type": "string"
+    },
+    "policy_decision": {
+      "enum": [
+        "allow",
+        "ask"
+      ],
+      "title": "Policy Decision",
+      "type": "string"
+    },
+    "policy_reason": {
+      "maxLength": 512,
+      "title": "Policy Reason",
+      "type": "string"
+    },
+    "query_present": {
+      "title": "Query Present",
+      "type": "boolean"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "conversation_id",
+    "revision",
+    "policy_action",
+    "policy_decision",
+    "policy_reason",
+    "approval_required",
+    "origin_and_path",
+    "query_present",
+    "disclosures",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "BrowserReview",
+  "type": "object"
+}

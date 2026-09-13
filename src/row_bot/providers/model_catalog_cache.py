@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 CACHE_VERSION = 1
 CATALOG_CACHE_TTL_SECONDS = 6 * 60 * 60
-_DATA_DIR = get_row_bot_data_dir()
+_DATA_DIR = get_row_bot_data_dir(create=False)
 CATALOG_CACHE_PATH = _DATA_DIR / "model_catalog_cache.json"
 
 _refresh_lock = threading.Lock()
@@ -70,18 +70,35 @@ def empty_catalog_cache() -> CatalogCacheSnapshot:
     )
 
 
-def read_model_catalog_cache(path: pathlib.Path | None = None) -> CatalogCacheSnapshot:
+def read_model_catalog_cache(
+    path: pathlib.Path | None = None, *, allow_runtime_bootstrap: bool = True,
+    max_bytes: int | None = None,
+) -> CatalogCacheSnapshot:
+    """Read saved catalog metadata; passive clients must disable runtime bootstrap."""
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
+        raise ValueError("invalid_catalog_read_limit")
     cache_path = path or CATALOG_CACHE_PATH
     try:
         if cache_path.exists():
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            if max_bytes is None:
+                payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            else:
+                with cache_path.open("rb") as source:
+                    captured = source.read(max_bytes + 1)
+                if len(captured) > max_bytes:
+                    return empty_catalog_cache()
+                payload = json.loads(captured.decode("utf-8"))
             snapshot = _snapshot_from_payload(payload)
             if snapshot.version == CACHE_VERSION:
                 return snapshot
             logger.warning("Ignoring model catalog cache with unsupported version: %s", snapshot.version)
     except Exception:
+        if max_bytes is not None:
+            # The bounded passive path never returns truncated metadata, logs
+            # private paths/content, or falls back to another runtime snapshot.
+            return empty_catalog_cache()
         logger.warning("Failed to load model catalog cache from %s", cache_path, exc_info=True)
-    return _bootstrap_snapshot_from_runtime()
+    return _bootstrap_snapshot_from_runtime() if allow_runtime_bootstrap else empty_catalog_cache()
 
 
 def write_model_catalog_cache(snapshot: CatalogCacheSnapshot, path: pathlib.Path | None = None) -> None:
