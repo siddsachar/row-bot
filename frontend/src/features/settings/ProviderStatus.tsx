@@ -54,7 +54,7 @@ export default function ProviderStatus({
   }, [load, reload]);
   return (
     <div className="stack" aria-busy={loading} id="provider-saved-status">
-      <h1>Providers</h1>
+      <h2>Provider connections</h2>
       {notice && <p role="status">{notice}</p>}
       {selected && owner ? (
         <Credentials

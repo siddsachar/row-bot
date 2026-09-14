@@ -324,7 +324,7 @@ it.each([
     );
     const choices = await menu('Model');
     const unavailable = choices.getByRole('menuitem', {
-      name: 'No cached models. Open Models in Preferences.',
+      name: 'No cached models. Open Models in Settings.',
     });
     expect(unavailable).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(unavailable);

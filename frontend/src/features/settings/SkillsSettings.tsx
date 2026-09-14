@@ -513,7 +513,7 @@ export default function SkillsSettings({
       aria-label="Skills settings"
       aria-busy={Boolean(state.busy)}
     >
-      <h1>Skills</h1>
+      <h2>Skill library</h2>
       <p>
         Choose which saved workflows are available, pin defaults for new work,
         and review every library change before it is saved.

@@ -132,7 +132,7 @@ export default function ModelCatalog({
   }
   return (
     <div className="stack" aria-busy={loading}>
-      <h1>Models</h1>
+      <h2>Model catalogue</h2>
       <p>
         Search the locally saved catalog. Choose a model for a conversation in
         that conversation’s controls.

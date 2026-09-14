@@ -140,7 +140,7 @@ export function SavedCatalog<P extends SavedPage>({
 
   return (
     <div className="stack" aria-busy={loading || loadingMore}>
-      <h1>{title}</h1>
+      <h2>{title}</h2>
       <p>{description}</p>
       <form
         className="field-row"

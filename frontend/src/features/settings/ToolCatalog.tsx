@@ -122,7 +122,7 @@ export default function ToolCatalog({
 
   return (
     <div className="stack" aria-busy={loading || loadingMore}>
-      <h1>Tools</h1>
+      <h2>Tool catalogue</h2>
       <p>
         Browse cached tool information by source. Runtime readiness and account
         access have not been checked.

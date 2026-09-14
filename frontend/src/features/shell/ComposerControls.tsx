@@ -127,7 +127,7 @@ export default function ComposerControls({
               }))
             : [
                 {
-                  label: 'No cached models. Open Models in Preferences.',
+                  label: 'No cached models. Open Models in Settings.',
                   disabled: true,
                   onSelect: () => {},
                 },

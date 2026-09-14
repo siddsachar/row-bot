@@ -64,7 +64,7 @@ function VoiceSurface({
 }) {
   return (
     <>
-      <h1>Voice</h1>
+      <h2>Voice capabilities</h2>
       <p>
         Voice sessions stay attached to one conversation. Opening this page
         never starts a microphone, provider session, or audio output.
@@ -136,7 +136,7 @@ function AccountsSurface() {
 
   return (
     <>
-      <h1>Accounts</h1>
+      <h2>Account connections</h2>
       <p>
         Account status is read from saved local metadata. A provider is
         contacted only after an explicit reviewed sign-in or check.
@@ -212,7 +212,7 @@ function AccountsSurface() {
 function TrackerSurface({ available }: { available: boolean | undefined }) {
   return (
     <>
-      <h1>Tracker</h1>
+      <h2>Tracker capabilities</h2>
       <p>
         Tracker records are local data. A hosted provider sees tracker details
         only when a conversation or tool request explicitly includes them.
@@ -269,7 +269,7 @@ function UtilitiesSurface({
 }) {
   return (
     <>
-      <h1>Utilities</h1>
+      <h2>Utility capabilities</h2>
       <p>
         Utility availability comes from the saved capability catalogue. Opening
         this page never refreshes a provider or runs a utility.
@@ -320,7 +320,7 @@ function SystemSurface({
 }) {
   return (
     <>
-      <h1>System</h1>
+      <h2>System boundaries</h2>
       <p>
         Host access controls are security-sensitive and stay with their current
         owner. This page does not broaden filesystem, shell, browser, network,

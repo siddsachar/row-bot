@@ -1,72 +1,93 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Button, Field, Input, Select } from '../../ui/primitives';
+import { Button, Field, Select } from '../../ui/primitives';
 import { useTheme } from '../../ui/theme';
 import { useOverlay } from '../../ui/overlays';
 import type { Accent, Appearance } from '../../ui/theme-model';
-import { searchSettings } from './model';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 
 export default function Preferences({ onReset }: { onReset?: () => void }) {
   const { preference, update } = useTheme();
-  const { open, close, notify } = useOverlay();
-  const [query, setQuery] = useState('');
+  const { open, notify } = useOverlay();
+  const workspaceActions = useWorkspaceActions();
+  const reset = onReset ?? workspaceActions?.resetLayout;
   return (
-    <div className="stack">
-      <div className="field-row">
-        <Field label="Appearance">
-          <Select
-            value={preference.appearance}
-            onChange={(event) =>
-              update({ appearance: event.target.value as Appearance })
-            }
+    <div className="stack settings-preferences">
+      <section
+        className="settings-section stack"
+        aria-labelledby="appearance-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <h2 id="appearance-heading">Appearance</h2>
+            <p>Choose how this client looks on this device.</p>
+          </div>
+        </div>
+        <div className="field-row">
+          <Field label="Appearance">
+            <Select
+              value={preference.appearance}
+              onChange={(event) =>
+                update({ appearance: event.target.value as Appearance })
+              }
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </Select>
+          </Field>
+          <Field label="Colour theme">
+            <Select
+              value={preference.accent}
+              onChange={(event) =>
+                update({ accent: event.target.value as Accent })
+              }
+            >
+              <option value="blue">Blue</option>
+              <option value="teal">Teal</option>
+              <option value="violet">Violet</option>
+              <option value="amber">Amber</option>
+            </Select>
+          </Field>
+          <Field
+            label="Density"
+            hint="Touch controls always keep their full size."
           >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </Select>
-        </Field>
-        <Field label="Colour theme">
-          <Select
-            value={preference.accent}
+            <Select
+              value={preference.density}
+              onChange={(event) =>
+                update({
+                  density: event.target.value as 'comfortable' | 'compact',
+                })
+              }
+            >
+              <option value="comfortable">Comfortable</option>
+              <option value="compact">Compact</option>
+            </Select>
+          </Field>
+        </div>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={preference.reduce_transparency}
             onChange={(event) =>
-              update({ accent: event.target.value as Accent })
+              update({ reduce_transparency: event.target.checked })
             }
-          >
-            <option value="blue">Blue</option>
-            <option value="teal">Teal</option>
-            <option value="violet">Violet</option>
-            <option value="amber">Amber</option>
-          </Select>
-        </Field>
-        <Field
-          label="Density"
-          hint="Touch controls always keep their full size."
-        >
-          <Select
-            value={preference.density}
-            onChange={(event) =>
-              update({
-                density: event.target.value as 'comfortable' | 'compact',
-              })
-            }
-          >
-            <option value="comfortable">Comfortable</option>
-            <option value="compact">Compact</option>
-          </Select>
-        </Field>
-      </div>
-      <label className="check-field">
-        <input
-          type="checkbox"
-          checked={preference.reduce_transparency}
-          onChange={(event) =>
-            update({ reduce_transparency: event.target.checked })
-          }
-        />
-        Reduce transparency
-      </label>
-      {onReset && (
-        <div>
+          />
+          Reduce transparency
+        </label>
+      </section>
+      <section
+        className="settings-section stack"
+        aria-labelledby="layout-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <h2 id="layout-heading">Workspace layout</h2>
+            <p>
+              Restore panel sizes without changing conversations or appearance.
+            </p>
+          </div>
+        </div>
+        {reset ? (
           <Button
             onClick={() =>
               open({
@@ -76,41 +97,23 @@ export default function Preferences({ onReset }: { onReset?: () => void }) {
                   'Restore the default panel sizes and close panels. Your conversations and appearance stay saved.',
                 confirmLabel: 'Reset layout',
                 onConfirm: () => {
-                  onReset();
+                  reset();
                   notify('Layout reset');
                 },
               })
             }
           >
-            Reset layout
+            Review layout reset
           </Button>
-        </div>
-      )}
-      <hr />
-      <h2>Find a setting</h2>
-      <Field label="Search settings">
-        <Input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search names and categories"
-        />
-      </Field>
-      <nav aria-label="Settings">
-        <ul className="settings-results">
-          {searchSettings(query).map((leaf) => (
-            <li key={leaf.id}>
-              <Link to={leaf.href} onClick={() => close()}>
-                {leaf.label}
-                <small>{leaf.category}</small>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <p className="muted">
-        Appearance is available here. Other settings open a safe link to the
-        current application while this client is being built.
+        ) : (
+          <p className="muted">
+            Layout reset is available from the workspace shell.
+          </p>
+        )}
+      </section>
+      <p className="muted settings-retained-note">
+        Identity, personality, self-improvement, window, Dream Cycle, update,
+        and migration settings remain in the current local application.
       </p>
     </div>
   );
