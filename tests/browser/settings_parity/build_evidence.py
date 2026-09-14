@@ -291,6 +291,7 @@ def _build_verification(
     summary_path: Path | None,
     summary: dict[str, Any],
     records: list[dict[str, Any]],
+    reviews: dict[str, Any],
 ) -> str:
     statuses = Counter(record["inspection"] for record in records)
     record_rows = summary.get("records") or []
@@ -305,6 +306,63 @@ def _build_verification(
     axe = sum(int(row.get("axe_violations") or 0) for row in record_rows)
     run_name = summary_path.parent.name if summary_path else "missing"
     generated = datetime.now(timezone.utc).isoformat()
+    checklist = reviews.get("_checklist", {})
+    capture_clean = (
+        len(record_rows) == 68
+        and int(summary.get("failed") or 0) == 0
+        and not (summary.get("meaningful_data_changes") or [])
+    )
+    inspected = bool(records) and all(
+        record["inspection"] != "pending original-size inspection" for record in records
+    )
+    pages_verified = all(
+        reviews.get(name.casefold(), {}).get("result") == "verified"
+        for _, name, _, _ in PAGES
+    )
+    visual_gate = all(
+        int(reviews.get(name.casefold(), {}).get("total") or 0) >= 9
+        and all(
+            int(score) >= 1
+            for score in (reviews.get(name.casefold(), {}).get("scores") or {}).values()
+        )
+        and len((reviews.get(name.casefold(), {}).get("scores") or {})) == 5
+        for _, name, _, _ in PAGES
+    )
+    inventory_path = EVIDENCE / "control-inventory.md"
+    inventory_text = (
+        inventory_path.read_text(encoding="utf-8") if inventory_path.is_file() else ""
+    )
+    unreviewed_match = re.search(r"\bunreviewed=(\d+)\b", inventory_text)
+    controls_complete = bool(unreviewed_match and int(unreviewed_match.group(1)) == 0)
+    final_checks = all(
+        bool(checklist.get(name))
+        for name in (
+            "synthetic_functional",
+            "additional_browser",
+            "frontend_check",
+            "changed_matrix",
+            "clean_commits",
+        )
+    )
+    if (
+        capture_clean
+        and inspected
+        and pages_verified
+        and visual_gate
+        and controls_complete
+        and final_checks
+    ):
+        engineering_result = (
+            "**Ready for a new owner Settings review.** This engineering result "
+            "does not record owner or Phase 4 acceptance."
+        )
+    else:
+        engineering_result = (
+            "Pending all page scores, zero unresolved controls, clean capture "
+            "observations, focused checks, changed-source matrix, and original-size "
+            "inspection. The final wording may only be **ready for a new owner "
+            "Settings review**; this log never records owner or Phase 4 acceptance."
+        )
     return f"""# Settings deep parity verification log
 
 Generated: `{generated}`
@@ -338,7 +396,7 @@ uv run python tests/browser/settings_parity/build_evidence.py --stage {stage}
 
 ## Engineering result
 
-Pending all page scores, zero unresolved controls, clean capture observations, focused checks, changed-source matrix, and original-size inspection. The final wording may only be **ready for a new owner Settings review**; this log never records owner or Phase 4 acceptance.
+{engineering_result}
 """
 
 
@@ -453,7 +511,7 @@ def build(stage: str, inspection_decisions: Path, page_reviews: Path) -> dict[st
     _write(EVIDENCE / "issue-log.md", _build_issue_log(stage, summary_path, summary))
     _write(
         EVIDENCE / "verification-log.md",
-        _build_verification(stage, summary_path, summary, image_records),
+        _build_verification(stage, summary_path, summary, image_records, reviews),
     )
     _write(
         EVIDENCE / "verification-checklist.md",

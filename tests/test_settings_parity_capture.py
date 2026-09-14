@@ -407,6 +407,69 @@ def test_verification_treats_explicit_blocked_controls_as_reviewed(
     ) in checklist
 
 
+def test_verification_log_only_declares_review_ready_after_every_final_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _temp_directory() as directory:
+        root = Path(directory)
+        monkeypatch.setattr(evidence, "EVIDENCE", root)
+        (root / "control-inventory.md").write_text(
+            "Inventory status: blocked=1, matched=2, unreviewed=0.\n",
+            encoding="utf-8",
+        )
+        _assert_verification_log_final_gate(monkeypatch)
+
+
+def _assert_verification_log_final_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        evidence,
+        "PAGES",
+        ((1, "Providers", "providers", "owner"),),
+    )
+    summary = {
+        "records": [{} for _ in range(68)],
+        "failed": 0,
+        "meaningful_data_changes": [],
+    }
+    reviews = {
+        "providers": {
+            "result": "verified",
+            "scores": {
+                "hierarchy_navigation": 2,
+                "controls_state": 1,
+                "visual_density_typography": 2,
+                "responsive_overflow": 2,
+                "feedback_recovery": 2,
+            },
+            "total": 9,
+        },
+        "_checklist": {
+            "synthetic_functional": True,
+            "additional_browser": True,
+            "frontend_check": True,
+            "changed_matrix": True,
+            "clean_commits": True,
+        },
+    }
+
+    ready = evidence._build_verification(
+        "candidate", None, summary, [{"inspection": "reviewed"}], reviews
+    )
+    pending = evidence._build_verification(
+        "candidate",
+        None,
+        summary,
+        [{"inspection": "pending original-size inspection"}],
+        reviews,
+    )
+
+    assert "Ready for a new owner Settings review" in ready
+    assert "does not record owner or Phase 4 acceptance" in ready
+    assert "Pending all page scores" in pending
+
+
 def test_evidence_gallery_and_inspection_manifest_are_honest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
