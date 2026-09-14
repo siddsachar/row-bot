@@ -28,6 +28,7 @@ export class SubscriptionOptionsSession extends ProviderSettingsSession {
   }
 }
 export type SubscriptionOptionsProps = {
+  collapsedAtRest?: boolean;
   session?: SubscriptionOptionsSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionOptionsSnapshot>;
   review: (
@@ -226,122 +227,134 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
       setBusy('');
     }
   }
+  const needsAttention =
+    dirty || !!reviewed || !!pending || !!error || !!notice;
   return (
-    <section
-      className="stack"
-      aria-label="Subscription account options"
-      aria-busy={!!busy}
+    <details
+      className="settings-provider-secondary"
+      open={props.collapsedAtRest && !needsAttention ? undefined : true}
     >
-      <h2>Subscription account options</h2>
-      <p>
-        Reference an existing CLI login as metadata only. This does not import
-        its credentials or enable the subscription runtime.
-      </p>
-      {busy === 'load' && (
-        <Skeleton label="Loading saved subscription options" />
-      )}
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
-      {snapshot && (
-        <>
-          <ul>
-            {snapshot.references.map((reference) => (
-              <li key={reference.provider_id}>
-                {reference.provider_id === 'codex'
-                  ? 'Codex CLI'
-                  : 'Claude Code'}
-                :{' '}
-                {reference.metadata_saved
-                  ? 'metadata reference saved'
-                  : 'no saved metadata reference'}
-              </li>
-            ))}
-          </ul>
-          <p>
-            xAI OAuth client source: {snapshot.xai_client_id_source}. Runtime
-            readiness: unknown.
-          </p>
-        </>
-      )}
-      <div className="actions">
-        <Button
-          disabled={locked || !snapshot || dirty}
-          onClick={() => void review('codex', 'reference')}
-        >
-          Review Codex CLI reference
-        </Button>
-        <Button
-          disabled={locked || !snapshot || dirty}
-          onClick={() => void review('claude_subscription', 'reference')}
-        >
-          Review Claude Code reference
-        </Button>
-      </div>
-      <Field label="xAI OAuth client ID override">
-        <Input
-          aria-label="xAI OAuth client ID override"
-          value={client}
-          maxLength={512}
-          disabled={locked}
-          onChange={(event) => {
-            setClient(event.target.value);
-            setDirty(true);
-            setReviewed(null);
-          }}
-        />
-      </Field>
-      <p>
-        Use the built-in client unless you have your own xAI OAuth app. An
-        environment override takes precedence over saved settings.
-      </p>
-      <div className="actions">
-        <Button
-          disabled={locked || !snapshot || !client}
-          onClick={() => void review('xai_oauth', 'client_id_save')}
-        >
-          Review client ID override
-        </Button>
-        <Button
-          disabled={locked || !snapshot}
-          onClick={() => void review('xai_oauth', 'client_id_reset')}
-        >
-          Review reset to default
-        </Button>
-        <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
-          Confirm account option
-        </Button>
-        <Button
-          disabled={!pending || !!busy || !session.active}
-          onClick={() => void receipt()}
-        >
-          Read original option receipt
-        </Button>
-        <Button
-          disabled={locked || (!dirty && !reviewed)}
-          onClick={() => {
-            if (snapshot) accept(snapshot);
-          }}
-        >
-          Discard unsent option
-        </Button>
-        <Button
-          disabled={locked || dirty || !!reviewed}
-          onClick={() => void load()}
-        >
-          Reload saved account options
-        </Button>
-      </div>
-      {reviewed && (
-        <p role="status">
-          Reviewed:{' '}
-          {reviewed.operation === 'reference'
-            ? `${reviewed.provider_id === 'codex' ? 'Codex CLI' : 'Claude Code'} metadata reference`
-            : reviewed.operation === 'client_id_save'
-              ? `xAI client ID ${reviewed.value}`
-              : 'Reset xAI client ID to default'}
-          . Confirm to apply this exact option.
+      <summary>
+        <span>
+          <strong>Subscription account options</strong>
+          <small>CLI references and OAuth client settings</small>
+        </span>
+      </summary>
+      <section
+        className="stack settings-provider-secondary-content"
+        aria-label="Subscription account options"
+        aria-busy={!!busy}
+      >
+        <p>
+          Reference an existing CLI login as metadata only. This does not import
+          its credentials or enable the subscription runtime.
         </p>
-      )}
-    </section>
+        {busy === 'load' && (
+          <Skeleton label="Loading saved subscription options" />
+        )}
+        {error && <p role="alert">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {snapshot && (
+          <>
+            <ul>
+              {snapshot.references.map((reference) => (
+                <li key={reference.provider_id}>
+                  {reference.provider_id === 'codex'
+                    ? 'Codex CLI'
+                    : 'Claude Code'}
+                  :{' '}
+                  {reference.metadata_saved
+                    ? 'metadata reference saved'
+                    : 'no saved metadata reference'}
+                </li>
+              ))}
+            </ul>
+            <p>
+              xAI OAuth client source: {snapshot.xai_client_id_source}. Runtime
+              readiness: unknown.
+            </p>
+          </>
+        )}
+        <div className="actions">
+          <Button
+            disabled={locked || !snapshot || dirty}
+            onClick={() => void review('codex', 'reference')}
+          >
+            Review Codex CLI reference
+          </Button>
+          <Button
+            disabled={locked || !snapshot || dirty}
+            onClick={() => void review('claude_subscription', 'reference')}
+          >
+            Review Claude Code reference
+          </Button>
+        </div>
+        <Field label="xAI OAuth client ID override">
+          <Input
+            aria-label="xAI OAuth client ID override"
+            value={client}
+            maxLength={512}
+            disabled={locked}
+            onChange={(event) => {
+              setClient(event.target.value);
+              setDirty(true);
+              setReviewed(null);
+            }}
+          />
+        </Field>
+        <p>
+          Use the built-in client unless you have your own xAI OAuth app. An
+          environment override takes precedence over saved settings.
+        </p>
+        <div className="actions">
+          <Button
+            disabled={locked || !snapshot || !client}
+            onClick={() => void review('xai_oauth', 'client_id_save')}
+          >
+            Review client ID override
+          </Button>
+          <Button
+            disabled={locked || !snapshot}
+            onClick={() => void review('xai_oauth', 'client_id_reset')}
+          >
+            Review reset to default
+          </Button>
+          <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
+            Confirm account option
+          </Button>
+          <Button
+            disabled={!pending || !!busy || !session.active}
+            onClick={() => void receipt()}
+          >
+            Read original option receipt
+          </Button>
+          <Button
+            disabled={locked || (!dirty && !reviewed)}
+            onClick={() => {
+              if (snapshot) accept(snapshot);
+            }}
+          >
+            Discard unsent option
+          </Button>
+          <Button
+            disabled={locked || dirty || !!reviewed}
+            onClick={() => void load()}
+          >
+            Reload saved account options
+          </Button>
+        </div>
+        {reviewed && (
+          <p role="status">
+            Reviewed:{' '}
+            {reviewed.operation === 'reference'
+              ? `${reviewed.provider_id === 'codex' ? 'Codex CLI' : 'Claude Code'} metadata reference`
+              : reviewed.operation === 'client_id_save'
+                ? `xAI client ID ${reviewed.value}`
+                : 'Reset xAI client ID to default'}
+            . Confirm to apply this exact option.
+          </p>
+        )}
+      </section>
+    </details>
   );
 }

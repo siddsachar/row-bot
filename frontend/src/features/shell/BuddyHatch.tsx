@@ -47,6 +47,7 @@ export type BuddyHatchProps = {
   editor?: ProviderSettingsSession;
   scopeKey: string;
   configRevision: string | null;
+  initialPrompt?: string;
   selectedPack: BuddyPack | null;
   result: HatchResult | null;
   review(request: HatchRequest): Promise<HatchReview>;
@@ -66,7 +67,11 @@ export default function BuddyHatch(props: BuddyHatchProps) {
     localEditor.current = new ProviderSettingsSession('buddy');
   const editor = props.editor ?? localEditor.current;
 
-  const [prompt, setPrompt] = useProviderSettingsValue(editor, 'prompt', '');
+  const [prompt, setPrompt] = useProviderSettingsValue(
+    editor,
+    'prompt',
+    props.initialPrompt ?? '',
+  );
   const [review, setReview] = useProviderSettingsValue<HatchReview | null>(
     editor,
     'review',
@@ -97,6 +102,11 @@ export default function BuddyHatch(props: BuddyHatchProps) {
     setNotice('');
     setError('');
   }, [props.scopeKey, props.editor, setPrompt, setReview, setNotice, setError]);
+  useEffect(() => {
+    if (!props.initialPrompt || editor.get('promptSeeded', false)) return;
+    if (!editor.get('prompt', '')) setPrompt(props.initialPrompt);
+    editor.set('promptSeeded', true);
+  }, [editor, props.initialPrompt, setPrompt]);
   useEffect(() => {
     setResult(props.result);
   }, [props.scopeKey, props.result, setResult]);
@@ -249,6 +259,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
           value={prompt}
           disabled={busy || running}
           onChange={(event) => {
+            editor.set('promptSeeded', true);
             setPrompt(event.target.value);
             setReview(null);
           }}

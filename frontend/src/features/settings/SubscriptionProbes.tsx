@@ -43,6 +43,7 @@ export class SubscriptionProbesSession extends ProviderSettingsSession {
   }
 }
 export type SubscriptionProbesProps = {
+  collapsedAtRest?: boolean;
   session?: SubscriptionProbesSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionProbeSnapshot>;
   review: (
@@ -327,178 +328,196 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
       setChecking('');
     }
   }
+  const needsAttention =
+    dirty ||
+    !!reviewed ||
+    !!pending ||
+    !!state ||
+    !!result ||
+    !!error ||
+    !!notice;
   return (
-    <section
-      className="stack"
-      aria-label="Subscription checks"
-      aria-busy={!!busy || !!checking}
+    <details
+      className="settings-provider-secondary"
+      open={props.collapsedAtRest && !needsAttention ? undefined : true}
     >
-      <h2>Subscription checks</h2>
-      <p>
-        Saved results describe the last explicit check. They do not guarantee
-        current provider readiness.
-      </p>
-      {busy === 'load' && (
-        <Skeleton label="Loading saved subscription checks" />
-      )}
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
-      {snapshot && (
-        <ul>
-          {snapshot.items.map((item) => (
-            <li key={`${item.provider_id}:${item.kind}`}>
-              {names[item.provider_id]} · {labels[item.kind]}: {item.status}
-              {item.checked_at ? ` (${item.checked_at})` : ' (not checked)'}
-              {item.model_ref && <p>{item.model_ref}</p>}
-              {item.kind === 'runtime' && (
-                <p>
-                  Chat: {flag(item.chat_ok)}. Tool request:{' '}
-                  {flag(item.tool_calling)}. Tool round trip:{' '}
-                  {flag(item.tool_round_trip)}.
-                </p>
-              )}
-              {item.kind === 'vision' && (
-                <p>Image understanding: {flag(item.vision_ok)}.</p>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {result && (
-        <p role="status">
-          Last result: {names[result.provider_id]} · {labels[result.kind]}:{' '}
-          {result.status}.
-        </p>
-      )}
-      <div className="field-row">
-        <Field label="Subscription provider">
-          <Select
-            aria-label="Subscription provider"
-            value={provider}
-            disabled={locked}
-            onChange={(event) => {
-              setProvider(event.target.value as Provider);
-              setKind('tokens');
-              setModel('');
-              changed();
-            }}
-          >
-            {Object.entries(names).map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Check type">
-          <Select
-            aria-label="Check type"
-            value={kind}
-            disabled={locked}
-            onChange={(event) => {
-              setKind(event.target.value as Kind);
-              changed();
-            }}
-          >
-            {kinds[provider].map((value) => (
-              <option key={value} value={value}>
-                {labels[value]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      {kind !== 'tokens' && (
-        <Field label="Provider-qualified model reference">
-          <Input
-            aria-label="Provider-qualified model reference"
-            value={model}
-            maxLength={647}
-            disabled={locked}
-            onChange={(event) => {
-              setModel(event.target.value);
-              changed();
-            }}
-          />
-        </Field>
-      )}
-      <p>
-        {kind === 'tokens'
-          ? 'This checks stored credentials and expiry only. It does not contact the provider or confirm remote readiness.'
-          : kind === 'vision'
-            ? 'Confirmation sends a small synthetic image and prompt to this exact saved model. Provider usage may apply.'
-            : 'Confirmation sends synthetic chat and tool requests to this exact saved model. Provider usage may apply.'}
-      </p>
-      {reviewed && (
-        <p role="status">
-          Reviewed: {names[reviewed.provider_id]} · {labels[reviewed.kind]}
-          {reviewed.model_ref ? ` · ${reviewed.model_ref}` : ''}. Confirm to run
-          this exact check.
-        </p>
-      )}
-      {state && (
+      <summary>
+        <span>
+          <strong>Subscription checks</strong>
+          <small>Saved results and explicit readiness checks</small>
+        </span>
+      </summary>
+      <section
+        className="stack settings-provider-secondary-content"
+        aria-label="Subscription checks"
+        aria-busy={!!busy || !!checking}
+      >
         <p>
-          Original work: {state.state}.{' '}
-          {state.quiescent ? 'Stopped.' : 'Still active.'}
+          Saved results describe the last explicit check. They do not guarantee
+          current provider readiness.
         </p>
-      )}
-      <div className="actions">
-        {props.onBrowseModels && kind !== 'tokens' && (
-          <Button disabled={locked} onClick={props.onBrowseModels}>
-            Browse saved models
-          </Button>
+        {busy === 'load' && (
+          <Skeleton label="Loading saved subscription checks" />
         )}
-        <Button
-          disabled={locked || !snapshot || (kind !== 'tokens' && !model)}
-          onClick={() => void review()}
-        >
-          Review check
-        </Button>
-        <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
-          Confirm check
-        </Button>
-        <Button
-          disabled={!pending || !!checking || !session.active}
-          onClick={() => void inspect('status')}
-        >
-          Check original progress
-        </Button>
-        <Button
-          disabled={
-            !pending ||
-            !!checking ||
-            !session.active ||
-            state?.quiescent === true
-          }
-          onClick={() => void inspect('cancel')}
-        >
-          Cancel original check
-        </Button>
-        <Button
-          disabled={!pending || !!busy || !!checking || !session.active}
-          onClick={() => void inspect('receipt')}
-        >
-          Read original check receipt
-        </Button>
-        <Button
-          disabled={locked || (!dirty && !reviewed)}
-          onClick={() => {
-            setDirty(false);
-            setReviewed(null);
-            setModel('');
-            setProvider('codex');
-            setKind('tokens');
-          }}
-        >
-          Discard unsent check
-        </Button>
-        <Button
-          disabled={locked || dirty || !!reviewed}
-          onClick={() => void load()}
-        >
-          Reload saved checks
-        </Button>
-      </div>
-    </section>
+        {error && <p role="alert">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {snapshot && (
+          <ul>
+            {snapshot.items.map((item) => (
+              <li key={`${item.provider_id}:${item.kind}`}>
+                {names[item.provider_id]} · {labels[item.kind]}: {item.status}
+                {item.checked_at ? ` (${item.checked_at})` : ' (not checked)'}
+                {item.model_ref && <p>{item.model_ref}</p>}
+                {item.kind === 'runtime' && (
+                  <p>
+                    Chat: {flag(item.chat_ok)}. Tool request:{' '}
+                    {flag(item.tool_calling)}. Tool round trip:{' '}
+                    {flag(item.tool_round_trip)}.
+                  </p>
+                )}
+                {item.kind === 'vision' && (
+                  <p>Image understanding: {flag(item.vision_ok)}.</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {result && (
+          <p role="status">
+            Last result: {names[result.provider_id]} · {labels[result.kind]}:{' '}
+            {result.status}.
+          </p>
+        )}
+        <div className="field-row">
+          <Field label="Subscription provider">
+            <Select
+              aria-label="Subscription provider"
+              value={provider}
+              disabled={locked}
+              onChange={(event) => {
+                setProvider(event.target.value as Provider);
+                setKind('tokens');
+                setModel('');
+                changed();
+              }}
+            >
+              {Object.entries(names).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Check type">
+            <Select
+              aria-label="Check type"
+              value={kind}
+              disabled={locked}
+              onChange={(event) => {
+                setKind(event.target.value as Kind);
+                changed();
+              }}
+            >
+              {kinds[provider].map((value) => (
+                <option key={value} value={value}>
+                  {labels[value]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        {kind !== 'tokens' && (
+          <Field label="Provider-qualified model reference">
+            <Input
+              aria-label="Provider-qualified model reference"
+              value={model}
+              maxLength={647}
+              disabled={locked}
+              onChange={(event) => {
+                setModel(event.target.value);
+                changed();
+              }}
+            />
+          </Field>
+        )}
+        <p>
+          {kind === 'tokens'
+            ? 'This checks stored credentials and expiry only. It does not contact the provider or confirm remote readiness.'
+            : kind === 'vision'
+              ? 'Confirmation sends a small synthetic image and prompt to this exact saved model. Provider usage may apply.'
+              : 'Confirmation sends synthetic chat and tool requests to this exact saved model. Provider usage may apply.'}
+        </p>
+        {reviewed && (
+          <p role="status">
+            Reviewed: {names[reviewed.provider_id]} · {labels[reviewed.kind]}
+            {reviewed.model_ref ? ` · ${reviewed.model_ref}` : ''}. Confirm to
+            run this exact check.
+          </p>
+        )}
+        {state && (
+          <p>
+            Original work: {state.state}.{' '}
+            {state.quiescent ? 'Stopped.' : 'Still active.'}
+          </p>
+        )}
+        <div className="actions">
+          {props.onBrowseModels && kind !== 'tokens' && (
+            <Button disabled={locked} onClick={props.onBrowseModels}>
+              Browse saved models
+            </Button>
+          )}
+          <Button
+            disabled={locked || !snapshot || (kind !== 'tokens' && !model)}
+            onClick={() => void review()}
+          >
+            Review check
+          </Button>
+          <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
+            Confirm check
+          </Button>
+          <Button
+            disabled={!pending || !!checking || !session.active}
+            onClick={() => void inspect('status')}
+          >
+            Check original progress
+          </Button>
+          <Button
+            disabled={
+              !pending ||
+              !!checking ||
+              !session.active ||
+              state?.quiescent === true
+            }
+            onClick={() => void inspect('cancel')}
+          >
+            Cancel original check
+          </Button>
+          <Button
+            disabled={!pending || !!busy || !!checking || !session.active}
+            onClick={() => void inspect('receipt')}
+          >
+            Read original check receipt
+          </Button>
+          <Button
+            disabled={locked || (!dirty && !reviewed)}
+            onClick={() => {
+              setDirty(false);
+              setReviewed(null);
+              setModel('');
+              setProvider('codex');
+              setKind('tokens');
+            }}
+          >
+            Discard unsent check
+          </Button>
+          <Button
+            disabled={locked || dirty || !!reviewed}
+            onClick={() => void load()}
+          >
+            Reload saved checks
+          </Button>
+        </div>
+      </section>
+    </details>
   );
 }

@@ -6,6 +6,7 @@ import {
   AppWindow,
   Calculator,
   CalendarClock,
+  ChevronDown,
   CloudSun,
   FileKey,
   FileText,
@@ -1047,7 +1048,7 @@ export function VoiceSnapshotPanel({
       setTalkProvider(snapshot.runtime.talk_provider);
   }, [mutation.drafts, mutation.page, snapshot.runtime.talk_provider]);
   return (
-    <div className="stack settings-snapshot-page">
+    <div className="stack settings-snapshot-page settings-voice-page">
       <Section
         title="Talk"
         description="Continuous voice conversation through the normal chat and approval path."
@@ -1235,10 +1236,12 @@ export function VoiceSnapshotPanel({
             provider="OpenAI"
             status={
               snapshot.openai_realtime_credential.configured
-                ? 'Configured'
+                ? 'Credential saved · not checked'
                 : 'Setup needed'
             }
-            ready={snapshot.openai_realtime_credential.configured}
+            ready={
+              snapshot.openai_realtime_credential.configured ? undefined : false
+            }
           />
         </ul>
         <Link className="button" to="/settings/providers">
@@ -1267,7 +1270,7 @@ export function SystemSnapshotPanel({
   mutation: SettingsMutationIO;
 }) {
   return (
-    <div className="stack settings-snapshot-page">
+    <div className="stack settings-snapshot-page settings-system-page">
       <Section
         title="Workspace Folder"
         description="The filesystem tool is sandboxed to this folder."
@@ -1746,12 +1749,21 @@ function AccountPanel({
   mutation: SettingsMutationIO;
   prefix: 'github' | 'x';
 }) {
+  const status =
+    prefix === 'github' && account.authentication_state === 'not_configured'
+      ? 'Not connected'
+      : accountStateLabel(account.authentication_state);
   return (
     <details className="settings-account-panel">
       <summary>
         <Icon size={18} aria-hidden />
         <strong>{label}</strong>
-        <span>{accountStateLabel(account.authentication_state)}</span>
+        <span>{status}</span>
+        <ChevronDown
+          className="settings-disclosure-chevron"
+          size={17}
+          aria-hidden
+        />
       </summary>
       <div className="stack settings-account-content">
         <Facts>
@@ -1857,7 +1869,9 @@ function GoogleAccountPanel({
 }) {
   const status =
     gmail.authentication_state === calendar.authentication_state
-      ? accountStateLabel(gmail.authentication_state)
+      ? gmail.authentication_state === 'expired'
+        ? 'Token issue'
+        : accountStateLabel(gmail.authentication_state)
       : `Gmail: ${accountStateLabel(gmail.authentication_state)} · Calendar: ${accountStateLabel(calendar.authentication_state)}`;
   return (
     <details className="settings-account-panel">
@@ -1865,6 +1879,11 @@ function GoogleAccountPanel({
         <FileKey size={18} aria-hidden />
         <strong>Google (Gmail &amp; Calendar)</strong>
         <span>{status}</span>
+        <ChevronDown
+          className="settings-disclosure-chevron"
+          size={17}
+          aria-hidden
+        />
       </summary>
       <div className="stack settings-account-content">
         <div className="settings-control-grid">
@@ -2262,7 +2281,26 @@ export function ToolConfigurationSnapshot({
   snapshot: SettingsSnapshot['tools'];
   mutation: SettingsMutationIO;
 }) {
-  const tools = snapshot.items.filter((tool) => tool.available);
+  const toolPresentation: Record<string, { label: string; order: number }> = {
+    arxiv: { label: 'arXiv', order: 0 },
+    duckduckgo: { label: 'DuckDuckGo', order: 1 },
+    web_search: { label: 'Web Search', order: 2 },
+    wikipedia: { label: 'Wikipedia', order: 3 },
+    wolfram_alpha: { label: 'Wolfram Alpha', order: 4 },
+    youtube: { label: 'YouTube', order: 5 },
+  };
+  const tools = snapshot.items
+    .filter((tool) => tool.available)
+    .map((tool) => ({
+      ...tool,
+      displayLabel: toolPresentation[tool.tool_id]?.label ?? tool.label,
+    }))
+    .sort(
+      (left, right) =>
+        (toolPresentation[left.tool_id]?.order ?? Number.MAX_SAFE_INTEGER) -
+          (toolPresentation[right.tool_id]?.order ?? Number.MAX_SAFE_INTEGER) ||
+        left.displayLabel.localeCompare(right.displayLabel),
+    );
   if (snapshot.availability !== 'available')
     return (
       <Section
@@ -2323,7 +2361,7 @@ export function ToolConfigurationSnapshot({
           {tools.map((tool) => (
             <li key={tool.tool_id}>
               <div>
-                <strong>{tool.label}</strong>
+                <strong>{tool.displayLabel}</strong>
                 <small>
                   {tool.configured_fields.length
                     ? `${tool.configured_fields.length} configured fields`
@@ -2334,7 +2372,7 @@ export function ToolConfigurationSnapshot({
                 <SwitchSetting
                   mutation={mutation}
                   field={`${tool.tool_id}.enabled`}
-                  label={`Enable ${tool.label}`}
+                  label={`Enable ${tool.displayLabel}`}
                   value={tool.enabled}
                 />
               ) : (

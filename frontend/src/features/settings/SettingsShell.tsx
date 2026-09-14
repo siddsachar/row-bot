@@ -58,7 +58,7 @@ const descriptions: Record<string, string> = {
   buddy: 'Tune companion visibility, behaviour, look, and motion.',
   goals: 'Manage conversation goals and reusable agent profiles.',
   voice:
-    'Configure Talk, Dictation, read-aloud, voice models, and diagnostics.',
+    'Configure Talk, Dictation, Realtime Talk Voice, normal read-aloud, voice models, and diagnostics.',
   system:
     'Control local access, command execution, browser automation, tunnels, and logs.',
   tracker: 'Track recurring activities, habits, symptoms, and health events.',

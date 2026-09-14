@@ -241,6 +241,20 @@ it('requires a separate reviewed action before enabling', async () => {
   expect(props.execute).not.toHaveBeenCalled();
 });
 
+it('exposes supported enablement from the resting plugin row and still stops at review', async () => {
+  const props = options();
+  render(<PluginSettings {...props} />);
+  await screen.findByText('1 matching plugins.');
+  fireEvent.click(screen.getByRole('button', { name: 'Enable Sample Plugin' }));
+  await screen.findByText('Synthetic reviewed plugin effect.');
+  expect(props.open).toHaveBeenCalledWith(
+    'sample-plugin',
+    expect.any(AbortSignal),
+  );
+  expect(props.review.mock.calls[0][0]).toBe('plugin.enable');
+  expect(props.execute).not.toHaveBeenCalled();
+});
+
 it('retains one uncertain original across remount and never creates a second command', async () => {
   const props = options();
   props.execute.mockRejectedValueOnce(Error('response lost'));

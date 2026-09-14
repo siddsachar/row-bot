@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BookOpen, History, ScrollText, Trash2 } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronDown,
+  History,
+  ScrollText,
+  Trash2,
+} from 'lucide-react';
 import type {
   EntitySummaryPage,
   KnowledgeSettingsSnapshot,
@@ -36,6 +42,7 @@ export function SavedCatalog<P extends SavedPage>({
   filter,
   renderItems,
   description,
+  initialPageSize,
 }: {
   title: string;
   noun: string;
@@ -43,6 +50,7 @@ export function SavedCatalog<P extends SavedPage>({
   filter: (selected: string, change: (value: string) => void) => ReactNode;
   renderItems: (page: P) => ReactNode;
   description: string;
+  initialPageSize?: number;
 }) {
   const [draft, setDraft] = useState('');
   const [selected, setSelected] = useState('');
@@ -53,6 +61,9 @@ export function SavedCatalog<P extends SavedPage>({
   const [error, setError] = useState('');
   const [stale, setStale] = useState(false);
   const [earlierCount, setEarlierCount] = useState(0);
+  const [visibleLimit, setVisibleLimit] = useState(
+    initialPageSize ?? Number.MAX_SAFE_INTEGER,
+  );
   const [reload, setReload] = useState(0);
   const epoch = useRef(0);
   const more = useRef<AbortController | null>(null);
@@ -67,6 +78,7 @@ export function SavedCatalog<P extends SavedPage>({
     setError('');
     setStale(false);
     setEarlierCount(0);
+    setVisibleLimit(initialPageSize ?? Number.MAX_SAFE_INTEGER);
     setLoading(true);
     setLoadingMore(false);
     load(
@@ -92,16 +104,18 @@ export function SavedCatalog<P extends SavedPage>({
       abort.abort();
       more.current?.abort();
     };
-  }, [load, applied, reload]);
+  }, [load, applied, reload, initialPageSize]);
 
   async function loadMore() {
-    if (
-      !page?.next_cursor ||
-      stale ||
-      more.current ||
-      page.availability !== 'available'
-    )
+    if (!page || stale || more.current || page.availability !== 'available')
       return;
+    if (initialPageSize && visibleLimit < page.items.length) {
+      setVisibleLimit((value) =>
+        Math.min(page.items.length, value + initialPageSize),
+      );
+      return;
+    }
+    if (!page.next_cursor) return;
     const abort = new AbortController();
     const ticket = epoch.current;
     more.current = abort;
@@ -127,6 +141,10 @@ export function SavedCatalog<P extends SavedPage>({
       const removed = Math.max(0, combined.length - 200);
       setEarlierCount((value) => value + removed);
       setPage({ ...next, items: combined.slice(-200) });
+      if (initialPageSize)
+        setVisibleLimit((value) =>
+          Math.min(combined.length, value + initialPageSize),
+        );
     } catch (cause) {
       if (!abort.signal.aborted && ticket === epoch.current) {
         const failure = clientError(cause);
@@ -141,6 +159,14 @@ export function SavedCatalog<P extends SavedPage>({
         setLoadingMore(false);
     }
   }
+
+  const displayedPage =
+    page && initialPageSize
+      ? ({ ...page, items: page.items.slice(0, visibleLimit) } as P)
+      : page;
+  const bufferedItems = Boolean(
+    page && initialPageSize && visibleLimit < page.items.length,
+  );
 
   return (
     <div className="stack" aria-busy={loading || loadingMore}>
@@ -191,7 +217,9 @@ export function SavedCatalog<P extends SavedPage>({
           <p role="status">
             {page.total == null
               ? 'Matching count unknown'
-              : `${page.total.toLocaleString()} matching saved entries`}
+              : initialPageSize
+                ? `Showing ${Math.min(page.items.length, visibleLimit).toLocaleString()} of ${page.total.toLocaleString()}`
+                : `${page.total.toLocaleString()} matching saved entries`}
           </p>
           {earlierCount > 0 && (
             <p role="status">
@@ -204,8 +232,8 @@ export function SavedCatalog<P extends SavedPage>({
               Try another search or filter.
             </EmptyState>
           )}
-          {renderItems(page)}
-          {page.next_cursor && (
+          {displayedPage && renderItems(displayedPage)}
+          {(page.next_cursor || bufferedItems) && (
             <Button
               disabled={loadingMore || stale}
               onClick={() => void loadMore()}
@@ -242,45 +270,73 @@ export default function KnowledgeCatalog({
         noun="knowledge"
         load={load}
         description="Browse saved knowledge. Semantic search readiness is unknown. Search matches saved text, including descriptions, aliases and tags."
-        filter={(selected, change) => (
-          <Field
-            label="Entity type"
-            hint="Exact type, or leave blank for all types"
-          >
-            <Input
-              maxLength={64}
-              value={selected}
-              onChange={(event) => change(event.target.value)}
-            />
-          </Field>
-        )}
+        filter={(selected, change) =>
+          snapshot?.entity_types.length ? (
+            <Field label="Category" hint="Exact saved entity type">
+              <select
+                className="input select"
+                value={selected}
+                onChange={(event) => change(event.target.value)}
+              >
+                <option value="">All categories</option>
+                {snapshot.entity_types.map((item) => (
+                  <option key={item.kind} value={item.kind}>
+                    {item.kind}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <Field
+              label="Entity type"
+              hint="Exact type, or leave blank for all types"
+            >
+              <Input
+                maxLength={64}
+                value={selected}
+                onChange={(event) => change(event.target.value)}
+              />
+            </Field>
+          )
+        }
+        initialPageSize={snapshot ? 25 : undefined}
         renderItems={(page) => (
-          <ul className="settings-results">
+          <ul className="settings-results settings-knowledge-results">
             {page.items.map((item) => (
-              <li className="surface" key={item.id}>
+              <li className="settings-knowledge-result" key={item.id}>
                 <details>
-                  <summary>
-                    {item.subject || 'Untitled knowledge'} · {item.entity_type}
+                  <summary
+                    aria-label={`${item.subject || 'Untitled knowledge'} · ${item.entity_type}`}
+                  >
+                    <strong>{item.subject || 'Untitled knowledge'}</strong>
+                    <span className="status-chip">{item.entity_type}</span>
+                    <ChevronDown
+                      className="settings-disclosure-chevron"
+                      size={17}
+                      aria-hidden
+                    />
                   </summary>
-                  {item.truncated && (
-                    <p className="muted">This saved summary is shortened.</p>
-                  )}
-                  <p>{item.description}</p>
-                  {onOpen && (
-                    <Button onClick={() => onOpen(item.id)}>
-                      Edit {item.subject || 'knowledge'}
-                    </Button>
-                  )}
-                  <dl>
-                    <dt>Saved identity</dt>
-                    <dd>{item.id}</dd>
-                    <dt>Saved status</dt>
-                    <dd>Saved</dd>
-                    <dt>Semantic search readiness</dt>
-                    <dd>Unknown</dd>
-                    <dt>Last saved update</dt>
-                    <dd>{item.updated_at || 'Unknown'}</dd>
-                  </dl>
+                  <div className="settings-knowledge-result-detail">
+                    {item.truncated && (
+                      <p className="muted">This saved summary is shortened.</p>
+                    )}
+                    <p>{item.description}</p>
+                    {onOpen && (
+                      <Button onClick={() => onOpen(item.id)}>
+                        Edit {item.subject || 'knowledge'}
+                      </Button>
+                    )}
+                    <dl>
+                      <dt>Saved identity</dt>
+                      <dd>{item.id}</dd>
+                      <dt>Saved status</dt>
+                      <dd>Saved</dd>
+                      <dt>Semantic search readiness</dt>
+                      <dd>Unknown</dd>
+                      <dt>Last saved update</dt>
+                      <dd>{item.updated_at || 'Unknown'}</dd>
+                    </dl>
+                  </div>
                 </details>
               </li>
             ))}

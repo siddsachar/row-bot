@@ -1965,6 +1965,36 @@ progress {
 .settings-provider-endpoint-actions {
   margin-top: 1px;
 }
+.settings-provider-secondary {
+  min-width: 0;
+  border-block: 1px solid var(--border-subtle);
+}
+.settings-provider-secondary + .settings-provider-secondary {
+  border-top: 0;
+}
+.settings-provider-secondary > summary {
+  min-height: 44px;
+  padding: 8px 6px;
+  cursor: pointer;
+}
+.settings-provider-secondary > summary > span {
+  display: inline-grid;
+  gap: 1px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.settings-provider-secondary > summary small {
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  font-weight: 400;
+}
+.settings-provider-secondary-content {
+  gap: 9px;
+  padding: 4px 8px 14px 24px;
+}
+.settings-provider-secondary-content > p:first-child {
+  margin-top: 0;
+}
 .settings-catalog-owner {
   padding-top: 4px;
   border-top: 1px solid var(--border-subtle);
@@ -2460,6 +2490,45 @@ progress {
   margin: 0;
   padding: 0 4px 10px 29px;
 }
+.settings-knowledge-results {
+  gap: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.settings-knowledge-result {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.settings-knowledge-result:last-child {
+  border-bottom: 0;
+}
+.settings-knowledge-result > details > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 5px 7px;
+  list-style: none;
+}
+.settings-knowledge-result > details > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-knowledge-result > details > summary::marker {
+  content: '';
+}
+.settings-knowledge-result > details > summary > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-knowledge-result > details > summary > .status-chip {
+  min-height: 20px;
+  padding-block: 0;
+}
+.settings-knowledge-result-detail {
+  padding: 0 32px 10px 8px;
+}
 .settings-document-status-strip {
   padding-inline: 4px;
 }
@@ -2506,6 +2575,21 @@ progress {
 .settings-snapshot-section.is-danger {
   padding-inline: 10px 4px;
   border-left: 3px solid var(--status-danger-border);
+}
+.settings-voice-page,
+.settings-system-page {
+  gap: 16px;
+}
+.settings-voice-page > .settings-snapshot-section,
+.settings-system-page > .settings-snapshot-section {
+  padding: 14px 16px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-panel);
+  background: var(--card-tint);
+}
+.settings-voice-page > .settings-snapshot-section.is-warning,
+.settings-system-page > .settings-snapshot-section.is-warning {
+  border-left: 3px solid var(--status-warning-border);
 }
 .settings-snapshot-heading {
   display: grid;
@@ -2793,11 +2877,18 @@ progress {
 }
 .settings-account-panel > summary {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto 18px;
   align-items: center;
   gap: 8px;
   min-height: 48px;
   padding: 6px 8px;
+}
+.settings-disclosure-chevron {
+  color: var(--text-secondary);
+  transition: transform 120ms ease;
+}
+details[open] > summary > .settings-disclosure-chevron {
+  transform: rotate(180deg);
 }
 .settings-account-panel > summary > span {
   color: var(--text-secondary);
@@ -3031,13 +3122,17 @@ progress {
     grid-column: 2;
   }
   .settings-account-panel > summary {
-    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-columns: 24px minmax(0, 1fr) 18px;
   }
   .settings-account-panel > summary > span:not(.settings-status-dot) {
     grid-column: 2;
   }
   .settings-account-panel > summary > .settings-status-dot {
     grid-column: 1;
+    grid-row: 1;
+  }
+  .settings-account-panel > summary > .settings-disclosure-chevron {
+    grid-column: 3;
     grid-row: 1;
   }
   .settings-account-content {
@@ -3491,6 +3586,20 @@ progress {
   .settings-buddy-visibility-grid > .field,
   .settings-buddy-advanced-content > .checkbox-row {
     grid-column: auto;
+  }
+  .settings-buddy-preferences .buddy-look-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-buddy-preferences .buddy-look .buddy-avatar {
+    width: min(100%, 204px);
+    height: 104px;
+  }
+  .settings-voice-page > .settings-snapshot-section,
+  .settings-system-page > .settings-snapshot-section {
+    padding: 12px;
+  }
+  .settings-provider-secondary-content {
+    padding-left: 12px;
   }
 }
 .buddy-look-list {

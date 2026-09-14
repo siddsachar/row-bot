@@ -1326,7 +1326,11 @@ def _accounts(
             account_id="x",
             enabled=_enabled("x", tools, registered),
             configured=x_id["configured"] and x_secret["configured"],
-            authentication_state=_token_state(root / "x" / "token.json"),
+            authentication_state=(
+                _token_state(root / "x" / "token.json")
+                if x_id["configured"] and x_secret["configured"]
+                else "not_configured"
+            ),
             credential={
                 "configured": x_id["configured"] and x_secret["configured"],
                 "source": x_id["source"]

@@ -75,6 +75,16 @@ async function review() {
     expect(screen.getByRole('button', { name: 'Confirm check' })).toBeEnabled(),
   );
 }
+it('keeps consequential subscription checks collapsed at rest', async () => {
+  const p = props({ collapsedAtRest: true });
+  render(<SubscriptionProbes {...p} />);
+  const disclosure = screen.getByText('Subscription checks').closest('details');
+  expect(disclosure).not.toHaveAttribute('open');
+  await waitFor(() => expect(p.load).toHaveBeenCalledOnce());
+  expect(p.review).not.toHaveBeenCalled();
+  expect(p.apply).not.toHaveBeenCalled();
+});
+
 it('loads saved metadata without probing and confirms one exact reviewed command', async () => {
   const p = props();
   render(<SubscriptionProbes {...p} />);

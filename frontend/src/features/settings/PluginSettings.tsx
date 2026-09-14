@@ -267,7 +267,7 @@ export default function PluginSettings({
   }, [load, session]);
 
   const select = async (pluginId: string) => {
-    if (locked) return;
+    if (locked) return null;
     const abort = session.beginRead();
     session.update({ busy: 'detail', reviewed: null, message: '' });
     try {
@@ -278,19 +278,23 @@ export default function PluginSettings({
         detail.settings.length + detail.secrets.length > 128
       )
         throw Error();
-      if (!abort.signal.aborted)
+      if (!abort.signal.aborted) {
         session.update({
           selected: detail,
           settings: initialSettings(detail),
           secrets: {},
           busy: '',
         });
+        return detail;
+      }
+      return null;
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message: 'Plugin details are unavailable.',
         });
+      return null;
     } finally {
       session.endRead(abort);
     }
@@ -363,6 +367,14 @@ export default function PluginSettings({
     } finally {
       session.endRead(abort);
     }
+  };
+
+  const selectForAction = async (
+    pluginId: string,
+    action: 'plugin.enable' | 'plugin.disable',
+  ) => {
+    const detail = await select(pluginId);
+    if (detail) await requestReview(action);
   };
 
   const apply = async (attempt: Attempt | null) => {
@@ -568,13 +580,45 @@ export default function PluginSettings({
                 </div>
                 <div className="settings-plugin-row-actions">
                   {plugin.installed ? (
-                    <Button
-                      aria-label={`Manage ${plugin.name}`}
-                      disabled={locked}
-                      onClick={() => void select(plugin.plugin_id)}
-                    >
-                      Configure
-                    </Button>
+                    <>
+                      <Button
+                        aria-label={`Manage ${plugin.name}`}
+                        disabled={locked}
+                        onClick={() => void select(plugin.plugin_id)}
+                      >
+                        Configure
+                      </Button>
+                      {plugin.enabled
+                        ? plugin.capabilities.disable?.available && (
+                            <Button
+                              variant="danger"
+                              aria-label={`Disable ${plugin.name}`}
+                              disabled={locked}
+                              onClick={() =>
+                                void selectForAction(
+                                  plugin.plugin_id,
+                                  'plugin.disable',
+                                )
+                              }
+                            >
+                              Disable Plugin
+                            </Button>
+                          )
+                        : plugin.capabilities.enable?.available && (
+                            <Button
+                              aria-label={`Enable ${plugin.name}`}
+                              disabled={locked}
+                              onClick={() =>
+                                void selectForAction(
+                                  plugin.plugin_id,
+                                  'plugin.enable',
+                                )
+                              }
+                            >
+                              Enable Plugin
+                            </Button>
+                          )}
+                    </>
                   ) : (
                     <span className="status-chip warning" role="status">
                       Install unavailable

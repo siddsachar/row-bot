@@ -92,6 +92,17 @@ async function reviewStart() {
   );
   await screen.findByRole('button', { name: 'Confirm account action' });
 }
+it('keeps secondary account actions collapsed at rest while loading passively', async () => {
+  const p = props({ collapsedAtRest: true });
+  render(<SubscriptionAccounts {...p} />);
+  const disclosure = screen
+    .getByText('Subscription accounts')
+    .closest('details');
+  expect(disclosure).not.toHaveAttribute('open');
+  await waitFor(() => expect(p.load).toHaveBeenCalledOnce());
+  expect(p.review).not.toHaveBeenCalled();
+});
+
 it('loads saved state passively and sends one exact explicitly reviewed command', async () => {
   const p = props();
   render(<SubscriptionAccounts {...p} />);

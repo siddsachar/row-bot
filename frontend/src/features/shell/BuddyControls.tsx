@@ -79,6 +79,10 @@ function videoCount(pack: BuddyPack) {
     .length;
 }
 
+function displayPackName(name: string) {
+  return name.replace(/^Buddy\s+/i, '').trim() || name;
+}
+
 export default function BuddyControls(props: BuddyControlsProps) {
   const localEditor = useRef<ProviderSettingsSession | null>(null);
   if (!localEditor.current)
@@ -413,8 +417,11 @@ export default function BuddyControls(props: BuddyControlsProps) {
               )}
             </div>
             <p className="settings-buddy-selection">
-              Selected: {selectedPack?.name ?? draft.pack_id}. Motion pack{' '}
-              {selectedPack?.available ? 'ready' : 'unavailable'}.
+              Selected:{' '}
+              {selectedPack
+                ? displayPackName(selectedPack.name)
+                : draft.pack_id}
+              . Motion pack {selectedPack?.available ? 'ready' : 'unavailable'}.
             </p>
             <div
               className="buddy-look-list"
@@ -425,9 +432,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                 <Button
                   key={pack.id}
                   className="buddy-look"
-                  aria-label={`${pack.name} — ${videoCount(pack)} clips · ${
-                    pack.available ? 'Ready' : 'Unavailable'
-                  }`}
+                  aria-label={`${displayPackName(pack.name)} — ${videoCount(pack)} clips · ${pack.available ? 'Ready' : 'Unavailable'}`}
                   aria-pressed={draft.pack_id === pack.id}
                   disabled={busy || !pack.available}
                   onClick={() => edit('pack_id', pack.id)}
@@ -441,7 +446,9 @@ export default function BuddyControls(props: BuddyControlsProps) {
                       src={props.previewUrl(pack)!}
                     />
                   )}
-                  <span className="settings-buddy-pack-name">{pack.name}</span>
+                  <span className="settings-buddy-pack-name">
+                    {displayPackName(pack.name)}
+                  </span>
                   <small className="settings-buddy-pack-meta">
                     {videoCount(pack)} clips ·{' '}
                     {pack.available ? 'Ready' : 'Unavailable'}

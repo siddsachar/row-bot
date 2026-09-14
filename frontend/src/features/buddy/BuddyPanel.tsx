@@ -493,6 +493,7 @@ export type BuddyPanelProps = Pick<
 > & {
   session: BuddyPanelSession;
   settingsOpen: boolean;
+  initialPrompt?: string;
   onSettings(): void;
 };
 
@@ -534,6 +535,7 @@ export default function BuddyPanel(props: BuddyPanelProps) {
             editor={props.session.hatchEditor}
             scopeKey={props.scopeKey}
             configRevision={state.snapshot?.revision ?? null}
+            initialPrompt={props.initialPrompt}
             selectedPack={state.selectedPack}
             result={state.result}
             review={props.session.review}

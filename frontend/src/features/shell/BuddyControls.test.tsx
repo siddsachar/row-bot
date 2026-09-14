@@ -37,7 +37,7 @@ const page: BuddyPackPage = {
   packs: [
     {
       id: 'glyph',
-      name: 'Glyph',
+      name: 'Buddy Glyph',
       revision: 'pack-one',
       runtime: 'generated_still',
       generated: false,
@@ -104,6 +104,7 @@ describe('Buddy shared companion and preferences', () => {
       screen.getByText('Selected: Glyph. Motion pack ready.'),
     ).toBeVisible();
     expect(screen.getByText('2 clips · Ready')).toBeVisible();
+    expect(screen.queryByText('Buddy Glyph')).not.toBeInTheDocument();
     expect(
       screen.getByText('Selected: Glyph. Motion pack ready.')
         .nextElementSibling,

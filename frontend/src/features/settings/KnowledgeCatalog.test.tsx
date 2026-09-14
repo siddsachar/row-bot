@@ -70,7 +70,7 @@ it('renders saved knowledge as plain text with explicit shortened summaries and 
   value.items[0].truncated = true;
   const { container } = render(<KnowledgeCatalog load={async () => value} />);
   fireEvent.click(
-    await screen.findByText('<script>sentinel()</script> · fact'),
+    await screen.findByLabelText('<script>sentinel()</script> · fact'),
   );
   expect(screen.getByText('<img src=x onerror=sentinel()>')).toBeVisible();
   expect(container.querySelector('script,img')).toBeNull();
@@ -111,7 +111,7 @@ it('applies full-library search and exact type only on submit', async () => {
   const user = userEvent.setup();
   const load = vi.fn(async () => page());
   render(<KnowledgeCatalog load={load} />);
-  await screen.findByText('Saved thought · fact');
+  await screen.findByLabelText('Saved thought · fact');
   await user.type(screen.getByRole('searchbox'), '  needle  ');
   await user.type(
     screen.getByLabelText('Entity type', { exact: false }),
@@ -148,8 +148,8 @@ it('appends matching revision pages once despite duplicate load-more clicks', as
     expect.any(AbortSignal),
   );
   await act(async () => next.resolve(page('Second')));
-  expect(screen.getByText('First · fact')).toBeVisible();
-  expect(screen.getByText('Second · fact')).toBeVisible();
+  expect(screen.getByLabelText('First · fact')).toBeVisible();
+  expect(screen.getByLabelText('Second · fact')).toBeVisible();
   expect(
     screen.queryByRole('button', { name: 'Load more knowledge' }),
   ).toBeNull();
@@ -179,11 +179,11 @@ it.each(['revision', 'expired'])(
     expect(
       screen.getByRole('button', { name: 'Load more knowledge' }),
     ).toBeDisabled();
-    expect(screen.getByText('First · fact')).toBeVisible();
-    expect(screen.queryByText('Wrong · fact')).toBeNull();
+    expect(screen.getByLabelText('First · fact')).toBeVisible();
+    expect(screen.queryByLabelText('Wrong · fact')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Reload knowledge' }));
-    expect(await screen.findByText('Reloaded · fact')).toBeVisible();
-    expect(screen.queryByText('First · fact')).toBeNull();
+    expect(await screen.findByLabelText('Reloaded · fact')).toBeVisible();
+    expect(screen.queryByLabelText('First · fact')).toBeNull();
   },
 );
 
@@ -201,16 +201,16 @@ it('aborts and fences initial and pagination responses after search or unmount',
     target: { value: 'current' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-  await screen.findByText('Current · fact');
+  await screen.findByLabelText('Current · fact');
   expect(load.mock.calls[0][3].aborted).toBe(true);
   await act(async () => old.resolve(page('Old')));
-  expect(screen.queryByText('Old · fact')).toBeNull();
+  expect(screen.queryByLabelText('Old · fact')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Load more knowledge' }));
   fireEvent.change(screen.getByRole('searchbox'), {
     target: { value: 'newest' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-  await screen.findByText('Newest · fact');
+  await screen.findByLabelText('Newest · fact');
   expect(load.mock.calls[2][3].aborted).toBe(true);
   unmount();
   await act(async () => more.resolve(page('Late')));
@@ -228,11 +228,11 @@ it('retains rows and permits retry after a transient pagination error', async ()
     await screen.findByRole('button', { name: 'Load more knowledge' }),
   );
   await screen.findByRole('alert');
-  expect(screen.getByText('First · fact')).toBeVisible();
+  expect(screen.getByLabelText('First · fact')).toBeVisible();
   const retry = screen.getByRole('button', { name: 'Load more knowledge' });
   expect(retry).toBeEnabled();
   fireEvent.click(retry);
-  expect(await screen.findByText('Second · fact')).toBeVisible();
+  expect(await screen.findByLabelText('Second · fact')).toBeVisible();
 });
 
 it('shows completed document status alongside partial records and unknown current searchability', async () => {
@@ -303,13 +303,13 @@ it('keeps a 200-entry window while every forward page remains reachable and relo
     .mockResolvedValueOnce(snapshots[3])
     .mockResolvedValueOnce(snapshots[0]);
   render(<KnowledgeCatalog load={load} />);
-  await screen.findByText('Entry 0 · fact');
+  await screen.findByLabelText('Entry 0 · fact');
   expect(screen.getAllByRole('listitem')).toHaveLength(100);
   for (const index of [1, 2, 3]) {
     fireEvent.click(
       screen.getByRole('button', { name: 'Load more knowledge' }),
     );
-    await screen.findByText(`Entry ${index * 100 + 99} · fact`);
+    await screen.findByLabelText(`Entry ${index * 100 + 99} · fact`);
     expect(screen.getAllByRole('listitem')).toHaveLength(200);
     expect(load).toHaveBeenLastCalledWith(
       '',
@@ -320,7 +320,7 @@ it('keeps a 200-entry window while every forward page remains reachable and relo
   }
   const entries = screen
     .getAllByRole('listitem')
-    .map((item) => item.querySelector('summary')?.textContent);
+    .map((item) => item.querySelector('summary')?.getAttribute('aria-label'));
   expect(entries).toEqual(
     Array.from({ length: 200 }, (_, i) => `Entry ${i + 200} · fact`),
   );
@@ -330,7 +330,7 @@ it('keeps a 200-entry window while every forward page remains reachable and relo
   ).toBeNull();
   expect(snapshots).toEqual(original);
   fireEvent.click(screen.getByRole('button', { name: 'Reload knowledge' }));
-  await screen.findByText('Entry 0 · fact');
+  await screen.findByLabelText('Entry 0 · fact');
   expect(screen.getAllByRole('listitem')).toHaveLength(100);
   expect(screen.queryByText(/earlier loaded entries/)).toBeNull();
 });
@@ -356,22 +356,22 @@ it('does not evict rows or advance the window on stale pages and clears its noti
     .mockResolvedValueOnce({ ...page('Stale'), revision: 'changed' })
     .mockResolvedValueOnce(page('Filtered'));
   render(<KnowledgeCatalog load={load} />);
-  await screen.findByText('Entry 0 · fact');
+  await screen.findByLabelText('Entry 0 · fact');
   fireEvent.click(screen.getByRole('button', { name: 'Load more knowledge' }));
-  await screen.findByText('Next 99 · fact');
+  await screen.findByLabelText('Next 99 · fact');
   fireEvent.click(screen.getByRole('button', { name: 'Load more knowledge' }));
-  await screen.findByText('Third 99 · fact');
+  await screen.findByLabelText('Third 99 · fact');
   fireEvent.click(screen.getByRole('button', { name: 'Load more knowledge' }));
   await screen.findByText('The saved knowledge changed. Reload to continue.');
   expect(screen.getAllByRole('listitem')).toHaveLength(200);
   expect(screen.getByText(/100 earlier loaded entries/)).toBeVisible();
-  expect(screen.getByText('Next 0 · fact')).toBeVisible();
-  expect(screen.queryByText('Stale · fact')).toBeNull();
+  expect(screen.getByLabelText('Next 0 · fact')).toBeVisible();
+  expect(screen.queryByLabelText('Stale · fact')).toBeNull();
   fireEvent.change(screen.getByRole('searchbox'), {
     target: { value: 'filtered' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-  await screen.findByText('Filtered · fact');
+  await screen.findByLabelText('Filtered · fact');
   expect(screen.queryByText(/earlier loaded entries/)).toBeNull();
   expect(screen.getAllByRole('listitem')).toHaveLength(1);
 });

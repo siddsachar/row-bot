@@ -102,10 +102,12 @@ function OwnedBuddy({
   conversation,
   session,
   settings,
+  initialPrompt,
 }: {
   conversation: string;
   session: BuddyPanelSession;
   settings: boolean;
+  initialPrompt?: string;
 }) {
   const { controller } = useRuntime();
   const navigate = useNavigate();
@@ -122,6 +124,7 @@ function OwnedBuddy({
       scopeKey={conversation}
       session={session}
       settingsOpen={settings}
+      initialPrompt={initialPrompt}
       companionVisible={!settings}
       onSettings={() => {
         overlay.close();
@@ -169,8 +172,10 @@ function OwnedBuddy({
 
 export default function BuddySurface({
   settings = false,
+  initialPrompt,
 }: {
   settings?: boolean;
+  initialPrompt?: string;
 }) {
   const { buddyOwner } = useRuntime();
   const state = useClientState();
@@ -211,6 +216,7 @@ export default function BuddySurface({
       conversation={conversation}
       session={session}
       settings={settings}
+      initialPrompt={initialPrompt}
     />
   );
 }

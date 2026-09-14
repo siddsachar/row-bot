@@ -226,7 +226,11 @@ export default function SettingRoute() {
                   setSearch(next, { replace: true });
                 }}
               />
-              <BuddySurface key={settingsConversationId} settings />
+              <BuddySurface
+                key={settingsConversationId}
+                settings
+                initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
+              />
             </>
           ) : (
             <EmptyState title="Open a conversation for Buddy">
@@ -248,6 +252,7 @@ export default function SettingRoute() {
             />
             {subscriptionAccountsOwner?.get() && (
               <SubscriptionAccounts
+                collapsedAtRest
                 session={subscriptionAccountsOwner.get()}
                 load={controller.subscriptionAccounts}
                 review={controller.reviewSubscriptionAction}
@@ -261,6 +266,7 @@ export default function SettingRoute() {
             )}
             {subscriptionOptionsOwner?.get() && (
               <SubscriptionOptions
+                collapsedAtRest
                 session={subscriptionOptionsOwner.get()}
                 load={controller.subscriptionOptions}
                 review={controller.reviewSubscriptionOptions}
@@ -271,6 +277,7 @@ export default function SettingRoute() {
             )}
             {subscriptionProbesOwner?.get() && (
               <SubscriptionProbes
+                collapsedAtRest
                 session={subscriptionProbesOwner.get()}
                 load={controller.subscriptionProbes}
                 review={controller.reviewSubscriptionProbe}

@@ -404,10 +404,14 @@ export default function CapabilitySettings({
             </span>
             <span className="status-chip">
               {page.items.reduce(
-                (total, server) => total + (server.tool_count ?? 0),
+                (total, server) =>
+                  total +
+                  (server.enabled && server.connection_present
+                    ? (server.tool_count ?? 0)
+                    : 0),
                 0,
               )}{' '}
-              tools
+              enabled tools
             </span>
             <span className="status-chip">
               {page.total ?? 'Unknown'} saved servers

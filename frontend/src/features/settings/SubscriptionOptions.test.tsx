@@ -58,6 +58,17 @@ async function reviewReference() {
     ).toBeEnabled(),
   );
 }
+it('keeps account metadata options collapsed at rest while loading passively', async () => {
+  const p = props({ collapsedAtRest: true });
+  render(<SubscriptionOptions {...p} />);
+  const disclosure = screen
+    .getByText('Subscription account options')
+    .closest('details');
+  expect(disclosure).not.toHaveAttribute('open');
+  await waitFor(() => expect(p.load).toHaveBeenCalledOnce());
+  expect(p.review).not.toHaveBeenCalled();
+});
+
 it('loads metadata passively and confirms one exact reviewed reference', async () => {
   const p = props();
   render(<SubscriptionOptions {...p} />);

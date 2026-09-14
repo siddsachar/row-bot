@@ -381,6 +381,39 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
     assert _tree(data) == before
 
 
+def test_x_account_requires_saved_client_credentials_before_token_state(
+    tmp_path, monkeypatch
+):
+    from row_bot.application import settings_snapshot
+
+    _write(tmp_path / "x" / "token.json", {"access_token": "PRIVATE_SENTINEL"})
+    credentials = {
+        "X_CLIENT_ID": {
+            "configured": False,
+            "source": "none",
+            "fingerprint": "",
+        },
+        "X_CLIENT_SECRET": {
+            "configured": False,
+            "source": "none",
+            "fingerprint": "",
+        },
+        "GITHUB_TOKEN": {
+            "configured": False,
+            "source": "none",
+            "fingerprint": "",
+        },
+    }
+    monkeypatch.setattr(
+        settings_snapshot, "_credential_status", lambda name: credentials[name]
+    )
+
+    result = settings_snapshot._accounts(tmp_path, {}, {}, {})
+
+    assert result["x"]["configured"] is False
+    assert result["x"]["authentication_state"] == "not_configured"
+
+
 def test_knowledge_component_analysis_fails_closed_above_bound(tmp_path, monkeypatch):
     from row_bot.application import settings_snapshot
 

@@ -71,6 +71,17 @@ async function reviewNew() {
 }
 
 describe('Buddy Hatch explicit controls', () => {
+  it('seeds the local draft from the saved owner prompt without reviewing or generating', () => {
+    const input = props();
+    render(<BuddyHatch {...input} initialPrompt="Saved Buddy concept" />);
+
+    expect(screen.getByLabelText('Describe your Buddy')).toHaveValue(
+      'Saved Buddy concept',
+    );
+    expect(input.review).not.toHaveBeenCalled();
+    expect(input.confirm).not.toHaveBeenCalled();
+  });
+
   it('presents the owner generation hierarchy without bypassing review', () => {
     const input = props();
     render(<BuddyHatch {...input} />);

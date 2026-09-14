@@ -46,6 +46,7 @@ export class SubscriptionAccountsSession extends ProviderSettingsSession {
   }
 }
 export type SubscriptionAccountsProps = {
+  collapsedAtRest?: boolean;
   session?: SubscriptionAccountsSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionAccountsSnapshot>;
   review: (
@@ -412,201 +413,223 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     }
   }
   const login = safeLogin(flow?.authorization_url ?? null);
+  const needsAttention =
+    !!flow || !!code || !!reviewed || !!pending || !!error || !!notice;
   return (
-    <section className="stack" aria-label="Subscription accounts">
-      <h2>Subscription accounts</h2>
-      <p>
-        Connect an existing subscription account. Saved account status does not
-        test provider readiness.
-      </p>
-      {busy === 'load' && <Skeleton label="Loading subscription accounts" />}
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
-      <Field label="Subscription provider">
-        <Select
-          aria-label="Subscription provider"
-          value={provider}
-          disabled={locked || active || !!code}
-          onChange={(event) => {
-            setProvider(
-              event.target.value as SubscriptionFlowSnapshot['provider_id'],
-            );
-            setReviewed(null);
-            setFlow(null);
-          }}
-        >
-          {Object.entries(labels).map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      {account && (
+    <details
+      className="settings-provider-secondary"
+      open={props.collapsedAtRest && !needsAttention ? undefined : true}
+    >
+      <summary>
+        <span>
+          <strong>Subscription accounts</strong>
+          <small>Sign-in, disconnect, and recovery</small>
+        </span>
+      </summary>
+      <section
+        className="stack settings-provider-secondary-content"
+        aria-label="Subscription accounts"
+      >
         <p>
-          Saved status: {account.saved_state.replaceAll('_', ' ')} · Credential
-          storage: {account.credential_storage} · Readiness: unknown
-          {account.expires_at ? ` · Expires ${account.expires_at}` : ''}
+          Connect an existing subscription account. Saved account status does
+          not test provider readiness.
         </p>
-      )}
-      {flow && (
-        <div className="stack" role="group" aria-label="Current sign-in">
+        {busy === 'load' && <Skeleton label="Loading subscription accounts" />}
+        {error && <p role="alert">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        <Field label="Subscription provider">
+          <Select
+            aria-label="Subscription provider"
+            value={provider}
+            disabled={locked || active || !!code}
+            onChange={(event) => {
+              setProvider(
+                event.target.value as SubscriptionFlowSnapshot['provider_id'],
+              );
+              setReviewed(null);
+              setFlow(null);
+            }}
+          >
+            {Object.entries(labels).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {account && (
           <p>
-            Sign-in: {flow.state}.{' '}
-            {flow.quiescent
-              ? 'No sign-in operation is running.'
-              : 'A sign-in operation is still running.'}
+            Saved status: {account.saved_state.replaceAll('_', ' ')} ·
+            Credential storage: {account.credential_storage} · Readiness:
+            unknown
+            {account.expires_at ? ` · Expires ${account.expires_at}` : ''}
           </p>
-          {login && (
-            <a href={login} target="_blank" rel="noopener noreferrer">
-              Open {labels[provider]} sign-in
-            </a>
-          )}
-          {flow.device_code && (
-            <Field label="Device code">
-              <Input
-                aria-label="Device code"
-                readOnly
-                value={flow.device_code}
-              />
-            </Field>
-          )}
-          {flow.expires_at && <p>Sign-in expires: {flow.expires_at}</p>}
-          <div className="actions">
-            <Button
-              onClick={() => void inspect()}
-              disabled={!!busy || !session.active}
-            >
-              Read sign-in status
-            </Button>
-            <Button
-              onClick={() => void cancel()}
-              disabled={cancelling || !active || !session.active}
-            >
-              Cancel sign-in
-            </Button>
+        )}
+        {flow && (
+          <div className="stack" role="group" aria-label="Current sign-in">
+            <p>
+              Sign-in: {flow.state}.{' '}
+              {flow.quiescent
+                ? 'No sign-in operation is running.'
+                : 'A sign-in operation is still running.'}
+            </p>
+            {login && (
+              <a href={login} target="_blank" rel="noopener noreferrer">
+                Open {labels[provider]} sign-in
+              </a>
+            )}
+            {flow.device_code && (
+              <Field label="Device code">
+                <Input
+                  aria-label="Device code"
+                  readOnly
+                  value={flow.device_code}
+                />
+              </Field>
+            )}
+            {flow.expires_at && <p>Sign-in expires: {flow.expires_at}</p>}
+            <div className="actions">
+              <Button
+                onClick={() => void inspect()}
+                disabled={!!busy || !session.active}
+              >
+                Read sign-in status
+              </Button>
+              <Button
+                onClick={() => void cancel()}
+                disabled={cancelling || !active || !session.active}
+              >
+                Cancel sign-in
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
-      {!flow && pending?.intent.operation === 'start' && (
-        <Button
-          disabled={cancelling || !session.active}
-          onClick={() => void cancel()}
-        >
-          Cancel sign-in
-        </Button>
-      )}
-      {(provider === 'claude_subscription' ||
-        (provider === 'xai_oauth' && active)) && (
-        <Field
-          label={
-            active ? 'Authorization code or callback URL' : 'Claude setup token'
-          }
-        >
-          <Input
-            aria-label={
+        )}
+        {!flow && pending?.intent.operation === 'start' && (
+          <Button
+            disabled={cancelling || !session.active}
+            onClick={() => void cancel()}
+          >
+            Cancel sign-in
+          </Button>
+        )}
+        {(provider === 'claude_subscription' ||
+          (provider === 'xai_oauth' && active)) && (
+          <Field
+            label={
               active
                 ? 'Authorization code or callback URL'
                 : 'Claude setup token'
             }
-            type="password"
-            autoComplete="off"
-            value={code}
-            disabled={locked}
-            onChange={(event) => {
-              setCode(event.target.value);
-              setReviewed(null);
-            }}
-          />
-        </Field>
-      )}
-      <div className="actions">
-        <Button
-          disabled={locked || active || !snapshot}
-          onClick={() => void review('start')}
-        >
-          Review sign-in
-        </Button>
-        {active && provider !== 'claude_subscription' && (
-          <Button
-            disabled={locked || flow?.state === 'uncertain'}
-            onClick={() => void review('check')}
           >
-            Review login check
-          </Button>
+            <Input
+              aria-label={
+                active
+                  ? 'Authorization code or callback URL'
+                  : 'Claude setup token'
+              }
+              type="password"
+              autoComplete="off"
+              value={code}
+              disabled={locked}
+              onChange={(event) => {
+                setCode(event.target.value);
+                setReviewed(null);
+              }}
+            />
+          </Field>
         )}
-        {active && provider !== 'codex' && (
-          <Button
-            disabled={locked || !code || flow?.state === 'uncertain'}
-            onClick={() => void review('submit')}
-          >
-            Review authorization code
-          </Button>
-        )}
-        {!active && provider === 'claude_subscription' && (
-          <Button
-            disabled={locked || !code}
-            onClick={() => void review('import_token')}
-          >
-            Review setup token import
-          </Button>
-        )}
-        <Button
-          disabled={
-            locked ||
-            active ||
-            account?.saved_state === 'disconnected' ||
-            !account
-          }
-          onClick={() => void review('disconnect')}
-        >
-          Review disconnect
-        </Button>
-        <Button
-          disabled={locked || active || !account?.has_recovery}
-          onClick={() => void review('restore')}
-        >
-          Review account recovery
-        </Button>
-        <Button disabled={locked || !!code} onClick={() => void load()}>
-          Reload saved status
-        </Button>
-      </div>
-      {reviewed && (
-        <div className="stack" role="region" aria-label="Review account action">
-          <p>
-            Confirm {reviewed.intent.operation.replaceAll('_', ' ')} for{' '}
-            {labels[provider]}.{' '}
-            {['start', 'check', 'submit'].includes(reviewed.intent.operation)
-              ? 'This action may contact the subscription provider.'
-              : 'This changes saved account settings.'}
-          </p>
-          <div className="actions">
-            <Button disabled={locked} onClick={() => void confirm()}>
-              Confirm account action
-            </Button>
-            <Button disabled={locked} onClick={() => setReviewed(null)}>
-              Cancel review
-            </Button>
-          </div>
-        </div>
-      )}
-      {pending && (
         <div className="actions">
           <Button
-            disabled={!!busy || !session.active}
-            onClick={() => void readReceipt()}
+            disabled={locked || active || !snapshot}
+            onClick={() => void review('start')}
           >
-            Read original account receipt
+            Review sign-in
+          </Button>
+          {active && provider !== 'claude_subscription' && (
+            <Button
+              disabled={locked || flow?.state === 'uncertain'}
+              onClick={() => void review('check')}
+            >
+              Review login check
+            </Button>
+          )}
+          {active && provider !== 'codex' && (
+            <Button
+              disabled={locked || !code || flow?.state === 'uncertain'}
+              onClick={() => void review('submit')}
+            >
+              Review authorization code
+            </Button>
+          )}
+          {!active && provider === 'claude_subscription' && (
+            <Button
+              disabled={locked || !code}
+              onClick={() => void review('import_token')}
+            >
+              Review setup token import
+            </Button>
+          )}
+          <Button
+            disabled={
+              locked ||
+              active ||
+              account?.saved_state === 'disconnected' ||
+              !account
+            }
+            onClick={() => void review('disconnect')}
+          >
+            Review disconnect
           </Button>
           <Button
-            disabled={!!busy || !session.active}
-            onClick={() => void recover()}
+            disabled={locked || active || !account?.has_recovery}
+            onClick={() => void review('restore')}
           >
-            Recover original account action
+            Review account recovery
+          </Button>
+          <Button disabled={locked || !!code} onClick={() => void load()}>
+            Reload saved status
           </Button>
         </div>
-      )}
-    </section>
+        {reviewed && (
+          <div
+            className="stack"
+            role="region"
+            aria-label="Review account action"
+          >
+            <p>
+              Confirm {reviewed.intent.operation.replaceAll('_', ' ')} for{' '}
+              {labels[provider]}.{' '}
+              {['start', 'check', 'submit'].includes(reviewed.intent.operation)
+                ? 'This action may contact the subscription provider.'
+                : 'This changes saved account settings.'}
+            </p>
+            <div className="actions">
+              <Button disabled={locked} onClick={() => void confirm()}>
+                Confirm account action
+              </Button>
+              <Button disabled={locked} onClick={() => setReviewed(null)}>
+                Cancel review
+              </Button>
+            </div>
+          </div>
+        )}
+        {pending && (
+          <div className="actions">
+            <Button
+              disabled={!!busy || !session.active}
+              onClick={() => void readReceipt()}
+            >
+              Read original account receipt
+            </Button>
+            <Button
+              disabled={!!busy || !session.active}
+              onClick={() => void recover()}
+            >
+              Recover original account action
+            </Button>
+          </div>
+        )}
+      </section>
+    </details>
   );
 }

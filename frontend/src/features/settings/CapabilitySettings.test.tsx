@@ -93,7 +93,7 @@ it('uses a compact owner-style server summary and keeps editors closed at rest',
   await screen.findByRole('button', { name: 'Edit Synthetic' });
   expect(screen.getByText('MCP enabled')).toBeVisible();
   expect(screen.getByText('0 connected')).toBeVisible();
-  expect(screen.getByText('0 tools')).toBeVisible();
+  expect(screen.getByText('0 enabled tools')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Add server' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Import config' })).toBeVisible();
   expect(screen.getByLabelText('Server name')).not.toBeVisible();

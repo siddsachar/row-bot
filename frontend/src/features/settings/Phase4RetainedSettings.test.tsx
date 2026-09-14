@@ -395,6 +395,7 @@ it('renders real voice controls without probing a device or provider', () => {
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
   expect(screen.getByText('Kokoro')).toBeVisible();
+  expect(screen.getByText('Credential saved · not checked')).toBeVisible();
   expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);
   expect(
     screen.queryByRole('button', {
@@ -682,6 +683,9 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
 
   const accounts = renderSetting('accounts');
   expect(accounts.container.querySelectorAll('details')).toHaveLength(3);
+  expect(
+    accounts.container.querySelectorAll('.settings-disclosure-chevron'),
+  ).toHaveLength(3);
   fireEvent.click(screen.getByText('GitHub'));
   expect(screen.queryByLabelText('GitHub token')).not.toBeInTheDocument();
   fireEvent.click(
@@ -779,4 +783,74 @@ it('renders editable document, tool, and preference owners', () => {
     screen.getByText('Cached update details').closest('details'),
   ).not.toHaveAttribute('open');
   expect(screen.getByText(/Update status is cached/)).toBeVisible();
+});
+
+it('uses NiceGUI friendly research-tool labels and owner order', () => {
+  mutation.page = 'tools';
+  const configured = {
+    ...snapshot.tools,
+    items: [
+      ...snapshot.tools.items.map((tool) => ({
+        ...tool,
+        label: 'web_search',
+      })),
+      {
+        tool_id: 'youtube',
+        label: 'youtube',
+        available: true,
+        enabled: true,
+        configured_fields: [],
+        credentials: [],
+      },
+      {
+        tool_id: 'wolfram_alpha',
+        label: 'wolfram_alpha',
+        available: true,
+        enabled: false,
+        configured_fields: [],
+        credentials: [],
+      },
+      {
+        tool_id: 'arxiv',
+        label: 'arxiv',
+        available: true,
+        enabled: true,
+        configured_fields: [],
+        credentials: [],
+      },
+      {
+        tool_id: 'wikipedia',
+        label: 'wikipedia',
+        available: true,
+        enabled: true,
+        configured_fields: [],
+        credentials: [],
+      },
+      {
+        tool_id: 'duckduckgo',
+        label: 'duckduckgo',
+        available: true,
+        enabled: true,
+        configured_fields: [],
+        credentials: [],
+      },
+    ],
+  };
+  const { container } = render(
+    <ToolConfigurationSnapshot snapshot={configured} mutation={mutation} />,
+  );
+  expect(
+    [
+      ...container.querySelectorAll('.settings-toggle-list > li > div strong'),
+    ].map((node) => node.textContent),
+  ).toEqual([
+    'arXiv',
+    'DuckDuckGo',
+    'Web Search',
+    'Wikipedia',
+    'Wolfram Alpha',
+    'YouTube',
+  ]);
+  expect(screen.getByLabelText('Enable arXiv')).toBeChecked();
+  expect(screen.queryByText('web_search')).not.toBeInTheDocument();
 });

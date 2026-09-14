@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import {
+  ChevronDown,
   Hash,
   MessageCircle,
   MessageSquare,
@@ -485,6 +486,11 @@ export default function ChannelSettings({
                     ? 'Stopped'
                     : configuredLabel(channel)}
                 </span>
+                <ChevronDown
+                  className="settings-disclosure-chevron"
+                  size={17}
+                  aria-hidden
+                />
               </summary>
               <div className="settings-account-content stack">
                 <p>
@@ -550,6 +556,11 @@ export default function ChannelSettings({
                     ? 'Not configured'
                     : 'Status unavailable'}
             </span>
+            <ChevronDown
+              className="settings-disclosure-chevron"
+              size={17}
+              aria-hidden
+            />
           </summary>
           <div className="settings-account-content stack">
             <p>

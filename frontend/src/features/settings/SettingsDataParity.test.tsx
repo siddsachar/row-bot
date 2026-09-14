@@ -16,7 +16,7 @@ import KnowledgeCatalog from './KnowledgeCatalog';
 
 const revision = 'a'.repeat(64);
 
-it('presents saved memory graph totals and topology before the knowledge catalog', async () => {
+it('presents saved graph totals and an owner-sized initial knowledge catalog', async () => {
   const snapshot: KnowledgeSettingsSnapshot = {
     availability: 'available',
     memory_available: true,
@@ -37,21 +37,42 @@ it('presents saved memory graph totals and topology before the knowledge catalog
       archived: 2,
     },
   };
-  render(
+  const view = render(
     <KnowledgeCatalog
       snapshot={snapshot}
       load={async () => ({
         schema_version: 1,
         revision: 'saved-knowledge',
         availability: 'available',
-        total: 0,
+        total: 30,
         next_cursor: null,
-        items: [],
+        items: Array.from({ length: 30 }, (_, index) => ({
+          id: `knowledge-${index}`,
+          entity_type: index % 2 ? 'person' : 'fact',
+          subject: `Knowledge ${index}`,
+          description: 'Saved description',
+          updated_at: '2026-09-14',
+          truncated: false,
+          saved_state: 'saved' as const,
+          semantic_state: 'unknown' as const,
+        })),
       })}
     />,
   );
 
-  await screen.findByText('No matching knowledge');
+  await screen.findByLabelText('Knowledge 0 · fact');
+  expect(
+    view.container.querySelectorAll('.settings-knowledge-result'),
+  ).toHaveLength(25);
+  expect(screen.getByText('Showing 25 of 30')).toBeVisible();
+  expect(screen.getByRole('combobox')).toHaveValue('');
+  expect(screen.getByRole('option', { name: 'All categories' })).toBeVisible();
+  expect(screen.getByRole('option', { name: 'person' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Load more knowledge' }));
+  expect(
+    view.container.querySelectorAll('.settings-knowledge-result'),
+  ).toHaveLength(30);
+  expect(screen.getByText('Showing 30 of 30')).toBeVisible();
   expect(screen.getByText('599 entities')).toBeVisible();
   expect(screen.getByText('956 relations')).toBeVisible();
   expect(screen.getByText('Types: fact: 411, person: 23')).toBeVisible();
@@ -196,6 +217,9 @@ it('renders five unloaded core channels as compact passive disclosures', async (
   expect(screen.getByText('0 running')).toBeVisible();
   expect(container.querySelectorAll('details')).toHaveLength(5);
   expect(container.querySelectorAll('details[open]')).toHaveLength(0);
+  expect(
+    container.querySelectorAll('.settings-disclosure-chevron'),
+  ).toHaveLength(5);
   expect(container.querySelector('input[type="password"]')).toBeNull();
   expect(
     Array.from(container.querySelectorAll('summary strong')).map(
