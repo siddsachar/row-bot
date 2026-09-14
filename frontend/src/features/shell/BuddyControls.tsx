@@ -251,7 +251,11 @@ export default function BuddyControls(props: BuddyControlsProps) {
         >
           <div className="settings-buddy-intro">
             <p>Companion behavior, look, and generated motion.</p>
-            <div className="settings-summary-strip" aria-label="Buddy status">
+            <div
+              className="settings-summary-strip"
+              role="group"
+              aria-label="Buddy status"
+            >
               <span className="status-chip">
                 {draft.visible ? 'Enabled' : 'Hidden'}
               </span>

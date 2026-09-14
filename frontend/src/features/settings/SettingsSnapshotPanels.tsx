@@ -2208,6 +2208,7 @@ export function DocumentEmbeddingSnapshot({
         </div>
         <div
           className="settings-document-maintenance"
+          role="group"
           aria-label="Document index maintenance"
         >
           <Button

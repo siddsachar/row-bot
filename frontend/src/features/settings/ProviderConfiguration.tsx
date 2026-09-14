@@ -426,6 +426,7 @@ export default function ProviderConfiguration(
                   </div>
                   <div
                     className="settings-provider-endpoint-meta"
+                    role="group"
                     aria-label={`${item.fields.display_name} saved configuration`}
                   >
                     <span
