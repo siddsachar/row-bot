@@ -32,6 +32,11 @@ def transaction() -> Iterator[sqlite3.Connection]:
     with _LOCK:
         conn = _get_conn()
         try:
+            from row_bot.docs_capture import is_docs_real_data_capture
+
+            if is_docs_real_data_capture():
+                yield conn
+                return
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS client_instance (
                     id INTEGER PRIMARY KEY CHECK(id=1), instance_id TEXT NOT NULL, secret TEXT NOT NULL);

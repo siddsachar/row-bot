@@ -76,7 +76,15 @@ def test_task_database_is_query_only_for_real_capture() -> None:
         environment.pop("ROW_BOT_DOCS_CAPTURE", None)
         environment.pop("ROW_BOT_DOCS_REAL_DATA", None)
         subprocess.run(
-            [sys.executable, "-c", "import row_bot.tasks"],
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import row_bot.tasks; "
+                    "from row_bot.runtime import admissions; "
+                    "admissions.instance_identity()"
+                ),
+            ],
             check=True,
             cwd=Path(__file__).resolve().parents[1],
             env=environment,
@@ -94,6 +102,8 @@ def test_task_database_is_query_only_for_real_capture() -> None:
                 "-c",
                 (
                     "import sqlite3; import row_bot.tasks as tasks; "
+                    "from row_bot.runtime import admissions; "
+                    "assert admissions.instance_identity(); "
                     "connection = tasks._get_conn(); "
                     "assert connection.execute('PRAGMA query_only').fetchone()[0] == 1; "
                     "\ntry:\n connection.execute(\"DELETE FROM tasks\")\n"
