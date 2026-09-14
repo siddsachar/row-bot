@@ -20,9 +20,10 @@ import {
   Target,
   UserRound,
   Wrench,
+  X,
 } from 'lucide-react';
 import { Field, Select } from '../../ui/primitives';
-import { settingsGroups, settingsLeaves } from './model';
+import { settingsLeaves } from './model';
 
 type SettingsLeaf = (typeof settingsLeaves)[number];
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
@@ -48,6 +49,36 @@ const icons: Record<string, Icon> = {
   system: Shield,
 };
 
+const descriptions: Record<string, string> = {
+  providers:
+    'Connect model providers, review credential sources, and check saved connection status.',
+  models: 'Choose defaults, input models, and pinned catalogue choices.',
+  knowledge: 'Manage memory, graph health, and stored knowledge.',
+  wiki: 'Keep the local Wiki Vault in sync with saved knowledge.',
+  buddy: 'Tune companion visibility, behaviour, look, and motion.',
+  goals: 'Manage conversation goals and reusable agent profiles.',
+  voice:
+    'Configure Talk, Dictation, read-aloud, voice models, and diagnostics.',
+  system:
+    'Control local access, command execution, browser automation, tunnels, and logs.',
+  tracker: 'Track recurring activities, habits, symptoms, and health events.',
+  documents:
+    'Upload files, choose embedding engines, rebuild indexes, and manage source material.',
+  tools:
+    'Configure capability loading, retrieval compression, and research tools.',
+  skills: 'Browse, create, enable, pin, audit, and maintain local skills.',
+  accounts:
+    'Connect GitHub, Google, and X accounts without exposing credentials.',
+  channels:
+    'Configure messaging adapters, pairing, tunnels, and delivery boundaries.',
+  utilities: 'Enable compact built-in utilities and review their local scope.',
+  mcp: 'Configure external MCP servers, runtimes, permissions, and tested tools.',
+  plugins:
+    'Manage installed plugins, provenance, permissions, and configuration.',
+  preferences:
+    'Customize identity, launch behaviour, background intelligence, updates, and migration.',
+};
+
 export function SettingIcon({ id, size = 18 }: { id: string; size?: number }) {
   const Icon = icons[id] ?? Settings2;
   return <Icon size={size} aria-hidden />;
@@ -69,19 +100,11 @@ export default function SettingsShell({
   return (
     <section className="settings-shell" aria-label="Settings">
       <header className="settings-shell-header">
-        <span className="settings-page-icon" aria-hidden>
-          <SettingIcon id={leaf.id} size={24} />
-        </span>
-        <div>
-          <p className="eyebrow">Settings · {leaf.category}</p>
-          <h1 ref={heading} tabIndex={-1}>
-            {leaf.label}
-          </h1>
-          <p>
-            Review saved local configuration. Actions run only when you choose
-            them.
-          </p>
-        </div>
+        <Settings2 size={20} aria-hidden />
+        <h1>Settings</h1>
+        <Link className="icon-button" to="/" aria-label="Close settings">
+          <X size={18} aria-hidden />
+        </Link>
       </header>
       <div className="settings-compact-picker">
         <Field label="Settings section">
@@ -91,19 +114,10 @@ export default function SettingsShell({
               navigate(`/settings/${encodeURIComponent(event.target.value)}`)
             }
           >
-            {settingsGroups.map((group) => (
-              <optgroup label={group.label} key={group.id}>
-                {group.leaves.map((label) => {
-                  const item = settingsLeaves.find(
-                    (candidate) => candidate.label === label,
-                  )!;
-                  return (
-                    <option value={item.id} key={item.id}>
-                      {item.label}
-                    </option>
-                  );
-                })}
-              </optgroup>
+            {settingsLeaves.map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.label}
+              </option>
             ))}
           </Select>
         </Field>
@@ -113,34 +127,32 @@ export default function SettingsShell({
           className="settings-side-navigation"
           aria-label="Settings sections"
         >
-          {settingsGroups.map((group) => (
-            <section
-              key={group.id}
-              aria-labelledby={`settings-nav-${group.id}`}
-            >
-              <h2 id={`settings-nav-${group.id}`}>{group.label}</h2>
-              <ul>
-                {group.leaves.map((label) => {
-                  const item = settingsLeaves.find(
-                    (candidate) => candidate.label === label,
-                  )!;
-                  return (
-                    <li key={item.id}>
-                      <Link
-                        to={item.href}
-                        aria-current={item.id === leaf.id ? 'page' : undefined}
-                      >
-                        <SettingIcon id={item.id} />
-                        <span>{item.label}</span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
+          <ul>
+            {settingsLeaves.map((item) => (
+              <li key={item.id}>
+                <Link
+                  to={item.href}
+                  aria-current={item.id === leaf.id ? 'page' : undefined}
+                >
+                  <SettingIcon id={item.id} />
+                  <span>{item.label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </nav>
-        <div className="settings-page-content">{children}</div>
+        <div className="settings-page-content">
+          <header className="settings-pane-header">
+            <SettingIcon id={leaf.id} size={22} />
+            <div>
+              <h2 ref={heading} tabIndex={-1}>
+                {leaf.label}
+              </h2>
+              <p>{descriptions[leaf.id]}</p>
+            </div>
+          </header>
+          {children}
+        </div>
       </div>
     </section>
   );

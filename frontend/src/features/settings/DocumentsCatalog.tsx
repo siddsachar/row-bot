@@ -45,7 +45,7 @@ export default function DocumentsCatalog({
 }) {
   return (
     <SavedCatalog
-      title="Documents"
+      title="Indexed Documents"
       noun="documents"
       load={load}
       description="Browse saved document and ingestion records. Status and progress are historical; current searchability is unknown."

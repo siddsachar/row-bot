@@ -224,7 +224,7 @@ export default function KnowledgeCatalog({
 }) {
   return (
     <SavedCatalog
-      title="Knowledge"
+      title="Stored Knowledge"
       noun="knowledge"
       load={load}
       description="Browse saved knowledge. Semantic search readiness is unknown. Search matches saved text, including descriptions, aliases and tags."

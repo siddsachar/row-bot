@@ -686,7 +686,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
 
   const goals = (
     <section aria-label="Goals" className="settings-section stack">
-      <h2>Goals</h2>
+      <h2>Conversation goals</h2>
       <p>
         Goals belong to this conversation. Starting a new one replaces its
         current goal after review.

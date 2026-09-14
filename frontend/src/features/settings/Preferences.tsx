@@ -1,23 +1,44 @@
+import type { ReactNode } from 'react';
+import type { SettingsSnapshot } from '../../api/types';
 import { Button, Field, Select } from '../../ui/primitives';
 import { useTheme } from '../../ui/theme';
 import { useOverlay } from '../../ui/overlays';
 import type { Accent, Appearance } from '../../ui/theme-model';
 import { useWorkspaceActions } from '../shell/workspace-actions';
+import {
+  PreferencesSnapshotPanel,
+  type SettingsMutationIO,
+} from './SettingsSnapshotPanels';
 
-export default function Preferences({ onReset }: { onReset?: () => void }) {
+export default function Preferences({
+  onReset,
+  snapshot,
+  mutation,
+  snapshotState,
+}: {
+  onReset?: () => void;
+  snapshot?: SettingsSnapshot['preferences'];
+  mutation?: SettingsMutationIO | null;
+  snapshotState?: ReactNode;
+}) {
   const { preference, update } = useTheme();
   const { open, notify } = useOverlay();
   const workspaceActions = useWorkspaceActions();
   const reset = onReset ?? workspaceActions?.resetLayout;
   return (
     <div className="stack settings-preferences">
+      {snapshot && mutation ? (
+        <PreferencesSnapshotPanel snapshot={snapshot} mutation={mutation} />
+      ) : (
+        snapshotState
+      )}
       <section
         className="settings-section stack"
         aria-labelledby="appearance-heading"
       >
         <div className="section-heading">
           <div>
-            <h2 id="appearance-heading">Appearance</h2>
+            <h3 id="appearance-heading">Local client appearance</h3>
             <p>Choose how this client looks on this device.</p>
           </div>
         </div>
@@ -81,7 +102,7 @@ export default function Preferences({ onReset }: { onReset?: () => void }) {
       >
         <div className="section-heading">
           <div>
-            <h2 id="layout-heading">Workspace layout</h2>
+            <h3 id="layout-heading">Local client workspace layout</h3>
             <p>
               Restore panel sizes without changing conversations or appearance.
             </p>
@@ -111,10 +132,6 @@ export default function Preferences({ onReset }: { onReset?: () => void }) {
           </p>
         )}
       </section>
-      <p className="muted settings-retained-note">
-        Identity, personality, self-improvement, window, Dream Cycle, update,
-        and migration settings remain in the current local application.
-      </p>
     </div>
   );
 }

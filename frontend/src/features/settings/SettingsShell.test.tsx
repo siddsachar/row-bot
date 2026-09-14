@@ -24,7 +24,7 @@ function show(route = '/settings/providers') {
   );
 }
 
-it('keeps all 18 categories in one shell with a single current desktop link', () => {
+it('keeps all 18 pages in NiceGUI order with a single current desktop link', () => {
   show();
   const navigation = screen.getByRole('navigation', {
     name: 'Settings sections',
@@ -37,7 +37,30 @@ it('keeps all 18 categories in one shell with a single current desktop link', ()
   expect(
     [...navigation.querySelectorAll('a')].map((link) => link.textContent),
   ).toEqual(settingsLeaves.map((leaf) => leaf.label));
+  expect(screen.getByRole('heading', { name: 'Settings' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Providers' })).toHaveFocus();
+  expect(
+    [...navigation.querySelectorAll('a')].map((link) => link.textContent),
+  ).toEqual([
+    'Providers',
+    'Models',
+    'Knowledge',
+    'Wiki',
+    'Buddy',
+    'Goals',
+    'Voice',
+    'System',
+    'Tracker',
+    'Documents',
+    'Tools',
+    'Skills',
+    'Accounts',
+    'Channels',
+    'Utilities',
+    'MCP',
+    'Plugins',
+    'Preferences',
+  ]);
 });
 
 it('uses the compact labelled picker to navigate while preserving the shell', () => {

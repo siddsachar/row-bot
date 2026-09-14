@@ -1,5 +1,5 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Navigate,
   useNavigate,
@@ -7,7 +7,9 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
-import { EmptyState } from '../../ui/primitives';
+import type { SettingsSnapshot } from '../../api/types';
+import { clientError } from '../../api/errors';
+import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { resolveSetting } from './model';
 import Preferences from './Preferences';
 import ProviderStatus from './ProviderStatus';
@@ -37,6 +39,13 @@ import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
 import SettingsShell from './SettingsShell';
+import {
+  DocumentEmbeddingSnapshot,
+  ToolConfigurationSnapshot,
+  type SettingsMutationIO,
+  type SettingsPage,
+  SettingsDraftOwner,
+} from './SettingsSnapshotPanels';
 
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
@@ -64,8 +73,57 @@ export default function SettingRoute() {
     knowledgeOwner,
   } = useRuntime();
   const state = useClientState();
-  const [processingSelectionError, setProcessingSelectionError] = useState('');
   const session = state.handshake?.client_session_id ?? '';
+  const settingsDrafts = useRef({
+    session,
+    owner: new SettingsDraftOwner(),
+  });
+  if (settingsDrafts.current.session !== session)
+    settingsDrafts.current = {
+      session,
+      owner: new SettingsDraftOwner(),
+    };
+  const [processingSelectionError, setProcessingSelectionError] = useState('');
+  const [modelCatalogOpen, setModelCatalogOpen] = useState(
+    Boolean(search.get('provider')),
+  );
+  const [loadedSettingsSnapshot, setLoadedSettingsSnapshot] = useState<{
+    session: string;
+    snapshot: SettingsSnapshot;
+  } | null>(null);
+  const settingsSnapshot =
+    loadedSettingsSnapshot?.session === session
+      ? loadedSettingsSnapshot.snapshot
+      : null;
+  const [settingsSnapshotLoading, setSettingsSnapshotLoading] = useState(true);
+  const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
+  const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    setSettingsSnapshotLoading(true);
+    setSettingsSnapshotError('');
+    void controller.settingsSnapshot(abort.signal).then(
+      (snapshot) => {
+        if (!abort.signal.aborted) {
+          setLoadedSettingsSnapshot({ session, snapshot });
+          setSettingsSnapshotLoading(false);
+        }
+      },
+      (cause) => {
+        if (!abort.signal.aborted) {
+          setSettingsSnapshotError(clientError(cause).message);
+          setSettingsSnapshotLoading(false);
+        }
+      },
+    );
+    return () => abort.abort();
+  }, [
+    controller,
+    session,
+    settingsSnapshotReload,
+    state.handshake?.server_epoch,
+  ]);
   const leaf = resolveSetting(setting);
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase())
@@ -75,8 +133,53 @@ export default function SettingRoute() {
         replace
       />
     );
+  const settingsPages: SettingsPage[] = [
+    'voice',
+    'system',
+    'tracker',
+    'documents',
+    'tools',
+    'accounts',
+    'utilities',
+    'preferences',
+  ];
+  const snapshotPage = settingsPages.includes(leaf.id as SettingsPage)
+    ? (leaf.id as SettingsPage)
+    : null;
+  const mutation: SettingsMutationIO | null =
+    settingsSnapshot && snapshotPage
+      ? {
+          revision: settingsSnapshot.revision,
+          page: snapshotPage,
+          review: controller.reviewSettingsMutation,
+          execute: controller.executeSettingsMutation,
+          receipt: controller.settingsMutationReceipt,
+          drafts: settingsDrafts.current.owner,
+          onSnapshot: (snapshot) =>
+            setLoadedSettingsSnapshot({ session, snapshot }),
+        }
+      : null;
+  const snapshotState = !settingsSnapshot ? (
+    settingsSnapshotLoading || loadedSettingsSnapshot?.session !== session ? (
+      <Skeleton label="Loading saved Settings" />
+    ) : (
+      <ErrorState
+        title="Saved Settings unavailable"
+        action={
+          <Button
+            onClick={() => setSettingsSnapshotReload((value) => value + 1)}
+          >
+            Retry
+          </Button>
+        }
+      >
+        {settingsSnapshotError ||
+          'The saved Settings snapshot could not be loaded.'}
+      </ErrorState>
+    )
+  ) : null;
   return (
-    <SettingsShell leaf={leaf}>
+    <SettingsShell key={session} leaf={leaf}>
       <section
         className="route-surface stack capability-page"
         aria-label={leaf.label}
@@ -84,7 +187,11 @@ export default function SettingRoute() {
         {leaf?.id === 'buddy' ? (
           <BuddySurface settings />
         ) : leaf?.id === 'preferences' ? (
-          <Preferences />
+          <Preferences
+            snapshot={settingsSnapshot?.preferences}
+            mutation={mutation}
+            snapshotState={snapshotState}
+          />
         ) : leaf.id === 'providers' ? (
           <>
             <ProviderStatus
@@ -124,22 +231,6 @@ export default function SettingRoute() {
                 status={controller.subscriptionProbeStatus}
                 cancel={controller.cancelSubscriptionProbe}
                 receipt={controller.subscriptionProbeReceipt}
-                onSaved={() => {}}
-                onBrowseModels={() => navigate('/settings/models')}
-              />
-            )}
-            {defaultModelOwner?.get() && (
-              <DefaultModelSettings
-                session={defaultModelOwner.get()}
-                load={controller.defaultModel}
-                review={(settings_revision, provider_id, model_id, signal) =>
-                  controller.reviewDefaultModel(
-                    { settings_revision, provider_id, model_id },
-                    signal,
-                  )
-                }
-                apply={controller.executeDefaultModel}
-                receipt={controller.defaultModelReceipt}
                 onSaved={() => {}}
                 onBrowseModels={() => navigate('/settings/models')}
               />
@@ -184,39 +275,77 @@ export default function SettingRoute() {
             )}
           </>
         ) : leaf.id === 'models' ? (
-          <ModelCatalog
-            key={`${session}:${search.get('provider') ?? ''}`}
-            initialProvider={search.get('provider') ?? ''}
-            load={controller.cachedModels}
-            loadProviders={controller.providerStatus}
-            onChooseDefault={
-              defaultModelOwner
-                ? async (model) => {
-                    const editor = defaultModelOwner.get();
-                    if (
-                      !editor?.active ||
-                      editor.get('busy', '') ||
-                      editor.get('pending', null)
-                    )
-                      throw { code: 'operation_uncertain' };
-                    if (!editor.get('snapshot', null)) {
-                      const snapshot = await controller.defaultModel();
-                      if (!editor.active || defaultModelOwner.get() !== editor)
-                        throw { code: 'session_expired' };
-                      editor.set('snapshot', snapshot);
+          <>
+            {defaultModelOwner?.get() && (
+              <DefaultModelSettings
+                session={defaultModelOwner.get()}
+                load={controller.defaultModel}
+                review={(settings_revision, provider_id, model_id, signal) =>
+                  controller.reviewDefaultModel(
+                    { settings_revision, provider_id, model_id },
+                    signal,
+                  )
+                }
+                apply={controller.executeDefaultModel}
+                receipt={controller.defaultModelReceipt}
+                onSaved={() => {}}
+                onBrowseModels={() => setModelCatalogOpen(true)}
+              />
+            )}
+            <section
+              className="settings-owner-section stack settings-catalog-owner"
+              aria-labelledby="model-catalog-disclosure-heading"
+            >
+              <button
+                className="settings-disclosure"
+                type="button"
+                aria-expanded={modelCatalogOpen}
+                aria-controls="model-catalog-content"
+                onClick={() => setModelCatalogOpen((value) => !value)}
+              >
+                <span id="model-catalog-disclosure-heading">Model Catalog</span>
+                <span aria-hidden>{modelCatalogOpen ? '−' : '+'}</span>
+              </button>
+              {modelCatalogOpen && (
+                <div id="model-catalog-content">
+                  <ModelCatalog
+                    key={`${session}:${search.get('provider') ?? ''}`}
+                    initialProvider={search.get('provider') ?? ''}
+                    load={controller.cachedModels}
+                    loadProviders={controller.providerStatus}
+                    onChooseDefault={
+                      defaultModelOwner
+                        ? async (model) => {
+                            const editor = defaultModelOwner.get();
+                            if (
+                              !editor?.active ||
+                              editor.get('busy', '') ||
+                              editor.get('pending', null)
+                            )
+                              throw { code: 'operation_uncertain' };
+                            if (!editor.get('snapshot', null)) {
+                              const snapshot = await controller.defaultModel();
+                              if (
+                                !editor.active ||
+                                defaultModelOwner.get() !== editor
+                              )
+                                throw { code: 'session_expired' };
+                              editor.set('snapshot', snapshot);
+                            }
+                            editor.set('provider', model.provider_id);
+                            editor.set('model', model.model_id);
+                            editor.set('dirty', true);
+                            editor.set('reviewed', null);
+                          }
+                        : undefined
                     }
-                    editor.set('provider', model.provider_id);
-                    editor.set('model', model.model_id);
-                    editor.set('dirty', true);
-                    editor.set('reviewed', null);
-                    navigate('/settings/providers');
-                  }
-                : undefined
-            }
-          />
+                  />
+                </div>
+              )}
+            </section>
+          </>
         ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
           <>
-            <RuntimeInstallations />
             <CapabilitySettings
               session={capabilitySettingsOwner.get()!}
               load={({ query, cursor }, signal) =>
@@ -246,9 +375,20 @@ export default function SettingRoute() {
                 }}
               />
             )}
+            <RuntimeInstallations />
           </>
         ) : leaf.id === 'tools' ? (
-          <ToolCatalog key={session} load={controller.cachedTools} />
+          <>
+            {settingsSnapshot && mutation ? (
+              <ToolConfigurationSnapshot
+                snapshot={settingsSnapshot.tools}
+                mutation={mutation}
+              />
+            ) : (
+              snapshotState
+            )}
+            <ToolCatalog key={session} load={controller.cachedTools} />
+          </>
         ) : leaf.id === 'knowledge' ? (
           <>
             <KnowledgeCatalog
@@ -350,6 +490,14 @@ export default function SettingRoute() {
           )
         ) : leaf.id === 'documents' ? (
           <>
+            {settingsSnapshot && mutation ? (
+              <DocumentEmbeddingSnapshot
+                snapshot={settingsSnapshot.documents}
+                mutation={mutation}
+              />
+            ) : (
+              snapshotState
+            )}
             {documentUploadOwner?.get() && (
               <DocumentUploadPanel
                 owner={documentUploadOwner.get()!}
@@ -418,7 +566,16 @@ export default function SettingRoute() {
         ) : ['voice', 'accounts', 'tracker', 'utilities', 'system'].includes(
             leaf.id,
           ) ? (
-          <Phase4RetainedSettings setting={leaf.id as Phase4RetainedSetting} />
+          settingsSnapshot && mutation ? (
+            <Phase4RetainedSettings
+              setting={leaf.id as Phase4RetainedSetting}
+              snapshot={settingsSnapshot}
+              mutation={mutation}
+              selectedConversationId={state.selectedConversationId}
+            />
+          ) : (
+            snapshotState
+          )
         ) : (
           <EmptyState
             title={leaf?.label ?? 'Setting not found'}

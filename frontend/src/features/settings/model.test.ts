@@ -13,6 +13,26 @@ describe('settings navigation metadata', () => {
     );
     for (const leaf of settingsLeaves)
       expect(resolveSetting(leaf.id)?.href).toBe(leaf.href);
+    expect(settingsLeaves.map((leaf) => leaf.label)).toEqual([
+      'Providers',
+      'Models',
+      'Knowledge',
+      'Wiki',
+      'Buddy',
+      'Goals',
+      'Voice',
+      'System',
+      'Tracker',
+      'Documents',
+      'Tools',
+      'Skills',
+      'Accounts',
+      'Channels',
+      'Utilities',
+      'MCP',
+      'Plugins',
+      'Preferences',
+    ]);
   });
   it('resolves legacy labels and searches aliases and categories', () => {
     for (const [alias, target] of [

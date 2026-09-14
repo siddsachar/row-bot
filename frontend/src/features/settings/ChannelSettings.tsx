@@ -384,7 +384,7 @@ export default function ChannelSettings({
   const locked = !state.active || Boolean(state.busy) || Boolean(state.pending);
   return (
     <section aria-label="Channels" className="settings-section stack">
-      <h2>Channels</h2>
+      <h2>Channel adapters</h2>
       <p>
         Connect messaging accounts and monitor adapter status. Saved values,
         recipient IDs, message content, and delivery targets stay hidden.

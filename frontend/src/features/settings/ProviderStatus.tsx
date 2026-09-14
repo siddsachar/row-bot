@@ -53,8 +53,24 @@ export default function ProviderStatus({
     return () => abort.abort();
   }, [load, reload]);
   return (
-    <div className="stack" aria-busy={loading} id="provider-saved-status">
-      <h2>Provider connections</h2>
+    <section
+      className="stack settings-owner-section"
+      aria-busy={loading}
+      id="provider-saved-status"
+      aria-labelledby="provider-connections-heading"
+    >
+      <div className="settings-owner-heading">
+        <div>
+          <h3 id="provider-connections-heading">Connection Status</h3>
+          <p>Saved provider facts; checks run only when you request them.</p>
+        </div>
+        <Button
+          disabled={loading}
+          onClick={() => setReload((value) => value + 1)}
+        >
+          Reload saved status
+        </Button>
+      </div>
       {notice && <p role="status">{notice}</p>}
       {selected && owner ? (
         <Credentials
@@ -68,15 +84,6 @@ export default function ProviderStatus({
           onCancel={() => setSelected('')}
         />
       ) : null}
-      <p>Review locally saved provider and model information.</p>
-      <div>
-        <Button
-          disabled={loading}
-          onClick={() => setReload((value) => value + 1)}
-        >
-          Reload saved status
-        </Button>
-      </div>
       {loading && <Skeleton label="Loading saved providers" />}
       {error && (
         <ErrorState title="Provider information unavailable">
@@ -99,23 +106,50 @@ export default function ProviderStatus({
               (item) => item.group === group,
             );
             return providers.length ? (
-              <section className="stack" aria-label={title} key={group}>
-                <h2>{title}</h2>
-                <ul className="settings-results">
+              <section
+                className="stack settings-provider-group"
+                aria-label={title}
+                key={group}
+              >
+                <h3>{title}</h3>
+                <ul className="settings-provider-list">
                   {providers.map((provider) => (
                     <li key={provider.provider_id}>
                       <Link
+                        className="settings-provider-summary"
                         to={`/settings/models?provider=${encodeURIComponent(provider.provider_id)}`}
                       >
-                        <span>{provider.display_name}</span>
-                        <small>
-                          {provider.model_count === null
-                            ? 'Model count unknown'
-                            : `${provider.model_count} saved models`}
-                        </small>
+                        <span className="settings-provider-mark" aria-hidden>
+                          {provider.display_name
+                            .split(/\s+/)
+                            .map((part) => part[0])
+                            .join('')
+                            .slice(0, 2)
+                            .toUpperCase()}
+                        </span>
+                        <span className="settings-provider-copy">
+                          <strong>{provider.display_name}</strong>
+                          <small>
+                            {provider.enabled === false
+                              ? 'Disabled'
+                              : provider.enabled === true
+                                ? 'Enabled'
+                                : 'Connection not checked'}
+                            {' · '}
+                            {provider.model_count === null
+                              ? 'Model count unknown'
+                              : `${provider.model_count} saved models`}
+                          </small>
+                        </span>
+                        <span className="status-chip">
+                          {provider.group === 'api'
+                            ? 'API key'
+                            : provider.group}
+                        </span>
                       </Link>
                       {owner && ['api', 'custom'].includes(provider.group) && (
                         <Button
+                          className="settings-row-action"
                           onClick={() => {
                             setNotice('');
                             setSelected(provider.provider_id);
@@ -124,7 +158,7 @@ export default function ProviderStatus({
                           Edit {provider.display_name} credentials
                         </Button>
                       )}
-                      <p className="muted">
+                      <p className="muted settings-provider-state">
                         {provider.enabled === false ? 'Disabled. ' : ''}
                         {provider.catalog_state === 'error'
                           ? 'Last catalog read reported an error.'
@@ -142,6 +176,6 @@ export default function ProviderStatus({
           })}
         </>
       )}
-    </div>
+    </section>
   );
 }
