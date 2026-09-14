@@ -27,6 +27,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "CachedModelPage", "TaskSummaryPage", "ToolCatalogPage",
+    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
     "EntitySummaryPage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
     "ProviderCredentialState", "ProviderSettingsReviewRequest", "ProviderSettingsReview", "ProviderSettingsReceipt",
@@ -263,6 +264,10 @@ OPERATIONS = (
     ("get", "/knowledge/entities", None, "EntitySummaryPage"),
     ("get", "/knowledge/documents", None, "DocumentSummaryPage"),
     ("get", "/settings/tools", None, "ToolCatalogPage"),
+    ("get", "/settings/snapshot", None, "SettingsSnapshot"),
+    ("post", "/settings/snapshot/review", "SettingsMutationRequest", "SettingsMutationReview"),
+    ("get", "/settings/snapshot/commands/{command_id}", None, "SettingsMutationReceipt"),
+    ("post", "/settings/snapshot/commands", "SettingsMutationCommand", "SettingsMutationReceipt"),
     ("get", "/settings/models", None, "CachedModelPage"),
     ("get", "/resources/{reference}", None, "ResourceView"),
     ("post", "/uploads", "bytes", "AttachmentView"),
@@ -506,6 +511,14 @@ export const getSavedDocuments = (base: string, proof: SessionProof, search = ''
   jsonRequest(base, '/knowledge/documents' + query({query:search, status, cursor}), 'DocumentSummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getCachedTools = (base: string, proof: SessionProof, source?: 'core' | 'mcp' | 'plugin' | 'custom', search = '', cursor?: string, signal?: AbortSignal): Promise<ToolCatalogPage> =>
   jsonRequest(base, '/settings/tools' + query({source, query:search, cursor}), 'ToolCatalogPage', proof, 'GET', undefined, undefined, signal);
+export const getSettingsSnapshot = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SettingsSnapshot> =>
+  jsonRequest(base, '/settings/snapshot', 'SettingsSnapshot', proof, 'GET', undefined, undefined, signal);
+export const reviewSettingsMutation = (base: string, proof: SessionProof, body: SettingsMutationRequest, signal?: AbortSignal): Promise<SettingsMutationReview> =>
+  jsonRequest(base, '/settings/snapshot/review', 'SettingsMutationReview', proof, 'POST', body, undefined, signal);
+export const getSettingsMutationReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SettingsMutationReceipt> =>
+  jsonRequest(base, `/settings/snapshot/commands/${id(command)}`, 'SettingsMutationReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendSettingsMutation = (base: string, proof: SessionProof, command: SettingsMutationCommand, signal?: AbortSignal): Promise<SettingsMutationReceipt> =>
+  jsonRequest(base, '/settings/snapshot/commands', 'SettingsMutationReceipt', proof, 'POST', command, command.command_id, signal);
 export const getSavedTasks = (base: string, proof: SessionProof, search = '', enabled?: boolean, cursor?: string, signal?: AbortSignal): Promise<TaskSummaryPage> =>
   jsonRequest(base, '/tasks' + query({query:search, enabled: enabled === undefined ? undefined : String(enabled), cursor}), 'TaskSummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getTaskEditor = (base: string, proof: SessionProof, task: string, signal?: AbortSignal): Promise<TaskEditorSnapshot> =>

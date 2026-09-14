@@ -941,6 +941,19 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.ToolCatalogPage>;
+  settingsSnapshot?(signal?: AbortSignal): Promise<Wire.SettingsSnapshot>;
+  reviewSettingsMutation?(
+    body: Wire.SettingsMutationRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SettingsMutationReview>;
+  settingsMutationReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SettingsMutationReceipt>;
+  executeSettingsMutation?(
+    command: Wire.SettingsMutationCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.SettingsMutationReceipt>;
   savedTasks?(
     query?: string,
     enabled?: boolean,

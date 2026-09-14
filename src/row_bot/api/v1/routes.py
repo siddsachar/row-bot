@@ -83,6 +83,16 @@ _STATUS.update(
         "resource_binding_revoked": 403,
     }
 )
+_STATUS.update(
+    {
+        "invalid_settings_command": 422,
+        "settings_action_unavailable": 409,
+        "settings_changed": 409,
+        "settings_review_changed": 409,
+        "settings_unavailable": 503,
+        "settings_save_unconfirmed": 409,
+    }
+)
 
 
 _STATUS.update(
@@ -4244,6 +4254,90 @@ def create_router(
                 )
             ),
         )
+
+    @router.get("/settings/snapshot")
+    async def settings_snapshot(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.settings_snapshot import read_settings_snapshot
+
+        result = await call(
+            read_settings_snapshot,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.SettingsSnapshot, result)
+
+    @router.post("/settings/snapshot/review")
+    async def settings_snapshot_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SettingsMutationRequest, 32768)
+        from row_bot.application.settings_commands import review_settings_update
+
+        result = await call(
+            review_settings_update,
+            body.settings_revision,
+            body.page,
+            body.field,
+            body.value,
+            validate=dispatch_validation(request, current),
+        )
+        result["review_id"] = security.approval_nonce(
+            current,
+            f"settings:snapshot:{result['page']}:{result['field']}",
+            result["settings_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.SettingsMutationReview, result)
+
+    @router.get("/settings/snapshot/commands/{command_id}")
+    async def settings_snapshot_receipt(
+        command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.settings_commands import read_settings_receipt
+
+        result = await call(
+            read_settings_receipt,
+            str(command_id),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        if result is None:
+            raise ProtocolError("not_found", 404)
+        return await respond(request, dto.SettingsMutationReceipt, result)
+
+    @router.post("/settings/snapshot/commands")
+    async def settings_snapshot_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SettingsMutationCommand, 32768)
+        if request.headers.get("idempotency-key") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("action_denied", 403)
+        from row_bot.application.settings_commands import execute_settings_update
+
+        wire = body.model_dump(mode="json")
+        validate = dispatch_validation(request, current)
+
+        def validate_review(review: dict[str, Any]) -> None:
+            validate()
+            security.consume_nonce(
+                current,
+                f"settings:snapshot:{review['page']}:{review['field']}",
+                review["settings_revision"],
+                review["action_digest"],
+                body.payload.review_id,
+                str(body.command_id),
+            )
+
+        result = await call(
+            execute_settings_update,
+            owner_id=current.id,
+            key=str(body.command_id),
+            command=wire,
+            validate=validate,
+            validate_review=validate_review,
+        )
+        return await respond(request, dto.SettingsMutationReceipt, result)
 
     @router.get("/tasks")
     async def saved_tasks(

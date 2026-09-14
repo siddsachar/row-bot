@@ -466,6 +466,364 @@ class ToolCatalogPage(WireModel):
     truncated: bool
 
 
+class SettingsChoice(WireModel):
+    value: str = Field(min_length=1, max_length=128)
+    label: str = Field(min_length=1, max_length=256)
+
+
+class SettingsCredentialState(WireModel):
+    configured: bool
+    source: str = Field(max_length=64)
+    fingerprint: str = Field(max_length=128)
+
+
+class VoiceRuntimeSettingsSnapshot(WireModel):
+    talk_provider: str = Field(max_length=64)
+    talk_model: str = Field(max_length=128)
+    dictation_provider: str = Field(max_length=64)
+    dictation_model: str = Field(max_length=128)
+    speech_output_provider: str = Field(max_length=64)
+    speech_output_model: str = Field(max_length=128)
+    speech_output_voice: str = Field(max_length=64)
+    realtime_voice: str = Field(max_length=32)
+    captions_enabled: bool
+    talk_auto_start: bool
+    realtime_fallback_to_local: bool
+
+
+class VoiceLocalSettingsSnapshot(WireModel):
+    whisper_model: Literal["tiny", "base", "small", "medium"]
+    sensevoice_path_configured: bool
+    runtime_state: Literal["cached_unknown"]
+
+
+class VoiceTtsSettingsSnapshot(WireModel):
+    installed: bool
+    enabled: bool
+    voice: str = Field(max_length=32)
+    speed: float = Field(ge=0.5, le=2.0)
+    auto_speak: bool
+
+
+class VoiceSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    runtime: VoiceRuntimeSettingsSnapshot
+    local: VoiceLocalSettingsSnapshot
+    tts: VoiceTtsSettingsSnapshot
+    openai_realtime_credential: SettingsCredentialState
+    talk_providers: list[SettingsChoice] = Field(max_length=8)
+    dictation_providers: list[SettingsChoice] = Field(max_length=8)
+    speech_output_providers: list[SettingsChoice] = Field(max_length=8)
+    whisper_options: list[SettingsChoice] = Field(max_length=8)
+    realtime_voice_options: list[SettingsChoice] = Field(max_length=16)
+    tts_voice_options: list[SettingsChoice] = Field(max_length=32)
+
+
+class SettingsWorkspaceSnapshot(WireModel):
+    path: str = Field(max_length=4096)
+    configured: bool
+    exists: bool
+
+
+class SettingsToggleSnapshot(WireModel):
+    available: bool
+    enabled: bool | None
+
+
+class SettingsShellSnapshot(SettingsToggleSnapshot):
+    blocked_patterns: str = Field(max_length=4096)
+
+
+class SettingsRuntimeToggleSnapshot(SettingsToggleSnapshot):
+    runtime_state: Literal["cached_unknown"]
+
+
+class SettingsComputerUseSnapshot(SettingsRuntimeToggleSnapshot):
+    disclosure_acknowledged: bool
+    system_binary_configured: bool
+
+
+class SettingsFileOperationsSnapshot(SettingsToggleSnapshot):
+    selected: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        max_length=32
+    )
+    options: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        max_length=32
+    )
+
+
+class SettingsTunnelSnapshot(WireModel):
+    provider: str = Field(max_length=64)
+    credential: SettingsCredentialState
+    runtime_state: Literal["not_checked"]
+    active_count: int | None = Field(ge=0)
+
+
+class SettingsRemoteAccessSnapshot(WireModel):
+    listen_mode: Literal["local_only", "local_network"]
+    configured_origins: list[Annotated[str, StringConstraints(max_length=256)]] = (
+        Field(max_length=64)
+    )
+    host_admission_managed_externally: bool
+    tailscale_state: Literal["not_checked"]
+
+
+class SettingsMobileAccessSnapshot(WireModel):
+    availability: Literal["available", "missing", "unavailable"]
+    active_devices: int = Field(ge=0)
+    active_sessions: int = Field(ge=0)
+
+
+class SettingsLoggingSnapshot(WireModel):
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+    directory: str = Field(max_length=4096)
+
+
+class SystemSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    workspace: SettingsWorkspaceSnapshot
+    shell: SettingsShellSnapshot
+    browser: SettingsRuntimeToggleSnapshot
+    computer_use: SettingsComputerUseSnapshot
+    file_operations: SettingsFileOperationsSnapshot
+    tunnel: SettingsTunnelSnapshot
+    remote_access: SettingsRemoteAccessSnapshot
+    mobile_access: SettingsMobileAccessSnapshot
+    logging: SettingsLoggingSnapshot
+
+
+class TrackerSettingsItem(WireModel):
+    tracker_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(max_length=256)
+    kind: str = Field(max_length=64)
+    unit: str | None = Field(max_length=64)
+    icon: str | None = Field(max_length=64)
+    entry_count: int = Field(ge=0)
+    last_event_at: str | None = Field(max_length=80)
+
+
+class TrackerSettingsSnapshot(WireModel):
+    availability: Literal["available", "missing", "unavailable"]
+    tool_available: bool
+    enabled: bool | None
+    items: list[TrackerSettingsItem] = Field(max_length=128)
+    total_entries: int = Field(ge=0)
+
+
+class DocumentEmbeddingSettingsSnapshot(WireModel):
+    provider: Literal["local", "cloud"]
+    local_model: str = Field(max_length=128)
+    cloud_model: str = Field(max_length=128)
+    dimension: int | None = Field(ge=1, le=100000)
+    auto_unload: bool
+    runtime_state: Literal["cached_unknown"]
+    local_options: list[SettingsChoice] = Field(max_length=16)
+    cloud_options: list[SettingsChoice] = Field(max_length=16)
+
+
+class DocumentSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    embedding: DocumentEmbeddingSettingsSnapshot
+
+
+class SettingsCredentialField(SettingsCredentialState):
+    label: str = Field(max_length=128)
+    name: str = Field(max_length=128)
+
+
+class ToolSettingsItem(WireModel):
+    tool_id: str = Field(min_length=1, max_length=256)
+    label: str = Field(max_length=256)
+    available: bool
+    enabled: bool | None
+    configured_fields: list[Annotated[str, StringConstraints(max_length=128)]] = (
+        Field(max_length=128)
+    )
+    credentials: list[SettingsCredentialField] = Field(max_length=16)
+
+
+class ToolSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    external_loading_mode: Literal["auto", "eager"]
+    compression_mode: Literal["off", "deep"]
+    items: list[ToolSettingsItem] = Field(max_length=32)
+
+
+class AccountSettingsItem(WireModel):
+    account_id: Literal["github", "gmail", "calendar", "x"]
+    enabled: bool | None
+    configured: bool
+    authentication_state: Literal[
+        "not_configured",
+        "not_authenticated",
+        "configured_unchecked",
+        "saved_unchecked",
+        "expired",
+        "unavailable",
+    ]
+    credentials_path: str = Field(max_length=4096)
+    credential: SettingsCredentialState | None
+    operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=128
+    )
+    read_operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=128
+    )
+    post_operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=128
+    )
+    engage_operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=128
+    )
+
+
+class AccountSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    github: AccountSettingsItem
+    gmail: AccountSettingsItem
+    calendar: AccountSettingsItem
+    x: AccountSettingsItem
+
+
+class UtilitySettingsItem(WireModel):
+    utility_id: str = Field(min_length=1, max_length=128)
+    label: str = Field(max_length=256)
+    description: str = Field(max_length=2048)
+    available: bool
+    enabled: bool | None
+
+
+class UtilitySettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    items: list[UtilitySettingsItem] = Field(max_length=32)
+
+
+class SettingsPluginSummaryItem(WireModel):
+    plugin_id: OpaqueId
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=64)
+    enabled: bool
+    health: str = Field(max_length=64)
+
+
+class SettingsPluginSummary(WireModel):
+    availability: Literal["available", "unavailable"]
+    total: int = Field(ge=0)
+    installed: int = Field(ge=0)
+    enabled: int = Field(ge=0)
+    items: list[SettingsPluginSummaryItem] = Field(max_length=50)
+
+
+class IdentitySettingsSnapshot(WireModel):
+    name: str = Field(min_length=1, max_length=128)
+    personality: str = Field(max_length=200)
+    personality_max_length: Literal[200]
+    self_improvement_enabled: bool
+
+
+class DreamCycleSettingsSnapshot(WireModel):
+    enabled: bool
+    window_start: int = Field(ge=0, le=23)
+    window_end: int = Field(ge=0, le=23)
+    last_run: str | None = Field(max_length=80)
+    last_summary: str = Field(max_length=2048)
+
+
+class UpdateSettingsSnapshot(WireModel):
+    current_version: str = Field(max_length=64)
+    channel: Literal["stable", "beta"]
+    last_check: str | None = Field(max_length=80)
+    last_success: str | None = Field(max_length=80)
+    skipped_versions: list[Annotated[str, StringConstraints(max_length=256)]] = (
+        Field(max_length=128)
+    )
+    runtime_state: Literal["cached"]
+
+
+class MigrationSettingsSnapshot(WireModel):
+    available: bool
+    sources: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=16
+    )
+
+
+class PreferenceSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    identity: IdentitySettingsSnapshot
+    window_mode: Literal["ask", "native", "browser"]
+    dream_cycle: DreamCycleSettingsSnapshot
+    updates: UpdateSettingsSnapshot
+    migration: MigrationSettingsSnapshot
+
+
+class SettingsSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    voice: VoiceSettingsSnapshot
+    system: SystemSettingsSnapshot
+    tracker: TrackerSettingsSnapshot
+    documents: DocumentSettingsSnapshot
+    tools: ToolSettingsSnapshot
+    accounts: AccountSettingsSnapshot
+    utilities: UtilitySettingsSnapshot
+    plugins: SettingsPluginSummary
+    preferences: PreferenceSettingsSnapshot
+
+
+SettingsMutationPage = Literal[
+    "voice",
+    "system",
+    "tracker",
+    "documents",
+    "tools",
+    "accounts",
+    "utilities",
+    "preferences",
+]
+SettingsMutationValue = str | bool | int | float | list[str] | None
+
+
+class SettingsMutationRequest(WireModel):
+    settings_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    page: SettingsMutationPage
+    field: str = Field(min_length=1, max_length=128)
+    value: SettingsMutationValue
+
+
+class SettingsMutationReview(WireModel):
+    schema_version: Literal[1]
+    operation: Literal["settings.update"]
+    settings_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    page: SettingsMutationPage
+    field: str = Field(min_length=1, max_length=128)
+    value_summary: str = Field(max_length=256)
+    secret: bool
+    action_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    review_id: str = Field(min_length=32, max_length=256)
+
+
+class SettingsMutationPayload(SettingsMutationRequest):
+    action_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    review_id: str = Field(min_length=32, max_length=256)
+
+
+class SettingsMutationCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: Literal["settings.update"]
+    payload: SettingsMutationPayload
+
+
+class SettingsMutationReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "rejected", "partial"]
+    code: str | None = Field(default=None, max_length=128)
+    settings_revision: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    snapshot: SettingsSnapshot | None = None
+
+
 class TaskSummary(WireModel):
     id: OpaqueId
     name: str = Field(max_length=256)

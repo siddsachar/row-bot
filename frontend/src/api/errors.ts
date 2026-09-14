@@ -1,6 +1,39 @@
 import type { ClientError, ClientStatus } from './types';
 
 const descriptions: Record<string, ClientError> = {
+  invalid_settings_command: {
+    code: 'invalid_settings_command',
+    message: 'Review this setting and choose a supported value.',
+    recovery: 'review',
+  },
+  settings_action_unavailable: {
+    code: 'settings_action_unavailable',
+    message: 'This action uses its dedicated setup or account flow.',
+    recovery: 'review',
+  },
+  settings_changed: {
+    code: 'settings_changed',
+    message:
+      'Settings changed after review. Reload them and review this change again.',
+    recovery: 'review',
+  },
+  settings_review_changed: {
+    code: 'settings_review_changed',
+    message:
+      'The reviewed setting no longer matches this save. Review it again.',
+    recovery: 'review',
+  },
+  settings_unavailable: {
+    code: 'settings_unavailable',
+    message: 'Saved settings are unavailable. Existing values were retained.',
+    recovery: 'retry',
+  },
+  settings_save_unconfirmed: {
+    code: 'settings_save_unconfirmed',
+    message:
+      'The save could not be confirmed. Check its original receipt before retrying.',
+    recovery: 'retry',
+  },
   file_revision_conflict: {
     code: 'file_revision_conflict',
     message:

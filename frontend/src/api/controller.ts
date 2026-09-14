@@ -3391,6 +3391,47 @@ export class ClientController {
     this.query(() =>
       this.transport.cachedModels?.(providerId, query, cursor, signal),
     );
+  settingsSnapshot = (signal?: AbortSignal) =>
+    this.query(() => this.transport.settingsSnapshot?.(signal));
+  reviewSettingsMutation = (
+    body: import('./types').SettingsMutationRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewSettingsMutation?.(body, signal));
+  settingsMutationReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.settingsMutationReceipt?.(command, signal));
+  executeSettingsMutation = async (
+    request: import('./types').SettingsMutationRequest,
+    review: import('./types').SettingsMutationReview,
+    commandId: string,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    if (
+      request.settings_revision !== review.settings_revision ||
+      request.page !== review.page ||
+      request.field !== review.field
+    )
+      throw clientError({ code: 'invalid_command' });
+    const command = {
+      command_id: commandId,
+      client_session_id: handshake.client_session_id,
+      type: 'settings.update' as const,
+      payload: {
+        ...request,
+        action_digest: review.action_digest,
+        review_id: review.review_id,
+      },
+    };
+    validateWire('SettingsMutationCommand', command);
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeSettingsMutation)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeSettingsMutation(command, signal);
+    });
+    if (result.command_id !== commandId)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   artifactSetup = (
     mode: NonNullable<ArtifactSetupOptions['mode']>,
     signal?: AbortSignal,

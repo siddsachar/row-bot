@@ -1291,6 +1291,34 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  settingsSnapshot(signal?: AbortSignal) {
+    return wire.getSettingsSnapshot(this.base, this.session(), signal);
+  }
+  reviewSettingsMutation(
+    body: wire.SettingsMutationRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.reviewSettingsMutation(this.base, this.session(), body, signal);
+  }
+  settingsMutationReceipt(command: string, signal?: AbortSignal) {
+    return wire.getSettingsMutationReceipt(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  executeSettingsMutation(
+    command: wire.SettingsMutationCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendSettingsMutation(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
   savedTasks(
     query = '',
     enabled?: boolean,

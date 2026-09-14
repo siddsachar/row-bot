@@ -284,6 +284,24 @@ def _load_global_config():
     saved = _load_config()
     _global_config = saved.get("global", {})
 
+
+def reload_saved_config() -> None:
+    """Refresh loaded tool caches after another canonical settings writer."""
+
+    global _global_config
+    with _CONFIG_LOCK:
+        _ensure_config_scope()
+        saved = _load_config()
+        _enabled.clear()
+        _tool_configs.clear()
+        for tool in _tools.values():
+            _apply_saved_config(tool, saved)
+        global_config = saved.get("global", {})
+        _global_config = (
+            copy.deepcopy(global_config) if isinstance(global_config, dict) else {}
+        )
+    _invalidate_agent_cache()
+
 def get_global_config(key: str, default=None):
     """Read a global (non-tool-specific) config value."""
     if not _global_config:

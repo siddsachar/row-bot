@@ -58,7 +58,8 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         ("tests/subsystem/mcp/test_runtime_installation_commands.py",
          "tests/subsystem/client_protocol/test_runtime_installation_api.py",
          "tests/subsystem/client_protocol/test_workspace_import_integration_review.py",
-         "tests/subsystem/client_protocol/test_policy_passive_read.py"),
+         "tests/subsystem/client_protocol/test_policy_passive_read.py",
+         "tests/subsystem/tools/test_tool_registry_saved_reload.py"),
         "Runtime publication and import recovery share atomic admission, passive policy snapshots and exact original receipts.",
     ),
     SourceTestRule(
@@ -75,6 +76,15 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/subsystem/client_protocol/test_capability_settings_api.py",
         ),
         "Phase 4 channel, plugin, and skill settings share reviewed command admission while retaining their canonical subsystem owners.",
+    ),
+    SourceTestRule(
+        "phase4_settings_snapshot",
+        (
+            "src/row_bot/application/settings_snapshot.py",
+            "src/row_bot/application/settings_commands.py",
+        ),
+        ("tests/subsystem/client_protocol/test_settings_snapshot_api.py",),
+        "Retained Settings pages use one passive masked snapshot and allowlisted reviewed local mutations with durable receipts.",
     ),
     SourceTestRule(
         "phase4_goal_profile_commands",

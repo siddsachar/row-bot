@@ -1,0 +1,1635 @@
+{
+  "$defs": {
+    "AccountSettingsItem": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "enum": [
+            "github",
+            "gmail",
+            "calendar",
+            "x"
+          ],
+          "title": "Account Id",
+          "type": "string"
+        },
+        "authentication_state": {
+          "enum": [
+            "not_configured",
+            "not_authenticated",
+            "configured_unchecked",
+            "saved_unchecked",
+            "expired",
+            "unavailable"
+          ],
+          "title": "Authentication State",
+          "type": "string"
+        },
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "credential": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsCredentialState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credentials_path": {
+          "maxLength": 4096,
+          "title": "Credentials Path",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "engage_operations": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Engage Operations",
+          "type": "array"
+        },
+        "operations": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Operations",
+          "type": "array"
+        },
+        "post_operations": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Post Operations",
+          "type": "array"
+        },
+        "read_operations": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Read Operations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "account_id",
+        "enabled",
+        "configured",
+        "authentication_state",
+        "credentials_path",
+        "credential",
+        "operations",
+        "read_operations",
+        "post_operations",
+        "engage_operations"
+      ],
+      "title": "AccountSettingsItem",
+      "type": "object"
+    },
+    "AccountSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "calendar": {
+          "$ref": "#/$defs/AccountSettingsItem"
+        },
+        "github": {
+          "$ref": "#/$defs/AccountSettingsItem"
+        },
+        "gmail": {
+          "$ref": "#/$defs/AccountSettingsItem"
+        },
+        "x": {
+          "$ref": "#/$defs/AccountSettingsItem"
+        }
+      },
+      "required": [
+        "availability",
+        "github",
+        "gmail",
+        "calendar",
+        "x"
+      ],
+      "title": "AccountSettingsSnapshot",
+      "type": "object"
+    },
+    "DocumentEmbeddingSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_unload": {
+          "title": "Auto Unload",
+          "type": "boolean"
+        },
+        "cloud_model": {
+          "maxLength": 128,
+          "title": "Cloud Model",
+          "type": "string"
+        },
+        "cloud_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Cloud Options",
+          "type": "array"
+        },
+        "dimension": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dimension"
+        },
+        "local_model": {
+          "maxLength": 128,
+          "title": "Local Model",
+          "type": "string"
+        },
+        "local_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Local Options",
+          "type": "array"
+        },
+        "provider": {
+          "enum": [
+            "local",
+            "cloud"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "cached_unknown",
+          "title": "Runtime State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "local_model",
+        "cloud_model",
+        "dimension",
+        "auto_unload",
+        "runtime_state",
+        "local_options",
+        "cloud_options"
+      ],
+      "title": "DocumentEmbeddingSettingsSnapshot",
+      "type": "object"
+    },
+    "DocumentSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "embedding": {
+          "$ref": "#/$defs/DocumentEmbeddingSettingsSnapshot"
+        }
+      },
+      "required": [
+        "availability",
+        "embedding"
+      ],
+      "title": "DocumentSettingsSnapshot",
+      "type": "object"
+    },
+    "DreamCycleSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Run"
+        },
+        "last_summary": {
+          "maxLength": 2048,
+          "title": "Last Summary",
+          "type": "string"
+        },
+        "window_end": {
+          "maximum": 23,
+          "minimum": 0,
+          "title": "Window End",
+          "type": "integer"
+        },
+        "window_start": {
+          "maximum": 23,
+          "minimum": 0,
+          "title": "Window Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "window_start",
+        "window_end",
+        "last_run",
+        "last_summary"
+      ],
+      "title": "DreamCycleSettingsSnapshot",
+      "type": "object"
+    },
+    "IdentitySettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "personality": {
+          "maxLength": 200,
+          "title": "Personality",
+          "type": "string"
+        },
+        "personality_max_length": {
+          "const": 200,
+          "title": "Personality Max Length",
+          "type": "integer"
+        },
+        "self_improvement_enabled": {
+          "title": "Self Improvement Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "personality",
+        "personality_max_length",
+        "self_improvement_enabled"
+      ],
+      "title": "IdentitySettingsSnapshot",
+      "type": "object"
+    },
+    "MigrationSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "sources": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "available",
+        "sources"
+      ],
+      "title": "MigrationSettingsSnapshot",
+      "type": "object"
+    },
+    "PreferenceSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "dream_cycle": {
+          "$ref": "#/$defs/DreamCycleSettingsSnapshot"
+        },
+        "identity": {
+          "$ref": "#/$defs/IdentitySettingsSnapshot"
+        },
+        "migration": {
+          "$ref": "#/$defs/MigrationSettingsSnapshot"
+        },
+        "updates": {
+          "$ref": "#/$defs/UpdateSettingsSnapshot"
+        },
+        "window_mode": {
+          "enum": [
+            "ask",
+            "native",
+            "browser"
+          ],
+          "title": "Window Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "identity",
+        "window_mode",
+        "dream_cycle",
+        "updates",
+        "migration"
+      ],
+      "title": "PreferenceSettingsSnapshot",
+      "type": "object"
+    },
+    "SettingsChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "title": "SettingsChoice",
+      "type": "object"
+    },
+    "SettingsComputerUseSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "disclosure_acknowledged": {
+          "title": "Disclosure Acknowledged",
+          "type": "boolean"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "runtime_state": {
+          "const": "cached_unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "system_binary_configured": {
+          "title": "System Binary Configured",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "available",
+        "enabled",
+        "runtime_state",
+        "disclosure_acknowledged",
+        "system_binary_configured"
+      ],
+      "title": "SettingsComputerUseSnapshot",
+      "type": "object"
+    },
+    "SettingsCredentialField": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "maxLength": 128,
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configured",
+        "source",
+        "fingerprint",
+        "label",
+        "name"
+      ],
+      "title": "SettingsCredentialField",
+      "type": "object"
+    },
+    "SettingsCredentialState": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "maxLength": 128,
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configured",
+        "source",
+        "fingerprint"
+      ],
+      "title": "SettingsCredentialState",
+      "type": "object"
+    },
+    "SettingsFileOperationsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "options": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Options",
+          "type": "array"
+        },
+        "selected": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Selected",
+          "type": "array"
+        }
+      },
+      "required": [
+        "available",
+        "enabled",
+        "selected",
+        "options"
+      ],
+      "title": "SettingsFileOperationsSnapshot",
+      "type": "object"
+    },
+    "SettingsLoggingSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "maxLength": 4096,
+          "title": "Directory",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "directory"
+      ],
+      "title": "SettingsLoggingSnapshot",
+      "type": "object"
+    },
+    "SettingsMobileAccessSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "active_devices": {
+          "minimum": 0,
+          "title": "Active Devices",
+          "type": "integer"
+        },
+        "active_sessions": {
+          "minimum": 0,
+          "title": "Active Sessions",
+          "type": "integer"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "active_devices",
+        "active_sessions"
+      ],
+      "title": "SettingsMobileAccessSnapshot",
+      "type": "object"
+    },
+    "SettingsPluginSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "enabled": {
+          "minimum": 0,
+          "title": "Enabled",
+          "type": "integer"
+        },
+        "installed": {
+          "minimum": 0,
+          "title": "Installed",
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SettingsPluginSummaryItem"
+          },
+          "maxItems": 50,
+          "title": "Items",
+          "type": "array"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "availability",
+        "total",
+        "installed",
+        "enabled",
+        "items"
+      ],
+      "title": "SettingsPluginSummary",
+      "type": "object"
+    },
+    "SettingsPluginSummaryItem": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "health": {
+          "maxLength": 64,
+          "title": "Health",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "plugin_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin_id",
+        "name",
+        "version",
+        "enabled",
+        "health"
+      ],
+      "title": "SettingsPluginSummaryItem",
+      "type": "object"
+    },
+    "SettingsRemoteAccessSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "configured_origins": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Configured Origins",
+          "type": "array"
+        },
+        "host_admission_managed_externally": {
+          "title": "Host Admission Managed Externally",
+          "type": "boolean"
+        },
+        "listen_mode": {
+          "enum": [
+            "local_only",
+            "local_network"
+          ],
+          "title": "Listen Mode",
+          "type": "string"
+        },
+        "tailscale_state": {
+          "const": "not_checked",
+          "title": "Tailscale State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "listen_mode",
+        "configured_origins",
+        "host_admission_managed_externally",
+        "tailscale_state"
+      ],
+      "title": "SettingsRemoteAccessSnapshot",
+      "type": "object"
+    },
+    "SettingsRuntimeToggleSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "runtime_state": {
+          "const": "cached_unknown",
+          "title": "Runtime State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "available",
+        "enabled",
+        "runtime_state"
+      ],
+      "title": "SettingsRuntimeToggleSnapshot",
+      "type": "object"
+    },
+    "SettingsShellSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "blocked_patterns": {
+          "maxLength": 4096,
+          "title": "Blocked Patterns",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        }
+      },
+      "required": [
+        "available",
+        "enabled",
+        "blocked_patterns"
+      ],
+      "title": "SettingsShellSnapshot",
+      "type": "object"
+    },
+    "SettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/AccountSettingsSnapshot"
+        },
+        "documents": {
+          "$ref": "#/$defs/DocumentSettingsSnapshot"
+        },
+        "plugins": {
+          "$ref": "#/$defs/SettingsPluginSummary"
+        },
+        "preferences": {
+          "$ref": "#/$defs/PreferenceSettingsSnapshot"
+        },
+        "revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "system": {
+          "$ref": "#/$defs/SystemSettingsSnapshot"
+        },
+        "tools": {
+          "$ref": "#/$defs/ToolSettingsSnapshot"
+        },
+        "tracker": {
+          "$ref": "#/$defs/TrackerSettingsSnapshot"
+        },
+        "utilities": {
+          "$ref": "#/$defs/UtilitySettingsSnapshot"
+        },
+        "voice": {
+          "$ref": "#/$defs/VoiceSettingsSnapshot"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "voice",
+        "system",
+        "tracker",
+        "documents",
+        "tools",
+        "accounts",
+        "utilities",
+        "plugins",
+        "preferences"
+      ],
+      "title": "SettingsSnapshot",
+      "type": "object"
+    },
+    "SettingsTunnelSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "active_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Active Count"
+        },
+        "credential": {
+          "$ref": "#/$defs/SettingsCredentialState"
+        },
+        "provider": {
+          "maxLength": 64,
+          "title": "Provider",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "not_checked",
+          "title": "Runtime State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "credential",
+        "runtime_state",
+        "active_count"
+      ],
+      "title": "SettingsTunnelSnapshot",
+      "type": "object"
+    },
+    "SettingsWorkspaceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 4096,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "configured",
+        "exists"
+      ],
+      "title": "SettingsWorkspaceSnapshot",
+      "type": "object"
+    },
+    "SystemSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "browser": {
+          "$ref": "#/$defs/SettingsRuntimeToggleSnapshot"
+        },
+        "computer_use": {
+          "$ref": "#/$defs/SettingsComputerUseSnapshot"
+        },
+        "file_operations": {
+          "$ref": "#/$defs/SettingsFileOperationsSnapshot"
+        },
+        "logging": {
+          "$ref": "#/$defs/SettingsLoggingSnapshot"
+        },
+        "mobile_access": {
+          "$ref": "#/$defs/SettingsMobileAccessSnapshot"
+        },
+        "remote_access": {
+          "$ref": "#/$defs/SettingsRemoteAccessSnapshot"
+        },
+        "shell": {
+          "$ref": "#/$defs/SettingsShellSnapshot"
+        },
+        "tunnel": {
+          "$ref": "#/$defs/SettingsTunnelSnapshot"
+        },
+        "workspace": {
+          "$ref": "#/$defs/SettingsWorkspaceSnapshot"
+        }
+      },
+      "required": [
+        "availability",
+        "workspace",
+        "shell",
+        "browser",
+        "computer_use",
+        "file_operations",
+        "tunnel",
+        "remote_access",
+        "mobile_access",
+        "logging"
+      ],
+      "title": "SystemSettingsSnapshot",
+      "type": "object"
+    },
+    "ToolSettingsItem": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "configured_fields": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Configured Fields",
+          "type": "array"
+        },
+        "credentials": {
+          "items": {
+            "$ref": "#/$defs/SettingsCredentialField"
+          },
+          "maxItems": 16,
+          "title": "Credentials",
+          "type": "array"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "tool_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_id",
+        "label",
+        "available",
+        "enabled",
+        "configured_fields",
+        "credentials"
+      ],
+      "title": "ToolSettingsItem",
+      "type": "object"
+    },
+    "ToolSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "compression_mode": {
+          "enum": [
+            "off",
+            "deep"
+          ],
+          "title": "Compression Mode",
+          "type": "string"
+        },
+        "external_loading_mode": {
+          "enum": [
+            "auto",
+            "eager"
+          ],
+          "title": "External Loading Mode",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ToolSettingsItem"
+          },
+          "maxItems": 32,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "availability",
+        "external_loading_mode",
+        "compression_mode",
+        "items"
+      ],
+      "title": "ToolSettingsSnapshot",
+      "type": "object"
+    },
+    "TrackerSettingsItem": {
+      "additionalProperties": false,
+      "properties": {
+        "entry_count": {
+          "minimum": 0,
+          "title": "Entry Count",
+          "type": "integer"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Icon"
+        },
+        "kind": {
+          "maxLength": 64,
+          "title": "Kind",
+          "type": "string"
+        },
+        "last_event_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Event At"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "tracker_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Tracker Id",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "tracker_id",
+        "name",
+        "kind",
+        "unit",
+        "icon",
+        "entry_count",
+        "last_event_at"
+      ],
+      "title": "TrackerSettingsItem",
+      "type": "object"
+    },
+    "TrackerSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TrackerSettingsItem"
+          },
+          "maxItems": 128,
+          "title": "Items",
+          "type": "array"
+        },
+        "tool_available": {
+          "title": "Tool Available",
+          "type": "boolean"
+        },
+        "total_entries": {
+          "minimum": 0,
+          "title": "Total Entries",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "availability",
+        "tool_available",
+        "enabled",
+        "items",
+        "total_entries"
+      ],
+      "title": "TrackerSettingsSnapshot",
+      "type": "object"
+    },
+    "UpdateSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "enum": [
+            "stable",
+            "beta"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "current_version": {
+          "maxLength": 64,
+          "title": "Current Version",
+          "type": "string"
+        },
+        "last_check": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Check"
+        },
+        "last_success": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Success"
+        },
+        "runtime_state": {
+          "const": "cached",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "skipped_versions": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Skipped Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "current_version",
+        "channel",
+        "last_check",
+        "last_success",
+        "skipped_versions",
+        "runtime_state"
+      ],
+      "title": "UpdateSettingsSnapshot",
+      "type": "object"
+    },
+    "UtilitySettingsItem": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "description": {
+          "maxLength": 2048,
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "utility_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Utility Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "utility_id",
+        "label",
+        "description",
+        "available",
+        "enabled"
+      ],
+      "title": "UtilitySettingsItem",
+      "type": "object"
+    },
+    "UtilitySettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/UtilitySettingsItem"
+          },
+          "maxItems": 32,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "availability",
+        "items"
+      ],
+      "title": "UtilitySettingsSnapshot",
+      "type": "object"
+    },
+    "VoiceLocalSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "runtime_state": {
+          "const": "cached_unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "sensevoice_path_configured": {
+          "title": "Sensevoice Path Configured",
+          "type": "boolean"
+        },
+        "whisper_model": {
+          "enum": [
+            "tiny",
+            "base",
+            "small",
+            "medium"
+          ],
+          "title": "Whisper Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "whisper_model",
+        "sensevoice_path_configured",
+        "runtime_state"
+      ],
+      "title": "VoiceLocalSettingsSnapshot",
+      "type": "object"
+    },
+    "VoiceRuntimeSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "captions_enabled": {
+          "title": "Captions Enabled",
+          "type": "boolean"
+        },
+        "dictation_model": {
+          "maxLength": 128,
+          "title": "Dictation Model",
+          "type": "string"
+        },
+        "dictation_provider": {
+          "maxLength": 64,
+          "title": "Dictation Provider",
+          "type": "string"
+        },
+        "realtime_fallback_to_local": {
+          "title": "Realtime Fallback To Local",
+          "type": "boolean"
+        },
+        "realtime_voice": {
+          "maxLength": 32,
+          "title": "Realtime Voice",
+          "type": "string"
+        },
+        "speech_output_model": {
+          "maxLength": 128,
+          "title": "Speech Output Model",
+          "type": "string"
+        },
+        "speech_output_provider": {
+          "maxLength": 64,
+          "title": "Speech Output Provider",
+          "type": "string"
+        },
+        "speech_output_voice": {
+          "maxLength": 64,
+          "title": "Speech Output Voice",
+          "type": "string"
+        },
+        "talk_auto_start": {
+          "title": "Talk Auto Start",
+          "type": "boolean"
+        },
+        "talk_model": {
+          "maxLength": 128,
+          "title": "Talk Model",
+          "type": "string"
+        },
+        "talk_provider": {
+          "maxLength": 64,
+          "title": "Talk Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "talk_provider",
+        "talk_model",
+        "dictation_provider",
+        "dictation_model",
+        "speech_output_provider",
+        "speech_output_model",
+        "speech_output_voice",
+        "realtime_voice",
+        "captions_enabled",
+        "talk_auto_start",
+        "realtime_fallback_to_local"
+      ],
+      "title": "VoiceRuntimeSettingsSnapshot",
+      "type": "object"
+    },
+    "VoiceSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "dictation_providers": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 8,
+          "title": "Dictation Providers",
+          "type": "array"
+        },
+        "local": {
+          "$ref": "#/$defs/VoiceLocalSettingsSnapshot"
+        },
+        "openai_realtime_credential": {
+          "$ref": "#/$defs/SettingsCredentialState"
+        },
+        "realtime_voice_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Realtime Voice Options",
+          "type": "array"
+        },
+        "runtime": {
+          "$ref": "#/$defs/VoiceRuntimeSettingsSnapshot"
+        },
+        "speech_output_providers": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 8,
+          "title": "Speech Output Providers",
+          "type": "array"
+        },
+        "talk_providers": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 8,
+          "title": "Talk Providers",
+          "type": "array"
+        },
+        "tts": {
+          "$ref": "#/$defs/VoiceTtsSettingsSnapshot"
+        },
+        "tts_voice_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 32,
+          "title": "Tts Voice Options",
+          "type": "array"
+        },
+        "whisper_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 8,
+          "title": "Whisper Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "availability",
+        "runtime",
+        "local",
+        "tts",
+        "openai_realtime_credential",
+        "talk_providers",
+        "dictation_providers",
+        "speech_output_providers",
+        "whisper_options",
+        "realtime_voice_options",
+        "tts_voice_options"
+      ],
+      "title": "VoiceSettingsSnapshot",
+      "type": "object"
+    },
+    "VoiceTtsSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_speak": {
+          "title": "Auto Speak",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "speed": {
+          "maximum": 2.0,
+          "minimum": 0.5,
+          "title": "Speed",
+          "type": "number"
+        },
+        "voice": {
+          "maxLength": 32,
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "installed",
+        "enabled",
+        "voice",
+        "speed",
+        "auto_speak"
+      ],
+      "title": "VoiceTtsSettingsSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "settings_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Settings Revision"
+    },
+    "snapshot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettingsSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "rejected",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "SettingsMutationReceipt",
+  "type": "object"
+}

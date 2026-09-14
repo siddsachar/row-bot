@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "field": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Field",
+      "type": "string"
+    },
+    "operation": {
+      "const": "settings.update",
+      "title": "Operation",
+      "type": "string"
+    },
+    "page": {
+      "enum": [
+        "voice",
+        "system",
+        "tracker",
+        "documents",
+        "tools",
+        "accounts",
+        "utilities",
+        "preferences"
+      ],
+      "title": "Page",
+      "type": "string"
+    },
+    "review_id": {
+      "maxLength": 256,
+      "minLength": 32,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "secret": {
+      "title": "Secret",
+      "type": "boolean"
+    },
+    "settings_revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Settings Revision",
+      "type": "string"
+    },
+    "value_summary": {
+      "maxLength": 256,
+      "title": "Value Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "operation",
+    "settings_revision",
+    "page",
+    "field",
+    "value_summary",
+    "secret",
+    "action_digest",
+    "review_id"
+  ],
+  "title": "SettingsMutationReview",
+  "type": "object"
+}

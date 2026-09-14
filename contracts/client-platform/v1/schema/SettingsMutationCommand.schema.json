@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "SettingsMutationPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "page": {
+          "enum": [
+            "voice",
+            "system",
+            "tracker",
+            "documents",
+            "tools",
+            "accounts",
+            "utilities",
+            "preferences"
+          ],
+          "title": "Page",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 256,
+          "minLength": 32,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "settings_revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Settings Revision",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "settings_revision",
+        "page",
+        "field",
+        "value",
+        "action_digest",
+        "review_id"
+      ],
+      "title": "SettingsMutationPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/SettingsMutationPayload"
+    },
+    "type": {
+      "const": "settings.update",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "type",
+    "payload"
+  ],
+  "title": "SettingsMutationCommand",
+  "type": "object"
+}
