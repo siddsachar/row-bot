@@ -691,6 +691,10 @@ def build_provider_summary_cards() -> None:
 
     def _queue_xai_oauth_vision_probe_if_needed(card: dict) -> None:
         global _xai_oauth_vision_probe_task
+        from row_bot.docs_capture import docs_capture_disable_network
+
+        if docs_capture_disable_network():
+            return
         if card.get("provider_id") != "xai_oauth":
             return
         if not card.get("configured") or not card.get("runtime_enabled"):

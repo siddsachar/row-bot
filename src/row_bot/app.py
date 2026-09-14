@@ -56,6 +56,7 @@ from row_bot.docs_capture import (
     docs_capture_query_params,
     docs_capture_reduce_motion_css,
     is_docs_capture,
+    is_docs_real_data_capture,
 )
 from row_bot.runtime_paths import static_dir
 from row_bot.version import __version__ as _app_version
@@ -99,12 +100,13 @@ from row_bot.stability import (
 
 setup_stability_monitoring()
 
-try:
-    from row_bot.startup_diagnostics import preflight_optional_native_packages
+if not is_docs_real_data_capture():
+    try:
+        from row_bot.startup_diagnostics import preflight_optional_native_packages
 
-    preflight_optional_native_packages(logger)
-except Exception:
-    logger.debug("Startup diagnostics failed", exc_info=True)
+        preflight_optional_native_packages(logger)
+    except Exception:
+        logger.debug("Startup diagnostics failed", exc_info=True)
 
 from nicegui import ui, app, run
 from fastapi import HTTPException
@@ -779,6 +781,14 @@ async def _run_startup_sequence_guarded():
 
 async def _run_startup_sequence():
     _app_boot_event("startup_sequence_start")
+    if is_docs_real_data_capture():
+        import row_bot.ui.state as _st
+
+        _st.startup_status = "Read-only Settings capture ready"
+        _st.startup_ready = True
+        _safe_console_print("[startup] Authorized real-data capture - startup writes suppressed")
+        _app_boot_event("startup_real_data_capture_ready")
+        return
     install_asyncio_exception_handler()
     start_performance_monitor()
     # Attach persistent file logging (daily JSONL to the Row-Bot data dir).

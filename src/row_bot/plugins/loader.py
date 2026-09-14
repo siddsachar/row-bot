@@ -95,6 +95,29 @@ def _install_plugin_api_compat_aliases() -> None:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+def load_plugin_manifests_readonly() -> list[LoadResult]:
+    """Publish installed manifest metadata without importing plugin code.
+
+    This is the Settings capture owner: it performs no directory creation,
+    quarantine, registration callback, health check, or runtime refresh.
+    """
+    global _load_results
+    results: list[LoadResult] = []
+    if PLUGINS_DIR.is_dir():
+        for entry in sorted(PLUGINS_DIR.iterdir()):
+            if not entry.is_dir() or entry.name.startswith((".", "_")):
+                continue
+            try:
+                manifest = parse_manifest(entry)
+            except (ManifestError, OSError, ValueError) as exc:
+                results.append(LoadResult(plugin_id=entry.name, success=False, error=str(exc)))
+                continue
+            plugin_registry.register_plugin(manifest, tools=[], skills=[])
+            results.append(LoadResult(plugin_id=manifest.id, success=True, manifest=manifest))
+    _load_results = results
+    return list(results)
+
+
 def load_plugins() -> list[LoadResult]:
     """Discover and load all installed plugins. Safe to call multiple times.
 

@@ -218,6 +218,30 @@ def get_verified_github_account_status(*, use_cache: bool = True, timeout: int =
     return anonymous
 
 
+def get_passive_github_account_status() -> GitHubAccountStatus:
+    """Describe saved GitHub configuration without CLI or network probes."""
+    token = resolve_github_token(include_cli=False, use_cache=True)
+    if token.configured:
+        message = "GitHub credential is configured; live verification is suppressed during capture."
+        return GitHubAccountStatus(
+            connected=False,
+            source=token.source,
+            message=message,
+            fingerprint=token.fingerprint,
+            state=GITHUB_STATE_CONFIGURED_UNCHECKED,
+            action_label="Check GitHub",
+            settings_message=message,
+        )
+    message = "No saved GitHub token is configured; live checks are suppressed during capture."
+    return GitHubAccountStatus(
+        connected=False,
+        message=message,
+        state=GITHUB_STATE_NOT_CONFIGURED,
+        action_label="Connect GitHub",
+        settings_message=message,
+    )
+
+
 def check_github_token_access(token: GitHubToken | str, source: str = "", timeout: int = 10) -> GitHubAccountStatus:
     """Verify an explicit GitHub token against the public API."""
     token_obj = token if isinstance(token, GitHubToken) else GitHubToken(str(token or ""), source, secret_store.fingerprint(str(token or "")))

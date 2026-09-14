@@ -289,7 +289,10 @@ def load_skills():
     """Discover all skills, apply persisted enable/disable state, populate cache."""
     global _skills_cache, _enabled, _pinned
 
-    USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    from row_bot.docs_capture import is_docs_real_data_capture
+
+    if not is_docs_real_data_capture():
+        USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
     _skills_cache = _discover_skills()
 
@@ -338,10 +341,11 @@ def load_skills():
         if name in manual_names and _enabled.get(name, False)
     ]
 
-    _save_config({
-        BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
-        SKILL_PINS_CONFIG_KEY: True,
-    })
+    if not is_docs_real_data_capture():
+        _save_config({
+            BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
+            SKILL_PINS_CONFIG_KEY: True,
+        })
 
     manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
     manual_enabled = sum(

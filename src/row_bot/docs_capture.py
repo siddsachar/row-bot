@@ -514,9 +514,14 @@ def configure_docs_capture_state(
             # Normal startup loads plugins in a later background phase. The
             # capture startup is intentionally abbreviated, so load only the
             # inert plugin already seeded into the isolated demo directory.
-            from row_bot.plugins.loader import load_plugins
+            if real_data:
+                from row_bot.plugins.loader import load_plugin_manifests_readonly
 
-            load_plugins()
+                load_plugin_manifests_readonly()
+            else:
+                from row_bot.plugins.loader import load_plugins
+
+                load_plugins()
         state.thread_id = None
         state.thread_name = None
         state.messages = []

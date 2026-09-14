@@ -298,7 +298,13 @@ class DocumentJobService:
         *,
         now: Callable[[], str] = utc_now,
         monotonic: Callable[[], float] = time.time,
+        read_only: bool | None = None,
     ) -> None:
+        if read_only is None:
+            from row_bot.docs_capture import is_docs_real_data_capture
+
+            read_only = is_docs_real_data_capture()
+        self.read_only = bool(read_only)
         self.data_dir = pathlib.Path(data_dir or get_row_bot_data_dir())
         self.root = self.data_dir / "document_ingestion"
         self.staging_root = self.root / "staging"
@@ -309,16 +315,22 @@ class DocumentJobService:
         self._monotonic = monotonic
         self._write_lock = _database_write_lock(self.db_path)
         self.processing_policy_resolver: Callable[[dict], Any] | None = None
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.staging_root.mkdir(parents=True, exist_ok=True)
-        self.work_root.mkdir(parents=True, exist_ok=True)
-        self.completed_root.mkdir(parents=True, exist_ok=True)
-        self._initialize_or_recover_schema()
+        if not self.read_only:
+            self.root.mkdir(parents=True, exist_ok=True)
+            self.staging_root.mkdir(parents=True, exist_ok=True)
+            self.work_root.mkdir(parents=True, exist_ok=True)
+            self.completed_root.mkdir(parents=True, exist_ok=True)
+            self._initialize_or_recover_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10)
+        target = (
+            f"file:{self.db_path.resolve().as_posix()}?mode=ro"
+            if self.read_only
+            else str(self.db_path)
+        )
+        conn = sqlite3.connect(target, timeout=10, uri=self.read_only)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA query_only=ON" if self.read_only else "PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=10000")
         return conn
 

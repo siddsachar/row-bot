@@ -1075,7 +1075,10 @@ def open_settings(
         )
 
         document_job_service = DocumentJobService()
-        ensure_document_supervisor(document_job_service)
+        from row_bot.docs_capture import is_docs_real_data_capture
+
+        if not is_docs_real_data_capture():
+            ensure_document_supervisor(document_job_service)
         durable_records = document_job_service.list_document_records()
         with ui.row().classes("items-center gap-2 q-mb-sm"):
             _metric_chip("indexed", len(processed), icon="library_books")
@@ -2766,6 +2769,7 @@ def open_settings(
 
     def _collect_models_tab_data() -> dict:
         from row_bot.providers.selection import list_model_choice_options, list_quick_choices
+        from row_bot.docs_capture import docs_capture_disable_network
 
         started = time.perf_counter()
         quick_started = time.perf_counter()
@@ -2775,15 +2779,25 @@ def open_settings(
             logger.debug("Could not collect model picker quick choices", exc_info=True)
             quick_choices = []
         quick_elapsed = time.perf_counter() - quick_started
-        try:
-            ollama_up = _ollama_reachable()
-        except Exception:
-            logger.debug("Could not check Ollama status for model settings", exc_info=True)
-            ollama_up = False
+        ollama_up = False
+        if not docs_capture_disable_network():
+            try:
+                ollama_up = _ollama_reachable()
+            except Exception:
+                logger.debug("Could not check Ollama status for model settings", exc_info=True)
         ollama_elapsed = time.perf_counter() - started
         local_started = time.perf_counter()
         try:
-            local_models = list_local_models()
+            if docs_capture_disable_network():
+                from row_bot.providers.model_catalog_cache import read_model_catalog_cache
+
+                local_models = [
+                    str(row.get("model_id"))
+                    for row in read_model_catalog_cache(allow_runtime_bootstrap=False).ollama_rows
+                    if row.get("model_id")
+                ]
+            else:
+                local_models = list_local_models()
         except Exception:
             logger.debug("Could not collect local models for model settings", exc_info=True)
             local_models = []
@@ -4210,11 +4224,16 @@ def open_settings(
 
             async def _load_github_status(token: int, *, force: bool = False) -> None:
                 try:
-                    if force:
+                    from row_bot.docs_capture import is_docs_real_data_capture
+
+                    if force and not is_docs_real_data_capture():
                         github_account.clear_github_caches()
-                    status = await run.io_bound(
-                        lambda: github_account.get_verified_github_account_status(use_cache=not force)
+                    loader = (
+                        github_account.get_passive_github_account_status
+                        if is_docs_real_data_capture()
+                        else lambda: github_account.get_verified_github_account_status(use_cache=not force)
                     )
+                    status = await run.io_bound(loader)
                     if not github_generation.is_current(token):
                         return
                     _render_github_status(status)

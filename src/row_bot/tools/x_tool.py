@@ -709,6 +709,10 @@ class XTool(BaseTool):
             return ("missing", "No token file found")
 
         if _token_expired(token):
+            from row_bot.docs_capture import is_docs_real_data_capture
+
+            if is_docs_real_data_capture():
+                return ("expired", "Token refresh suppressed during authorized capture")
             # Try silent refresh
             new_token = _refresh_token(
                 token, self._get_client_id(), self._get_client_secret()
@@ -718,6 +722,10 @@ class XTool(BaseTool):
             return ("expired", "Token expired — re-authenticate in Settings")
 
         # Token not expired — verify it actually works
+        from row_bot.docs_capture import is_docs_real_data_capture
+
+        if is_docs_real_data_capture():
+            return ("valid", "Saved token present; live verification suppressed during capture")
         try:
             import httpx
             resp = httpx.get(
