@@ -184,7 +184,7 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
   return (
     <div
       ref={host}
-      className="artifact-presentation panel-section"
+      className="artifact-presentation panel-section studio-section stack"
       onKeyDown={(event) => {
         if (
           !active ||
@@ -207,14 +207,19 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
         }
       }}
     >
-      <h3>Presentation</h3>
+      <header className="capability-header">
+        <div>
+          <h3>Presentation</h3>
+          <p>Present the exact saved design without editing the source.</p>
+        </div>
+      </header>
       {!active ? (
-        <Button disabled={busy} onClick={() => void load()}>
+        <Button variant="primary" disabled={busy} onClick={() => void load()}>
           Start presentation
         </Button>
       ) : (
         <>
-          <div className="panel-toolbar">
+          <div className="panel-toolbar action-cluster">
             <Button
               disabled={busy || !state || state.page_index === 0}
               onClick={() => state && void load(state.page_index - 1)}
@@ -255,16 +260,16 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
                 Slide {state.page_index + 1} of {state.page_count}:{' '}
                 {state.title}
               </p>
-              <div aria-label="Presentation slide">
+              <div role="group" aria-label="Presentation slide">
                 {props.renderPreview(state.page_id, 'stage')}
               </div>
-              <aside aria-label="Speaker notes">
+              <aside className="capability-section" aria-label="Speaker notes">
                 <h4>Speaker notes</h4>
                 <p style={{ whiteSpace: 'pre-wrap' }}>
                   {state.notes || 'No speaker notes for this slide.'}
                 </p>
               </aside>
-              <p aria-label="Presentation elapsed time">
+              <p role="timer" aria-label="Presentation elapsed time">
                 {String(Math.floor(elapsed / 60)).padStart(2, '0')}:
                 {String(elapsed % 60).padStart(2, '0')}
               </p>
@@ -275,7 +280,10 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
                 Slide thumbnails
               </Button>
               {thumbnails && (
-                <nav aria-label="Slide thumbnails">
+                <nav
+                  className="capability-section stack"
+                  aria-label="Slide thumbnails"
+                >
                   <Button
                     disabled={busy}
                     onClick={() => void load(state.page_index)}

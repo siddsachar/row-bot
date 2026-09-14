@@ -108,9 +108,13 @@ export default function ConversationVoice(props: {
         </Button>
       )}
       {open && (
-        <section aria-label="Conversation voice" className="surface">
+        <section
+          aria-label="Conversation voice"
+          className="surface conversation-voice-surface"
+          aria-busy={busy}
+        >
           {busy ? (
-            <p className="muted">
+            <p className="muted voice-session-summary">
               {mode === 'talk' ? 'Talk' : 'Realtime Talk'} ·{' '}
               {capturedTargets.current.length
                 ? `Targets: ${capturedTargets.current.join(' and ')}`
@@ -132,11 +136,11 @@ export default function ConversationVoice(props: {
                   <option value="realtime">Realtime Talk</option>
                 </Select>
               </Field>
-              <p>
+              <p className="voice-intro">
                 Spoken requests use this conversation’s selected model and
                 approval settings.
               </p>
-              <p>
+              <p className="muted voice-target-summary">
                 {(busy ? capturedTargets.current : props.targets).length
                   ? `Starting Talk allows spoken requests to change ${(busy ? capturedTargets.current : props.targets).join(' and ')}. These resource targets stay fixed for this voice session.`
                   : 'No resource write targets are selected.'}
@@ -263,9 +267,20 @@ export default function ConversationVoice(props: {
             />
           )}
           {props.running && mode === 'talk' && !busy && (
-            <p>Wait for the current response before starting Talk.</p>
+            <p className="voice-state-reason">
+              Talk will be available when the current response finishes.
+            </p>
           )}
-          {error && <p role="alert">{error}</p>}
+          {!props.context && !props.running && !busy && (
+            <p className="voice-state-reason">
+              Choose a configured model before starting a voice conversation.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="voice-error">
+              {error}
+            </p>
+          )}
         </section>
       )}
     </div>

@@ -425,12 +425,17 @@ export default function WikiSettings({
   }, [session]);
   const locked = state.busy || Boolean(state.pending);
   return (
-    <section className="stack" aria-label="Wiki vault">
-      <h2>Wiki vault</h2>
-      <p>
-        Publish saved knowledge as Markdown. Opening articles and checking sync
-        do not import, rebuild, or call a provider.
-      </p>
+    <section className="stack capability-page" aria-label="Wiki vault">
+      <header className="capability-header">
+        <div>
+          <p className="eyebrow">Knowledge publishing</p>
+          <h2>Wiki vault</h2>
+          <p>
+            Publish saved knowledge as Markdown. Opening articles and checking
+            sync do not import, rebuild, or call a provider.
+          </p>
+        </div>
+      </header>
       <div className="actions">
         <Button disabled={locked} onClick={() => void session.load()}>
           Reload wiki status
@@ -526,7 +531,7 @@ export default function WikiSettings({
         </>
       )}
       {state.page && (
-        <div className="stack" aria-label="Saved wiki articles">
+        <div className="stack" role="group" aria-label="Saved wiki articles">
           {state.page.items.length === 0 && <p>No saved wiki articles.</p>}
           {state.trimmed && (
             <p>

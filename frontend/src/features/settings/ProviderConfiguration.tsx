@@ -344,15 +344,19 @@ export default function ProviderConfiguration(
   }
   return (
     <section
-      className="stack"
+      className="stack capability-section"
       aria-label="Provider configuration"
       aria-busy={!!state.busy}
     >
-      <h2>Endpoints and model pickers</h2>
-      <p>
-        These settings are global. Saving does not start a model or change a
-        conversation profile. Readiness shown here is saved evidence.
-      </p>
+      <header className="capability-header">
+        <div>
+          <h2>Endpoints and model pickers</h2>
+          <p>
+            These settings are global. Saving does not start a model or change a
+            conversation profile. Readiness shown here is saved evidence.
+          </p>
+        </div>
+      </header>
       {state.error && <p role="alert">{state.error}</p>}
       {state.notice && <p role="status">{state.notice}</p>}
       {state.busy === 'load' && <Skeleton label="Loading saved endpoints" />}

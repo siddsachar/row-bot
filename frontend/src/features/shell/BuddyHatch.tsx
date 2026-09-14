@@ -228,9 +228,9 @@ export default function BuddyHatch(props: BuddyHatchProps) {
   const running = active(result);
   return (
     <section
+      className="buddy-hatch"
       aria-label="Hatch a Buddy"
       aria-busy={busy}
-      style={{ display: 'grid', gap: 12 }}
     >
       <p>
         Create a look and six motion clips with your configured image and video
@@ -249,7 +249,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
           }}
         />
       </Field>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <div className="button-row buddy-hatch-actions">
         <Button
           disabled={busy || running || !prompt.trim()}
           onClick={() => void run('full')}
@@ -282,7 +282,10 @@ export default function BuddyHatch(props: BuddyHatchProps) {
         )}
       </div>
       {review && (
-        <section aria-label="Review Hatch action">
+        <section
+          className="buddy-hatch-review"
+          aria-label="Review Hatch action"
+        >
           <p>
             {review.action === 'remove'
               ? 'Remove this generated look from the catalog. Its files will be retained; the default look is selected if needed.'
@@ -311,7 +314,11 @@ export default function BuddyHatch(props: BuddyHatchProps) {
         </section>
       )}
       {result && (
-        <section aria-label="Hatch progress" role="status">
+        <section
+          className="buddy-hatch-progress"
+          aria-label="Hatch progress"
+          role="status"
+        >
           <p>
             {result.status === 'completed'
               ? 'Buddy is ready.'

@@ -207,6 +207,17 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
     expect(videoDownload.mimeType).toBe(FIXTURE_VIDEO.mime);
     expect(videoDownload.bytes).toHaveLength(FIXTURE_VIDEO.bytes);
     expect(digest(videoDownload.bytes)).toBe(FIXTURE_VIDEO.sha256);
+    const containerText = videoDownload.bytes.toString('latin1');
+    const fixtureTracks = {
+      trackAtoms: containerText.match(/trak/g)?.length ?? 0,
+      videoHandlers: containerText.match(/vide/g)?.length ?? 0,
+      audioHandlers: containerText.match(/soun/g)?.length ?? 0,
+    };
+    expect(fixtureTracks).toEqual({
+      trackAtoms: 1,
+      videoHandlers: 1,
+      audioHandlers: 0,
+    });
 
     await expect(composer(page)).toHaveCount(1);
     await writeEvidence(info, 'synthetic-media', {
@@ -221,6 +232,7 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
         mime: videoDownload.mimeType,
         name: videoDownload.name,
         sha256: digest(videoDownload.bytes),
+        fixtureTracks,
         playback,
       },
     });

@@ -178,9 +178,9 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
         : 'Send to channel';
   return (
     <section
+      className="studio-section stack"
       aria-label="Design sharing"
       aria-busy={busy}
-      style={{ padding: 8, display: 'grid', gap: 8 }}
     >
       <Field label="Share action">
         <Select
@@ -336,7 +336,7 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
         Review sharing
       </Button>
       {review && (
-        <div aria-label="Sharing review">
+        <div role="group" aria-label="Sharing review">
           <p>
             {review.page_count} pages · {review.delivery}
           </p>
@@ -346,7 +346,11 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
               ? 'This will create or replace the saved published copy.'
               : 'This sends the reviewed content outside Row-Bot.'}
           </p>
-          <Button disabled={busy} onClick={() => void run(true)}>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void run(true)}
+          >
             {actionLabel}
           </Button>
         </div>

@@ -453,6 +453,23 @@ function interruptedConversation() {
   );
 }
 
+it('names the composer and explains why sending is unavailable', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.drafts.set('conversation-a', {
+    text: 'Keep this draft',
+    attachments: [],
+  });
+  await act(async () => conversation());
+  const composer = screen.getByRole('form', { name: 'Message composer' });
+  const reason = screen.getByText(/choose a configured model to send/i);
+  expect(composer).toContainElement(reason);
+  expect(
+    screen.getByRole('textbox', { name: 'Message' }),
+  ).toHaveAccessibleDescription(reason.textContent ?? '');
+  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+});
+
 it('changes the model through the compact composer menu and preserves the current draft', async () => {
   idleConversation();
   mock.state.handshake.models = [
@@ -1122,6 +1139,9 @@ it('offers media retry after a failed download and releases its object URL on un
     'src',
     'blob:synthetic-result',
   );
+  expect(
+    screen.getByRole('group', { name: 'Generated result' }),
+  ).toBeInTheDocument();
   expect(mock.download).toHaveBeenCalledTimes(2);
   rendered.unmount();
   expect(revoke).toHaveBeenCalledWith('blob:synthetic-result');
@@ -1356,6 +1376,9 @@ it('fences a search hit when A history resolves after selection has moved throug
   await act(async () => {
     render(<SearchConversations />);
   });
+  expect(
+    screen.getByRole('list', { name: 'Conversation search results' }),
+  ).toBeVisible();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: 'A hit Needle' }));
   });

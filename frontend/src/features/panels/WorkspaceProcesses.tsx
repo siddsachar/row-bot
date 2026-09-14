@@ -619,19 +619,19 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
   const approved =
     attempt?.review?.decision === 'approved' && !!attempt.review.approval_id;
   return (
-    <section
-      className="stack"
-      aria-label="Workspace processes"
-      style={{ minWidth: 0, overflowWrap: 'anywhere' }}
-    >
-      <div className="field-row">
-        <h3>Processes</h3>
-        <Button onClick={() => void load()}>Refresh processes</Button>
-      </div>
-      <p>
-        Review a command before starting it. Active processes hold the workspace
-        writer until cleanup is confirmed.
-      </p>
+    <section className="stack studio-section" aria-label="Workspace processes">
+      <header className="capability-header">
+        <div>
+          <h3>Processes</h3>
+          <p>
+            Review a command before starting it. Active processes hold the
+            workspace writer until cleanup is confirmed.
+          </p>
+        </div>
+        <div className="action-cluster">
+          <Button onClick={() => void load()}>Refresh processes</Button>
+        </div>
+      </header>
       {!state.snapshot && !state.error && (
         <Skeleton label="Loading process status" />
       )}
@@ -767,7 +767,10 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
         ))}
       </ul>
       {props.loadRecovery && (
-        <section className="stack" aria-label="Saved process recovery">
+        <section
+          className="stack capability-section"
+          aria-label="Saved process recovery"
+        >
           <h4>Saved process recovery</h4>
           <p>
             Historical owners need explicit recovery to confirm cleanup. Each
@@ -836,7 +839,10 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
         </section>
       )}
       {state.selected && (
-        <section className="stack" aria-label="Process output reader">
+        <section
+          className="stack capability-section"
+          aria-label="Process output reader"
+        >
           <h4>Output</h4>
           <p className="muted">
             Read-only retained output. This panel does not send interactive

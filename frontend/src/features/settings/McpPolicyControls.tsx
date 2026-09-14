@@ -337,7 +337,7 @@ export default function McpPolicyControls({
     intent: (enabled: boolean) => McpPolicyIntent,
     lockedApproval = false,
   ) => (
-    <div role="group" aria-label={label}>
+    <div className="action-cluster" role="group" aria-label={label}>
       <span>
         {label}: {booleanLabel(value)}.{' '}
       </span>
@@ -363,12 +363,19 @@ export default function McpPolicyControls({
     </div>
   );
   return (
-    <section aria-label="Saved MCP permissions" className="settings-section">
-      <h3>Saved permissions</h3>
-      <p>
-        These settings authorize future MCP access. They do not connect, test or
-        disconnect a server, or change the native MCP tool switch.
-      </p>
+    <section
+      aria-label="Saved MCP permissions"
+      className="settings-section capability-section stack"
+    >
+      <header className="capability-header">
+        <div>
+          <h3>Saved permissions</h3>
+          <p>
+            These settings authorize future MCP access. They do not connect,
+            test or disconnect a server, or change the native MCP tool switch.
+          </p>
+        </div>
+      </header>
       <Button
         disabled={!state.active || Boolean(state.busy)}
         onClick={() => void read(state.filter, state.cursor)}
@@ -424,7 +431,7 @@ export default function McpPolicyControls({
                   : `${page.total} saved tool permissions`}
                 .
               </p>
-              <ul>
+              <ul className="capability-summary">
                 {page.items.map((tool) => (
                   <li key={tool.tool_id}>
                     <strong>{tool.name}</strong>
@@ -467,28 +474,31 @@ export default function McpPolicyControls({
         </>
       )}
       {state.draft && <p>Selected change: {state.draftLabel}.</p>}
-      <Button
-        disabled={locked || !canSave || !state.draft}
-        onClick={() => void requestReview()}
-      >
-        Review permission
-      </Button>
-      <Button
-        disabled={locked || !reviewed}
-        onClick={() => void save(reviewed)}
-      >
-        Save permission
-      </Button>
-      {state.draft && (
+      <div className="action-cluster">
         <Button
-          disabled={locked}
-          onClick={() =>
-            session.update({ draft: null, draftLabel: '', reviewed: null })
-          }
+          disabled={locked || !canSave || !state.draft}
+          onClick={() => void requestReview()}
         >
-          Discard selected change
+          Review permission
         </Button>
-      )}
+        <Button
+          variant="primary"
+          disabled={locked || !reviewed}
+          onClick={() => void save(reviewed)}
+        >
+          Save permission
+        </Button>
+        {state.draft && (
+          <Button
+            disabled={locked}
+            onClick={() =>
+              session.update({ draft: null, draftLabel: '', reviewed: null })
+            }
+          >
+            Discard selected change
+          </Button>
+        )}
+      </div>
       {pending && (
         <Button
           disabled={!state.active || Boolean(state.busy)}

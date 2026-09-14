@@ -340,7 +340,7 @@ export default function VoiceControls(props: VoiceControlsProps) {
   }
 
   return (
-    <div className="stack">
+    <div className="stack dictation-controls" aria-busy={stage !== 'idle'}>
       <div className="actions" role="group" aria-label="Dictation controls">
         {stage === 'idle' && (
           <Button
@@ -378,7 +378,7 @@ export default function VoiceControls(props: VoiceControlsProps) {
         )}
       </div>
       {stage !== 'idle' && (
-        <p role="status">
+        <p role="status" className="voice-state-reason">
           {stage === 'requesting'
             ? 'Preparing dictation and microphone permission…'
             : stage === 'recording'
@@ -388,8 +388,25 @@ export default function VoiceControls(props: VoiceControlsProps) {
                 : 'Microphone stopped. Waiting for server transcription to finish.'}
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
-      {recovery && <div aria-label="Unadded dictation">{recovery}</div>}
+      {stage === 'idle' && !props.available && (
+        <small className="voice-state-reason">
+          Dictation is unavailable in this session.
+        </small>
+      )}
+      {error && (
+        <p role="alert" className="voice-error">
+          {error}
+        </p>
+      )}
+      {recovery && (
+        <div
+          className="voice-recovery"
+          role="status"
+          aria-label="Unadded dictation"
+        >
+          {recovery}
+        </div>
+      )}
     </div>
   );
 }

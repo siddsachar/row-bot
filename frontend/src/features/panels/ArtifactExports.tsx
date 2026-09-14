@@ -124,9 +124,9 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
   const current = result?.resource_id === props.resourceId ? result : null;
   return (
     <section
+      className="studio-section stack"
       aria-label="Design export"
       aria-busy={busy}
-      style={{ padding: 8, display: 'grid', gap: 8 }}
     >
       <p>Export the saved design. Downloads stay local.</p>
       <Field label="Export format">
@@ -218,7 +218,11 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
               before sharing it.
             </p>
           )}
-          <Button disabled={busy} onClick={() => void run(true)}>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void run(true)}
+          >
             Download {current.format.toUpperCase()}
           </Button>
         </div>

@@ -331,7 +331,7 @@ function ResourcePanel({
       }
     />
   ) : (
-    <div className="stack">
+    <div className="stack resource-panel">
       {typeof controller.developerRepository === 'function' && (
         <>
           <Button

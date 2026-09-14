@@ -407,20 +407,26 @@ export function McpRuntimeInstallation({
     !state.cancel;
   return (
     <section
-      className="settings-section"
+      className="settings-section capability-section stack"
       aria-label={`${state.runtimeId} managed runtime installation`}
     >
-      <h3>{state.runtimeId === 'node' ? 'Node.js' : 'uv'} managed runtime</h3>
-      <p>
-        Resolve publisher metadata first, then separately review and install the
-        pinned archive. No server is connected.
-      </p>
+      <header className="capability-header">
+        <div>
+          <h3>
+            {state.runtimeId === 'node' ? 'Node.js' : 'uv'} managed runtime
+          </h3>
+          <p>
+            Resolve publisher metadata first, then separately review and install
+            the pinned archive. No server is connected.
+          </p>
+        </div>
+      </header>
       <p role="status">
         {state.message ||
           state.snapshot?.availability ||
           'Reading saved runtime status…'}
       </p>
-      <div className="button-row">
+      <div className="button-row action-cluster">
         <Button disabled={state.reading} onClick={() => session.refresh()}>
           Refresh installation status
         </Button>

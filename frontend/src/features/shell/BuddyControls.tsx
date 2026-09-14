@@ -211,7 +211,11 @@ export default function BuddyControls(props: BuddyControlsProps) {
   return (
     <>
       {snapshot.preferences.visible && props.companionVisible !== false && (
-        <aside aria-label="Buddy companion" aria-busy={busy}>
+        <aside
+          className="buddy-companion"
+          aria-label="Buddy companion"
+          aria-busy={busy}
+        >
           <Button
             aria-label="Buddy settings"
             variant="ghost"
@@ -234,9 +238,9 @@ export default function BuddyControls(props: BuddyControlsProps) {
       )}
       {props.settingsOpen && draft && (
         <section
+          className="buddy-preferences"
           aria-label="Buddy preferences"
           aria-busy={busy}
-          style={{ display: 'grid', gap: 12, padding: 12 }}
         >
           <p>
             Companion behavior, look, and generated motion. Buddy stays docked
@@ -321,9 +325,9 @@ export default function BuddyControls(props: BuddyControlsProps) {
             </Select>
           </Field>
           <div
+            className="buddy-look-list"
             role="group"
             aria-label="Buddy looks"
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}
           >
             {page?.packs.map((pack) => (
               <Button
@@ -364,7 +368,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
               saving.
             </p>
           )}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="button-row buddy-preference-actions">
             <Button
               disabled={busy || !dirty || conflict}
               onClick={() => void run('save')}

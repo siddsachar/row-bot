@@ -531,9 +531,9 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
   const busy = loading || saving || staleDraft || Boolean(props.blocked);
   return (
     <section
+      className="studio-section stack"
       aria-label="Design controls"
       aria-busy={busy}
-      style={{ display: 'grid', gap: 8, padding: 8 }}
     >
       {staleDraft && (
         <p role="status">
@@ -558,7 +558,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         Reload controls
       </Button>
       {brand && state && (
-        <details>
+        <details className="capability-section stack">
           <summary>Brand and fonts</summary>
           {colors.map((key) => (
             <Field label={key.replaceAll('_', ' ')} key={key}>
@@ -664,7 +664,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         </details>
       )}
       {state?.element && (
-        <details open>
+        <details className="capability-section stack" open>
           <summary>Selected element properties</summary>
           <p>{state.element.tag}</p>
           {[
@@ -767,7 +767,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
             Save current brand as preset
           </Button>
           {presetReview && (
-            <div aria-label="Global preset review">
+            <div role="group" aria-label="Global preset review">
               <p>
                 {presetReview.action === 'delete'
                   ? 'Delete'
@@ -939,7 +939,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         the selected category across its page.
       </p>
       {review && (
-        <div aria-label="Design review">
+        <div role="group" aria-label="Design review">
           <p>
             Heuristic score {review.score} · {review.findings.length} of{' '}
             {review.finding_count} findings

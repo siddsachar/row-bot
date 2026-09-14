@@ -774,7 +774,10 @@ export default function Workspace() {
     />
   );
   return (
-    <div className="workspace" ref={workspaceRef}>
+    <div
+      className={`workspace ${layout.navigation.collapsed ? 'navigation-collapsed' : ''} ${layout.panels.length > 0 ? 'has-resource-panels' : ''}`}
+      ref={workspaceRef}
+    >
       <a className="skip-link" href="#conversation">
         Skip to conversation
       </a>

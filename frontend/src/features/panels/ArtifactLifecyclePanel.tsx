@@ -107,17 +107,16 @@ export default function ArtifactLifecyclePanel(
 
   if (!visible) return null;
   return (
-    <section
-      aria-label="Design lifecycle"
-      style={{ padding: 8, display: 'grid', gap: 10, flexShrink: 0 }}
-    >
-      <div>
-        <h3 style={{ margin: 0 }}>Present, export and share</h3>
-        <p style={{ marginBottom: 0 }}>
-          Work from this exact saved version. Publishing and delivery always
-          require a separate review.
-        </p>
-      </div>
+    <section className="studio-section stack" aria-label="Design lifecycle">
+      <header className="capability-header">
+        <div>
+          <h3>Present, export and share</h3>
+          <p>
+            Work from this exact saved version. Publishing and delivery always
+            require a separate review.
+          </p>
+        </div>
+      </header>
       {!state && !error && <Skeleton label="Loading design lifecycle" />}
       {error && (
         <ErrorState
@@ -134,9 +133,9 @@ export default function ArtifactLifecyclePanel(
       {state && (
         <>
           <div
+            className="panel-toolbar action-cluster"
             role="toolbar"
             aria-label="Design lifecycle views"
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}
           >
             {(
               [
@@ -161,8 +160,8 @@ export default function ArtifactLifecyclePanel(
             </Button>
           </div>
           <ul
+            className="capability-summary"
             aria-label="Lifecycle availability"
-            style={{ margin: 0, paddingLeft: 20 }}
           >
             {state.capabilities.map((item) => (
               <li key={item.id}>

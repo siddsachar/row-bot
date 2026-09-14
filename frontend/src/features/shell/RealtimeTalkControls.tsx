@@ -270,7 +270,12 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
               ? 'Listening…'
               : 'Connecting…';
   return (
-    <div className="voice-controls" aria-label="Realtime Talk controls">
+    <div
+      className="voice-controls realtime-talk-controls"
+      role="group"
+      aria-label="Realtime Talk controls"
+      aria-busy={state !== 'idle'}
+    >
       {state === 'idle' ? (
         <Button
           disabled={!props.available || props.disabled}
@@ -301,9 +306,26 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
       <Button aria-pressed={captions} onClick={() => setCaptions(!captions)}>
         Captions
       </Button>
-      <span role="status">{label}</span>
-      {captions && caption && <p aria-label="Voice caption">{caption}</p>}
-      {message && <p role="alert">{message}</p>}
+      {label && (
+        <span role="status" className="voice-state-reason">
+          {label}
+        </span>
+      )}
+      {state === 'idle' && !props.available && (
+        <small className="voice-state-reason">
+          Realtime Talk is unavailable in this session.
+        </small>
+      )}
+      {captions && caption && (
+        <p className="voice-caption" role="status" aria-label="Voice caption">
+          {caption}
+        </p>
+      )}
+      {message && (
+        <p role="alert" className="voice-error">
+          {message}
+        </p>
+      )}
     </div>
   );
 }

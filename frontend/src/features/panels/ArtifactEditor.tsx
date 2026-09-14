@@ -330,14 +330,11 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
   if (!visible) return null;
   return (
     <section
+      className="studio-section stack"
       aria-label="Design editing"
       aria-busy={loading || saving}
-      style={{ padding: 8, minWidth: 0, overflow: 'auto' }}
     >
-      <div
-        className="toolbar"
-        style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
-      >
+      <div className="toolbar panel-toolbar action-cluster">
         <Button
           disabled={loading || saving}
           onClick={() => setRefresh((value) => value + 1)}
@@ -393,7 +390,11 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
                     <p>
                       {current.pages.length} of {current.page_count} pages
                     </p>
-                    <div role="list" aria-label="Design pages">
+                    <div
+                      className="capability-summary"
+                      role="list"
+                      aria-label="Design pages"
+                    >
                       {current.pages.map((page) => (
                         <div key={page.id} role="listitem">
                           <Button
@@ -600,13 +601,13 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
                     {!current.history_count && (
                       <p>History is saved before your first edit.</p>
                     )}
-                    <div role="list" aria-label="Design history">
+                    <div
+                      className="capability-summary"
+                      role="list"
+                      aria-label="Design history"
+                    >
                       {current.history.map((item) => (
-                        <div
-                          role="listitem"
-                          key={item.id}
-                          style={{ paddingBlock: 6 }}
-                        >
+                        <div role="listitem" key={item.id}>
                           <p>
                             {item.label || 'Saved version'} · {item.page_count}{' '}
                             pages · {item.author}

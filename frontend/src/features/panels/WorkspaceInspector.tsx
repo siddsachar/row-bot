@@ -368,16 +368,17 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
 
   return (
     <section
-      className="stack"
-      style={{ minWidth: 0, overflowWrap: 'anywhere' }}
+      className="stack studio-section"
       aria-label={`${current.name} inspector`}
     >
-      <div className="field-row">
+      <header className="capability-header">
         <h2>{current.name}</h2>
-        <Button disabled={busy.summary} onClick={() => void refresh()}>
-          Refresh inspector
-        </Button>
-      </div>
+        <div className="action-cluster">
+          <Button disabled={busy.summary} onClick={() => void refresh()}>
+            Refresh inspector
+          </Button>
+        </div>
+      </header>
       {(errors.summary || current.status !== 'ready') && (
         <ErrorState
           title="Inspector is stale"
@@ -419,7 +420,10 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         </p>
       )}
 
-      <section className="stack" aria-label="Workspace changes">
+      <section
+        className="stack capability-section"
+        aria-label="Workspace changes"
+      >
         <h3>Changes ({current.changed_total})</h3>
         {current.diff_stats && (
           <p>
@@ -492,7 +496,10 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
       </section>
 
       {diffPath && (
-        <section className="stack" aria-label="Read-only file diff">
+        <section
+          className="stack capability-section"
+          aria-label="Read-only file diff"
+        >
           <h3>Diff: {diffPath}</h3>
           {busy.diff && <Skeleton label="Loading diff" />}
           {errors.diff && (
@@ -568,7 +575,10 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         </section>
       )}
 
-      <section className="stack" aria-label="Agent change sets">
+      <section
+        className="stack capability-section"
+        aria-label="Agent change sets"
+      >
         <h3>Agent changes</h3>
         <Button
           disabled={busy.summary || busy.ledger}
@@ -687,7 +697,10 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         )}
       </section>
 
-      <section className="stack" aria-label="Workspace files">
+      <section
+        className="stack capability-section"
+        aria-label="Workspace files"
+      >
         <h3>Files</h3>
         <nav aria-label="Workspace folder location">
           <Button variant="ghost" onClick={() => void loadDirectory('')}>
@@ -758,7 +771,10 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         )}
       </section>
 
-      <section className="stack" aria-label="Read-only file preview">
+      <section
+        className="stack capability-section"
+        aria-label="Read-only file preview"
+      >
         <h3>File preview{filePath ? `: ${filePath}` : ''}</h3>
         {scopedEdit.capacity && (
           <p role="alert">

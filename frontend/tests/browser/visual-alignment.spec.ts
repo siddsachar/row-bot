@@ -16,6 +16,7 @@ import {
   markWorkspaceIdentity,
   newConversation,
   openConversation,
+  reloadDocument,
   releaseProducer,
 } from './unified-helpers';
 
@@ -159,7 +160,7 @@ test('Home is a real bounded library and New chat creates exactly once without s
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(creates).toHaveLength(1);
   await home(page);
-  await page.reload();
+  await reloadDocument(page);
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
@@ -239,7 +240,7 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
   await page.goBack();
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
-  await page.reload();
+  await reloadDocument(page);
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
   await page
@@ -425,7 +426,7 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
   await expect(
     page.getByRole('button', { name: 'Thinking', exact: true }),
   ).toContainText('High');
-  await page.reload();
+  await reloadDocument(page);
   await expect(
     page.getByRole('button', { name: 'Thinking', exact: true }),
   ).toContainText('High');

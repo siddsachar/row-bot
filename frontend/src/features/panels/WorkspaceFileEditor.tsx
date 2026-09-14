@@ -48,17 +48,21 @@ export default function WorkspaceFileEditor(props: WorkspaceFileEditorProps) {
   const editable = snapshot && ['text', 'missing'].includes(snapshot.status);
   return (
     <section
-      className="stack"
+      className="stack studio-section"
       aria-label="Workspace file editor"
       aria-busy={busy || loading}
     >
-      <h3>Edit {state.path}</h3>
-      <p>
-        {snapshot?.target === 'sandbox_shadow'
-          ? 'Prepared sandbox file'
-          : 'Workspace file'}{' '}
-        · saves use the reviewed file revision.
-      </p>
+      <header className="capability-header">
+        <div>
+          <h3>Edit {state.path}</h3>
+          <p>
+            {snapshot?.target === 'sandbox_shadow'
+              ? 'Prepared sandbox file'
+              : 'Workspace file'}{' '}
+            · saves use the reviewed file revision.
+          </p>
+        </div>
+      </header>
       {loading && <Skeleton label="Loading complete file" />}
       {error && (
         <ErrorState title="File edit requires attention">{error}</ErrorState>
@@ -90,7 +94,7 @@ export default function WorkspaceFileEditor(props: WorkspaceFileEditorProps) {
         </Field>
       )}
       {notice && <p role="status">{notice}</p>}
-      <div className="actions">
+      <div className="actions action-cluster">
         <Button
           disabled={!editable || busy || loading || (stale && !uncertain)}
           onClick={() => void session.commit()}

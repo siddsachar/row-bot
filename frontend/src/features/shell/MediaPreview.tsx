@@ -112,17 +112,23 @@ export function MediaPreview({
   );
   if (!current)
     return failure ? (
-      <div role="alert">
+      <div role="alert" className="media-preview-error">
         {failure} {retry}
       </div>
     ) : (
-      <p role="status">Loading generated result…</p>
+      <p role="status" className="media-preview-status">
+        Loading generated result…
+      </p>
     );
 
   const decodeFailed = failedUrl === current.url;
   const onError = () => setFailedUrl(current.url);
   return (
-    <div className="stack">
+    <div
+      className="stack media-preview"
+      role="group"
+      aria-label="Generated result"
+    >
       {!decodeFailed && current.kind === 'image' && (
         <img
           className="message-media"
@@ -159,12 +165,16 @@ export function MediaPreview({
         </video>
       )}
       {decodeFailed && (
-        <div role="alert">
+        <div role="alert" className="media-preview-error">
           This generated result could not be previewed. Download it or retry.{' '}
           {retry}
         </div>
       )}
-      <a href={current.url} download="result">
+      <a
+        className="media-preview-download"
+        href={current.url}
+        download="result"
+      >
         Download generated result
       </a>
     </div>

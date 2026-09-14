@@ -28,6 +28,38 @@ function fixtureHeaders() {
 async function visualCheck(page: Page, info: TestInfo, label: string) {
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
+    await page.evaluate((nextAppearance) => {
+      const key = 'row-bot.appearance.v1';
+      const previous = localStorage.getItem(key);
+      let saved: Record<string, unknown> = {};
+      try {
+        saved = JSON.parse(previous ?? '{}');
+      } catch {
+        /* The theme owner safely fills a malformed or absent preference. */
+      }
+      const next = JSON.stringify({
+        version: 1,
+        accent: 'blue',
+        density: 'compact',
+        reduce_transparency: false,
+        ...saved,
+        appearance: nextAppearance,
+      });
+      localStorage.setItem(key, next);
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key,
+          oldValue: previous,
+          newValue: next,
+          storageArea: localStorage,
+          url: location.href,
+        }),
+      );
+    }, appearance);
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-theme',
+      appearance,
+    );
     await assertNoOverflow(page);
     await screenshot(page, info, `${label}-${appearance}`);
     await accessibility(page, info, `${label}-${appearance}`, {

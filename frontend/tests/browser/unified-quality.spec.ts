@@ -519,6 +519,16 @@ test('actual state messages and recovery controls remain readable in every theme
           exact: true,
         });
         await expect(preview.locator('iframe')).toBeVisible();
+        const refreshPreview = preview.getByRole('button', {
+          name: 'Refresh preview',
+          exact: true,
+        });
+        // Opening a freshly created resource may still be applying its saved
+        // revision after the first iframe appears. Intercept only after that
+        // owner-driven refresh settles, otherwise this test holds the request
+        // that must enable the very button it is about to click.
+        await expect(preview).toHaveAttribute('aria-busy', 'false');
+        await expect(refreshPreview).toBeEnabled();
         const previewPath = `**/api/v1/conversations/${conversation}/artifacts/*/preview*`;
         let release!: () => void;
         const held = new Promise<void>((resolve) => {
@@ -528,9 +538,7 @@ test('actual state messages and recovery controls remain readable in every theme
           await held;
           await route.continue();
         });
-        await preview
-          .getByRole('button', { name: 'Refresh preview', exact: true })
-          .click();
+        await refreshPreview.click();
         await expect(preview).toHaveAttribute('aria-busy', 'true');
         await screenshot(page, info, `${label}-preview-loading`);
         release();

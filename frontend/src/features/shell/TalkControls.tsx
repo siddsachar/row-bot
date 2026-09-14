@@ -475,7 +475,12 @@ export default function TalkControls(props: TalkControlsProps) {
   }, [props.run?.id, props.run?.state, props.run?.outputId, stage]);
 
   return (
-    <div className="voice-controls" aria-label="Talk controls">
+    <div
+      className="voice-controls talk-controls"
+      role="group"
+      aria-label="Talk controls"
+      aria-busy={stage !== 'idle'}
+    >
       {stage === 'idle' ? (
         <Button
           disabled={!props.available || props.disabled}
@@ -516,10 +521,9 @@ export default function TalkControls(props: TalkControlsProps) {
       <Button aria-pressed={captions} onClick={() => setCaptions(!captions)}>
         Captions
       </Button>
-      <span role="status">
-        {stage === 'idle'
-          ? ''
-          : stage === 'listening'
+      {stage !== 'idle' && (
+        <span role="status" className="voice-state-reason">
+          {stage === 'listening'
             ? 'Listening…'
             : stage === 'thinking'
               ? 'Thinking…'
@@ -530,9 +534,23 @@ export default function TalkControls(props: TalkControlsProps) {
                   : stage === 'stopping'
                     ? 'Stopping…'
                     : 'Starting Talk…'}
-      </span>
-      {captions && caption && <p aria-label="Voice caption">{caption}</p>}
-      {message && <p role="alert">{message}</p>}
+        </span>
+      )}
+      {stage === 'idle' && !props.available && (
+        <small className="voice-state-reason">
+          Talk is unavailable in this session.
+        </small>
+      )}
+      {captions && caption && (
+        <p className="voice-caption" role="status" aria-label="Voice caption">
+          {caption}
+        </p>
+      )}
+      {message && (
+        <p role="alert" className="voice-error">
+          {message}
+        </p>
+      )}
     </div>
   );
 }

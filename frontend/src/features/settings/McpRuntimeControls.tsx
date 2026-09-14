@@ -423,12 +423,19 @@ export default function McpRuntimeControls({
     !snapshot?.runtime_id ||
     !snapshot.cleanup_revision;
   return (
-    <section aria-label="MCP connection" className="settings-section">
-      <h3>Connection</h3>
-      <p>
-        Connecting or testing may run a local command or contact the saved
-        server. Tool approvals remain separate.
-      </p>
+    <section
+      aria-label="MCP connection"
+      className="settings-section capability-section stack"
+    >
+      <header className="capability-header">
+        <div>
+          <h3>Connection</h3>
+          <p>
+            Connecting or testing may run a local command or contact the saved
+            server. Tool approvals remain separate.
+          </p>
+        </div>
+      </header>
       <p role="status">
         {snapshot
           ? (stateLabels[snapshot.state] ?? 'Connection state is unknown.')
@@ -444,7 +451,11 @@ export default function McpRuntimeControls({
       <Button disabled={!state.active} onClick={() => session.refresh()}>
         Refresh connection
       </Button>
-      <div role="group" aria-label="Start connection">
+      <div
+        className="action-cluster"
+        role="group"
+        aria-label="Start connection"
+      >
         <Button
           disabled={launchLocked}
           onClick={() => void requestReview('connect')}
@@ -477,7 +488,7 @@ export default function McpRuntimeControls({
         )}
         {launch.message && <p role="status">{launch.message}</p>}
       </div>
-      <div role="group" aria-label="Stop connection">
+      <div className="action-cluster" role="group" aria-label="Stop connection">
         <Button
           disabled={cleanupLocked}
           onClick={() => void requestReview('disconnect')}

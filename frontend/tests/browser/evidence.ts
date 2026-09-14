@@ -13,6 +13,7 @@ type BrowserEvidence = {
   pageErrors: string[];
   pageErrorDetails: { name: string; stack: string }[];
   network: { event: string; path: string; status?: number }[];
+  webSockets: { event: 'open' | 'close' | 'error'; path: string }[];
   blockedExternal: string[];
 };
 
@@ -109,7 +110,14 @@ export const test = base.extend<{
   evidence: BrowserEvidence;
   nativeNetwork: boolean;
 }>({
-  nativeNetwork: [false, { option: true }],
+  // WebKit reports routed, same-origin requests cancelled by an intentional
+  // document navigation as access-control page exceptions. Exercise its
+  // native cancellation path after verifying the app's local-only CSP; the
+  // request listener below still fails any attempted external request.
+  nativeNetwork: [
+    async ({ browserName }, provide) => provide(browserName === 'webkit'),
+    { option: true },
+  ],
   evidence: [
     async ({ context, page, baseURL, nativeNetwork }, use, testInfo) => {
       const evidence: BrowserEvidence = {
@@ -120,6 +128,7 @@ export const test = base.extend<{
         pageErrors: [],
         pageErrorDetails: [],
         network: [],
+        webSockets: [],
         blockedExternal: [],
       };
       const origin = new URL(baseURL!).origin;
@@ -167,6 +176,16 @@ export const test = base.extend<{
             path: publicPath(request.url()),
           }),
         );
+        observed.on('websocket', (socket) => {
+          const path = publicPath(socket.url());
+          evidence.webSockets.push({ event: 'open', path });
+          socket.on('close', () =>
+            evidence.webSockets.push({ event: 'close', path }),
+          );
+          socket.on('socketerror', () =>
+            evidence.webSockets.push({ event: 'error', path }),
+          );
+        });
       };
       observe(page);
       context.on('page', observe);
@@ -175,6 +194,10 @@ export const test = base.extend<{
       expect(
         evidence.pageErrors,
         'Unexplained JavaScript page exceptions',
+      ).toEqual([]);
+      expect(
+        evidence.webSockets,
+        'The new client uses authenticated SSE and must not open WebSockets',
       ).toEqual([]);
       assertConsoleEvidence(evidence, testInfo);
       expect(

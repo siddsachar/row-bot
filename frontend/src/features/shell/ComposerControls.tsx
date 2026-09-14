@@ -103,6 +103,7 @@ export default function ComposerControls({
       className="composer-control-cluster"
       role="group"
       aria-label="Conversation controls"
+      aria-busy={saving}
     >
       <Menu
         label="Model"
@@ -134,7 +135,9 @@ export default function ComposerControls({
         }
       >
         <Cpu size={18} aria-hidden />
-        <span>{model?.label ?? selectedModelName ?? 'Choose model'}</span>
+        <span title={model?.label ?? selectedModelName ?? 'Choose model'}>
+          {model?.label ?? selectedModelName ?? 'Choose model'}
+        </span>
       </Menu>
       {reasoning?.available && (
         <Popover.Root open={thinkingOpen} onOpenChange={setThinkingOpen}>
@@ -160,10 +163,11 @@ export default function ComposerControls({
               collisionPadding={12}
               aria-label="Thinking"
             >
-              <strong>Thinking</strong>
+              <strong className="thinking-menu-title">Thinking</strong>
               {reasoning.choices.map((choice) => (
                 <Button
                   variant="ghost"
+                  className="thinking-option"
                   key={JSON.stringify(choice.selection)}
                   disabled={blocked}
                   aria-pressed={choice.label === thinkingLabel}
@@ -207,7 +211,7 @@ export default function ComposerControls({
                 </>
               )}
               {reasoning.stale && (
-                <p role="status">
+                <p role="status" className="composer-control-notice">
                   The saved Thinking choice is no longer available. Provider
                   default will be used.
                 </p>
@@ -259,6 +263,11 @@ export default function ComposerControls({
           {profile}
         </span>
       </Menu>
+      {saving && (
+        <small className="composer-control-status" role="status">
+          Saving conversation controls…
+        </small>
+      )}
     </div>
   );
 }

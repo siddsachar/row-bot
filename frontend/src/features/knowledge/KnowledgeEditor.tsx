@@ -414,7 +414,11 @@ export default function KnowledgeEditor({
         </>
       )}
       {state.review && (
-        <div className="surface stack" aria-label="Review knowledge change">
+        <div
+          className="surface stack"
+          role="group"
+          aria-label="Review knowledge change"
+        >
           <p>
             {state.review.reuse_entity_id
               ? 'The canonical User already exists. Reuse it without changing its content; edit it afterward to make changes.'

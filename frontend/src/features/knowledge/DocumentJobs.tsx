@@ -497,7 +497,7 @@ export function DocumentJobs({
         </Button>
       )}
       {state.review && (
-        <div aria-label="Document queue action review">
+        <div role="group" aria-label="Document queue action review">
           <p>Reviewed action: {state.review.action}</p>
           {state.review.provider_work && (
             <p>

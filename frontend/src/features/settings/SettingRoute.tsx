@@ -69,7 +69,7 @@ export default function SettingRoute() {
   if (!leaf) return <Navigate to="/settings" replace />;
   return (
     <section
-      className="route-surface"
+      className="route-surface stack capability-page"
       aria-label={leaf?.label ?? 'Unknown setting'}
     >
       {leaf?.id === 'buddy' ? (

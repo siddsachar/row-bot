@@ -74,6 +74,15 @@ it('reads three bounded real libraries without creating or selecting a conversat
     screen.getByRole('link', { name: 'Open in current app' }),
   ).toHaveAttribute('href', '/');
   expect(screen.queryByRole('tab', { name: 'Monitor' })).toBeNull();
+  expect(screen.getByRole('status')).toHaveTextContent(/^Connected$/);
+  expect(
+    screen.getByRole('region', { name: 'Continue with a resource' }),
+  ).toContainElement(screen.getByRole('region', { name: 'Designer library' }));
+  expect(
+    screen.getByRole('navigation', {
+      name: 'More workspace destinations',
+    }),
+  ).toBeVisible();
 });
 
 it('opens workflows and settings through their shared workspace routes', async () => {

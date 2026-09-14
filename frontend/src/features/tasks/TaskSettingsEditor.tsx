@@ -317,14 +317,18 @@ export default function TaskSettingsEditor({
     );
   return (
     <section
-      className="task-editor stack"
+      className="task-editor stack capability-section"
       aria-label="Workflow settings editor"
     >
-      <h2>Workflow settings</h2>
-      <p>
-        Review how future runs choose their model, policy, conversation and
-        triggers. Saving does not run the workflow.
-      </p>
+      <header className="capability-header">
+        <div>
+          <h2>Workflow settings</h2>
+          <p>
+            Review how future runs choose their model, policy, conversation and
+            triggers. Saving does not run the workflow.
+          </p>
+        </div>
+      </header>
       {loading && <Skeleton label="Loading workflow settings" />}
       {error && (
         <div role="alert">
@@ -510,7 +514,7 @@ export default function TaskSettingsEditor({
               </p>
             )}
           </fieldset>
-          <div className="actions">
+          <div className="actions action-cluster">
             <Button
               disabled={
                 mutating || stale || busy === 'review' || meta.uncertain

@@ -94,7 +94,7 @@ test('reference chrome density preserves reading size, focus and accessible them
       );
       expect(measured.composer[1]).toBe(compact ? '21px' : '24px');
       expect(measured.cardRadius).toBe('10px');
-      expect(measured.controlRadius).toBe('3px');
+      expect(measured.controlRadius).toBe('6px');
       expect(measured.controlHeight).toBeGreaterThanOrEqual(compact ? 34 : 44);
       expect(measured.inputHeight).toBeGreaterThanOrEqual(compact ? 34 : 44);
       expect(measured.primaryContrast).toBeGreaterThanOrEqual(4.5);
@@ -139,7 +139,7 @@ test('opaque and reduced-motion preferences preserve readable bounded controls',
     };
   });
   expect(measured.image).toBe('none');
-  expect(measured.background).toBe('rgb(38, 38, 38)');
+  expect(measured.background).toBe('rgb(32, 40, 50)');
   expect(measured.animation).toBe('none');
   await page.emulateMedia({ forcedColors: 'active' });
   if (

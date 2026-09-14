@@ -97,7 +97,11 @@ export default function DocumentRemovalsPanel({
       </Button>
       {state.error && <p role="alert">{state.error}</p>}
       {!!entries.length && (
-        <div className="actions" aria-label="Retained document removals">
+        <div
+          className="actions"
+          role="group"
+          aria-label="Retained document removals"
+        >
           {entries.map(([key, row]) => (
             <Button
               key={key}

@@ -65,6 +65,12 @@ const Message = memo(function Message({
   const [error, setError] = useState('');
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
+  const author =
+    row.role === 'user'
+      ? 'You'
+      : row.role === 'assistant'
+        ? 'Row-Bot'
+        : 'Tool result';
   async function more() {
     const identity = conversationId;
     if (!identity || !row.content_ref) return;
@@ -95,45 +101,47 @@ const Message = memo(function Message({
   return (
     <article
       className={`message message-${row.role}`}
+      aria-label={`${author} message`}
       data-message-id={row.message_id ?? row.id}
       data-row-id={row.id}
       tabIndex={-1}
     >
-      <strong className="message-role">
-        {row.role === 'user'
-          ? 'You'
-          : row.role === 'assistant'
-            ? 'Row-Bot'
-            : 'Tool result'}
-      </strong>
+      <header className="message-meta">
+        <strong className="message-role">{author}</strong>
+        {!!row.tool_call_ids?.length && (
+          <small className="message-tool-count">
+            {row.tool_call_ids.length} tool{' '}
+            {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
+          </small>
+        )}
+      </header>
       <div className="message-text">
         <FormattedText
           text={expanded || row.blocks.map((block) => block.text).join('\n')}
         />
       </div>
-      {!!row.tool_call_ids?.length && (
-        <small>
-          {row.tool_call_ids.length} tool{' '}
-          {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
-        </small>
-      )}
-      {row.content_status === 'lazy' && (!expanded || cursor) && (
-        <Button onClick={() => void more()} disabled={busy}>
-          {cursor ? 'Load next content page' : 'Load message content'}
-        </Button>
-      )}
-      {!!previous.length && (
-        <Button
-          onClick={() => {
-            const start = previous.at(-1);
-            setPrevious((pages) => pages.slice(0, -1));
-            setExpanded('');
-            setCursor(start);
-          }}
-        >
-          Previous message portion
-        </Button>
-      )}
+      {(row.content_status === 'lazy' && (!expanded || cursor)) ||
+      previous.length ? (
+        <div className="message-actions">
+          {row.content_status === 'lazy' && (!expanded || cursor) && (
+            <Button onClick={() => void more()} disabled={busy}>
+              {cursor ? 'Load next content page' : 'Load message content'}
+            </Button>
+          )}
+          {!!previous.length && (
+            <Button
+              onClick={() => {
+                const start = previous.at(-1);
+                setPrevious((pages) => pages.slice(0, -1));
+                setExpanded('');
+                setCursor(start);
+              }}
+            >
+              Previous message portion
+            </Button>
+          )}
+        </div>
+      ) : null}
       {error && <p role="alert">{error}</p>}
     </article>
   );
@@ -362,6 +370,26 @@ export default function Conversation({
   const running = generation && !generation.quiesced;
   const controls = state.workspace?.controls;
   const resources = state.workspace?.resources ?? [];
+  const sendActionReady = Boolean(
+    state.workspace?.actions.find((action) => action.action === 'send')?.ready,
+  );
+  const composerStateReason = pendingSteering
+    ? 'Checking the queued message receipt before another message can be sent.'
+    : pendingSubmit
+      ? 'Checking the message receipt before another message can be sent.'
+      : pendingResume
+        ? 'Checking the resume receipt before another action can start.'
+        : talkBusy
+          ? 'Voice controls are finishing before another message can be sent.'
+          : busy
+            ? 'Finishing the current conversation action.'
+            : running
+              ? 'A response is in progress. Add text to queue guidance, or stop the run.'
+              : state.status !== 'ready'
+                ? 'Reconnect to send. Your draft remains on this device.'
+                : !sendActionReady
+                  ? 'Choose a configured model to send. You can still create or open resources.'
+                  : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   function scrollToLatest() {
     const transcript = transcriptRef.current;
@@ -960,11 +988,17 @@ export default function Conversation({
         aria-label="Conversation details"
       >
         <header className="conversation-heading">
-          <div>
+          <div className="conversation-title-block">
             <span className="eyebrow">Conversation</span>
-            <h1>{state.conversation?.title || 'Start a conversation'}</h1>
+            <h1 title={state.conversation?.title || 'Start a conversation'}>
+              {state.conversation?.title || 'Start a conversation'}
+            </h1>
           </div>
-          <div className="button-row">
+          <div
+            className="button-row conversation-actions"
+            role="group"
+            aria-label="Conversation actions"
+          >
             {missingReceipt &&
               (missingReceipt.key === steeringKey ||
                 missingReceipt.key === submitKey ||
@@ -1075,7 +1109,11 @@ export default function Conversation({
             ))}
           </div>
         )}
-        <div className="history-controls">
+        <div
+          className="history-controls"
+          role="group"
+          aria-label="Conversation history"
+        >
           <Button
             disabled={!historyReady}
             onClick={() =>
@@ -1143,7 +1181,11 @@ export default function Conversation({
             setShowLatest(!following);
           }}
         >
-          <div ref={transcriptContentRef} style={{ display: 'flow-root' }}>
+          <div
+            className="transcript-content"
+            ref={transcriptContentRef}
+            style={{ display: 'flow-root' }}
+          >
             {state.loadingConversation ? (
               <Skeleton label="Opening conversation" />
             ) : rows.length ? (
@@ -1170,11 +1212,16 @@ export default function Conversation({
               !rows.some((row) => row.message_id === pending.id) && (
                 <article
                   className="message message-user"
+                  aria-label="You message awaiting confirmation"
                   data-message-id={pending.id}
                 >
-                  <strong>You</strong>
+                  <header className="message-meta">
+                    <strong className="message-role">You</strong>
+                    <small className="message-delivery-state">
+                      Awaiting confirmation
+                    </small>
+                  </header>
                   <div className="message-text">{pending.text}</div>
-                  <small>Awaiting confirmation</small>
                 </article>
               )}
           </div>
@@ -1206,7 +1253,7 @@ export default function Conversation({
         )}
         {id && (
           <details
-            className="activity"
+            className="activity steering-activity"
             onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
           >
             <summary>Steering queue</summary>
@@ -1256,11 +1303,11 @@ export default function Conversation({
           </details>
         )}
         {!!state.activity.length && (
-          <details className="activity">
+          <details className="activity activity-feed">
             <summary>Activity ({state.activity.length})</summary>
-            <ol>
+            <ol className="activity-list">
               {state.activity.map((record) => (
-                <li key={record.event.event_id}>
+                <li className="activity-item" key={record.event.event_id}>
                   {record.event.type === 'tool.activity' ? (
                     `${record.event.payload.state === 'tool_call' ? 'Using' : 'Completed'} ${record.event.payload.tool_name || 'tool'}`
                   ) : record.event.type === 'media.available' ? (
@@ -1324,6 +1371,8 @@ export default function Conversation({
       {id && (
         <form
           className="composer"
+          aria-label="Message composer"
+          aria-busy={busy || talkBusy}
           onSubmit={(e) => {
             e.preventDefault();
             send();
@@ -1351,24 +1400,28 @@ export default function Conversation({
               }
             />
           )}
-          {draft.attachments.map((a) => (
-            <div key={a.attachment_ref} className="attachment-chip">
-              {a.name}
-              <Button
-                aria-label={`Remove ${a.name}`}
-                onClick={() =>
-                  controller.setDraft(id, {
-                    ...draft,
-                    attachments: draft.attachments.filter(
-                      (item) => item.attachment_ref !== a.attachment_ref,
-                    ),
-                  })
-                }
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
+          {!!draft.attachments.length && (
+            <ul className="composer-attachments" aria-label="Attachments">
+              {draft.attachments.map((a) => (
+                <li key={a.attachment_ref} className="attachment-chip">
+                  <span>{a.name}</span>
+                  <Button
+                    aria-label={`Remove ${a.name}`}
+                    onClick={() =>
+                      controller.setDraft(id, {
+                        ...draft,
+                        attachments: draft.attachments.filter(
+                          (item) => item.attachment_ref !== a.attachment_ref,
+                        ),
+                      })
+                    }
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
           <label className="sr-only" htmlFor="message-composer">
             Message
           </label>
@@ -1379,6 +1432,9 @@ export default function Conversation({
             value={draft.text}
             maxLength={200000}
             placeholder="Message Row-Bot…"
+            aria-describedby={
+              composerStateReason ? 'message-composer-state' : undefined
+            }
             onChange={(e) =>
               controller.setDraft(id, { ...draft, text: e.target.value })
             }
@@ -1483,6 +1539,9 @@ export default function Conversation({
                     variant="primary"
                     iconOnly
                     aria-label="Send"
+                    aria-describedby={
+                      composerStateReason ? 'message-composer-state' : undefined
+                    }
                     disabled={
                       busy ||
                       Boolean(pendingSteering) ||
@@ -1512,34 +1571,45 @@ export default function Conversation({
               )}
             </div>
           </div>
-          <small role="status">
-            {state.draftStatus === 'saving'
-              ? 'Saving draft…'
-              : state.draftStatus === 'conflict'
-                ? 'Draft changed in another client. Your local text is preserved.'
-                : state.draftStatus === 'failed'
-                  ? 'Draft could not be saved. Keep this page open and reconnect.'
-                  : 'Draft saved'}
-          </small>
-          {state.draftStatus === 'conflict' && (
-            <Button
-              onClick={() =>
-                overlay.open({
-                  title: 'Review draft conflict',
-                  description:
-                    'Choose which draft to keep. Messages are unchanged.',
-                  content: <DraftConflict id={id} />,
-                })
-              }
+          {composerStateReason && (
+            <p
+              id="message-composer-state"
+              className="composer-state-reason"
+              role="status"
             >
-              Review draft conflict
-            </Button>
+              {composerStateReason}
+            </p>
           )}
-          {state.draftStatus === 'failed' && (
-            <Button onClick={() => void controller.retryDraft(id)}>
-              Retry saving draft
-            </Button>
-          )}
+          <div className="composer-status-row">
+            <small role="status" className="draft-status">
+              {state.draftStatus === 'saving'
+                ? 'Saving draft…'
+                : state.draftStatus === 'conflict'
+                  ? 'Draft changed in another client. Your local text is preserved.'
+                  : state.draftStatus === 'failed'
+                    ? 'Draft could not be saved. Keep this page open and reconnect.'
+                    : 'Draft saved'}
+            </small>
+            {state.draftStatus === 'conflict' && (
+              <Button
+                onClick={() =>
+                  overlay.open({
+                    title: 'Review draft conflict',
+                    description:
+                      'Choose which draft to keep. Messages are unchanged.',
+                    content: <DraftConflict id={id} />,
+                  })
+                }
+              >
+                Review draft conflict
+              </Button>
+            )}
+            {state.draftStatus === 'failed' && (
+              <Button onClick={() => void controller.retryDraft(id)}>
+                Retry saving draft
+              </Button>
+            )}
+          </div>
           {voiceScope && (
             <ConversationVoice
               key={`${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
@@ -1583,13 +1653,6 @@ export default function Conversation({
             />
           )}
           <ContextUsage usage={state.workspace?.context_usage} />
-          {!state.workspace?.actions.find((a) => a.action === 'send')
-            ?.ready && (
-            <small>
-              Choose a configured model to send. You can still create or open
-              resources.
-            </small>
-          )}
         </form>
       )}
     </div>

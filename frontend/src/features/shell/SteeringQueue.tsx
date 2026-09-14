@@ -85,12 +85,21 @@ export default function SteeringQueue({
   }
 
   return (
-    <section aria-label="Steering queue" aria-busy={loading}>
-      <h2>Steering queue</h2>
-      <p className="muted">
-        Queued guidance is waiting for the agent. Consumed guidance has reached
-        the agent. Pending guidance cannot be edited or removed here.
-      </p>
+    <section
+      className="queue-surface steering-queue"
+      aria-label="Steering queue"
+      aria-busy={loading}
+    >
+      <header className="queue-heading">
+        <div>
+          <span className="eyebrow">Active run</span>
+          <h2>Steering queue</h2>
+        </div>
+        <p className="muted">
+          Queued guidance is waiting for the agent; consumed guidance has
+          reached it. Pending guidance cannot be edited or removed here.
+        </p>
+      </header>
       <div className="toolbar" role="group" aria-label="Steering queue pages">
         <Button disabled={loading || !cursor} onClick={firstPage}>
           First page
@@ -120,11 +129,11 @@ export default function SteeringQueue({
         </ErrorState>
       )}
       {current && current.items.length > 0 && (
-        <ol aria-label="Steering messages">
+        <ol className="queue-list" aria-label="Steering messages">
           {current.items.map((item) => (
-            <li key={item.id} style={{ overflowWrap: 'anywhere' }}>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{item.text}</p>
-              <p className="muted">
+            <li key={item.id} className="queue-item">
+              <p className="queue-item-text">{item.text}</p>
+              <p className="muted queue-item-meta">
                 <span>{item.state === 'consumed' ? 'Consumed' : 'Queued'}</span>
                 {' · '}
                 <span>Message ID: {item.id}</span>
@@ -139,7 +148,7 @@ export default function SteeringQueue({
         </EmptyState>
       )}
       {current && (
-        <p aria-live="polite" className="muted">
+        <p aria-live="polite" className="muted queue-page-status">
           {current.items.length} messages on this page.
           {current.has_more
             ? ' More messages are available.'

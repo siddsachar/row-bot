@@ -75,6 +75,13 @@ function fillNew() {
   });
 }
 
+it('exposes workflow prompts as a named accessible group', async () => {
+  render(<TaskEditor {...props()} />);
+  expect(
+    await screen.findByRole('group', { name: 'Workflow prompts' }),
+  ).toBeVisible();
+});
+
 it('retains a new draft and settles create after an actual unmount without creating again', async () => {
   const session = new TaskEditSession('task');
   const response = deferred<TaskSaveResult>();

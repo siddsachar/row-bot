@@ -454,12 +454,20 @@ export default function BrowserLiveControls({
     : Object.entries(unavailableLabels);
 
   return (
-    <section aria-label="Managed browser" className="settings-section">
-      <h3>Managed browser</h3>
-      <p>
-        Open ordinary websites in Row-Bot&apos;s local managed profile and take
-        over its window when you need direct control.
-      </p>
+    <section
+      aria-label="Managed browser"
+      className="settings-section capability-page"
+    >
+      <header className="capability-header">
+        <div>
+          <p className="eyebrow">Local managed profile</p>
+          <h3>Managed browser</h3>
+          <p>
+            Open ordinary websites in Row-Bot&apos;s local managed profile and
+            take over its window when you need direct control.
+          </p>
+        </div>
+      </header>
       <p role="status">
         {snapshot
           ? (stateLabels[snapshot.state] ?? 'Browser state is unknown.')
@@ -510,7 +518,11 @@ export default function BrowserLiveControls({
         </Button>
       </div>
 
-      <div role="group" aria-label="Browser live control">
+      <div
+        className="action-cluster capability-section"
+        role="group"
+        aria-label="Browser live control"
+      >
         <Button
           ref={takeOverRef}
           disabled={locked || !available(snapshot, 'browser.take_over')}

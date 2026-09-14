@@ -208,10 +208,33 @@ export function composer(page: Page) {
   });
 }
 
+/** Retire authenticated observers before an intentional cross-document test navigation. */
+export async function retireDocument(page: Page): Promise<void> {
+  let current: URL;
+  try {
+    current = new URL(page.url());
+  } catch {
+    return;
+  }
+  if (!['http:', 'https:'].includes(current.protocol)) return;
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new PageTransitionEvent('pagehide', { persisted: false }),
+    );
+  });
+  await page.waitForLoadState('networkidle', { timeout: 10_000 });
+}
+
+export async function reloadDocument(page: Page): Promise<void> {
+  await retireDocument(page);
+  await page.reload();
+}
+
 export async function openConversation(
   page: Page,
   id = 'p1-browser-a',
 ): Promise<void> {
+  await retireDocument(page);
   const opened = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === `/api/v1/conversations/${id}/open` &&
@@ -233,6 +256,7 @@ export async function openConversation(
 }
 
 export async function newConversation(page: Page): Promise<string> {
+  await retireDocument(page);
   await page.goto('/app-v2/');
   await expect(
     page.getByRole('status').filter({ hasText: /^Connected$/ }),

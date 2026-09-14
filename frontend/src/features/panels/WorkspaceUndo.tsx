@@ -289,12 +289,19 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
     return <p role="status">Undo is unavailable for this workspace session.</p>;
   const reviewed = state.review;
   return (
-    <section aria-label="Undo workspace changes">
-      <h3>Undo imported changes</h3>
-      <p>
-        Review the exact retained originals before restoring files. Later edits
-        will be preserved.
-      </p>
+    <section
+      className="studio-section stack"
+      aria-label="Undo workspace changes"
+    >
+      <header className="capability-header">
+        <div>
+          <h3>Undo imported changes</h3>
+          <p>
+            Review the exact retained originals before restoring files. Later
+            edits will be preserved.
+          </p>
+        </div>
+      </header>
       {state.error && (
         <ErrorState title="Undo needs attention">{state.error}</ErrorState>
       )}
@@ -335,7 +342,7 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
             <p role="alert">The current policy blocks Undo.</p>
           )}
           {!state.pending && (
-            <div className="actions">
+            <div className="actions action-cluster">
               <Button
                 disabled={state.busy || state.reading}
                 onClick={() => owned.cancelReview()}
@@ -357,7 +364,7 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
         </div>
       )}
       {state.pending && (
-        <div className="actions">
+        <div className="actions action-cluster">
           <Button
             disabled={state.busy || state.reading}
             onClick={() => void owned.check(props)}

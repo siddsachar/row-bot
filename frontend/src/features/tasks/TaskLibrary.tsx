@@ -118,19 +118,27 @@ export function SavedTasks({
   }
   return (
     <section
-      className="route-surface stack"
+      className="route-surface stack capability-page"
       aria-label="Workflows"
       aria-busy={loading}
     >
-      <h1>Workflows</h1>
-      <p>Browse saved tasks, reminders and schedules.</p>
-      {onCreate && (
+      <header className="capability-header">
         <div>
-          <Button onClick={onCreate}>New workflow</Button>
+          <p className="eyebrow">Automation library</p>
+          <h1>Workflows</h1>
+          <p>Browse saved tasks, reminders and schedules.</p>
         </div>
-      )}
+        {onCreate && (
+          <div className="action-cluster">
+            <Button variant="primary" onClick={onCreate}>
+              New workflow
+            </Button>
+          </div>
+        )}
+      </header>
       <form
-        className="field-row"
+        className="field-row capability-section"
+        aria-label="Filter workflows"
         onSubmit={(event) => {
           event.preventDefault();
           setFilter((value) => ({ ...value, query: draft.trim() }));
@@ -158,7 +166,7 @@ export function SavedTasks({
         </Field>
         <Button type="submit">Search</Button>
       </form>
-      <div>
+      <div className="action-cluster">
         <Button
           disabled={loading}
           onClick={() => setReload((value) => value + 1)}
@@ -186,30 +194,32 @@ export function SavedTasks({
           <ul className="settings-results">
             {page.items.map((task) => (
               <li className="surface" key={task.id}>
-                <details>
+                <details className="stack">
                   <summary>{task.name}</summary>
                   {task.description && <p>{task.description}</p>}
-                  {onEdit && (
-                    <Button onClick={() => onEdit(task.id)}>
-                      Edit workflow
-                    </Button>
-                  )}
-                  {onRuns && (
-                    <Button onClick={() => onRuns(task.id)}>
-                      Run and history
-                    </Button>
-                  )}
-                  {onGraph && (
-                    <Button onClick={() => onGraph(task.id)}>
-                      Edit workflow steps
-                    </Button>
-                  )}
-                  {onSettings && (
-                    <Button onClick={() => onSettings(task.id)}>
-                      Workflow settings
-                    </Button>
-                  )}
-                  <dl>
+                  <div className="action-cluster">
+                    {onEdit && (
+                      <Button onClick={() => onEdit(task.id)}>
+                        Edit workflow
+                      </Button>
+                    )}
+                    {onRuns && (
+                      <Button onClick={() => onRuns(task.id)}>
+                        Run and history
+                      </Button>
+                    )}
+                    {onGraph && (
+                      <Button onClick={() => onGraph(task.id)}>
+                        Edit workflow steps
+                      </Button>
+                    )}
+                    {onSettings && (
+                      <Button onClick={() => onSettings(task.id)}>
+                        Workflow settings
+                      </Button>
+                    )}
+                  </div>
+                  <dl className="capability-summary">
                     <dt>Type</dt>
                     <dd>{task.notify_only ? 'Reminder' : 'Task'}</dd>
                     <dt>Enabled</dt>
@@ -224,12 +234,14 @@ export function SavedTasks({
                     <dd>{task.last_status || 'No recorded status'}</dd>
                   </dl>
                   {task.conversation_id && (
-                    <Link
-                      className="button"
-                      to={`/conversations/${encodeURIComponent(task.conversation_id)}`}
-                    >
-                      Open conversation
-                    </Link>
+                    <div className="action-cluster">
+                      <Link
+                        className="button"
+                        to={`/conversations/${encodeURIComponent(task.conversation_id)}`}
+                      >
+                        Open conversation
+                      </Link>
+                    </div>
                   )}
                 </details>
               </li>

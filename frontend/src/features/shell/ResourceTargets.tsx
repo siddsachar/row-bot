@@ -16,6 +16,7 @@ export default function ResourceTargets({
       className="write-targets"
       role="group"
       aria-label="Resource write targets"
+      data-empty={!selected.length || undefined}
     >
       {(['artifact', 'workspace'] as const).map((kind) => {
         const choices = resources.filter(
@@ -51,7 +52,7 @@ export default function ResourceTargets({
               })),
             ]}
           >
-            <span>
+            <span title={`${label} · ${currentName}`}>
               {label} · {currentName}
             </span>
           </Menu>

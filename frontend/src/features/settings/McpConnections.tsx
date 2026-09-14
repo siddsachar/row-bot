@@ -164,7 +164,11 @@ export default function McpConnectionsPanel({
       {selected && (
         <>
           <h2>Connection: {selected.name}</h2>
-          <div className="actions" aria-label="Retained connection controls">
+          <div
+            className="actions"
+            role="group"
+            aria-label="Retained connection controls"
+          >
             {owner.entries().map(([id, item]) => (
               <Button
                 key={id}

@@ -388,14 +388,19 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
   const locked = state.busy || state.reading || !!state.pending;
   return (
     <section
-      className="stack"
+      className="stack studio-section"
       aria-label="Sandbox imports"
       aria-busy={state.busy || state.reading}
     >
-      <h3>Sandbox changes</h3>
-      <p>
-        Review saved sandbox changes before importing them into this workspace.
-      </p>
+      <header className="capability-header">
+        <div>
+          <h3>Sandbox changes</h3>
+          <p>
+            Review saved sandbox changes before importing them into this
+            workspace.
+          </p>
+        </div>
+      </header>
       {state.error && (
         <ErrorState title="Import requires attention">{state.error}</ErrorState>
       )}
@@ -496,7 +501,11 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
         </>
       )}
       {state.reviewed && (
-        <div className="stack" aria-label="Reviewed sandbox import">
+        <div
+          className="stack"
+          role="group"
+          aria-label="Reviewed sandbox import"
+        >
           <p>
             {state.reviewed.files.length} reviewed file changes.{' '}
             {state.reviewed.approval_required

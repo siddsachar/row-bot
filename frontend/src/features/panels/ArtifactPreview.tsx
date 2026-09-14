@@ -307,6 +307,7 @@ export default function ArtifactPreview({
     <section
       aria-label="Design preview"
       aria-busy={loading}
+      className="preview-surface"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -318,7 +319,7 @@ export default function ArtifactPreview({
       }}
     >
       <div
-        className="toolbar"
+        className="toolbar panel-toolbar preview-toolbar"
         role="group"
         aria-label={`${pageLabel} navigation`}
         style={{
@@ -468,49 +469,6 @@ export default function ArtifactPreview({
           <option value="actual">Actual size</option>
         </Select>
       </div>
-      {lifecycle &&
-        !editorOpen &&
-        !designOpen &&
-        current &&
-        current.resource_revision === resourceRevision &&
-        presentation &&
-        createExport &&
-        downloadExport &&
-        sharing && (
-          <ArtifactLifecyclePanel
-            {...lifecycle}
-            resourceId={resourceId}
-            resourceRevision={current.resource_revision}
-            visible={visible}
-            renderPresentation={() => (
-              <ArtifactPresentationPanel
-                {...presentation}
-                resourceId={resourceId}
-                resourceRevision={current.resource_revision}
-                visible={visible}
-              />
-            )}
-            renderExport={() => (
-              <ArtifactExports
-                resourceId={resourceId}
-                resourceRevision={current.resource_revision}
-                visible={visible}
-                currentPageIndex={current.page_index}
-                pageCount={current.page_count}
-                create={createExport}
-                download={downloadExport}
-              />
-            )}
-            renderSharing={() => (
-              <ArtifactSharingPanel
-                {...sharing}
-                resourceId={resourceId}
-                resourceRevision={current.resource_revision}
-                visible={visible}
-              />
-            )}
-          />
-        )}
       {!lifecycle && presentation && (
         <div className="panel-controls" hidden={!presentationOpen}>
           <ArtifactPresentationPanel
@@ -637,6 +595,49 @@ export default function ArtifactPreview({
           </div>
         </>
       )}
+      {lifecycle &&
+        !editorOpen &&
+        !designOpen &&
+        current &&
+        current.resource_revision === resourceRevision &&
+        presentation &&
+        createExport &&
+        downloadExport &&
+        sharing && (
+          <ArtifactLifecyclePanel
+            {...lifecycle}
+            resourceId={resourceId}
+            resourceRevision={current.resource_revision}
+            visible={visible}
+            renderPresentation={() => (
+              <ArtifactPresentationPanel
+                {...presentation}
+                resourceId={resourceId}
+                resourceRevision={current.resource_revision}
+                visible={visible}
+              />
+            )}
+            renderExport={() => (
+              <ArtifactExports
+                resourceId={resourceId}
+                resourceRevision={current.resource_revision}
+                visible={visible}
+                currentPageIndex={current.page_index}
+                pageCount={current.page_count}
+                create={createExport}
+                download={downloadExport}
+              />
+            )}
+            renderSharing={() => (
+              <ArtifactSharingPanel
+                {...sharing}
+                resourceId={resourceId}
+                resourceRevision={current.resource_revision}
+                visible={visible}
+              />
+            )}
+          />
+        )}
       <p className="muted" style={{ margin: 0, flexShrink: 0, fontSize: 12 }}>
         Preview of the saved design. Advanced design controls remain available
         in Designer Studio.

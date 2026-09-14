@@ -29,10 +29,17 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
     );
   const attempt = state.attempt;
   return (
-    <section aria-label="Artifact design panel">
+    <section
+      className="studio-section stack"
+      aria-label="Artifact design panel"
+    >
       {state.notice && <p role="status">{state.notice}</p>}
       {attempt && (
-        <div aria-label="Original design command">
+        <div
+          className="capability-section stack"
+          role="group"
+          aria-label="Original design command"
+        >
           <p>
             {['preparing', 'pending'].includes(attempt.status)
               ? 'The original design command is in progress.'
@@ -43,22 +50,24 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
             Recovery checks this exact command. Unconfirmed saved effects are
             not automatically repeated.
           </p>
-          <Button
-            disabled={
-              state.recovering ||
-              ['preparing', 'pending'].includes(attempt.status)
-            }
-            onClick={() => {
-              void session.recover().catch(() => undefined);
-            }}
-          >
-            Check original design command
-          </Button>
-          {attempt.status === 'rejected' && (
-            <Button onClick={session.dismissRejection}>
-              Dismiss rejected command
+          <div className="action-cluster">
+            <Button
+              disabled={
+                state.recovering ||
+                ['preparing', 'pending'].includes(attempt.status)
+              }
+              onClick={() => {
+                void session.recover().catch(() => undefined);
+              }}
+            >
+              Check original design command
             </Button>
-          )}
+            {attempt.status === 'rejected' && (
+              <Button onClick={session.dismissRejection}>
+                Dismiss rejected command
+              </Button>
+            )}
+          </div>
         </div>
       )}
       <ArtifactDesignControls

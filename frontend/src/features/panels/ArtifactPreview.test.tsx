@@ -484,6 +484,13 @@ it('does not remount lifecycle controls against a stale preview revision', async
       expect.any(AbortSignal),
     ),
   );
+  const frame = screen.getByTitle('Slide preview: Opening');
+  const lifecycle = await screen.findByRole('region', {
+    name: 'Design lifecycle',
+  });
+  expect(
+    frame.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
   view.rerender(
     <ArtifactPreview
       {...props}

@@ -13,6 +13,7 @@ import {
   fixtureState,
   newConversation,
   openConversation,
+  reloadDocument,
   releaseProducer,
 } from './unified-helpers';
 
@@ -460,7 +461,7 @@ test('ordinary conversation streams, settles once and restores its unsent draft'
     }),
   ).toHaveCount(1);
   await expect(composer(page)).toHaveValue('Keep this unsent draft');
-  await page.reload();
+  await reloadDocument(page);
   await expect(composer(page)).toHaveValue('Keep this unsent draft');
   await expect(
     page.getByText('Synthetic stream is active. Synthetic stream settled.', {

@@ -1216,6 +1216,15 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
     body: Buffer.from(JSON.stringify(playback, null, 2)),
     contentType: 'application/json',
   });
+  let motionSafety:
+    | {
+        muted: boolean;
+        defaultMuted: boolean;
+        autoplay: boolean;
+        controls: boolean;
+        ariaHidden: string | null;
+      }
+    | undefined;
   if (playback.supported) {
     await expect(video).toBeVisible();
     await expect
@@ -1226,6 +1235,19 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
         ),
       )
       .toBe(true);
+    motionSafety = await video.evaluate((node: HTMLVideoElement) => ({
+      muted: node.muted,
+      defaultMuted: node.defaultMuted,
+      autoplay: node.autoplay,
+      controls: node.controls,
+      ariaHidden: node.getAttribute('aria-hidden'),
+    }));
+    expect(motionSafety).toMatchObject({
+      muted: true,
+      autoplay: true,
+      controls: false,
+      ariaHidden: 'true',
+    });
   } else {
     await expect(video).toHaveCount(0);
     await expect(
@@ -1240,6 +1262,13 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
   await expect
     .poll(() => still.evaluate((node: HTMLImageElement) => node.naturalWidth))
     .toBeGreaterThan(0);
+  await writeEvidence(info, 'buddy-motion-safety', {
+    motionSafety,
+    playbackSupported: playback.supported,
+    reducedMotionRemovesAutoplayVideo: (await video.count()) === 0,
+    policy:
+      'Decorative Buddy motion is aria-hidden and muted whenever autoplay is supported; reduced motion removes the video and uses the still image.',
+  });
   await assertNoOverflow(page);
   await accessibility(page, info, 'buddy-reduced-motion');
 });

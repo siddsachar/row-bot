@@ -232,11 +232,16 @@ export default function TaskEditor({
     );
   return (
     <form
-      className="task-editor"
+      className="task-editor stack capability-section"
       onSubmit={(event) => void submit(event)}
       aria-label={taskId ? 'Edit task' : 'Create task'}
     >
-      <h2>{taskId ? 'Edit task' : 'Create task'}</h2>
+      <header className="capability-header">
+        <div>
+          <h2>{taskId ? 'Edit task' : 'Create task'}</h2>
+          <p>Define the saved workflow before reviewing any changes.</p>
+        </div>
+      </header>
       {error && <p role="alert">{error}</p>}
       {meta.limit && (
         <p role="alert">
@@ -260,6 +265,7 @@ export default function TaskEditor({
         </Button>
       )}
       <fieldset
+        className="stack"
         disabled={
           saving ||
           loading ||
@@ -324,7 +330,7 @@ export default function TaskEditor({
             />
           </Field>
         ) : (
-          <div aria-label="Workflow prompts">
+          <div role="group" aria-label="Workflow prompts">
             {fields.prompts.map((prompt, index) => (
               <div key={index}>
                 <Field label={`Prompt ${index + 1}`}>
@@ -346,7 +352,7 @@ export default function TaskEditor({
                   />
                 </Field>
                 {!advanced && (
-                  <div className="actions">
+                  <div className="actions action-cluster">
                     <Button
                       disabled={index === 0}
                       aria-label={`Move prompt ${index + 1} up`}
@@ -512,7 +518,7 @@ export default function TaskEditor({
           </p>
         )}
       </fieldset>
-      <div className="actions">
+      <div className="actions action-cluster">
         <Button
           type="submit"
           variant="primary"

@@ -788,7 +788,11 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             {goal.last_progress && <p>{goal.last_progress}</p>}
             {goal.last_reason && <p>{goal.last_reason}</p>}
             {goal.id === state.goalPage?.current_goal_id && (
-              <div className="button-row" aria-label="Current goal actions">
+              <div
+                className="button-row"
+                role="group"
+                aria-label="Current goal actions"
+              >
                 {['active', 'waiting_approval'].includes(goal.status) && (
                   <Button
                     disabled={locked}

@@ -406,14 +406,21 @@ export default function KnowledgeRelations({
   const locked = state.busy || state.pending;
   return (
     <section
-      className="stack"
+      className="stack capability-section"
       aria-label="Knowledge relations"
       aria-busy={state.busy}
     >
-      <h2>Relations and replacement</h2>
-      <Button disabled={locked} onClick={() => perform(session.load)}>
-        {state.anchor ? 'Reload relations' : 'Open relations'}
-      </Button>
+      <header className="capability-header">
+        <div>
+          <h2>Relations and replacement</h2>
+          <p>Review linked knowledge before replacing an entity or relation.</p>
+        </div>
+        <div className="action-cluster">
+          <Button disabled={locked} onClick={() => perform(session.load)}>
+            {state.anchor ? 'Reload relations' : 'Open relations'}
+          </Button>
+        </div>
+      </header>
       {state.anchor && (
         <>
           <p>
@@ -551,7 +558,11 @@ export default function KnowledgeRelations({
         </>
       )}
       {state.review && (
-        <div className="surface stack" aria-label="Review relation change">
+        <div
+          className="surface stack"
+          role="group"
+          aria-label="Review relation change"
+        >
           <p>
             {state.review.action === 'knowledge.supersede'
               ? 'Mark this entry superseded and link the selected replacement. Both entries are retained.'

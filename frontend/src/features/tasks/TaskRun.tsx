@@ -235,15 +235,22 @@ export default function TaskRun({
   }
 
   return (
-    <section className="task-run" aria-label="Task runs and approvals">
-      <h2>Run and history</h2>
-      <p className="muted">
-        Run now uses the saved workflow, agent profile, approval policy, and
-        delivery settings.
-      </p>
+    <section
+      className="task-run stack capability-section"
+      aria-label="Task runs and approvals"
+    >
+      <header className="capability-header">
+        <div>
+          <h2>Run and history</h2>
+          <p className="muted">
+            Run now uses the saved workflow, agent profile, approval policy, and
+            delivery settings.
+          </p>
+        </div>
+      </header>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
-      <div className="actions">
+      <div className="actions action-cluster">
         <Button
           variant="primary"
           disabled={
@@ -281,7 +288,7 @@ export default function TaskRun({
       ) : (
         <>
           {selected && (
-            <section aria-label="Selected run">
+            <section className="surface stack" aria-label="Selected run">
               <h3>Run {selected.id}</h3>
               <p>
                 Saved status: {selected.status}. Progress: {selected.steps_done}{' '}
@@ -300,7 +307,7 @@ export default function TaskRun({
                   confirmed.
                 </p>
               )}
-              <div className="actions">
+              <div className="actions action-cluster">
                 <Button
                   onClick={() => openConversation(selected.conversation_id)}
                 >
@@ -332,7 +339,11 @@ export default function TaskRun({
                 <Skeleton label="Loading pending approvals" />
               )}
               {approvals?.items.map((approval) => (
-                <article key={approval.id} aria-label="Pending task approval">
+                <article
+                  className="surface stack"
+                  key={approval.id}
+                  aria-label="Pending task approval"
+                >
                   <h3>Approval required</h3>
                   <p className="task-approval-message">{approval.message}</p>
                   {approval.expires_at && (
@@ -352,7 +363,7 @@ export default function TaskRun({
                         conversation or refresh after it finishes.
                       </p>
                     )}
-                  <div className="actions">
+                  <div className="actions action-cluster">
                     {[true, false].map((approved) => (
                       <Button
                         key={String(approved)}

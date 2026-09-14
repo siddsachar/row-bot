@@ -239,6 +239,17 @@ it('delegates sidebar New chat and Preferences to the persistent owners', async 
   expect(transport.counters.commands).toBe(0);
 });
 
+it('groups primary actions, conversations and secondary destinations for compact navigation', async () => {
+  await setup(2);
+  expect(
+    screen.getByRole('group', { name: 'Primary workspace actions' }),
+  ).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Conversations' })).toBeVisible();
+  expect(
+    screen.getByRole('group', { name: 'Additional destinations' }),
+  ).toBeVisible();
+});
+
 it('supports an empty collapsible section without introducing commands or controls for nonexistent pages', async () => {
   const { transport } = await setup(0);
   expect(

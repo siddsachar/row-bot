@@ -34,7 +34,12 @@ export default function SearchConversations({
   }
   return (
     <form
-      className="stack"
+      className="stack conversation-search"
+      aria-label={
+        conversationId
+          ? 'Find in conversation history'
+          : 'Search conversations and history'
+      }
       onSubmit={(e) => {
         e.preventDefault();
         void search();
@@ -58,49 +63,62 @@ export default function SearchConversations({
         Search
       </Button>
       <div className="search-results" aria-live="polite">
-        {state.search?.items.map((hit) => (
-          <Button
-            key={`${hit.conversation_id}:${hit.message_id ?? 'title'}`}
-            onClick={() => {
-              const ticket = ++openSequence.current;
-              void controller
-                .selectConversation(hit.conversation_id)
-                .then(async () => {
-                  if (
-                    !alive.current ||
-                    ticket !== openSequence.current ||
-                    controller.getSnapshot().selectedConversationId !==
-                      hit.conversation_id
-                  )
-                    return;
-                  if (
-                    controller.getSnapshot().conversation?.id !==
-                    hit.conversation_id
-                  )
-                    throw { code: 'not_found' };
-                  const selection = controller.getSelectionVersion();
-                  if (hit.message_id)
-                    await controller.showHistory(hit.message_id);
-                  if (
-                    !alive.current ||
-                    ticket !== openSequence.current ||
-                    controller.getSelectionVersion() !== selection
-                  )
-                    return;
-                  navigate(`/conversations/${hit.conversation_id}`);
-                  const target = Array.from(
-                    document.querySelectorAll<HTMLElement>('[data-message-id]'),
-                  ).find(
-                    (element) => element.dataset.messageId === hit.message_id,
-                  );
-                  overlay.close(target);
-                })
-                .catch((e) => setError(clientError(e).message));
-            }}
-          >
-            <strong>{hit.title}</strong> <span>{hit.excerpt}</span>
-          </Button>
-        ))}
+        {!!state.search?.items.length && (
+          <ol aria-label="Conversation search results">
+            {state.search.items.map((hit) => (
+              <li key={`${hit.conversation_id}:${hit.message_id ?? 'title'}`}>
+                <Button
+                  variant="ghost"
+                  aria-label={`${hit.title} ${hit.excerpt}`}
+                  onClick={() => {
+                    const ticket = ++openSequence.current;
+                    void controller
+                      .selectConversation(hit.conversation_id)
+                      .then(async () => {
+                        if (
+                          !alive.current ||
+                          ticket !== openSequence.current ||
+                          controller.getSnapshot().selectedConversationId !==
+                            hit.conversation_id
+                        )
+                          return;
+                        if (
+                          controller.getSnapshot().conversation?.id !==
+                          hit.conversation_id
+                        )
+                          throw { code: 'not_found' };
+                        const selection = controller.getSelectionVersion();
+                        if (hit.message_id)
+                          await controller.showHistory(hit.message_id);
+                        if (
+                          !alive.current ||
+                          ticket !== openSequence.current ||
+                          controller.getSelectionVersion() !== selection
+                        )
+                          return;
+                        navigate(`/conversations/${hit.conversation_id}`);
+                        const target = Array.from(
+                          document.querySelectorAll<HTMLElement>(
+                            '[data-message-id]',
+                          ),
+                        ).find(
+                          (element) =>
+                            element.dataset.messageId === hit.message_id,
+                        );
+                        overlay.close(target);
+                      })
+                      .catch((e) => setError(clientError(e).message));
+                  }}
+                >
+                  <span className="search-result-copy">
+                    <strong>{hit.title}</strong>
+                    <span>{hit.excerpt}</span>
+                  </span>
+                </Button>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
       {state.search?.has_more && (
         <Button

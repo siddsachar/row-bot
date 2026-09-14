@@ -16,6 +16,7 @@ import {
   markWorkspaceIdentity,
   newConversation,
   openConversation,
+  reloadDocument,
   releaseProducer,
   captureActualResourcePanels,
   assertConversationSummaries,
@@ -214,7 +215,7 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
   await expect(composer(page)).toHaveValue(
     'Unsent chat draft survives first-draft failure',
   );
-  await page.reload();
+  await reloadDocument(page);
   await expect(composer(page)).toHaveValue(
     'Unsent chat draft survives first-draft failure',
   );
@@ -654,7 +655,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
       ).toEqual(bound.conversation.resource_bindings);
     }
     const persisted = await readLayout(page);
-    await page.reload();
+    await reloadDocument(page);
     await expect(composer(page)).toHaveValue('Unsent multi-resource draft');
     expect((await readLayout(page)).panels).toEqual(persisted.panels);
     await page.evaluate(() => {
@@ -681,7 +682,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
         }),
       );
     });
-    await page.reload();
+    await reloadDocument(page);
     await expect(composer(page)).toHaveValue('Unsent multi-resource draft');
     const migrated = await readLayout(page);
     expect(migrated.version).toBe(2);
@@ -755,7 +756,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
     await accessibility(page, testInfo, 'multi-resource-workspace-axe', {
       opaquePreview: true,
     });
-    await page.reload();
+    await reloadDocument(page);
     await expect(composer(page)).toHaveValue('Unsent multi-resource draft');
     await expect(
       page.getByRole('button', {

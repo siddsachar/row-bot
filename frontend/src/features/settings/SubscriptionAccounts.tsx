@@ -450,7 +450,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         </p>
       )}
       {flow && (
-        <div className="stack" aria-label="Current sign-in">
+        <div className="stack" role="group" aria-label="Current sign-in">
           <p>
             Sign-in: {flow.state}.{' '}
             {flow.quiescent

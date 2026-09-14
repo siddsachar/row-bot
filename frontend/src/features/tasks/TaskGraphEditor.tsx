@@ -353,12 +353,16 @@ export default function TaskGraphEditor({
   return (
     <section
       aria-label="Workflow graph editor"
-      className="task-editor task-graph-editor stack"
+      className="task-editor task-graph-editor stack capability-section"
     >
-      <h2>Edit workflow steps</h2>
-      <p>
-        Save changes to the workflow. Use Run separately when you are ready.
-      </p>
+      <header className="capability-header">
+        <div>
+          <h2>Edit workflow steps</h2>
+          <p>
+            Save changes to the workflow. Use Run separately when you are ready.
+          </p>
+        </div>
+      </header>
       {snapshot?.notify_only && (
         <p role="status">
           This workflow currently sends a notification only. Change that in task
@@ -460,7 +464,7 @@ export default function TaskGraphEditor({
                 {kinds[step.type as keyof typeof kinds] ?? step.type} ·{' '}
                 {step.id}
               </legend>
-              <div className="actions">
+              <div className="actions action-cluster">
                 <Button disabled={index === 0} onClick={() => move(-1)}>
                   Move step up
                 </Button>
@@ -679,7 +683,7 @@ export default function TaskGraphEditor({
           </p>
         </>
       )}
-      <div className="actions">
+      <div className="actions action-cluster">
         <Button
           variant="primary"
           disabled={

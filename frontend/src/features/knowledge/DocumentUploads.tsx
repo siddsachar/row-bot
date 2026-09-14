@@ -317,7 +317,7 @@ export function DocumentUploads({
         Review upload
       </Button>
       {state.review && (
-        <div aria-label="Reviewed upload">
+        <div role="group" aria-label="Reviewed upload">
           <p>
             {state.review.file_count} files · {state.review.total_bytes} bytes ·
             processing paused

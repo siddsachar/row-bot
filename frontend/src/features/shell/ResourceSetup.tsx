@@ -839,7 +839,7 @@ export default function ResourceSetup({
             </Field>
           </div>
           {mode === 'existing' ? (
-            <div className="stack" aria-label="Saved resources">
+            <div className="stack" role="group" aria-label="Saved resources">
               {library ? (
                 <>
                   {library.items.map((item) => (

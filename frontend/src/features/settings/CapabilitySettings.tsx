@@ -371,29 +371,41 @@ export default function CapabilitySettings({
     }
   };
   return (
-    <section aria-label="MCP configuration" className="settings-section">
-      <h2>MCP servers</h2>
-      <p>
-        Manage saved server settings. Launch details and credentials are
-        write-only.
-      </p>
-      <Field label="Search saved servers">
-        <Input
-          value={state.query}
-          disabled={locked}
-          onChange={(event) => session.update({ query: event.target.value })}
-          maxLength={128}
-        />
-      </Field>
-      <Button disabled={locked} onClick={() => void refresh(state.query)}>
-        Search
-      </Button>
-      <Button
-        disabled={Boolean(busy) || !state.active}
-        onClick={() => void refresh()}
-      >
-        Refresh
-      </Button>
+    <section
+      aria-label="MCP configuration"
+      className="settings-section capability-page"
+    >
+      <header className="capability-header">
+        <div>
+          <p className="eyebrow">Model Context Protocol</p>
+          <h2>MCP servers</h2>
+          <p>
+            Manage saved server settings. Launch details and credentials are
+            write-only.
+          </p>
+        </div>
+      </header>
+      <div className="capability-section stack" role="search">
+        <Field label="Search saved servers">
+          <Input
+            value={state.query}
+            disabled={locked}
+            onChange={(event) => session.update({ query: event.target.value })}
+            maxLength={128}
+          />
+        </Field>
+        <div className="action-cluster">
+          <Button disabled={locked} onClick={() => void refresh(state.query)}>
+            Search
+          </Button>
+          <Button
+            disabled={Boolean(busy) || !state.active}
+            onClick={() => void refresh()}
+          >
+            Refresh
+          </Button>
+        </div>
+      </div>
       {page && (
         <>
           <p role="status">
@@ -405,9 +417,9 @@ export default function CapabilitySettings({
               ? 'An interrupted save requires recovery before new changes.'
               : `Configuration: ${page.availability}.`}
           </p>
-          <ul>
+          <ul className="settings-results capability-summary">
             {page.items.map((server) => (
-              <li key={server.server_id}>
+              <li className="surface stack" key={server.server_id}>
                 <strong>{server.name}</strong> —{' '}
                 {server.enabled === null
                   ? 'Enablement unknown'
@@ -420,68 +432,77 @@ export default function CapabilitySettings({
                   Configured fields:{' '}
                   {server.configured_fields.join(', ') || 'none'}.
                 </span>
-                {onConnection && (
+                <div className="action-cluster">
+                  {onConnection && (
+                    <Button
+                      onClick={() =>
+                        onConnection(server.server_id, server.name)
+                      }
+                    >
+                      Connection {server.name}
+                    </Button>
+                  )}
                   <Button
-                    onClick={() => onConnection(server.server_id, server.name)}
+                    disabled={locked}
+                    onClick={() =>
+                      session.update({
+                        draft: {
+                          ...emptyDraft(),
+                          operation: 'edit',
+                          serverId: server.server_id,
+                          transport:
+                            server.transport === 'unknown'
+                              ? 'stdio'
+                              : server.transport,
+                        },
+                        reviewed: null,
+                      })
+                    }
                   >
-                    Connection {server.name}
+                    Edit {server.name}
                   </Button>
-                )}
-                <Button
-                  disabled={locked}
-                  onClick={() =>
-                    session.update({
-                      draft: {
-                        ...emptyDraft(),
-                        operation: 'edit',
-                        serverId: server.server_id,
-                        transport:
-                          server.transport === 'unknown'
-                            ? 'stdio'
-                            : server.transport,
-                      },
-                      reviewed: null,
-                    })
-                  }
-                >
-                  Edit {server.name}
-                </Button>
-                <Button
-                  disabled={locked}
-                  onClick={() =>
-                    session.update({
-                      draft: {
-                        ...emptyDraft(),
-                        operation: 'rename',
-                        serverId: server.server_id,
-                        name: server.name,
-                      },
-                      reviewed: null,
-                    })
-                  }
-                >
-                  Rename {server.name}
-                </Button>
+                  <Button
+                    disabled={locked}
+                    onClick={() =>
+                      session.update({
+                        draft: {
+                          ...emptyDraft(),
+                          operation: 'rename',
+                          serverId: server.server_id,
+                          name: server.name,
+                        },
+                        reviewed: null,
+                      })
+                    }
+                  >
+                    Rename {server.name}
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
-          <Button
-            disabled={locked || !state.cursor}
-            onClick={() => void refresh(state.filter)}
-          >
-            First page
-          </Button>
-          <Button
-            disabled={locked || !page.next_cursor}
-            onClick={() =>
-              void refresh(state.filter, page.next_cursor ?? undefined)
-            }
-          >
-            Next page
-          </Button>
+          <div className="action-cluster">
+            <Button
+              disabled={locked || !state.cursor}
+              onClick={() => void refresh(state.filter)}
+            >
+              First page
+            </Button>
+            <Button
+              disabled={locked || !page.next_cursor}
+              onClick={() =>
+                void refresh(state.filter, page.next_cursor ?? undefined)
+              }
+            >
+              Next page
+            </Button>
+          </div>
         </>
       )}
-      <fieldset disabled={locked || !canSave}>
+      <fieldset
+        className="capability-section stack"
+        disabled={locked || !canSave}
+      >
         <legend>Save server settings</legend>
         <Field label="Operation">
           <Select
@@ -575,10 +596,16 @@ export default function CapabilitySettings({
             )}
           </>
         )}
-        <Button onClick={() => void requestReview()}>Review settings</Button>
-        <Button disabled={!reviewed} onClick={() => void save(reviewed)}>
-          Save Disabled
-        </Button>
+        <div className="action-cluster">
+          <Button onClick={() => void requestReview()}>Review settings</Button>
+          <Button
+            variant="primary"
+            disabled={!reviewed}
+            onClick={() => void save(reviewed)}
+          >
+            Save Disabled
+          </Button>
+        </div>
       </fieldset>
       {pending && (
         <Button

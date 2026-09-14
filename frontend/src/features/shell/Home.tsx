@@ -81,7 +81,10 @@ function ResourceLibrary({
   const noun = deck ? 'designs' : 'workspaces';
   const Icon = deck ? Presentation : FolderOpen;
   return (
-    <section className="home-section" aria-label={`${title} library`}>
+    <section
+      className="home-section home-library-card"
+      aria-label={`${title} library`}
+    >
       <header className="home-section-header">
         <div className="home-section-title">
           <Icon size={20} aria-hidden />
@@ -110,9 +113,9 @@ function ResourceLibrary({
       )}
       {page.data &&
         (page.data.items.length ? (
-          <ul className="home-resource-list">
+          <ul className="home-resource-list" aria-label={`Recent ${noun}`}>
             {page.data.items.slice(0, RECENT_COUNT).map((resource) => (
-              <li key={resource.resource_id} className="home-resource-card">
+              <li key={resource.resource_id} className="home-resource-item">
                 <Hint label={`${resource.name} · ${resource.resource_id}`}>
                   <Button
                     variant="ghost"
@@ -195,7 +198,8 @@ export default function Home({
   return (
     <div className="home-view">
       <header className="home-header">
-        <div>
+        <div className="home-title-block">
+          <span className="eyebrow">Workspace</span>
           <h1>Home</h1>
           <p className="muted">
             Pick up a conversation or start something new.
@@ -244,11 +248,14 @@ export default function Home({
         )}
         {recent.data &&
           (recent.data.items.length ? (
-            <ul className="home-conversation-list">
+            <ul
+              className="home-conversation-list"
+              aria-label="Recent conversations"
+            >
               {recent.data.items.slice(0, RECENT_COUNT).map((conversation) => {
                 const title = conversation.title || 'Untitled conversation';
                 return (
-                  <li key={conversation.id}>
+                  <li key={conversation.id} className="home-conversation-item">
                     <Hint label={title}>
                       <Button
                         variant="ghost"
@@ -258,7 +265,9 @@ export default function Home({
                         <MessageSquare size={17} aria-hidden />
                         <span className="home-item-title">{title}</span>
                         {conversation.pinned && (
-                          <span aria-label="Pinned">★</span>
+                          <span role="img" aria-label="Pinned">
+                            ★
+                          </span>
                         )}
                       </Button>
                     </Hint>
@@ -272,28 +281,49 @@ export default function Home({
             </p>
           ))}
       </section>
-      <div className="home-libraries">
-        <ResourceLibrary
-          kind="artifact"
-          identity={identity}
-          onSetup={onSetup}
-        />
-        <ResourceLibrary
-          kind="workspace"
-          identity={identity}
-          onSetup={onSetup}
-        />
-      </div>
-      <p className="home-compatibility muted">
-        <Button variant="ghost" onClick={onOpenTasks}>
-          Workflows
-        </Button>
-        <Button variant="ghost" onClick={onOpenSettings}>
-          Settings
-        </Button>
-        Browse Knowledge and Documents in Settings. Monitor is available in the
-        current app. <a href="/">Open in current app</a>
-      </p>
+      <section
+        className="home-resource-group"
+        aria-labelledby="resource-libraries-heading"
+      >
+        <header className="home-group-header">
+          <div>
+            <span className="eyebrow">Libraries</span>
+            <h2 id="resource-libraries-heading">Continue with a resource</h2>
+          </div>
+          <p className="muted">
+            Return to saved design work or a local coding workspace.
+          </p>
+        </header>
+        <div className="home-libraries">
+          <ResourceLibrary
+            kind="artifact"
+            identity={identity}
+            onSetup={onSetup}
+          />
+          <ResourceLibrary
+            kind="workspace"
+            identity={identity}
+            onSetup={onSetup}
+          />
+        </div>
+      </section>
+      <footer className="home-compatibility muted">
+        <nav
+          className="home-secondary-actions"
+          aria-label="More workspace destinations"
+        >
+          <Button variant="ghost" onClick={onOpenTasks}>
+            Workflows
+          </Button>
+          <Button variant="ghost" onClick={onOpenSettings}>
+            Settings
+          </Button>
+        </nav>
+        <span>
+          Knowledge and Documents are in Settings. Monitor remains available
+          there. <a href="/">Open in current app</a>
+        </span>
+      </footer>
     </div>
   );
 }

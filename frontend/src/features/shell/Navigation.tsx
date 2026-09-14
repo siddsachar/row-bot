@@ -40,6 +40,7 @@ export default function Navigation({
   const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(0);
   const sectionId = useId();
+  const sectionHeadingId = `${sectionId}-heading`;
   const selected =
     state.conversations.find(({ id }) => id === state.selectedConversationId) ??
     (state.conversation?.id === state.selectedConversationId
@@ -55,10 +56,11 @@ export default function Navigation({
   function conversationRow(conversation: (typeof state.conversations)[number]) {
     const title = conversation.title || 'Untitled conversation';
     return (
-      <li key={conversation.id}>
+      <li key={conversation.id} className="nav-conversation-item">
         <Hint label={title}>
           <Button
             variant="ghost"
+            className="nav-conversation-link"
             aria-label={title}
             aria-current={
               location.pathname === `/conversations/${conversation.id}`
@@ -75,7 +77,11 @@ export default function Navigation({
           >
             <MessageSquare size={15} aria-hidden />
             <span className="conversation-title">{title}</span>
-            {conversation.pinned && <span aria-label="Pinned">★</span>}
+            {conversation.pinned && (
+              <span role="img" aria-label="Pinned">
+                ★
+              </span>
+            )}
           </Button>
         </Hint>
       </li>
@@ -85,7 +91,11 @@ export default function Navigation({
     <nav className="navigation" aria-label="Workspace navigation">
       <Brand />
       <BuddySurface />
-      <div className="nav-primary-actions">
+      <div
+        className="nav-primary-actions"
+        role="group"
+        aria-label="Primary workspace actions"
+      >
         <Link
           className="button ghost nav-home"
           to="/"
@@ -127,6 +137,7 @@ export default function Navigation({
         Search conversations
       </Button>
       <Button
+        id={sectionHeadingId}
         className="nav-heading"
         variant="ghost"
         aria-expanded={sectionOpen}
@@ -145,10 +156,16 @@ export default function Navigation({
           {conversationRow(selected)}
         </ul>
       )}
-      <div id={sectionId} className="nav-conversations" hidden={!sectionOpen}>
+      <section
+        id={sectionId}
+        className="nav-conversations"
+        aria-labelledby={sectionHeadingId}
+        hidden={!sectionOpen}
+      >
         {sectionOpen && (
           <>
             <Select
+              className="nav-conversation-filter"
               aria-label="Conversation group"
               value={state.conversationGroup}
               onChange={(event) => {
@@ -164,7 +181,7 @@ export default function Navigation({
               <option value="workspace">With coding workspaces</option>
             </Select>
             {state.conversationListError && (
-              <div role="alert">
+              <div role="alert" className="nav-conversation-error">
                 <p>{state.conversationListError.message}</p>
                 <Button
                   disabled={state.loadingConversations}
@@ -223,7 +240,11 @@ export default function Navigation({
               </Button>
             )}
             {expanded && state.conversations.length > 100 && (
-              <div className="button-row">
+              <div
+                className="button-row nav-pagination"
+                role="group"
+                aria-label="Conversation pages"
+              >
                 <Button
                   disabled={!page}
                   onClick={() => setPage((value) => value - 1)}
@@ -250,25 +271,33 @@ export default function Navigation({
             )}
           </>
         )}
-      </div>
-      <div className="nav-footer">
+      </section>
+      <footer className="nav-footer" aria-label="Workspace destinations">
         {onPreferences && (
-          <Button variant="ghost" onClick={onPreferences}>
-            <Settings size={17} aria-hidden />
-            Preferences
-          </Button>
+          <div className="nav-preferences">
+            <Button variant="ghost" onClick={onPreferences}>
+              <Settings size={17} aria-hidden />
+              Preferences
+            </Button>
+          </div>
         )}
-        <a href="/" className="button ghost">
-          Current application
-        </a>
-        <Link
-          className="button ghost"
-          to="/primitives"
-          onClick={() => overlay.close()}
+        <div
+          className="nav-secondary-destinations"
+          role="group"
+          aria-label="Additional destinations"
         >
-          Component gallery
-        </Link>
-      </div>
+          <a href="/" className="button ghost">
+            Current application
+          </a>
+          <Link
+            className="button ghost"
+            to="/primitives"
+            onClick={() => overlay.close()}
+          >
+            Component gallery
+          </Link>
+        </div>
+      </footer>
     </nav>
   );
 }
