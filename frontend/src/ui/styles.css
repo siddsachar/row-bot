@@ -2949,6 +2949,9 @@ progress {
     min-width: 20px;
     min-height: 20px;
   }
+  .settings-shell .settings-utility-toggle .field {
+    min-width: 44px;
+  }
 }
 @media (max-width: 600px) {
   .settings-catalog-row > summary {
