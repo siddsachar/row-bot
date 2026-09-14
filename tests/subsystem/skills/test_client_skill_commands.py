@@ -73,6 +73,21 @@ def test_passive_snapshot_uses_current_bytes_without_loading_or_writing(library,
     assert not skills._skills_cache
 
 
+def test_passive_snapshot_accepts_the_public_description_bound(library):
+    path = library.USER_SKILLS_DIR / 'sample' / 'SKILL.md'
+    description = 'Detailed local workflow guidance. ' * 20
+    path.write_text(
+        '---\nname: sample\ndisplay_name: Sample\ndescription: "'
+        + description
+        + '"\n---\n\nUse the approved tools.\n',
+        encoding='utf-8',
+    )
+
+    snapshot = library.read_client_skills()
+
+    assert snapshot['items']['sample']['skill'].description == description
+
+
 def test_global_pin_publishes_single_link_and_availability_removes_pin(library):
     skills = library
     snapshot = skills.read_client_skills()

@@ -899,7 +899,9 @@ def read_client_skills() -> dict:
                 skill = _parse_skill_text(text, path, source)
                 if (skill is None or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', skill.name)
                         or any(not isinstance(value, str) for value in skill.tags + skill.tools)
-                        or any(len(value) > 256 for value in [skill.display_name, skill.description, skill.icon, skill.version, *skill.tags])):
+                        or len(skill.display_name) > 128 or len(skill.description) > 1024
+                        or len(skill.icon) > 32 or len(skill.version) > 32
+                        or any(len(value) > 128 for value in skill.tags)):
                     raise ValueError('skill_metadata_unavailable')
                 found[skill.name] = {'skill': skill, 'revision': digest, 'identity': identity, 'metadata': metadata}
                 proofs.append((str(path), digest, identity, metadata))
