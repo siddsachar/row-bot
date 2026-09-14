@@ -1510,6 +1510,13 @@ def p4_tools(state: str, x_fixture_token: str = Header(default="")) -> dict:
 def main() -> None:
     # Resolve the fixture's already selected isolated Python for child probes.
     os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
+    fixture_asset_root = os.environ.get("ROW_BOT_TEST_CLIENT_ASSET_ROOT")
+    if fixture_asset_root:
+        if os.environ.get("ROW_BOT_TEST_MODE") != "1":
+            raise RuntimeError("Fixture client assets require isolated test mode")
+        from row_bot import client_assets
+
+        client_assets.default_client_asset_root = lambda: Path(fixture_asset_root)
     from row_bot import notifications
     from row_bot.providers import readiness
     from row_bot.providers.models import TransportMode

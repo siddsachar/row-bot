@@ -222,7 +222,8 @@ export async function retireDocument(page: Page): Promise<void> {
       new PageTransitionEvent('pagehide', { persisted: false }),
     );
   });
-  await page.waitForLoadState('networkidle', { timeout: 10_000 });
+  // The lifecycle binding disposes synchronously. Firefox may retain the
+  // closing event stream long enough that networkidle is not a valid signal.
 }
 
 export async function reloadDocument(page: Page): Promise<void> {
@@ -301,6 +302,11 @@ export async function assertWorkspaceIdentity(page: Page): Promise<void> {
 export async function assertControlTextUnclipped(
   control: Locator,
 ): Promise<void> {
+  // Playwright's helper can miscalculate a scroll container at CSS zoom in
+  // Firefox. Exercise the browser's native nearest-edge scroll first.
+  await control.evaluate((element) =>
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
+  );
   await control.scrollIntoViewIfNeeded();
   // The visual-alignment contract intentionally compacts fine-pointer actions.
   // Touch and comfortable/compact-viewport controls retain the literal 44px
@@ -322,8 +328,8 @@ export async function assertControlTextUnclipped(
     .toBeGreaterThanOrEqual(minimumHeight);
   await expect
     .poll(
-      () =>
-        control.evaluate((element) => {
+      async () => {
+        const geometry = await control.evaluate((element) => {
           const range = document.createRange();
           range.selectNodeContents(element);
           const text = range.getBoundingClientRect();
@@ -331,6 +337,20 @@ export async function assertControlTextUnclipped(
             left = 0,
             bottom = innerHeight,
             right = innerWidth;
+          const clipping: {
+            tag: string;
+            id: string;
+            classes: string;
+            top: number;
+            right: number;
+            bottom: number;
+            left: number;
+            overflowX: string;
+            overflowY: string;
+            clientHeight: number;
+            scrollHeight: number;
+            scrollTop: number;
+          }[] = [];
           for (
             let parent = element.parentElement;
             parent;
@@ -342,6 +362,24 @@ export async function assertControlTextUnclipped(
               scaleY = parent.offsetHeight
                 ? box.height / parent.offsetHeight
                 : 1;
+            if (
+              /(auto|scroll|hidden|clip)/.test(style.overflowX) ||
+              /(auto|scroll|hidden|clip)/.test(style.overflowY)
+            )
+              clipping.push({
+                tag: parent.tagName,
+                id: parent.id,
+                classes: parent.className,
+                top: box.top,
+                right: box.right,
+                bottom: box.bottom,
+                left: box.left,
+                overflowX: style.overflowX,
+                overflowY: style.overflowY,
+                clientHeight: parent.clientHeight,
+                scrollHeight: parent.scrollHeight,
+                scrollTop: parent.scrollTop,
+              });
             if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
               top = Math.max(top, box.top + parent.clientTop * scaleY);
               bottom = Math.min(
@@ -357,14 +395,29 @@ export async function assertControlTextUnclipped(
               );
             }
           }
-          return (
-            text.height > 0 &&
-            text.top >= top - 1 &&
-            text.bottom <= bottom + 1 &&
-            text.left >= left - 1 &&
-            text.right <= right + 1
-          );
-        }),
+          return {
+            fits:
+              text.height > 0 &&
+              text.top >= top - 1 &&
+              text.bottom <= bottom + 1 &&
+              text.left >= left - 1 &&
+              text.right <= right + 1,
+            text: {
+              top: text.top,
+              right: text.right,
+              bottom: text.bottom,
+              left: text.left,
+              width: text.width,
+              height: text.height,
+            },
+            clip: { top, right, bottom, left },
+            clipping,
+          };
+        });
+        if (!geometry.fits)
+          throw new Error(`Control text geometry: ${JSON.stringify(geometry)}`);
+        return true;
+      },
       { message: 'Control text must fit its clipping ancestors and viewport' },
     )
     .toBe(true);

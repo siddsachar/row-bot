@@ -393,6 +393,11 @@ svg {
   gap: 8px;
   background: var(--canvas);
 }
+.workspace.has-resource-panels .composer {
+  /* Keep live transcript feedback visible when a dock or compact rail shares
+     the viewport; the composer's existing scroll owner retains every control. */
+  max-height: 50%;
+}
 .composer-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

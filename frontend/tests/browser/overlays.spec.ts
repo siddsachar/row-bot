@@ -139,7 +139,7 @@ test('confirmation suspension preserves form draft and Cancel never confirms', a
   });
 });
 
-test('settings aliases route to explicit current-application placeholders', async ({
+test('settings aliases route to retained unified settings', async ({
   page,
 }, testInfo) => {
   await openFixture(page);
@@ -150,11 +150,14 @@ test('settings aliases route to explicit current-application placeholders', asyn
   await page.getByRole('link', { name: 'Accounts' }).click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/accounts/);
   await expect(
-    page.getByRole('link', { name: 'Open current application', exact: true }),
+    page.getByRole('link', {
+      name: 'Open current Accounts settings',
+      exact: true,
+    }),
   ).toHaveAttribute('href', '/');
   await expect(
     page.getByRole('heading', { name: 'Accounts', exact: true }),
   ).toBeVisible();
   await assertNoOverflow(page);
-  await screenshot(page, testInfo, 'accounts-setting-placeholder');
+  await screenshot(page, testInfo, 'accounts-setting-retained');
 });

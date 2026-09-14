@@ -349,6 +349,9 @@ def test_prepared_edits_import_through_existing_git_eol_policy(domain, monkeypat
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    # The fast matrix keeps pytest's disposable root inside this checkout.
+    # Keep this non-repository fixture from discovering that parent repository.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(d.root.parent))
     workspace = d.storage.get_workspace(d.workspace.id)
     workspace.execution_mode = "docker"
     workspace.touch()

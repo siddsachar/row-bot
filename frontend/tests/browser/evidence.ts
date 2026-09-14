@@ -233,11 +233,77 @@ export async function screenshot(
 }
 
 export async function assertNoOverflow(page: Page): Promise<void> {
-  const dimensions = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    content: document.documentElement.scrollWidth,
-  }));
-  expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1);
+  const dimensions = await page.evaluate(() => {
+    const root = document.documentElement;
+    const viewport = root.clientWidth;
+    const content = root.scrollWidth;
+    const bounds = (element: Element | null) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? { left: box.left, right: box.right, width: box.width }
+        : null;
+    };
+    const offenders = [...document.querySelectorAll<HTMLElement>('body *')]
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        let visibleLeft = box.left;
+        let visibleRight = box.right;
+        for (
+          let parent = element.parentElement;
+          parent;
+          parent = parent.parentElement
+        ) {
+          const style = getComputedStyle(parent);
+          if (!/(auto|scroll|hidden|clip)/.test(style.overflowX)) continue;
+          const parentBox = parent.getBoundingClientRect();
+          const scale = parent.offsetWidth
+            ? parentBox.width / parent.offsetWidth
+            : 1;
+          visibleLeft = Math.max(
+            visibleLeft,
+            parentBox.left + parent.clientLeft * scale,
+          );
+          visibleRight = Math.min(
+            visibleRight,
+            parentBox.left + (parent.clientLeft + parent.clientWidth) * scale,
+          );
+        }
+        return {
+          tag: element.tagName,
+          id: element.id,
+          classes: element.className,
+          left: box.left,
+          right: box.right,
+          width: box.width,
+          visibleLeft,
+          visibleRight,
+        };
+      })
+      .filter(
+        (item) =>
+          item.visibleRight > item.visibleLeft &&
+          (item.visibleLeft < -1 || item.visibleRight > viewport + 1),
+      )
+      .sort(
+        (left, right) =>
+          Math.max(right.visibleRight - viewport, -right.visibleLeft) -
+          Math.max(left.visibleRight - viewport, -left.visibleLeft),
+      )
+      .slice(0, 12);
+    return {
+      viewport,
+      content,
+      root: bounds(root),
+      body: bounds(document.body),
+      workspace: bounds(document.querySelector('.workspace')),
+      columns: bounds(document.querySelector('#workspace-columns')),
+      offenders,
+    };
+  });
+  expect(
+    dimensions.offenders,
+    `Horizontal overflow geometry: ${JSON.stringify(dimensions)}`,
+  ).toEqual([]);
 }
 
 export async function accessibility(

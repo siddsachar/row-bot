@@ -359,6 +359,7 @@ export default function Conversation({
   const pendingSteering =
     steeringClaim?.key === steeringKey ? steeringClaim.claim : null;
   const [steeringOpen, setSteeringOpen] = useState(false);
+  const chatContentRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptContentRef = useRef<HTMLDivElement>(null);
   const followingLatest = useRef(true);
@@ -393,11 +394,20 @@ export default function Conversation({
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   function scrollToLatest() {
     const transcript = transcriptRef.current;
-    if (transcript)
-      transcript.scrollTop = Math.max(
-        0,
-        transcript.scrollHeight - transcript.clientHeight,
-      );
+    if (!transcript) return;
+    const chatContent = chatContentRef.current;
+    if (chatContent) {
+      const contentBounds = chatContent.getBoundingClientRect();
+      const transcriptBounds = transcript.getBoundingClientRect();
+      if (transcriptBounds.top < contentBounds.top)
+        chatContent.scrollTop -= contentBounds.top - transcriptBounds.top;
+      else if (transcriptBounds.bottom > contentBounds.bottom)
+        chatContent.scrollTop += transcriptBounds.bottom - contentBounds.bottom;
+    }
+    transcript.scrollTop = Math.max(
+      0,
+      transcript.scrollHeight - transcript.clientHeight,
+    );
   }
   useLayoutEffect(() => {
     if (scrollOwner.current !== id || (wasHistory.current && !state.history)) {
@@ -983,6 +993,7 @@ export default function Conversation({
     <div className="chat-workspace">
       <div
         className="chat-content"
+        ref={chatContentRef}
         role="region"
         tabIndex={0}
         aria-label="Conversation details"
