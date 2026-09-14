@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
@@ -119,6 +120,27 @@ def test_saved_metadata_is_bounded_private_and_truthful(api_store, kind):
             }
             assert read(client, headers, kind, status="completed")["total"] == 1
         assert service.commands == []
+
+
+@pytest.mark.parametrize("kind", ["documents"])
+def test_document_api_includes_masked_legacy_markers(api_store, kind):
+    del kind
+    service, _ = api_store
+    (service.data_dir / "processed_files.json").write_text(
+        '["/private/legacy/reference.md"]', encoding="utf-8"
+    )
+    client, command_service, _ = client_app()
+
+    with client:
+        _, headers = bootstrap(client)
+        page = read(client, headers, "documents", query="reference")
+
+    assert page["total"] == 1
+    assert page["items"][0]["name"] == "reference.md"
+    assert page["items"][0]["id"].startswith("legacy:")
+    assert page["items"][0]["record_state"] == "record_only"
+    assert "private" not in json.dumps(page)
+    assert command_service.commands == []
 
 
 @pytest.mark.parametrize("kind", ["entities", "documents"])

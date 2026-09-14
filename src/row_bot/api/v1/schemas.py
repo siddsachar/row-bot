@@ -477,6 +477,34 @@ class SettingsCredentialState(WireModel):
     fingerprint: str = Field(max_length=128)
 
 
+class BuddySettingsPack(WireModel):
+    pack_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=64)
+    runtime: Literal["rive", "generated_still", "generated_motion_pack"]
+    status: str = Field(max_length=64)
+    message: str = Field(max_length=512)
+    motion_clip_count: int = Field(ge=0, le=128)
+    preview_available: bool
+    selected: bool
+
+
+class BuddySettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    enabled: bool
+    visible: bool
+    placement: Literal["docked", "desktop"]
+    collapsed: bool
+    personality: str = Field(max_length=64)
+    personality_description: str = Field(max_length=200)
+    bubble_verbosity: Literal["quiet", "normal", "chatty"]
+    hatch_prompt: str = Field(max_length=4096)
+    pack_id: str = Field(min_length=1, max_length=128)
+    personality_options: list[SettingsChoice] = Field(max_length=16)
+    bubble_options: list[SettingsChoice] = Field(max_length=8)
+    packs: list[BuddySettingsPack] = Field(max_length=128)
+
+
 class VoiceRuntimeSettingsSnapshot(WireModel):
     talk_provider: str = Field(max_length=64)
     talk_model: str = Field(max_length=128)
@@ -561,8 +589,8 @@ class SettingsTunnelSnapshot(WireModel):
 
 class SettingsRemoteAccessSnapshot(WireModel):
     listen_mode: Literal["local_only", "local_network"]
-    configured_origins: list[Annotated[str, StringConstraints(max_length=256)]] = (
-        Field(max_length=64)
+    configured_origins: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=64
     )
     host_admission_managed_externally: bool
     tailscale_state: Literal["not_checked"]
@@ -610,6 +638,40 @@ class TrackerSettingsSnapshot(WireModel):
     total_entries: int = Field(ge=0)
 
 
+class KnowledgeTypeCount(WireModel):
+    kind: str = Field(max_length=64)
+    count: int = Field(ge=0)
+
+
+class KnowledgeStatusCounts(WireModel):
+    active: int = Field(default=0, ge=0)
+    needs_review: int = Field(default=0, ge=0)
+    superseded: int = Field(default=0, ge=0)
+    archived: int = Field(default=0, ge=0)
+
+
+class KnowledgeSettingsSnapshot(WireModel):
+    availability: Literal["available", "missing", "unavailable"]
+    memory_available: bool
+    memory_enabled: bool | None
+    entities: int = Field(ge=0)
+    relations: int = Field(ge=0)
+    entity_types: list[KnowledgeTypeCount] = Field(max_length=128)
+    connected_components: int = Field(ge=0)
+    largest_component: int = Field(ge=0)
+    isolated_entities: int = Field(ge=0)
+    status_counts: KnowledgeStatusCounts = Field(default_factory=KnowledgeStatusCounts)
+
+
+class WikiSettingsSnapshot(WireModel):
+    availability: Literal["available", "unavailable"]
+    enabled: bool
+    vault_path: str = Field(max_length=4096)
+    path_state: Literal["available", "missing", "not_local", "unavailable"]
+    articles: int = Field(ge=0)
+    conversations: int = Field(ge=0)
+
+
 class DocumentEmbeddingSettingsSnapshot(WireModel):
     provider: Literal["local", "cloud"]
     local_model: str = Field(max_length=128)
@@ -621,9 +683,48 @@ class DocumentEmbeddingSettingsSnapshot(WireModel):
     cloud_options: list[SettingsChoice] = Field(max_length=16)
 
 
+class DocumentRuntimeStatus(WireModel):
+    state: Literal[
+        "current",
+        "stale",
+        "partial",
+        "inactive",
+        "idle",
+        "loading",
+        "ready",
+        "cached",
+        "missing",
+        "pending",
+        "failed",
+        "not_checked",
+        "unavailable",
+    ]
+    detail: str = Field(max_length=512)
+
+
 class DocumentSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     embedding: DocumentEmbeddingSettingsSnapshot
+    indexed_documents: int | None = Field(default=None, ge=0)
+    active_embedding: str = Field(default="", max_length=256)
+    document_vectors: DocumentRuntimeStatus = Field(
+        default_factory=lambda: DocumentRuntimeStatus(
+            state="unavailable",
+            detail="Saved document vector health is unavailable.",
+        )
+    )
+    local_runtime: DocumentRuntimeStatus = Field(
+        default_factory=lambda: DocumentRuntimeStatus(
+            state="unavailable",
+            detail="Saved local model runtime state is unavailable.",
+        )
+    )
+    memory_index: DocumentRuntimeStatus = Field(
+        default_factory=lambda: DocumentRuntimeStatus(
+            state="unavailable",
+            detail="Saved memory index state is unavailable.",
+        )
+    )
 
 
 class SettingsCredentialField(SettingsCredentialState):
@@ -636,8 +737,8 @@ class ToolSettingsItem(WireModel):
     label: str = Field(max_length=256)
     available: bool
     enabled: bool | None
-    configured_fields: list[Annotated[str, StringConstraints(max_length=128)]] = (
-        Field(max_length=128)
+    configured_fields: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=128
     )
     credentials: list[SettingsCredentialField] = Field(max_length=16)
 
@@ -734,8 +835,8 @@ class UpdateSettingsSnapshot(WireModel):
     channel: Literal["stable", "beta"]
     last_check: str | None = Field(max_length=80)
     last_success: str | None = Field(max_length=80)
-    skipped_versions: list[Annotated[str, StringConstraints(max_length=256)]] = (
-        Field(max_length=128)
+    skipped_versions: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=128
     )
     runtime_state: Literal["cached"]
 
@@ -759,9 +860,12 @@ class PreferenceSettingsSnapshot(WireModel):
 class SettingsSnapshot(WireModel):
     schema_version: Literal[1]
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    buddy: BuddySettingsSnapshot
     voice: VoiceSettingsSnapshot
     system: SystemSettingsSnapshot
     tracker: TrackerSettingsSnapshot
+    knowledge: KnowledgeSettingsSnapshot
+    wiki: WikiSettingsSnapshot
     documents: DocumentSettingsSnapshot
     tools: ToolSettingsSnapshot
     accounts: AccountSettingsSnapshot
@@ -818,9 +922,7 @@ class SettingsMutationReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "rejected", "partial"]
     code: str | None = Field(default=None, max_length=128)
-    settings_revision: str | None = Field(
-        default=None, pattern=r"^[a-f0-9]{64}$"
-    )
+    settings_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     snapshot: SettingsSnapshot | None = None
 
 

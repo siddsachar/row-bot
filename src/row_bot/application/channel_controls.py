@@ -71,6 +71,16 @@ def _loaded_owner(module_name: str) -> Any | None:
     return sys.modules.get(module_name)
 
 
+def _passive_secret_owner() -> Any | None:
+    """Load only the credential-status owner for unloaded core descriptors."""
+
+    try:
+        from row_bot.channels import auth_store
+    except Exception:
+        return None
+    return auth_store
+
+
 def _registry(owner: Any | None) -> Any:
     if owner is not None:
         return owner
@@ -191,7 +201,11 @@ def _field_status(
                 "source": source,
                 "fingerprint": fingerprint,
                 "externally_managed": external,
-                "writable": not external and "error" not in status,
+                "writable": (
+                    not getattr(channel, "passive_only", False)
+                    and not external
+                    and "error" not in status
+                ),
             },
             {
                 "key": key,
@@ -308,14 +322,28 @@ def _snapshot(
         field_proof.append(private)
     public_fields.sort(key=lambda item: item["key"])
     field_proof.sort(key=lambda item: item["key"])
+    passive_only = getattr(channel, "passive_only", False) is True
     configured = _safe_call(channel.is_configured, None)
     running = _safe_call(channel.is_running, None)
     configured = configured if type(configured) is bool else None
     running = running if type(running) is bool else None
+    if passive_only:
+        required = tuple(getattr(channel, "required_fields", ()) or ())
+        by_key = {field["key"]: field for field in public_fields}
+        packaged = getattr(channel, "packaged_configuration", None)
+        if packaged is not None:
+            configured = _safe_call(packaged.is_file, None)
+        elif all(key in by_key for key in required):
+            configured = all(by_key[key]["configured"] is True for key in required)
+        # Passive descriptors are not loaded adapters, so they are stopped in
+        # this process even though activity history remains unavailable.
+        running = False
     source = _source(registry_owner, channel_id)
     identities, identity_proof = _paired(channel_id, auth_owner)
     pairing_available = (
-        "available"
+        "unsupported"
+        if passive_only
+        else "available"
         if source["kind"] == "core"
         and channel_id in _PAIRING_CHANNELS
         and auth_owner is not None
@@ -323,7 +351,7 @@ def _snapshot(
         if source["kind"] == "core"
         else "unavailable"
     )
-    activity = _activity(channel_id, clock=clock)
+    activity = "unknown" if passive_only else _activity(channel_id, clock=clock)
     private = {
         "channel_id": channel_id,
         "source": source,
@@ -379,7 +407,7 @@ def _snapshot(
                 if all(field["writable"] for field in public_fields)
                 else "limited",
                 "lifecycle": "available"
-                if configured is True
+                if configured is True and not passive_only
                 else "configuration_required",
                 "pairing": pairing_available,
                 "monitor": "available" if activity != "unknown" else "unavailable",
@@ -438,6 +466,7 @@ def read_channels(
         raise ChannelControlError("invalid_query")
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ChannelControlError("invalid_limit")
+    use_passive_core = registry_owner is None
     registry_owner, config_owner, auth_owner, secret_owner = _owners(
         registry_owner=registry_owner,
         config_owner=config_owner,
@@ -445,6 +474,12 @@ def read_channels(
         secret_owner=secret_owner,
     )
     channels = list(registry_owner.all_channels())
+    if use_passive_core and not channels:
+        from row_bot.channels.passive_catalog import passive_core_channels
+
+        channels = list(passive_core_channels())
+        if secret_owner is None:
+            secret_owner = _passive_secret_owner()
     if len(channels) > _MAX_CHANNELS:
         raise ChannelControlError("channel_status_unavailable")
     needle = query.casefold().strip()

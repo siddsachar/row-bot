@@ -141,6 +141,177 @@
       "title": "AccountSettingsSnapshot",
       "type": "object"
     },
+    "BuddySettingsPack": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "motion_clip_count": {
+          "maximum": 128,
+          "minimum": 0,
+          "title": "Motion Clip Count",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "pack_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Pack Id",
+          "type": "string"
+        },
+        "preview_available": {
+          "title": "Preview Available",
+          "type": "boolean"
+        },
+        "runtime": {
+          "enum": [
+            "rive",
+            "generated_still",
+            "generated_motion_pack"
+          ],
+          "title": "Runtime",
+          "type": "string"
+        },
+        "selected": {
+          "title": "Selected",
+          "type": "boolean"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack_id",
+        "name",
+        "version",
+        "runtime",
+        "status",
+        "message",
+        "motion_clip_count",
+        "preview_available",
+        "selected"
+      ],
+      "title": "BuddySettingsPack",
+      "type": "object"
+    },
+    "BuddySettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "bubble_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 8,
+          "title": "Bubble Options",
+          "type": "array"
+        },
+        "bubble_verbosity": {
+          "enum": [
+            "quiet",
+            "normal",
+            "chatty"
+          ],
+          "title": "Bubble Verbosity",
+          "type": "string"
+        },
+        "collapsed": {
+          "title": "Collapsed",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "hatch_prompt": {
+          "maxLength": 4096,
+          "title": "Hatch Prompt",
+          "type": "string"
+        },
+        "pack_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Pack Id",
+          "type": "string"
+        },
+        "packs": {
+          "items": {
+            "$ref": "#/$defs/BuddySettingsPack"
+          },
+          "maxItems": 128,
+          "title": "Packs",
+          "type": "array"
+        },
+        "personality": {
+          "maxLength": 64,
+          "title": "Personality",
+          "type": "string"
+        },
+        "personality_description": {
+          "maxLength": 200,
+          "title": "Personality Description",
+          "type": "string"
+        },
+        "personality_options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Personality Options",
+          "type": "array"
+        },
+        "placement": {
+          "enum": [
+            "docked",
+            "desktop"
+          ],
+          "title": "Placement",
+          "type": "string"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "availability",
+        "enabled",
+        "visible",
+        "placement",
+        "collapsed",
+        "personality",
+        "personality_description",
+        "bubble_verbosity",
+        "hatch_prompt",
+        "pack_id",
+        "personality_options",
+        "bubble_options",
+        "packs"
+      ],
+      "title": "BuddySettingsSnapshot",
+      "type": "object"
+    },
     "DocumentEmbeddingSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -214,9 +385,50 @@
       "title": "DocumentEmbeddingSettingsSnapshot",
       "type": "object"
     },
+    "DocumentRuntimeStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "maxLength": 512,
+          "title": "Detail",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "current",
+            "stale",
+            "partial",
+            "inactive",
+            "idle",
+            "loading",
+            "ready",
+            "cached",
+            "missing",
+            "pending",
+            "failed",
+            "not_checked",
+            "unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "detail"
+      ],
+      "title": "DocumentRuntimeStatus",
+      "type": "object"
+    },
     "DocumentSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
+        "active_embedding": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Active Embedding",
+          "type": "string"
+        },
         "availability": {
           "enum": [
             "available",
@@ -225,8 +437,30 @@
           "title": "Availability",
           "type": "string"
         },
+        "document_vectors": {
+          "$ref": "#/$defs/DocumentRuntimeStatus"
+        },
         "embedding": {
           "$ref": "#/$defs/DocumentEmbeddingSettingsSnapshot"
+        },
+        "indexed_documents": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Indexed Documents"
+        },
+        "local_runtime": {
+          "$ref": "#/$defs/DocumentRuntimeStatus"
+        },
+        "memory_index": {
+          "$ref": "#/$defs/DocumentRuntimeStatus"
         }
       },
       "required": [
@@ -314,6 +548,136 @@
         "self_improvement_enabled"
       ],
       "title": "IdentitySettingsSnapshot",
+      "type": "object"
+    },
+    "KnowledgeSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "connected_components": {
+          "minimum": 0,
+          "title": "Connected Components",
+          "type": "integer"
+        },
+        "entities": {
+          "minimum": 0,
+          "title": "Entities",
+          "type": "integer"
+        },
+        "entity_types": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeTypeCount"
+          },
+          "maxItems": 128,
+          "title": "Entity Types",
+          "type": "array"
+        },
+        "isolated_entities": {
+          "minimum": 0,
+          "title": "Isolated Entities",
+          "type": "integer"
+        },
+        "largest_component": {
+          "minimum": 0,
+          "title": "Largest Component",
+          "type": "integer"
+        },
+        "memory_available": {
+          "title": "Memory Available",
+          "type": "boolean"
+        },
+        "memory_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Memory Enabled"
+        },
+        "relations": {
+          "minimum": 0,
+          "title": "Relations",
+          "type": "integer"
+        },
+        "status_counts": {
+          "$ref": "#/$defs/KnowledgeStatusCounts"
+        }
+      },
+      "required": [
+        "availability",
+        "memory_available",
+        "memory_enabled",
+        "entities",
+        "relations",
+        "entity_types",
+        "connected_components",
+        "largest_component",
+        "isolated_entities"
+      ],
+      "title": "KnowledgeSettingsSnapshot",
+      "type": "object"
+    },
+    "KnowledgeStatusCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Active",
+          "type": "integer"
+        },
+        "archived": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Archived",
+          "type": "integer"
+        },
+        "needs_review": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Needs Review",
+          "type": "integer"
+        },
+        "superseded": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Superseded",
+          "type": "integer"
+        }
+      },
+      "title": "KnowledgeStatusCounts",
+      "type": "object"
+    },
+    "KnowledgeTypeCount": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "kind": {
+          "maxLength": 64,
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "count"
+      ],
+      "title": "KnowledgeTypeCount",
       "type": "object"
     },
     "MigrationSettingsSnapshot": {
@@ -810,8 +1174,14 @@
         "accounts": {
           "$ref": "#/$defs/AccountSettingsSnapshot"
         },
+        "buddy": {
+          "$ref": "#/$defs/BuddySettingsSnapshot"
+        },
         "documents": {
           "$ref": "#/$defs/DocumentSettingsSnapshot"
+        },
+        "knowledge": {
+          "$ref": "#/$defs/KnowledgeSettingsSnapshot"
         },
         "plugins": {
           "$ref": "#/$defs/SettingsPluginSummary"
@@ -843,14 +1213,20 @@
         },
         "voice": {
           "$ref": "#/$defs/VoiceSettingsSnapshot"
+        },
+        "wiki": {
+          "$ref": "#/$defs/WikiSettingsSnapshot"
         }
       },
       "required": [
         "schema_version",
         "revision",
+        "buddy",
         "voice",
         "system",
         "tracker",
+        "knowledge",
+        "wiki",
         "documents",
         "tools",
         "accounts",
@@ -1569,6 +1945,58 @@
         "auto_speak"
       ],
       "title": "VoiceTtsSettingsSnapshot",
+      "type": "object"
+    },
+    "WikiSettingsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "articles": {
+          "minimum": 0,
+          "title": "Articles",
+          "type": "integer"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "conversations": {
+          "minimum": 0,
+          "title": "Conversations",
+          "type": "integer"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "path_state": {
+          "enum": [
+            "available",
+            "missing",
+            "not_local",
+            "unavailable"
+          ],
+          "title": "Path State",
+          "type": "string"
+        },
+        "vault_path": {
+          "maxLength": 4096,
+          "title": "Vault Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "enabled",
+        "vault_path",
+        "path_state",
+        "articles",
+        "conversations"
+      ],
+      "title": "WikiSettingsSnapshot",
       "type": "object"
     }
   },

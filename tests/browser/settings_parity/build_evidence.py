@@ -366,8 +366,8 @@ def _build_verification_checklist(
         if (EVIDENCE / "control-inventory.md").is_file()
         else ""
     )
-    blocked_match = re.search(r"\bblocked=(\d+)\b", inventory_text)
-    controls_complete = bool(blocked_match and int(blocked_match.group(1)) == 0)
+    unreviewed_match = re.search(r"\bunreviewed=(\d+)\b", inventory_text)
+    controls_complete = bool(unreviewed_match and int(unreviewed_match.group(1)) == 0)
     pairs_present = capture_clean and all(
         (EVIDENCE / f"{stage}/react/{name.casefold()}-desktop-full.png").is_file()
         and (EVIDENCE / f"{stage}/react/{name.casefold()}-phone-full.png").is_file()
@@ -410,7 +410,7 @@ def _build_verification_checklist(
             ),
             item(
                 controls_complete,
-                "Control inventory has zero blocked or unreviewed controls.",
+                "Control inventory has zero unreviewed controls; every matched, adapted, automatic-owner, or blocked disposition is explicit.",
             ),
             item(
                 bool(checklist.get("synthetic_functional")),

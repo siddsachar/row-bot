@@ -19,14 +19,16 @@ log = logging.getLogger("row_bot.channels.auth_store")
 
 def _server_secret_names() -> frozenset[str]:
     from row_bot.channels.registry import all_channels
+    from row_bot.channels.passive_catalog import core_channel_secret_names
 
-    return frozenset(
+    registered = frozenset(
         str(getattr(field, "env_key", "") or "").strip()
         for channel in all_channels()
         for field in getattr(channel, "config_fields", []) or []
         if getattr(field, "storage", "") == "env"
         and str(getattr(field, "env_key", "") or "").strip()
     )
+    return core_channel_secret_names() | registered
 
 
 def _namespace(channel_name: str) -> str:

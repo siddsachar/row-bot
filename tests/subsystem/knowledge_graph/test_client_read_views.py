@@ -263,6 +263,85 @@ def test_documents_saved_states_paths_and_orphans(document_store):
     assert views.list_saved_documents(query="REPORT-2").items[0].id == jobs[2].id
 
 
+def test_documents_include_sorted_deduplicated_legacy_markers(document_store):
+    service, _ = document_store
+    marker_path = service.data_dir / "processed_files.json"
+    marker_path.write_text(
+        json.dumps(
+            [
+                "zeta.txt",
+                "/private/other/orphan.txt",
+                "/private/legacy/alpha.md",
+                "zeta.txt",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    page = views.list_saved_documents(limit=100)
+
+    assert page.availability == "available" and page.total == 6
+    legacy = [item for item in page.items if item.id.startswith("legacy:")]
+    assert [item.name for item in legacy] == ["alpha.md", "zeta.txt"]
+    assert all(
+        item.record_state == "record_only"
+        and item.status == "unknown"
+        and item.stage == "unknown"
+        and item.searchability == "unknown"
+        for item in legacy
+    )
+    assert "private" not in json.dumps(asdict(page))
+    assert views.list_saved_documents(status="completed").total == 1
+    assert views.list_saved_documents(status="unknown").total == 4
+
+
+def test_documents_read_legacy_markers_without_bootstrapping_database(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "legacy-only"
+    root.mkdir()
+    (root / "processed_files.json").write_text(
+        json.dumps(["second.txt", "first.txt"]), encoding="utf-8"
+    )
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(root))
+
+    before = {path.name: path.read_bytes() for path in root.iterdir()}
+    page = views.list_saved_documents(limit=1)
+    second = views.list_saved_documents(limit=1, cursor=page.next_cursor)
+
+    assert [item.name for item in page.items + second.items] == [
+        "first.txt",
+        "second.txt",
+    ]
+    assert page.total == second.total == 2
+    assert {path.name: path.read_bytes() for path in root.iterdir()} == before
+    assert not (root / "document_ingestion").exists()
+
+
+def test_legacy_marker_change_expires_document_cursor(document_store):
+    service, _ = document_store
+    marker_path = service.data_dir / "processed_files.json"
+    marker_path.write_text('["first.txt", "second.txt"]', encoding="utf-8")
+    page = views.list_saved_documents(limit=1)
+    marker_path.write_text('["first.txt", "changed.txt"]', encoding="utf-8")
+
+    with pytest.raises(views.KnowledgeViewError, match="cursor_expired"):
+        views.list_saved_documents(limit=1, cursor=page.next_cursor)
+
+
+def test_oversized_legacy_marker_catalog_fails_closed(document_store, monkeypatch):
+    service, _ = document_store
+    monkeypatch.setattr(views, "_LEGACY_MARKER_BYTES", 8)
+    (service.data_dir / "processed_files.json").write_text(
+        '["more-than-eight-bytes.txt"]', encoding="utf-8"
+    )
+
+    page = views.list_saved_documents()
+
+    assert page.availability == "unavailable"
+    assert page.total is None and not page.items
+
+
 def test_document_record_reconciliation_changes_revision(document_store):
     service, jobs = document_store
     page = views.list_saved_documents(limit=1)

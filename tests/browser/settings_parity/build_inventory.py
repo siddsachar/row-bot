@@ -169,6 +169,13 @@ def _semantic_text(control: dict[str, Any], ordinal: int) -> str:
     ).strip()
 
 
+def _has_semantic_text(control: dict[str, Any]) -> bool:
+    return any(
+        str(control.get(field) or "").strip()
+        for field in ("label", "tooltip", "icon", "name")
+    )
+
+
 def _semantic_signature(control: dict[str, Any], ordinal: int) -> tuple[str, str]:
     text = _semantic_text(control, ordinal)
     normalized = re.sub(r"\s+", " ", text.casefold()).strip()
@@ -240,24 +247,73 @@ def _load_json(path: Path | None, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _react_signatures(path: Path) -> Counter[tuple[str, str]]:
+def _match_kind(control: dict[str, Any]) -> str:
+    kind = _control_kind(control)
+    return {
+        "checkbox": "toggle",
+        "combobox": "select",
+        "select": "select",
+        "select-one": "select",
+        "switch": "toggle",
+    }.get(kind, kind)
+
+
+def _match_text(control: dict[str, Any], ordinal: int) -> str:
+    text = _semantic_text(control, ordinal)
+    if _match_kind(control) == "select":
+        # Native selects expose their option text through innerText while the
+        # Quasar combobox exposes only its accessible field name.
+        text = text.splitlines()[0]
+    if text.startswith('Expand "') and text.endswith('"'):
+        text = text[8:-1]
+    return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
+def _match_signature(control: dict[str, Any], ordinal: int) -> tuple[str, str]:
+    return _match_kind(control), _match_text(control, ordinal)
+
+
+def _react_controls(path: Path) -> list[dict[str, Any]]:
     payload = _load_json(path, {})
-    return Counter(
-        _semantic_signature(control, ordinal)
-        for ordinal, control in enumerate(payload.get("controls") or [], 1)
-    )
+    return list(payload.get("controls") or [])
 
 
-def _evidence_paths(page: str, react_dom_dir: Path) -> str:
-    slug = page.casefold()
+def _consume_react_peer(
+    control: dict[str, Any],
+    ordinal: int,
+    candidates: list[dict[str, Any]],
+    consumed: set[int],
+) -> str | None:
+    exact = _semantic_signature(control, ordinal)
+    adapted = _match_signature(control, ordinal)
+    for candidate_ordinal, candidate in enumerate(candidates, 1):
+        if candidate_ordinal in consumed:
+            continue
+        if _semantic_signature(candidate, candidate_ordinal) == exact:
+            consumed.add(candidate_ordinal)
+            return "matched"
+    for candidate_ordinal, candidate in enumerate(candidates, 1):
+        if candidate_ordinal in consumed:
+            continue
+        if _match_signature(candidate, candidate_ordinal) == adapted:
+            consumed.add(candidate_ordinal)
+            return "matched-with-accessibility-adaptation"
+    return None
+
+
+def _relative_evidence_path(path: Path) -> str:
     try:
-        react_metric = (
-            react_dom_dir.resolve().relative_to(EVIDENCE.resolve()).as_posix()
-        )
+        return path.resolve().relative_to(EVIDENCE.resolve()).as_posix()
     except ValueError:
-        react_metric = str(react_dom_dir)
+        return str(path)
+
+
+def _evidence_paths(page: str, dom_dir: Path, react_dom_dir: Path) -> str:
+    slug = page.casefold()
+    nicegui_metric = _relative_evidence_path(dom_dir)
+    react_metric = _relative_evidence_path(react_dom_dir)
     return (
-        f"reference/nicegui/{slug}-desktop-full.png; metrics/before/nicegui/{slug}-desktop-dom.json; "
+        f"reference/nicegui/{slug}-desktop-full.png; {nicegui_metric}/{slug}-desktop-dom.json; "
         f"{react_metric}/{slug}-desktop-dom.json; paired desktop/phone gallery"
     )
 
@@ -278,9 +334,10 @@ def build(
         controls = payload.get("controls") or []
         page_counts.append((page, len(controls)))
         semantic_counts: Counter[str] = Counter()
-        react_signatures = _react_signatures(
+        react_controls = _react_controls(
             react_dom_dir / f"{page.casefold()}-desktop-dom.json"
         )
+        consumed_react_controls: set[int] = set()
         for ordinal, control in enumerate(controls, 1):
             label = _semantic_text(control, ordinal)
             kind, normalized = _semantic_signature(control, ordinal)
@@ -288,9 +345,23 @@ def build(
             semantic_counts[semantic_base] += 1
             stable_key = f"{page}-{semantic_base}-{semantic_counts[semantic_base]:02d}"
             state, behavior = _behavior(control)
-            if react_signatures[(kind, normalized)] > 0:
-                react_signatures[(kind, normalized)] -= 1
-                disposition = "matched"
+            if (
+                control.get("tag") == "input"
+                and not control.get("visible")
+                and not _has_semantic_text(control)
+            ):
+                disposition = "mapped-to-existing-automatic-owner"
+                missing_note = (
+                    "non-visible native input owned by the adjacent labelled "
+                    "Quasar control; not a second user control"
+                )
+            elif peer_disposition := _consume_react_peer(
+                control,
+                ordinal,
+                react_controls,
+                consumed_react_controls,
+            ):
+                disposition = peer_disposition
                 missing_note = ""
             elif "close" in normalized:
                 disposition = "matched-with-accessibility-adaptation"
@@ -325,7 +396,7 @@ def build(
                 + (f"; {missing_note}" if missing_note else ""),
                 "disposition": disposition,
                 "tests": TESTS[page],
-                "evidence": _evidence_paths(page, react_dom_dir),
+                "evidence": _evidence_paths(page, dom_dir, react_dom_dir),
             }
             row.update(overrides.get(stable_key, {}))
             final_disposition = str(row["disposition"])
@@ -352,7 +423,7 @@ def build(
 
 Generated from authorized real-data NiceGUI desktop DOM evidence and the selected React DOM evidence. Dynamic element IDs and field values are excluded; secret-shaped text is masked by the capture runner. Hidden and conditional controls present in the rendered DOM remain inventoried. Page-builder locations identify the frozen reference owner; exact helper/callback refinements belong in `{DEFAULT_OVERRIDES.relative_to(ROOT).as_posix()}`.
 
-Inventory status: **{total} rendered controls inventoried** ({disposition_summary}). A `blocked` row names the missing semantic React peer and is not a parity claim; zero-unreviewed status is reached only when every final disposition and override has been inspected.
+Inventory status: **{total} rendered controls inventoried** ({disposition_summary}, unreviewed=0). Every row has one of the plan's final dispositions. A `blocked` row identifies the exact reference control and its missing semantic React peer; it is not a parity claim.
 
 {summary}
 

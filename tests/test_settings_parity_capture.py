@@ -155,6 +155,13 @@ def test_scroll_positions_overlap_and_include_boundaries_once() -> None:
     assert tiny_client == sorted(set(tiny_client))
 
 
+def test_react_scroll_capture_prefers_the_settings_pane() -> None:
+    nicegui, react = runner._targets({"providers"})
+
+    assert runner._scroll_owner_selector(nicegui[0]) == ""
+    assert runner._scroll_owner_selector(react[0]) == ".settings-shell-body"
+
+
 def test_axe_snapshot_uses_evaluation_not_script_tag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -185,6 +192,25 @@ def test_axe_snapshot_uses_evaluation_not_script_tag(
     assert page.scripts[0] == "window.axe = window.axe || {};"
     assert "window.axe.run" in page.scripts[1]
     assert not hasattr(page, "add_script_tag")
+
+
+def test_secret_masks_ignore_controls_inside_closed_disclosures() -> None:
+    class FakePage:
+        def __init__(self) -> None:
+            self.selectors: list[str] = []
+
+        def locator(self, selector: str) -> str:
+            self.selectors.append(selector)
+            return selector
+
+    page = FakePage()
+
+    masks = runner._sensitive_masks(page)
+
+    assert masks == page.selectors
+    assert masks
+    assert all(selector.endswith(":visible") for selector in masks)
+    assert 'input[type="password"]:visible' in masks
 
 
 def test_inventory_marks_only_semantic_react_peers_as_matched(
@@ -248,9 +274,137 @@ def test_inventory_marks_only_semantic_react_peers_as_matched(
 
     assert count == 2
     assert "Providers-refresh-button-01" in rendered
+    assert "unreviewed=0" in rendered
     assert "| matched |" in rendered
     assert "no semantic control peer" in rendered
     assert "| blocked |" in rendered
+    assert f"{nicegui}/providers-desktop-dom.json" in rendered
+    assert f"{react}/providers-desktop-dom.json" in rendered
+
+
+def test_inventory_identifies_native_control_adaptations_and_implementation_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _temp_directory() as directory:
+        root = Path(directory)
+        nicegui = root / "nicegui"
+        react = root / "react"
+        nicegui.mkdir()
+        react.mkdir()
+        monkeypatch.setattr(
+            inventory,
+            "OWNERS",
+            {"Providers": ("owner.py", 12, "build", "Providers.tsx")},
+        )
+        monkeypatch.setattr(inventory, "TESTS", {"Providers": "focused-test"})
+        (nicegui / "providers-desktop-dom.json").write_text(
+            json.dumps(
+                {
+                    "controls": [
+                        {
+                            "index": 0,
+                            "tag": "div",
+                            "role": "switch",
+                            "label": "Enabled",
+                            "visible": True,
+                            "rect": {},
+                        },
+                        {
+                            "index": 1,
+                            "tag": "input",
+                            "type": "checkbox",
+                            "label": "",
+                            "visible": False,
+                            "rect": {},
+                        },
+                        {
+                            "index": 2,
+                            "tag": "div",
+                            "role": "combobox",
+                            "label": "Provider",
+                            "visible": True,
+                            "rect": {},
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (react / "providers-desktop-dom.json").write_text(
+            json.dumps(
+                {
+                    "controls": [
+                        {
+                            "index": 0,
+                            "tag": "input",
+                            "type": "checkbox",
+                            "label": "Enabled",
+                        },
+                        {
+                            "index": 1,
+                            "tag": "select",
+                            "type": "select-one",
+                            "label": "Provider\nLocal\nCloud",
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        output = root / "inventory.md"
+        count = inventory.build(nicegui, react, output)
+        rendered = output.read_text(encoding="utf-8")
+
+    assert count == 3
+    assert "matched-with-accessibility-adaptation=2" in rendered
+    assert "mapped-to-existing-automatic-owner=1" in rendered
+    assert (
+        "non-visible native input owned by the adjacent labelled Quasar control"
+        in rendered
+    )
+    assert "blocked=" not in rendered
+
+
+def test_verification_treats_explicit_blocked_controls_as_reviewed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _temp_directory() as directory:
+        root = Path(directory)
+        monkeypatch.setattr(evidence, "EVIDENCE", root)
+        monkeypatch.setattr(
+            evidence,
+            "PAGES",
+            ((1, "Providers", "providers", "owner"),),
+        )
+        (root / "control-inventory.md").write_text(
+            "Inventory status: blocked=1, matched=2, unreviewed=0.\n",
+            encoding="utf-8",
+        )
+        for relative in (
+            "candidate/react/providers-desktop-full.png",
+            "candidate/react/providers-phone-full.png",
+            "reference/nicegui/providers-desktop-full.png",
+            "reference/nicegui/providers-phone-full.png",
+        ):
+            _write_png(root / relative, 10, 20)
+        checklist = evidence._build_verification_checklist(
+            "candidate",
+            {
+                "records": [{} for _ in range(68)],
+                "failed": 0,
+                "meaningful_data_changes": [],
+            },
+            [{"inspection": "reviewed"}],
+            {
+                "providers": {"result": "verified"},
+                "_checklist": {},
+            },
+        )
+
+    assert (
+        "[x] Control inventory has zero unreviewed controls; every matched, "
+        "adapted, automatic-owner, or blocked disposition is explicit."
+    ) in checklist
 
 
 def test_evidence_gallery_and_inspection_manifest_are_honest(

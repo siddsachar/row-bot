@@ -333,6 +333,12 @@ def _scroll_positions(
     return sorted({*range(0, last, step), last})
 
 
+def _scroll_owner_selector(target: CaptureTarget) -> str:
+    """Prefer the Settings shell scroller over unrelated application regions."""
+
+    return ".settings-shell-body" if target.surface == "react" else ""
+
+
 def _targets(pages: set[str] | None) -> tuple[list[CaptureTarget], list[CaptureTarget]]:
     def selected(name: str) -> bool:
         return pages is None or name.casefold() in pages
@@ -371,7 +377,11 @@ def _sensitive_masks(page: Any) -> list[Any]:
         'textarea[name*="secret" i]',
         'textarea[name*="key" i]',
     )
-    return [page.locator(selector) for selector in selectors]
+    # Playwright masks matching nodes even when they are inside a closed
+    # disclosure, using their latent layout boxes. Restrict the mask set to
+    # rendered controls so closed credential panels do not leave synthetic
+    # purple bars in the parity evidence.
+    return [page.locator(f"{selector}:visible") for selector in selectors]
 
 
 def _page_snapshot(page: Any, target: CaptureTarget, viewport: str) -> dict[str, Any]:
@@ -463,6 +473,16 @@ def _page_snapshot(page: Any, target: CaptureTarget, viewport: str) -> dict[str,
               className: typeof el.className === 'string' ? el.className.slice(0, 180) : '',
               left: rect.left, right: rect.right, width: rect.width}];
           }).slice(0, 100);
+          const scrollCandidates = [root, ...root.querySelectorAll('*')].flatMap((el) => {
+            const style = getComputedStyle(el);
+            if (el.scrollHeight <= el.clientHeight + 8 &&
+                !['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowY)) return [];
+            const rect = el.getBoundingClientRect();
+            return [{tag: el.tagName.toLowerCase(), id: el.id || '',
+              className: typeof el.className === 'string' ? el.className.slice(0, 180) : '',
+              overflowY: style.overflowY, clientHeight: el.clientHeight,
+              scrollHeight: el.scrollHeight, top: rect.top, bottom: rect.bottom}];
+          }).slice(0, 100);
           return {
             title: document.title,
             url: location.pathname + location.search,
@@ -475,6 +495,7 @@ def _page_snapshot(page: Any, target: CaptureTarget, viewport: str) -> dict[str,
               viewportWidth: window.innerWidth, viewportHeight: window.innerHeight},
             controls,
             overflow,
+            scrollCandidates,
           };
         }""",
         {"selector": target.root_selector, "sensitivePattern": SENSITIVE_HINT.pattern},
@@ -519,21 +540,27 @@ def _scroll_segments(
     page: Any, target: CaptureTarget, output_dir: Path, stem: str, masks: list[Any]
 ) -> list[dict[str, Any]]:
     scroll = page.evaluate(
-        """(selector) => {
-          const root = document.querySelector(selector) || document.body;
+        """({rootSelector, ownerSelector}) => {
+          const root = document.querySelector(rootSelector) || document.body;
           const nodes = [root, ...root.querySelectorAll('*')].filter((el) => {
             const style = getComputedStyle(el);
             return el.scrollHeight > el.clientHeight + 8 &&
               ['auto', 'scroll'].includes(style.overflowY) && el.clientHeight > 100;
           });
-          const chosen = nodes.sort((a, b) => b.scrollHeight - a.scrollHeight)[0] ||
-            document.scrollingElement;
+          const explicit = ownerSelector ? root.querySelector(ownerSelector) : null;
+          const chosen = explicit && explicit.scrollHeight > explicit.clientHeight + 8
+            ? explicit
+            : nodes.sort((a, b) => b.scrollHeight - a.scrollHeight)[0] ||
+              document.scrollingElement;
           if (!chosen) return null;
           chosen.setAttribute('data-settings-parity-scroll-owner', '1');
           chosen.scrollTop = 0;
           return {scrollHeight: chosen.scrollHeight, clientHeight: chosen.clientHeight};
         }""",
-        target.root_selector,
+        {
+            "rootSelector": target.root_selector,
+            "ownerSelector": _scroll_owner_selector(target),
+        },
     )
     if not scroll:
         return []

@@ -66,6 +66,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "phase4_capability_settings",
         (
             "src/row_bot/application/channel_controls.py",
+            "src/row_bot/channels/passive_catalog.py",
             "src/row_bot/application/plugin_commands.py",
             "src/row_bot/application/skill_commands.py",
         ),

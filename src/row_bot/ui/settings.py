@@ -5873,9 +5873,13 @@ def open_settings(
             "forum",
         )
 
-        from row_bot.docs_capture import is_docs_capture, load_docs_capture_demo_state
+        from row_bot.docs_capture import (
+            is_docs_capture,
+            is_docs_real_data_capture,
+            load_docs_capture_demo_state,
+        )
 
-        if is_docs_capture():
+        if is_docs_capture() and not is_docs_real_data_capture():
             demo_channels = load_docs_capture_demo_state().get("channels") or []
             configured = sum(
                 1 for item in demo_channels if "configured" in str(item.get("status") or "").lower()
@@ -5896,6 +5900,25 @@ def open_settings(
             return
 
         channels = _ch_registry.all_channels()
+        if is_docs_real_data_capture() and not channels:
+            # The guarded capture host deliberately skips application
+            # autostart. Import the bundled descriptors so this passive page
+            # still reflects the same configured channel owners; importing
+            # does not start adapters or send provider traffic.
+            import importlib
+
+            for module_name in (
+                "row_bot.channels.telegram",
+                "row_bot.channels.slack",
+                "row_bot.channels.sms",
+                "row_bot.channels.discord_channel",
+                "row_bot.channels.whatsapp",
+            ):
+                try:
+                    importlib.import_module(module_name)
+                except ImportError:
+                    continue
+            channels = _ch_registry.all_channels()
         if not channels:
             ui.label("No channels registered.").classes("text-grey-6 text-sm")
             return

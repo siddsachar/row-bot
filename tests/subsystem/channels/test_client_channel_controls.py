@@ -148,6 +148,17 @@ class RegistryOwner:
         raise AssertionError("channel controls must never deliver messages")
 
 
+class EmptyRegistryOwner:
+    def get(self, _name: str):
+        return None
+
+    def all_channels(self):
+        return []
+
+    def get_source(self, _name: str) -> Source:
+        return Source()
+
+
 @pytest.fixture
 def environment(tmp_path, monkeypatch):
     from row_bot import tasks
@@ -266,6 +277,57 @@ def test_passive_status_is_bounded_redacted_and_never_delivers(environment) -> N
     assert owners["registry_owner"].deliver_calls == 0
     assert owners["config_owner"].writes == []
     assert owners["secret_owner"].writes == []
+
+
+def test_empty_default_registry_projects_five_passive_core_channels(
+    monkeypatch,
+) -> None:
+    registry = EmptyRegistryOwner()
+
+    class PassiveSecrets:
+        def channel_secret_status(self, channel: str, env_key: str) -> dict:
+            configured = channel == "telegram" and env_key in {
+                "TELEGRAM_BOT_TOKEN",
+                "TELEGRAM_USER_ID",
+            }
+            return {
+                "configured": configured,
+                "source": "channel keyring" if configured else "",
+                "fingerprint": "masked" if configured else "",
+            }
+
+    monkeypatch.setattr(controls, "_registry", lambda _owner: registry)
+    monkeypatch.setattr(controls, "_passive_secret_owner", PassiveSecrets)
+
+    page = controls.read_channels(validate=lambda: None)
+
+    assert page["total"] == 5
+    assert {item["channel_id"] for item in page["items"]} == {
+        "telegram",
+        "slack",
+        "sms",
+        "discord",
+        "whatsapp",
+    }
+    telegram = next(item for item in page["items"] if item["channel_id"] == "telegram")
+    assert telegram["configured"] is True
+    assert telegram["running"] is False
+    assert telegram["activity"] == "unknown"
+    assert telegram["availability"] == {
+        "configuration": "limited",
+        "lifecycle": "configuration_required",
+        "pairing": "unsupported",
+        "monitor": "unavailable",
+    }
+    assert all(field["writable"] is False for field in telegram["fields"])
+    assert "TELEGRAM_BOT_TOKEN" not in json.dumps(page)
+
+    injected = controls.read_channels(
+        registry_owner=registry,
+        secret_owner=PassiveSecrets(),
+        validate=lambda: None,
+    )
+    assert injected["total"] == 0
 
 
 def test_review_is_passive_and_one_field_configuration_is_write_only(

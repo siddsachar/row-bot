@@ -2,7 +2,8 @@
 
 Only explicitly allowlisted saved fields are handled here.  Live probes,
 authentication, installs, runtime lifecycle actions, OS integrations, and
-destructive tracker operations retain their existing subsystem owners.
+destructive subsystem actions without a Settings owner remain outside this
+module.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import math
 import os
 from pathlib import Path
 import re
+import sqlite3
+import sys
 import tempfile
 from typing import Any
 from uuid import UUID
@@ -286,6 +289,9 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         tool_id = field.removesuffix(".enabled")
         if tool_id not in _UTILITY_IDS or type(value) is not bool:
             raise SettingsCommandError("invalid_settings_command")
+    elif key == ("tracker", "delete_all"):
+        if value is not True:
+            raise SettingsCommandError("invalid_settings_command")
     else:
         raise SettingsCommandError("settings_action_unavailable")
     return page, field, deepcopy(value), False
@@ -343,6 +349,11 @@ def review_settings_update(
         )
     elif isinstance(intent["value"], list):
         summary = f"Save {len(intent['value'])} selected values"
+    elif (page, field) == ("tracker", "delete_all"):
+        summary = (
+            "Delete all tracker data, including every tracker and entry. "
+            "This cannot be undone."
+        )
     else:
         summary = str(intent["value"])[:256]
     validate()
@@ -504,16 +515,60 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
         else:
             raise SettingsCommandError("settings_action_unavailable")
         _write_document(path, document)
-    from row_bot.tools import registry
+    registry = sys.modules.get("row_bot.tools.registry")
+    if registry is not None:
+        registry.reload_saved_config()
 
-    registry.reload_saved_config()
+
+def _clear_tracker_data(
+    root: Path, settings_revision: str, *, validate: Callable[[], None]
+) -> None:
+    """Atomically clear the reviewed local tracker rows."""
+
+    path = root / "tracker" / "tracker.db"
+    if not path.is_file():
+        return
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(str(path), timeout=5)
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        validate()
+        current = read_settings_snapshot(validate=validate)
+        if current["revision"] != settings_revision:
+            raise SettingsCommandError("settings_changed", current["revision"])
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if not {"entries", "trackers"}.issubset(tables):
+            raise SettingsCommandError("settings_unavailable")
+        connection.execute("DELETE FROM entries")
+        connection.execute("DELETE FROM trackers")
+        validate()
+        connection.commit()
+    except SettingsCommandError:
+        if connection is not None:
+            connection.rollback()
+        raise
+    except sqlite3.Error:
+        if connection is not None:
+            connection.rollback()
+        raise SettingsCommandError("settings_save_unconfirmed") from None
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _apply(intent: dict[str, Any], *, validate: Callable[[], None]) -> dict[str, Any]:
     validate()
     root = get_row_bot_data_dir(create=False).absolute()
     page, field, value = intent["page"], intent["field"], intent["value"]
-    if intent["secret"]:
+    if (page, field) == ("tracker", "delete_all"):
+        _clear_tracker_data(root, intent["settings_revision"], validate=validate)
+    elif intent["secret"]:
         from row_bot import api_keys
 
         name = _SECRET_FIELDS[(page, field)]

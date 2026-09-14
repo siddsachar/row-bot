@@ -100,6 +100,8 @@ _STAGES = {
 _SQLITE_VALUE_LIMIT = 16 * 1024 * 1024
 _SQLITE_STEP_LIMIT = 10_000_000
 _QUERY_SECONDS = 2.0
+_LEGACY_MARKER_BYTES = 1024 * 1024
+_LEGACY_MARKER_ITEMS = 4096
 
 
 def _parameters(kind, query, selected, cursor, limit):
@@ -204,6 +206,116 @@ def _document(row):
     )
 
 
+def _legacy_document_markers(root):
+    """Read the legacy name catalog without importing its initializing owner."""
+
+    path = root / "processed_files.json"
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return "missing", ()
+    except OSError:
+        return "unavailable", ()
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+        or getattr(metadata, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        or metadata.st_size > _LEGACY_MARKER_BYTES
+    ):
+        return "unavailable", ()
+    try:
+        with path.open("rb") as handle:
+            encoded = handle.read(_LEGACY_MARKER_BYTES + 1)
+        if len(encoded) > _LEGACY_MARKER_BYTES:
+            return "unavailable", ()
+        value = json.loads(encoded.decode("utf-8"))
+        if (
+            not isinstance(value, list)
+            or len(value) > _LEGACY_MARKER_ITEMS
+            or any(not isinstance(item, str) for item in value)
+        ):
+            return "unavailable", ()
+        markers = tuple(
+            {
+                "id": "legacy:" + hashlib.sha256(name.encode("utf-8")).hexdigest(),
+                "name": name,
+                "order": order,
+            }
+            for order, name in enumerate(sorted(set(value)))
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return "unavailable", ()
+    return "available", markers
+
+
+def _legacy_document_page(markers, term, status, key, offset, expected, limit):
+    digest = hashlib.sha256()
+    items, total = [], 0
+    for marker in markers:
+        raw_name = marker["name"]
+        item = DocumentSummary(
+            marker["id"],
+            raw_name[-256:].replace("\\", "/").rsplit("/", 1)[-1]
+            or "Untitled document",
+            "unknown",
+            "unknown",
+            "record_only",
+            None,
+            None,
+            None,
+            None,
+            "",
+            len(raw_name) > 256,
+        )
+        matched = (status is None or status == "unknown") and (
+            not term or term.casefold() in raw_name.casefold()
+        )
+        digest.update(
+            json.dumps(
+                [asdict(item), matched], sort_keys=True, ensure_ascii=True
+            ).encode()
+        )
+        digest.update(b"\n")
+        if matched:
+            if offset <= total < offset + limit:
+                items.append(item)
+            total += 1
+    revision = digest.hexdigest()
+    if expected is not None and (expected != revision or offset >= total):
+        raise KnowledgeViewError("cursor_expired")
+    next_cursor = None
+    if offset + len(items) < total:
+        next_cursor = base64.urlsafe_b64encode(
+            json.dumps(
+                {
+                    "v": 1,
+                    "key": key,
+                    "revision": revision,
+                    "offset": offset + len(items),
+                },
+                separators=(",", ":"),
+            ).encode()
+        ).decode()
+    return DocumentSummaryPage(
+        1, revision, tuple(items), total, next_cursor, "available"
+    )
+
+
+def _document_page_unavailable(expected):
+    if expected is not None:
+        raise KnowledgeViewError("cursor_expired")
+    availability = "unavailable"
+    return DocumentSummaryPage(
+        1,
+        hashlib.sha256(availability.encode()).hexdigest(),
+        (),
+        None,
+        None,
+        availability,
+    )
+
+
 def _read(path, required, sql, params, build, page, key, offset, expected, limit):
     availability = "available"
     digest = hashlib.sha256()
@@ -268,7 +380,9 @@ def _read(path, required, sql, params, build, page, key, offset, expected, limit
                     }
                     if not set(columns.split()).issubset(found):
                         raise ValueError("Unsupported saved schema")
-                rows = conn.execute(sql(conn, ordinary_tables) if callable(sql) else sql, params)
+                rows = conn.execute(
+                    sql(conn, ordinary_tables) if callable(sql) else sql, params
+                )
                 while batch := rows.fetchmany(128):
                     if time.monotonic() >= deadline:
                         raise ValueError("Saved query budget exceeded")
@@ -364,12 +478,26 @@ def list_saved_documents(
     cursor: str | None = None,
     limit: int = 50,
 ) -> DocumentSummaryPage:
-    """Read saved jobs and orphan records without checking paths or live indexes."""
+    """Read saved jobs, records, and legacy markers without probing live indexes."""
     term, key, offset, expected = _parameters("documents", query, status, cursor, limit)
     if status is not None and status not in _STATUSES | {"unknown"}:
         raise KnowledgeViewError("invalid_knowledge_query")
+    root = get_row_bot_data_dir(create=False)
+    marker_availability, markers = _legacy_document_markers(root)
+    if marker_availability == "unavailable":
+        return _document_page_unavailable(expected)
+    database = root / "document_ingestion" / "jobs.db"
+    if not database.is_file() and marker_availability == "available":
+        return _legacy_document_page(
+            markers, term, status, key, offset, expected, limit
+        )
+    marker_json = json.dumps(markers, ensure_ascii=True, separators=(",", ":"))
     sql = """
-        WITH saved AS (
+        WITH legacy AS (
+            SELECT json_extract(value,'$.id') id, json_extract(value,'$.name') name,
+                json_extract(value,'$.order') catalog_order
+            FROM json_each(?)
+        ), saved AS (
             SELECT j.id, j.original_name name, j.status, j.stage,
                 j.index_progress_current index_current, j.index_progress_total index_total,
                 j.extraction_progress_current extraction_current,
@@ -377,13 +505,23 @@ def list_saved_documents(
                 1 has_job, (r.document_id IS NOT NULL) has_record, 0 removed,
                 (r.document_id IS NOT NULL AND j.completed_at!='' AND r.completed_at!=''
                  AND j.completed_at=r.completed_at AND j.staged_path=r.staged_path
-                 AND j.content_sha256=r.content_sha256 AND j.size_bytes=r.size_bytes) consistent
+                 AND j.content_sha256=r.content_sha256 AND j.size_bytes=r.size_bytes) consistent,
+                0 legacy_order, j.id catalog_order
             FROM document_jobs j LEFT JOIN document_records r ON r.document_id=j.id
             UNION ALL
             SELECT r.document_id, r.original_name, 'unknown', 'unknown',
-                NULL,NULL,NULL,NULL,r.completed_at,0,1,0,0
+                NULL,NULL,NULL,NULL,r.completed_at,0,1,0,0,0,r.document_id
             FROM document_records r LEFT JOIN document_jobs j ON j.id=r.document_id
             WHERE j.id IS NULL
+        ), catalog AS (
+            SELECT * FROM saved
+            UNION ALL
+            SELECT legacy.id, legacy.name, 'unknown', 'unknown',
+                NULL,NULL,NULL,NULL,'',0,0,0,0,1,legacy.catalog_order
+            FROM legacy
+            WHERE NOT EXISTS (
+                SELECT 1 FROM document_records r WHERE r.original_name=legacy.name
+            )
         )
         SELECT substr(id,1,129) id, substr(name,-256) name, substr(status,1,64) status,
             substr(stage,1,64) stage, index_current,index_total,extraction_current,extraction_total,
@@ -393,19 +531,24 @@ def list_saved_documents(
               ('staging','queued','indexing','searchable','extracting','completed','failed','cancelled','skipped_duplicate')
               THEN status ELSE 'unknown' END)=?)
               AND (?='' OR instr(lower(name),lower(?))>0)) matched
-        FROM saved ORDER BY id
+        FROM catalog ORDER BY legacy_order, catalog_order
     """
     required = {
         "document_jobs": "id original_name status stage index_progress_current index_progress_total extraction_progress_current extraction_progress_total updated_at completed_at staged_path content_sha256 size_bytes",
         "document_records": "document_id original_name completed_at staged_path content_sha256 size_bytes",
     }
+
     def removal_projection(conn, ordinary_tables):
         # Legacy stores without the K07 table remain readable. When present,
         # consult its canonical snapshot within this same read transaction.
         if "document_removals" not in ordinary_tables:
             return sql
         columns = list(conn.execute('PRAGMA table_xinfo("document_removals")'))
-        if any(row[6] != 0 for row in columns) or not {"target", "snapshot", "result"}.issubset({row[1] for row in columns}):
+        if any(row[6] != 0 for row in columns) or not {
+            "target",
+            "snapshot",
+            "result",
+        }.issubset({row[1] for row in columns}):
             raise ValueError("Unsupported saved removal schema")
         removed = """EXISTS(SELECT 1 FROM document_removals d
             WHERE d.target=j.id AND json_extract(d.result,'$.document_id')=j.id
@@ -415,11 +558,12 @@ def list_saved_documents(
             AND json_extract(d.snapshot,'$.record.staged_path')=j.staged_path
             AND json_extract(d.snapshot,'$.record.original_name')=j.original_name) removed"""
         return sql.replace("0 removed", removed, 1)
+
     return _read(
-        get_row_bot_data_dir(create=False) / "document_ingestion" / "jobs.db",
+        database,
         required,
         removal_projection,
-        (status, status, term, term),
+        (marker_json, status, status, term, term),
         _document,
         DocumentSummaryPage,
         key,
