@@ -23,13 +23,11 @@ export default function Navigation({
   onOpenHome,
   onNewChat,
   creatingChat = false,
-  onPreferences,
 }: {
   onOpenConversation?: () => void;
   onOpenHome?: () => void;
   onNewChat?: () => void;
   creatingChat?: boolean;
-  onPreferences?: () => void;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -273,14 +271,19 @@ export default function Navigation({
         )}
       </section>
       <footer className="nav-footer" aria-label="Workspace destinations">
-        {onPreferences && (
-          <div className="nav-preferences">
-            <Button variant="ghost" onClick={onPreferences}>
-              <Settings size={17} aria-hidden />
-              Preferences
-            </Button>
-          </div>
-        )}
+        <div className="nav-preferences">
+          <Link
+            className="button ghost"
+            to="/settings/providers"
+            aria-current={
+              location.pathname.startsWith('/settings') ? 'page' : undefined
+            }
+            onClick={() => overlay.close()}
+          >
+            <Settings size={17} aria-hidden />
+            Settings
+          </Link>
+        </div>
         <div
           className="nav-secondary-destinations"
           role="group"

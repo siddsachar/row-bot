@@ -6,8 +6,7 @@ import type {
   ResourceChoice,
   ResourceChoicePage,
 } from '../../api/types';
-import ResourceSetup from './ResourceSetup';
-import type { HomeSetupEntry } from './Home';
+import ResourceSetup, { type ResourceSetupEntry } from './ResourceSetup';
 import { setupSessions } from './setup-state';
 
 const mock = vi.hoisted(() => ({
@@ -157,7 +156,7 @@ it('never restores an opaque folder grant after reopening with a new handshake',
 });
 function view(
   conversationId: string | null = 'conversation-a',
-  initialEntry?: HomeSetupEntry,
+  initialEntry?: ResourceSetupEntry,
 ) {
   return render(
     <MemoryRouter>

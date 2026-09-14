@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import type { TaskSummaryPage } from '../../api/types';
 import { SavedTasks } from './TaskLibrary';
 
@@ -41,10 +42,10 @@ function pending<T>() {
 it('bounds rendered task rows while preserving full forward traversal and reload', async () => {
   const chunk = (offset: number): TaskSummaryPage => ({
     ...page(),
-    total: 400,
-    next_cursor: offset < 300 ? String(offset + 100) : null,
+    total: 240,
+    next_cursor: offset < 180 ? String(offset + 60) : null,
     items: Array.from(
-      { length: 100 },
+      { length: 60 },
       (_, i) => page(`Task ${String(offset + i).padStart(3, '0')}`).items[0],
     ),
   });
@@ -53,28 +54,32 @@ it('bounds rendered task rows while preserving full forward traversal and reload
       chunk(Number(cursor ?? 0)),
   );
   const view = show(load);
-  await screen.findByText('Task 099');
-  for (const end of [199, 299, 399]) {
+  await screen.findByText('Task 059');
+  for (const [end, expectedRows] of [
+    [119, 120],
+    [179, 180],
+    [239, 200],
+  ] as const) {
     fireEvent.click(screen.getByRole('button', { name: 'Load more tasks' }));
     await screen.findByText(`Task ${end}`);
-    expect(
-      view.container.querySelectorAll('.settings-results > li'),
-    ).toHaveLength(200);
+    expect(view.container.querySelectorAll('.workflow-grid > li')).toHaveLength(
+      expectedRows,
+    );
   }
   expect(screen.queryByText('Task 000')).not.toBeInTheDocument();
-  expect(screen.getByText('Task 200')).toBeVisible();
-  expect(screen.getByText(/Showing entries 201–400/)).toBeVisible();
+  expect(screen.getByText('Task 040')).toBeVisible();
+  expect(screen.getByText(/Showing entries 41–240/)).toBeVisible();
   expect(load.mock.calls.map((call) => call[2])).toEqual([
     undefined,
-    '100',
-    '200',
-    '300',
+    '60',
+    '120',
+    '180',
   ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Reload saved tasks' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }));
   await screen.findByText('Task 000');
-  expect(
-    view.container.querySelectorAll('.settings-results > li'),
-  ).toHaveLength(100);
+  expect(view.container.querySelectorAll('.workflow-grid > li')).toHaveLength(
+    60,
+  );
   expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
 });
 function show(load: React.ComponentProps<typeof SavedTasks>['load']) {
@@ -86,14 +91,16 @@ function show(load: React.ComponentProps<typeof SavedTasks>['load']) {
 }
 
 it('shows recorded task facts and opens its existing conversation', async () => {
+  const user = userEvent.setup();
   const load = vi.fn(async () => page());
   show(load);
-  fireEvent.click(await screen.findByText('Saved task'));
+  await screen.findByText('Saved task');
   expect(screen.getByText('Reminder')).toBeVisible();
   expect(screen.getByText('No recorded status')).toBeVisible();
-  expect(
-    screen.getByRole('link', { name: 'Open conversation' }),
-  ).toHaveAttribute('href', '/conversations/conversation-one');
+  await user.click(
+    screen.getByRole('button', { name: 'More actions for Saved task' }),
+  );
+  await user.click(screen.getByRole('menuitem', { name: 'Open conversation' }));
   expect(load).toHaveBeenCalledTimes(1);
 });
 
@@ -125,11 +132,14 @@ it('searches on submit and discards a late page after the search changes', async
   show(load);
   await screen.findByText('First');
   fireEvent.click(screen.getByRole('button', { name: 'Load more tasks' }));
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search tasks' }), {
-    target: { value: ' filtered ' },
-  });
+  fireEvent.change(
+    screen.getByRole('searchbox', { name: 'Search workflows' }),
+    {
+      target: { value: ' filtered ' },
+    },
+  );
   expect(load).toHaveBeenCalledTimes(2);
-  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Search workflows' }));
   expect(await screen.findByText('Filtered')).toBeVisible();
   expect(load.mock.calls[1][3].aborted).toBe(true);
   await act(async () => late.resolve(page('Obsolete')));
@@ -148,7 +158,7 @@ it('applies the enabled filter and keeps empty results explicit', async () => {
     .mockResolvedValueOnce({ ...page(), items: [], total: 0 });
   show(load);
   await screen.findByText('Saved task');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Task status' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Workflow status' }), {
     target: { value: 'enabled' },
   });
   expect(await screen.findByText('No matching saved tasks')).toBeVisible();
@@ -170,7 +180,7 @@ it('does not merge a changed snapshot and allows an explicit reload', async () =
     ),
   ).toBeVisible();
   expect(screen.queryByText('Changed')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Reload saved tasks' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }));
   expect(await screen.findByText('Reloaded')).toBeVisible();
   expect(screen.queryByText('First')).not.toBeInTheDocument();
 });
@@ -185,7 +195,7 @@ it('redacts unexpected errors and retries explicitly', async () => {
     await screen.findByText('Row-Bot could not complete this request.'),
   ).toBeVisible();
   expect(screen.queryByText(/private path/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Reload saved tasks' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }));
   expect(await screen.findByText('Saved task')).toBeVisible();
 });
 

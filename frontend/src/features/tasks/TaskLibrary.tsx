@@ -5,7 +5,24 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import {
+  Bell,
+  Braces,
+  CalendarClock,
+  Database,
+  FileDown,
+  FileUp,
+  GitBranch,
+  History,
+  Mail,
+  Pencil,
+  Play,
+  RefreshCw,
+  Search,
+  Square,
+  Zap,
+} from 'lucide-react';
 import type { TaskSummaryPage } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
@@ -16,13 +33,39 @@ import TaskGraphEditor from './TaskGraphEditor';
 import TaskSettingsEditor from './TaskSettingsEditor';
 import {
   Button,
+  CompactAction,
   EmptyState,
   ErrorState,
   Field,
   Input,
+  Menu,
   Select,
   Skeleton,
 } from '../../ui/primitives';
+import { useOverlay } from '../../ui/overlays';
+
+const workflowIcons = {
+  notifications: Bell,
+  notifications_active: Bell,
+  alarm: Bell,
+  schedule: CalendarClock,
+  event: CalendarClock,
+  code: Braces,
+  terminal: Braces,
+  email: Mail,
+  mail: Mail,
+  database: Database,
+  storage: Database,
+  upload: FileUp,
+  download: FileDown,
+  sync: RefreshCw,
+  refresh: RefreshCw,
+} as const;
+
+function workflowIcon(icon: string, reminder: boolean) {
+  const key = icon.trim().toLowerCase() as keyof typeof workflowIcons;
+  return workflowIcons[key] ?? (reminder ? Bell : Zap);
+}
 
 export function SavedTasks({
   load,
@@ -32,11 +75,11 @@ export function SavedTasks({
   onGraph,
   onSettings,
 }: {
-  onEdit?: (id: string) => void;
+  onEdit?: (id: string, name: string) => void;
   onCreate?: () => void;
   onRuns?: (id: string) => void;
-  onGraph?: (id: string) => void;
-  onSettings?: (id: string) => void;
+  onGraph?: (id: string, name: string) => void;
+  onSettings?: (id: string, name: string) => void;
   load: (
     query?: string,
     enabled?: boolean,
@@ -44,6 +87,7 @@ export function SavedTasks({
     signal?: AbortSignal,
   ) => Promise<TaskSummaryPage>;
 }) {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState('');
   const [filter, setFilter] = useState({ query: '', state: 'all' });
   const [page, setPage] = useState<TaskSummaryPage | null>(null);
@@ -118,15 +162,20 @@ export function SavedTasks({
   }
   return (
     <section
-      className="route-surface stack capability-page"
+      className="route-surface stack capability-page workflow-library"
       aria-label="Workflows"
       aria-busy={loading}
     >
       <header className="capability-header">
-        <div>
-          <p className="eyebrow">Automation library</p>
-          <h1>Workflows</h1>
-          <p>Browse saved tasks, reminders and schedules.</p>
+        <div className="workflow-heading">
+          <span className="workflow-heading-icon" aria-hidden>
+            <GitBranch size={22} />
+          </span>
+          <div>
+            <p className="eyebrow">Automation library</p>
+            <h1>Workflows</h1>
+            <p>Browse saved tasks, reminders and schedules.</p>
+          </div>
         </div>
         {onCreate && (
           <div className="action-cluster">
@@ -137,14 +186,14 @@ export function SavedTasks({
         )}
       </header>
       <form
-        className="field-row capability-section"
+        className="workflow-toolbar panel-toolbar"
         aria-label="Filter workflows"
         onSubmit={(event) => {
           event.preventDefault();
           setFilter((value) => ({ ...value, query: draft.trim() }));
         }}
       >
-        <Field label="Search tasks">
+        <Field label="Search workflows">
           <Input
             type="search"
             maxLength={256}
@@ -152,7 +201,7 @@ export function SavedTasks({
             onChange={(event) => setDraft(event.target.value)}
           />
         </Field>
-        <Field label="Task status">
+        <Field label="Workflow status">
           <Select
             value={filter.state}
             onChange={(event) =>
@@ -164,16 +213,17 @@ export function SavedTasks({
             <option value="disabled">Disabled</option>
           </Select>
         </Field>
-        <Button type="submit">Search</Button>
-      </form>
-      <div className="action-cluster">
-        <Button
+        <CompactAction label="Search workflows" type="submit">
+          <Search size={17} aria-hidden />
+        </CompactAction>
+        <CompactAction
+          label="Refresh workflows"
           disabled={loading}
           onClick={() => setReload((value) => value + 1)}
         >
-          Reload saved tasks
-        </Button>
-      </div>
+          <RefreshCw size={17} aria-hidden />
+        </CompactAction>
+      </form>
       {loading && <Skeleton label="Loading saved tasks" />}
       {error && <ErrorState title="Task list unavailable">{error}</ErrorState>}
       {page && (
@@ -191,61 +241,134 @@ export function SavedTasks({
               Try another search or status.
             </EmptyState>
           )}
-          <ul className="settings-results">
-            {page.items.map((task) => (
-              <li className="surface" key={task.id}>
-                <details className="stack">
-                  <summary>{task.name}</summary>
-                  {task.description && <p>{task.description}</p>}
-                  <div className="action-cluster">
-                    {onEdit && (
-                      <Button onClick={() => onEdit(task.id)}>
-                        Edit workflow
-                      </Button>
-                    )}
-                    {onRuns && (
-                      <Button onClick={() => onRuns(task.id)}>
-                        Run and history
-                      </Button>
-                    )}
-                    {onGraph && (
-                      <Button onClick={() => onGraph(task.id)}>
-                        Edit workflow steps
-                      </Button>
-                    )}
-                    {onSettings && (
-                      <Button onClick={() => onSettings(task.id)}>
-                        Workflow settings
-                      </Button>
-                    )}
-                  </div>
-                  <dl className="capability-summary">
-                    <dt>Type</dt>
-                    <dd>{task.notify_only ? 'Reminder' : 'Task'}</dd>
-                    <dt>Enabled</dt>
-                    <dd>{task.enabled ? 'Yes' : 'No'}</dd>
-                    <dt>Schedule</dt>
-                    <dd>{task.schedule || 'No recurring schedule'}</dd>
-                    <dt>One-time schedule</dt>
-                    <dd>{task.at || 'None'}</dd>
-                    <dt>Last run</dt>
-                    <dd>{task.last_run || 'No recorded run time'}</dd>
-                    <dt>Last recorded status</dt>
-                    <dd>{task.last_status || 'No recorded status'}</dd>
-                  </dl>
-                  {task.conversation_id && (
-                    <div className="action-cluster">
-                      <Link
-                        className="button"
-                        to={`/conversations/${encodeURIComponent(task.conversation_id)}`}
-                      >
-                        Open conversation
-                      </Link>
+          <ul className="workflow-grid">
+            {page.items.map((task) => {
+              const Icon = workflowIcon(task.icon, task.notify_only);
+              const active = task.last_status?.toLowerCase() === 'running';
+              const schedule = task.schedule
+                ? task.schedule
+                : task.at
+                  ? `Once · ${task.at}`
+                  : 'Run manually';
+              const actions = [
+                ...(onRuns
+                  ? [
+                      {
+                        label: 'Run history',
+                        onSelect: () => onRuns(task.id),
+                      },
+                    ]
+                  : []),
+                ...(onGraph
+                  ? [
+                      {
+                        label: 'Edit workflow steps',
+                        onSelect: () => onGraph(task.id, task.name),
+                      },
+                    ]
+                  : []),
+                ...(onSettings
+                  ? [
+                      {
+                        label: 'Workflow settings',
+                        onSelect: () => onSettings(task.id, task.name),
+                      },
+                    ]
+                  : []),
+                ...(task.conversation_id
+                  ? [
+                      {
+                        label: 'Open conversation',
+                        onSelect: () =>
+                          navigate(
+                            `/conversations/${encodeURIComponent(task.conversation_id!)}`,
+                          ),
+                      },
+                    ]
+                  : []),
+              ];
+              return (
+                <li className="workflow-card" key={task.id}>
+                  <header className="workflow-card-header">
+                    <span className="workflow-icon" aria-hidden>
+                      <Icon size={22} />
+                    </span>
+                    <div className="workflow-card-title">
+                      <h2 title={task.name}>{task.name}</h2>
+                      <div className="workflow-chips">
+                        <span
+                          className={`status-chip ${task.enabled ? 'success' : ''}`}
+                        >
+                          {task.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                        <span className="status-chip">
+                          {task.notify_only ? 'Reminder' : 'Workflow'}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </details>
-              </li>
-            ))}
+                  </header>
+                  <p className="workflow-description">
+                    {task.description || 'No description.'}
+                  </p>
+                  <div className="workflow-metadata">
+                    <p title={schedule}>
+                      <CalendarClock size={15} aria-hidden />
+                      <span>{schedule}</span>
+                    </p>
+                    <p>
+                      <History size={15} aria-hidden />
+                      <span>{task.last_run || 'Never run'}</span>
+                    </p>
+                  </div>
+                  <footer className="workflow-card-footer">
+                    <span
+                      className={`workflow-last-status ${active ? 'active' : ''}`}
+                    >
+                      {task.last_status || 'No recorded status'}
+                    </span>
+                    <div className="workflow-card-actions">
+                      {onRuns && (
+                        <CompactAction
+                          label={
+                            active
+                              ? `Open running workflow: ${task.name}`
+                              : `Run workflow: ${task.name}`
+                          }
+                          onClick={() => onRuns(task.id)}
+                        >
+                          {active ? (
+                            <Square size={16} aria-hidden />
+                          ) : (
+                            <Play size={17} aria-hidden />
+                          )}
+                        </CompactAction>
+                      )}
+                      {onEdit && (
+                        <CompactAction
+                          label={`Edit workflow: ${task.name}`}
+                          onClick={() => onEdit(task.id, task.name)}
+                        >
+                          <Pencil size={16} aria-hidden />
+                        </CompactAction>
+                      )}
+                      {actions.length > 0 && (
+                        <Menu
+                          label={`More actions for ${task.name}`}
+                          hint="More workflow actions"
+                          iconOnly
+                          variant="ghost"
+                          actions={actions}
+                        >
+                          <span className="workflow-more" aria-hidden>
+                            •••
+                          </span>
+                        </Menu>
+                      )}
+                    </div>
+                  </footer>
+                </li>
+              );
+            })}
           </ul>
           {page.next_cursor && (
             <Button disabled={loadingMore} onClick={() => void nextPage()}>
@@ -266,6 +389,7 @@ export default function TaskLibrary() {
   const { controller, taskEditSessions } = useRuntime();
   const state = useClientState();
   const navigate = useNavigate();
+  const overlay = useOverlay();
   const [running, setRunning] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const execution = useMemo(() => taskRuns(controller), [controller]);
@@ -284,7 +408,7 @@ export default function TaskLibrary() {
   if (!taskEditSessions)
     return (
       <EmptyState title="Workflow editing is unavailable">
-        Reload the application to restore the workflow session.
+        Reload Row-Bot to reopen workflow editing.
       </EmptyState>
     );
   if (selected?.session.kind === 'settings')
@@ -365,49 +489,87 @@ export default function TaskLibrary() {
     <div className="stack">
       {sessions.capacity && (
         <p role="alert">
-          Eight workflow drafts are retained. Resume or discard a resolved draft
-          before opening another.
+          Eight workflows already have unsaved or unresolved changes. Continue
+          one of them before opening another.
         </p>
       )}
       {sessions.drafts.length > 0 && (
         <section
-          aria-label="Retained workflow drafts"
-          className="route-surface stack"
+          aria-label="Continue editing workflows"
+          className="workflow-recovery stack"
         >
-          <h2>Retained workflow drafts</h2>
+          <h2>Continue editing</h2>
           <p>
-            Closing an editor keeps its draft and original pending action in
-            this application session.
+            Unsaved workflow changes stay on this device while Row-Bot remains
+            open. A save whose outcome is not yet known must be checked before
+            it can be discarded.
           </p>
-          {sessions.drafts.map((draft) => (
-            <div className="actions" key={draft.key}>
-              <Button
-                onClick={() => taskEditSessions.open(draft.kind, draft.taskId)}
-              >
-                Resume{' '}
-                {draft.kind === 'task'
-                  ? 'workflow'
-                  : draft.kind === 'graph'
-                    ? 'workflow steps'
-                    : 'workflow settings'}
-                : {draft.taskId || 'New workflow'}
-              </Button>
-              <Button onClick={() => taskEditSessions.discard(draft.key)}>
-                Discard resolved draft: {draft.taskId || 'New workflow'} (
-                {draft.kind})
-              </Button>
-            </div>
-          ))}
+          <ul className="workflow-recovery-list">
+            {sessions.drafts.map((draft) => {
+              const area =
+                draft.kind === 'graph'
+                  ? 'steps'
+                  : draft.kind === 'settings'
+                    ? 'settings'
+                    : 'details';
+              const stateLabel = draft.uncertain
+                ? 'Save outcome needs review'
+                : draft.busy
+                  ? 'Save in progress'
+                  : draft.dirty
+                    ? 'Unsaved changes'
+                    : 'Pending save receipt';
+              return (
+                <li className="workflow-recovery-row" key={draft.key}>
+                  <div>
+                    <strong>{draft.label}</strong>
+                    <small>
+                      {area} · {stateLabel}
+                    </small>
+                  </div>
+                  <div className="action-cluster">
+                    <Button
+                      onClick={() =>
+                        taskEditSessions.open(
+                          draft.kind,
+                          draft.taskId,
+                          draft.label,
+                        )
+                      }
+                    >
+                      Continue editing
+                    </Button>
+                    <Button
+                      disabled={!draft.canDiscard}
+                      onClick={(event) =>
+                        overlay.open({
+                          kind: 'alert',
+                          title: `Discard changes to ${draft.label}?`,
+                          description:
+                            'These unsaved workflow changes will be removed from this device. The last saved workflow is not deleted.',
+                          confirmLabel: 'Discard changes',
+                          returnFocusTo: event.currentTarget,
+                          onConfirm: () => taskEditSessions.discard(draft.key),
+                        })
+                      }
+                    >
+                      Discard changes
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       )}
       <SavedTasks
         key={`${state.handshake?.client_session_id ?? ''}:${reload}`}
         load={controller.savedTasks}
         onCreate={() => taskEditSessions.open('task')}
-        onEdit={(id) => taskEditSessions.open('task', id)}
+        onEdit={(id, name) => taskEditSessions.open('task', id, name)}
         onRuns={setRunning}
-        onGraph={(id) => taskEditSessions.open('graph', id)}
-        onSettings={(id) => taskEditSessions.open('settings', id)}
+        onGraph={(id, name) => taskEditSessions.open('graph', id, name)}
+        onSettings={(id, name) => taskEditSessions.open('settings', id, name)}
       />
     </div>
   );

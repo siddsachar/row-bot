@@ -1,7 +1,26 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import { Button, Hint, Menu } from './primitives';
+import { Button, CompactAction, Hint, Menu } from './primitives';
+
+it('gives a compact icon action a stable accessible name and keyboard tooltip', async () => {
+  const user = userEvent.setup();
+  const activate = vi.fn();
+  render(
+    <CompactAction label="Refresh workflows" onClick={activate}>
+      <span aria-hidden>R</span>
+    </CompactAction>,
+  );
+  const button = screen.getByRole('button', { name: 'Refresh workflows' });
+  expect(button).toHaveClass('icon-button', 'compact-action');
+  await user.tab();
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    'Refresh workflows',
+  );
+  await user.keyboard('{Enter}');
+  expect(activate).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+});
 
 it('keeps a focused full-title hint through ancestor scrolling and dismisses on Escape or blur', async () => {
   const user = userEvent.setup();
@@ -45,18 +64,22 @@ it('dismisses a focused hint when its action is activated without swallowing the
 });
 
 it('forwards compact menu styling and disabled state to its actual trigger', () => {
-  render(
+  const view = render(
     <Menu
       label="Thinking"
       actions={[]}
       disabled
       variant="ghost"
       className="composer-control"
-    />,
+      iconOnly
+    >
+      <svg data-testid="menu-symbol" />
+    </Menu>,
   );
   const trigger = screen.getByRole('button', { name: 'Thinking' });
   expect(trigger).toBeDisabled();
   expect(trigger).toHaveClass('ghost', 'composer-control');
+  expect(view.container.querySelectorAll('svg')).toHaveLength(1);
 });
 
 it('reveals the full current value on keyboard focus and marks the selected menu item', async () => {

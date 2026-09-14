@@ -20,7 +20,12 @@ import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
 import { setupSessions, type SetupDraft } from './setup-state';
-import type { HomeSetupEntry } from './Home';
+
+export type ResourceSetupEntry = {
+  kind: 'artifact' | 'workspace';
+  mode: 'create' | 'existing';
+  resource?: ResourceChoice;
+};
 
 const artifactLabels = {
   deck: 'Deck',
@@ -38,7 +43,7 @@ export default function ResourceSetup({
 }: {
   conversationId: string | null;
   onPanel: (panel: PanelDescriptor) => void;
-  initialEntry?: HomeSetupEntry;
+  initialEntry?: ResourceSetupEntry;
 }) {
   const { controller } = useRuntime();
   const client = useClientState();

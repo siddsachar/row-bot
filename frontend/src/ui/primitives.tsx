@@ -62,6 +62,31 @@ export const Button = forwardRef<
     />
   );
 });
+export const CompactAction = forwardRef<
+  HTMLButtonElement,
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> & {
+    label: string;
+    variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  }
+>(function CompactAction(
+  { label, children, variant = 'ghost', className = '', ...props },
+  ref,
+) {
+  return (
+    <Hint label={label}>
+      <Button
+        ref={ref}
+        iconOnly
+        aria-label={label}
+        variant={variant}
+        className={`compact-action ${className}`}
+        {...props}
+      >
+        {children}
+      </Button>
+    </Hint>
+  );
+});
 export const Input = forwardRef<
   HTMLInputElement,
   InputHTMLAttributes<HTMLInputElement>
@@ -175,6 +200,7 @@ export function Menu({
   className,
   variant,
   hint,
+  iconOnly,
 }: {
   label: string;
   actions: MenuAction[];
@@ -185,6 +211,7 @@ export function Menu({
   className?: string;
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   hint?: string;
+  iconOnly?: boolean;
 }) {
   const opener = useRef<HTMLButtonElement>(null);
   const trigger = (
@@ -199,9 +226,10 @@ export function Menu({
         disabled={disabled}
         className={className}
         variant={variant}
+        iconOnly={iconOnly}
       >
         {children ?? label}
-        <ChevronDown size={16} aria-hidden />
+        {!iconOnly && <ChevronDown size={16} aria-hidden />}
       </Button>
     </Dropdown.Trigger>
   );
@@ -277,7 +305,7 @@ export function Tabs({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  items: { id: string; label: string; content: ReactNode }[];
+  items: { id: string; label: ReactNode; content: ReactNode }[];
 }) {
   return (
     <TabsPrimitive.Root value={value} onValueChange={onChange}>

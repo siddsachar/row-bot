@@ -2,7 +2,7 @@ import { createBuddySessions } from './features/buddy/buddy-sessions';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { createClientController } from './api';
 import { selectClientPlatform } from './platform';
 import { RuntimeContext } from './runtime';
@@ -51,7 +51,6 @@ import './ui/styles.css';
 const Gallery = lazy(() => import('./features/shell/Gallery'));
 const SettingRoute = lazy(() => import('./features/settings/SettingRoute'));
 const SettingsIndex = lazy(() => import('./features/settings/SettingsIndex'));
-const TaskLibrary = lazy(() => import('./features/tasks/TaskLibrary'));
 
 function createConversationActionSessions() {
   const sessions = new Map<
@@ -355,7 +354,10 @@ async function start() {
                     />
                     <Route path="primitives" element={<Gallery />} />
                     <Route path="settings" element={<SettingsIndex />} />
-                    <Route path="tasks" element={<TaskLibrary />} />
+                    <Route
+                      path="tasks"
+                      element={<Navigate to="/?tab=workflows" replace />}
+                    />
                     <Route
                       path="settings/:setting"
                       element={<SettingRoute />}

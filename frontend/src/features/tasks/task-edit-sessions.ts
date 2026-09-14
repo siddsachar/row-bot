@@ -187,6 +187,7 @@ export class TaskEditSession {
 }
 
 export type TaskEditEntry = {
+  label: string;
   session: TaskEditSession;
   edits: ReturnType<typeof taskEdits>;
   graph: ReturnType<typeof taskGraphs>;
@@ -241,6 +242,7 @@ export function createTaskEditSessions(
   const entries = new Map<
     string,
     {
+      label: string;
       session: TaskEditSession;
       edits: ReturnType<typeof taskEdits>;
       graph: ReturnType<typeof taskGraphs>;
@@ -259,7 +261,16 @@ export function createTaskEditSessions(
   let authentication = auth();
   type View = {
     selected: ReturnType<typeof open> | null;
-    drafts: { key: string; kind: TaskEditKind; taskId: string }[];
+    drafts: {
+      key: string;
+      kind: TaskEditKind;
+      taskId: string;
+      label: string;
+      dirty: boolean;
+      busy: boolean;
+      uncertain: boolean;
+      canDiscard: boolean;
+    }[];
     capacity: boolean;
   };
   let snapshot: View = { selected: null, drafts: [], capacity: false };
@@ -268,11 +279,19 @@ export function createTaskEditSessions(
       selected: selected ? (entries.get(selected) ?? null) : null,
       drafts: [...entries]
         .filter(([, entry]) => entry.session.retained())
-        .map(([key, entry]) => ({
-          key,
-          kind: entry.session.kind,
-          taskId: entry.session.taskId,
-        })),
+        .map(([key, entry]) => {
+          const meta = entry.session.getMeta();
+          return {
+            key,
+            kind: entry.session.kind,
+            taskId: entry.session.taskId,
+            label: entry.label,
+            dirty: meta.dirty,
+            busy: meta.busy,
+            uncertain: meta.uncertain,
+            canDiscard: entry.session.canDiscard(),
+          };
+        }),
       capacity: full,
     };
     listeners.forEach((listener) => listener());
@@ -291,7 +310,11 @@ export function createTaskEditSessions(
     notify();
   }
   const unsubscribe = controller.subscribe(sync);
-  function open(kind: TaskEditKind, taskId = ''): TaskEditEntry | null {
+  function open(
+    kind: TaskEditKind,
+    taskId = '',
+    taskName = '',
+  ): TaskEditEntry | null {
     sync();
     if (
       disposed ||
@@ -334,12 +357,15 @@ export function createTaskEditSessions(
         },
       );
       entry = {
+        label: taskName.trim() || (taskId ? 'Saved workflow' : 'New workflow'),
         session,
         edits: taskEdits(controller, editOwner),
         graph: taskGraphs(controller, graphOwner),
         settings: taskSettings(controller, settingsOwner),
       };
       entries.set(key, entry);
+    } else if (taskName.trim()) {
+      entry.label = taskName.trim();
     }
     selected = key;
     full = false;

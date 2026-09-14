@@ -1,5 +1,4 @@
 import {
-  lazy,
   memo,
   Suspense,
   useEffect,
@@ -56,16 +55,15 @@ import { PanelSubscriptions } from '../panels/subscriptions';
 import { useWorkspaceLayout } from './layout';
 import Commands from './Commands';
 import Navigation from './Navigation';
-import Home, { type HomeSetupEntry } from './Home';
-import SearchConversations from './SearchConversations';
+import Home from './Home';
 import useNewChat from './useNewChat';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import ResourceSetup from './ResourceSetup';
 import ResourcePanel from '../panels/ResourcePanel';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
+import { WorkspaceActionsContext } from './workspace-actions';
 
-const Preferences = lazy(() => import('../settings/Preferences'));
 const subscriptions = new PanelSubscriptions();
 export const panelMetrics = Object.assign(subscriptions.metrics, {
   renders: 0,
@@ -203,6 +201,7 @@ export default function Workspace() {
     : null;
   const homeOpen = location.pathname === '/';
   const routeOpen = !homeOpen && !routeConversation;
+  const settingsOpen = location.pathname.startsWith('/settings');
   const [layout, setLayout] = useWorkspaceLayout(
     state.handshake?.instance_id,
     conversationId ?? 'home',
@@ -340,30 +339,6 @@ export default function Workspace() {
     state.selectedConversationId,
     state.handshake?.instance_id,
   ]);
-  function preferences() {
-    overlay.open({
-      title: 'Preferences',
-      description: 'Make this workspace your own.',
-      content: (
-        <Suspense fallback={<Skeleton />}>
-          <Preferences onReset={() => update(resetLayout)} />
-        </Suspense>
-      ),
-    });
-  }
-  function setup(entry?: HomeSetupEntry) {
-    overlay.open({
-      title: 'New or open resource',
-      description: 'Create or open a design or coding workspace.',
-      content: (
-        <ResourceSetup
-          conversationId={null}
-          onPanel={showPanel}
-          initialEntry={entry}
-        />
-      ),
-    });
-  }
   const closeCompactSheet = useEffectEvent(() =>
     overlay.dismiss('workspace-panel'),
   );
@@ -402,7 +377,7 @@ export default function Workspace() {
               keywords: 'tasks reminders schedules',
               run: () => {
                 overlay.close();
-                navigate('/tasks');
+                navigate('/?tab=workflows');
               },
             },
             {
@@ -410,19 +385,17 @@ export default function Workspace() {
               keywords: 'configuration providers models',
               run: () => {
                 overlay.close();
-                navigate('/settings');
+                navigate('/settings/providers');
               },
             },
-            ...settingsLeaves
-              .filter((leaf) => leaf.id !== 'preferences')
-              .map((leaf) => ({
-                label: `Open ${leaf.label} settings`,
-                keywords: leaf.category,
-                run: () => {
-                  overlay.close();
-                  navigate(leaf.href);
-                },
-              })),
+            ...settingsLeaves.map((leaf) => ({
+              label: `Open ${leaf.label} settings`,
+              keywords: leaf.category,
+              run: () => {
+                overlay.close();
+                navigate(leaf.href);
+              },
+            })),
             ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
               ? samplePanels
               : []
@@ -433,20 +406,6 @@ export default function Workspace() {
                 showPanel(panel, opener);
               },
             })),
-            {
-              label: 'Preferences',
-              keywords: 'appearance theme settings',
-              run: () =>
-                overlay.open({
-                  title: 'Preferences',
-                  description: 'Make this workspace your own.',
-                  content: (
-                    <Suspense fallback={<Skeleton />}>
-                      <Preferences onReset={() => update(resetLayout)} />
-                    </Suspense>
-                  ),
-                }),
-            },
             {
               label: 'Reset layout',
               run: () =>
@@ -763,7 +722,6 @@ export default function Workspace() {
     <Navigation
       onNewChat={() => void creation.newChat()}
       creatingChat={creation.creatingChat}
-      onPreferences={desktop ? preferences : undefined}
       onOpenConversation={() =>
         update((previous) =>
           previous.widthClass !== 'desktop' && previous.activePanelId !== null
@@ -856,22 +814,12 @@ export default function Workspace() {
             <span className="wide-label">New resource</span>
           </Button>
           {!desktop && (
-            <Hint label="Preferences">
+            <Hint label="Settings">
               <Button
                 iconOnly
-                aria-label="Preferences"
+                aria-label="Settings"
                 variant="ghost"
-                onClick={() =>
-                  overlay.open({
-                    title: 'Preferences',
-                    description: 'Make this workspace your own.',
-                    content: (
-                      <Suspense fallback={<Skeleton />}>
-                        <Preferences onReset={() => update(resetLayout)} />
-                      </Suspense>
-                    ),
-                  })
-                }
+                onClick={() => navigate('/settings/providers')}
               >
                 <Settings size={20} aria-hidden />
               </Button>
@@ -1080,26 +1028,7 @@ export default function Workspace() {
                         </aside>
                       ))}
                 </section>
-                {homeOpen && (
-                  <Home
-                    onNewChat={() => void creation.newChat()}
-                    creatingChat={creation.creatingChat}
-                    onSetup={setup}
-                    onOpenTasks={() => navigate('/tasks')}
-                    onOpenSettings={() => navigate('/settings')}
-                    onOpenConversation={(id) => {
-                      void controller.selectConversation(id);
-                      navigate(`/conversations/${id}`);
-                    }}
-                    onSearch={() =>
-                      overlay.open({
-                        title: 'Search conversations',
-                        description: 'Search your conversation history.',
-                        content: <SearchConversations />,
-                      })
-                    }
-                  />
-                )}
+                {homeOpen && <Home />}
                 {compact && !routeOpen && (
                   <section className="compact-tab" aria-label="Compact panel">
                     <Button
@@ -1126,13 +1055,21 @@ export default function Workspace() {
                   </section>
                 )}
                 {routeOpen && (
-                  <div className="routed-view">
-                    <Link className="button ghost" to="/">
-                      <ChevronLeft size={18} aria-hidden />
-                      Home
-                    </Link>
+                  <div
+                    className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
+                  >
+                    {!settingsOpen && (
+                      <Link className="button ghost" to="/">
+                        <ChevronLeft size={18} aria-hidden />
+                        Home
+                      </Link>
+                    )}
                     <Suspense fallback={<Skeleton label="Opening view" />}>
-                      <Outlet />
+                      <WorkspaceActionsContext.Provider
+                        value={{ resetLayout: () => update(resetLayout) }}
+                      >
+                        <Outlet />
+                      </WorkspaceActionsContext.Provider>
                     </Suspense>
                   </div>
                 )}

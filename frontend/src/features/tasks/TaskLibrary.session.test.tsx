@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
+import { OverlayProvider } from '../../ui/overlays';
 import TaskLibrary from './TaskLibrary';
 import { createTaskEditSessions } from './task-edit-sessions';
 
@@ -37,7 +38,9 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
       value={{ controller, taskEditSessions, platform: {} as ClientPlatform }}
     >
       <MemoryRouter>
-        <TaskLibrary />
+        <OverlayProvider>
+          <TaskLibrary />
+        </OverlayProvider>
       </MemoryRouter>
     </RuntimeContext.Provider>
   );
@@ -53,10 +56,12 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
     'Retained workflow draft',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  await screen.findByRole('region', { name: 'Retained workflow drafts' });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Resume workflow: New workflow' }),
-  );
+  await screen.findByRole('region', { name: 'Continue editing workflows' });
+  expect(
+    screen.getByText('New workflow', { selector: 'strong' }),
+  ).toBeVisible();
+  expect(screen.queryByText(/session|\["task"/i)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue editing' }));
   expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
     'Retained workflow draft',
   );
