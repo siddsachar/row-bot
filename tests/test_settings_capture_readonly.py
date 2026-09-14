@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 
 
@@ -63,6 +66,50 @@ def test_provider_probe_is_not_queued_when_capture_network_is_disabled(monkeypat
     monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
     monkeypatch.setenv("ROW_BOT_DOCS_DISABLE_NETWORK", "1")
     assert docs_capture_disable_network() is True
+
+
+def test_task_database_is_query_only_for_real_capture() -> None:
+    with TemporaryDirectory(prefix="row-bot-settings-capture-") as temp:
+        data = Path(temp) / "data"
+        environment = dict(os.environ)
+        environment["ROW_BOT_DATA_DIR"] = str(data)
+        environment.pop("ROW_BOT_DOCS_CAPTURE", None)
+        environment.pop("ROW_BOT_DOCS_REAL_DATA", None)
+        subprocess.run(
+            [sys.executable, "-c", "import row_bot.tasks"],
+            check=True,
+            cwd=Path(__file__).resolve().parents[1],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        database = data / "tasks.db"
+        before = (database.read_bytes(), database.stat().st_mtime_ns)
+
+        environment["ROW_BOT_DOCS_CAPTURE"] = "1"
+        environment["ROW_BOT_DOCS_REAL_DATA"] = "1"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sqlite3; import row_bot.tasks as tasks; "
+                    "connection = tasks._get_conn(); "
+                    "assert connection.execute('PRAGMA query_only').fetchone()[0] == 1; "
+                    "\ntry:\n connection.execute(\"DELETE FROM tasks\")\n"
+                    "except sqlite3.OperationalError:\n pass\n"
+                    "else:\n raise AssertionError('task database was writable')\n"
+                    "connection.close()"
+                ),
+            ],
+            check=False,
+            cwd=Path(__file__).resolve().parents[1],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert (database.read_bytes(), database.stat().st_mtime_ns) == before
 
 
 def test_plugin_capture_reads_manifests_without_importing_plugin_code(monkeypatch) -> None:

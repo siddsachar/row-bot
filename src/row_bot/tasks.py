@@ -328,6 +328,24 @@ _REQUIRED_COLUMNS = {
 
 
 def _raw_conn() -> sqlite3.Connection:
+    from row_bot.docs_capture import is_docs_real_data_capture
+
+    if is_docs_real_data_capture():
+        db_path = pathlib.Path(_DB_PATH).expanduser().absolute()
+        if not db_path.is_file():
+            raise FileNotFoundError(db_path)
+        conn = sqlite3.connect(
+            f"file:{db_path.as_posix()}?mode=ro",
+            uri=True,
+            check_same_thread=False,
+        )
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            return conn
+        except Exception:
+            conn.close()
+            raise
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     try:
         conn.row_factory = sqlite3.Row
@@ -461,6 +479,25 @@ def ensure_task_schema(*, repair: bool = True, force: bool = False) -> dict[str,
     with _SCHEMA_LOCK:
         if not force and _SCHEMA_READY_PATH == db_path:
             return {"status": "ok", "db_path": db_path, "cached": True}
+
+        from row_bot.docs_capture import is_docs_real_data_capture
+
+        if is_docs_real_data_capture():
+            conn = _raw_conn()
+            try:
+                snapshot = _validate_schema(conn)
+            finally:
+                conn.close()
+            _SCHEMA_READY_PATH = db_path
+            logger.info("Task DB schema read-only at %s", db_path)
+            return {
+                "status": "ok",
+                "db_path": db_path,
+                "before": snapshot,
+                "after": snapshot,
+                "last_repair": dict(_LAST_SCHEMA_REPAIR),
+                "read_only": True,
+            }
 
         db_file = pathlib.Path(db_path)
         existed_before = db_file.exists()
