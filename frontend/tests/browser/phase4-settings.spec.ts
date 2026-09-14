@@ -20,23 +20,15 @@ async function seed(page: Page, state: 'populated' | 'empty' | 'changed') {
   expect(response.ok()).toBe(true);
 }
 
-async function expectPopulatedHomeLibraries(page: Page) {
+async function expectFocusedHome(page: Page) {
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
-  for (const [regionName, browseName] of [
-    ['Designer library', 'Browse all designs'],
-    ['Developer library', 'Browse all workspaces'],
-  ] as const) {
-    const library = page.getByRole('region', {
-      name: regionName,
-      exact: true,
-    });
-    await expect(library.getByRole('listitem').first()).toBeVisible();
-    await expect(
-      library.getByRole('button', { name: browseName, exact: true }),
-    ).toBeVisible();
-  }
+  await expect(
+    page.getByRole('tab', { name: 'Workflows', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
 }
 
 async function findDocumentRow(
@@ -97,19 +89,33 @@ async function openSettingsRouteFromHome(
   page: Page,
   route: { linkName: string; path: string; headingName: string },
 ) {
-  const settings = page.getByRole('button', {
+  const navigation = page.getByRole('navigation', {
+    name: 'Workspace navigation',
+    exact: true,
+  });
+  if (!(await navigation.isVisible()))
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  const settings = navigation.getByRole('link', {
     name: 'Settings',
     exact: true,
   });
   await activateRoute(page, settings, {
-    path: '/app-v2/settings',
-    headingName: 'Settings',
+    path: '/app-v2/settings/providers',
+    headingName: 'Providers',
   });
 
-  const routeLink = page.getByRole('link', {
-    name: route.linkName,
-    exact: true,
-  });
+  if (route.path === '/app-v2/settings/providers') return;
+
+  const routeLink = page
+    .getByRole('navigation', {
+      name: 'Settings sections',
+    })
+    .getByRole('link', {
+      name: route.linkName,
+      exact: true,
+    });
   await activateRoute(page, routeLink, route);
 }
 
@@ -125,6 +131,145 @@ async function openDocumentsFromHome(page: Page) {
 }
 
 test.use({ serviceWorkers: 'allow' });
+
+test('Owner-review Settings shell keeps all 18 routed owners in one responsive hierarchy', async ({
+  context,
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  await blockFixtureServiceWorkers(context);
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'row-bot.appearance.v1',
+      JSON.stringify({
+        version: 1,
+        appearance: 'dark',
+        accent: 'blue',
+        density: 'compact',
+        reduce_transparency: false,
+      }),
+    );
+  });
+  const leaves = [
+    'providers',
+    'models',
+    'voice',
+    'knowledge',
+    'documents',
+    'wiki',
+    'tools',
+    'skills',
+    'mcp',
+    'plugins',
+    'accounts',
+    'channels',
+    'buddy',
+    'goals',
+    'tracker',
+    'utilities',
+    'preferences',
+    'system',
+  ] as const;
+  const label = (id: string) =>
+    id === 'mcp' ? 'MCP' : id[0].toUpperCase() + id.slice(1);
+
+  await page.goto('/app-v2/settings');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  const settingsNavigation = page.getByRole('navigation', {
+    name: 'Settings sections',
+  });
+  const settingsHeading = page
+    .getByRole('region', { name: 'Settings', exact: true })
+    .locator('h1');
+  await expect(settingsNavigation.getByRole('link')).toHaveCount(18);
+  for (const id of leaves) {
+    await page.goto(`/app-v2/settings/${id}`);
+    await expect(settingsHeading).toHaveText(label(id));
+    await expect(settingsHeading).toBeVisible();
+    await expect(
+      settingsNavigation.getByRole('link', {
+        name: label(id),
+        exact: true,
+      }),
+    ).toHaveAttribute('aria-current', 'page');
+    await assertNoOverflow(page);
+    await screenshot(page, info, `settings-shell-${id}`);
+    await accessibility(page, info, `settings-shell-${id}`);
+  }
+
+  await page.goto('/app-v2/settings/google');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts$/);
+  await page.goto('/app-v2/settings/models');
+  await page.goto('/app-v2/settings/accounts');
+  await page.goBack();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts$/);
+  await page.reload();
+  await expect(settingsHeading).toHaveText('Accounts');
+  await expect(settingsHeading).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/app-v2/settings/providers');
+  await expect(settingsNavigation).toBeHidden();
+  const picker = page.getByRole('combobox', { name: 'Settings section' });
+  await expect(picker).toBeVisible();
+  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await picker.selectOption('wiki');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/wiki$/);
+  await expect(settingsHeading).toHaveText('Wiki');
+  await expect(settingsHeading).toBeFocused();
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'settings-shell-narrow-wiki');
+  await accessibility(page, info, 'settings-shell-narrow-wiki');
+
+  await page.goto('/app-v2/tasks');
+  await expect(page).toHaveURL(/\/app-v2\/?\?tab=workflows$/);
+  await expect(
+    page.getByRole('tab', { name: 'Workflows', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+});
+
+test('Owner-review narrow Settings keeps representative owners behind one accessible picker', async ({
+  context,
+  page,
+}, info) => {
+  test.setTimeout(90_000);
+  await blockFixtureServiceWorkers(context);
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'row-bot.appearance.v1',
+      JSON.stringify({
+        version: 1,
+        appearance: 'light',
+        accent: 'blue',
+        density: 'compact',
+        reduce_transparency: false,
+      }),
+    );
+  });
+  await page.goto('/app-v2/settings/providers');
+  const settings = page.getByRole('region', {
+    name: 'Settings',
+    exact: true,
+  });
+  const heading = settings.locator('h1');
+  const picker = page.getByRole('combobox', { name: 'Settings section' });
+  await expect(
+    page.getByRole('navigation', { name: 'Settings sections' }),
+  ).toBeHidden();
+  await expect(picker).toBeVisible();
+  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const id of ['providers', 'documents', 'mcp', 'preferences'] as const) {
+    if ((await picker.inputValue()) !== id) await picker.selectOption(id);
+    const label = id === 'mcp' ? 'MCP' : id[0].toUpperCase() + id.slice(1);
+    await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
+    await expect(heading).toHaveText(label);
+    await assertNoOverflow(page);
+    await screenshot(page, info, `settings-shell-phone-${id}`);
+    await accessibility(page, info, `settings-shell-phone-${id}`);
+  }
+});
 
 test('Channels Plugins and Skills keep reviewed local settings through the real owners', async ({
   page,
@@ -1040,7 +1185,7 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     .getByLabel('Describe your Buddy', { exact: true })
     .fill('Retained synthetic description');
   await openHomeThroughNavigation(page);
-  await expectPopulatedHomeLibraries(page);
+  await expectFocusedHome(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'Buddy',
     path: '/app-v2/settings/buddy',
@@ -1338,7 +1483,7 @@ test('Subscription checks retain the original review and expose actual cancellat
     { path: '/app-v2/settings/models', headingName: 'Models' },
   );
   await openHomeThroughNavigation(page);
-  await expectPopulatedHomeLibraries(page);
+  await expectFocusedHome(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'Providers',
     path: '/app-v2/settings/providers',
@@ -2051,7 +2196,7 @@ test('Subscription options retain exact reviews and save reference override rese
     .getByRole('button', { name: 'Review client ID override', exact: true })
     .click();
   await openHomeThroughNavigation(page);
-  await expectPopulatedHomeLibraries(page);
+  await expectFocusedHome(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'Providers',
     path: '/app-v2/settings/providers',
@@ -2193,7 +2338,7 @@ test('Document removal retains its review and original partial cleanup until exp
     .getByRole('button', { name: 'Review document removal', exact: true })
     .click();
   await openHomeThroughNavigation(page);
-  await expectPopulatedHomeLibraries(page);
+  await expectFocusedHome(page);
   await openDocumentsFromHome(page);
   await removal
     .getByRole('button', { name: 'Confirm document removal', exact: true })
