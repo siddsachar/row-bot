@@ -13,8 +13,11 @@ import Phase4RetainedSettings, {
 import {
   DocumentEmbeddingSnapshot,
   PreferencesSnapshotPanel,
-  ToolConfigurationSnapshot,
   SettingsDraftOwner,
+  SystemSnapshotPanel,
+  TrackerSnapshotPanel,
+  ToolConfigurationSnapshot,
+  VoiceSnapshotPanel,
   type SettingsMutationIO,
 } from './SettingsSnapshotPanels';
 
@@ -33,6 +36,21 @@ const account = {
 const snapshot = {
   schema_version: 1,
   revision: 'settings-a',
+  buddy: {
+    availability: 'available',
+    enabled: true,
+    visible: true,
+    placement: 'docked',
+    collapsed: false,
+    personality: 'default',
+    personality_description: 'Helpful local companion',
+    bubble_verbosity: 'normal',
+    hatch_prompt: '',
+    pack_id: 'classic',
+    personality_options: [{ value: 'default', label: 'Default' }],
+    bubble_options: [{ value: 'normal', label: 'Normal' }],
+    packs: [],
+  },
   voice: {
     availability: 'available',
     runtime: {
@@ -132,13 +150,46 @@ const snapshot = {
         unit: 'glasses',
         icon: '💧',
         entry_count: 4,
-        last_event_at: 'today',
+        last_event_at: '2026-09-14T18:42:00+01:00',
       },
     ],
     total_entries: 4,
   },
+  knowledge: {
+    availability: 'available',
+    memory_available: true,
+    memory_enabled: true,
+    entities: 2,
+    relations: 1,
+    entity_types: [{ kind: 'person', count: 2 }],
+    connected_components: 1,
+    largest_component: 2,
+    isolated_entities: 0,
+  },
+  wiki: {
+    availability: 'available',
+    enabled: true,
+    vault_path: 'D:/Wiki',
+    path_state: 'available',
+    articles: 2,
+    conversations: 1,
+  },
   documents: {
     availability: 'available',
+    indexed_documents: 12,
+    active_embedding: 'Qwen3 0.6B (local)',
+    document_vectors: {
+      state: 'current',
+      detail: 'Saved document vectors match the selected embedding setting.',
+    },
+    local_runtime: {
+      state: 'cached',
+      detail: 'Available in the local cache.',
+    },
+    memory_index: {
+      state: 'pending',
+      detail: 'Saved knowledge has pending semantic projection work.',
+    },
     embedding: {
       provider: 'local',
       local_model: 'qwen3-0.6b',
@@ -183,6 +234,7 @@ const snapshot = {
     github: {
       ...account,
       configured: true,
+      authentication_state: 'saved_unchecked',
       credential: {
         configured: true,
         source: 'keyring',
@@ -220,6 +272,13 @@ const snapshot = {
         description: 'Evaluate local arithmetic.',
         available: true,
         enabled: true,
+      },
+      {
+        utility_id: 'timer',
+        label: 'Timer',
+        description: 'Set lightweight local timers.',
+        available: true,
+        enabled: null,
       },
     ],
   },
@@ -324,11 +383,112 @@ it('renders real voice controls without probing a device or provider', () => {
   renderSetting('voice');
   expect(screen.getByLabelText('Talk provider')).toHaveValue('local');
   expect(screen.getByLabelText('Whisper model size')).toHaveValue('base');
+  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
+  expect(
+    screen.queryByLabelText(
+      'Fallback to local Talk if Realtime is unavailable',
+    ),
+  ).toBeNull();
+  expect(screen.queryByLabelText('Start automatically')).toBeNull();
+  expect(screen.queryByLabelText('Provider voice')).toBeNull();
+  expect(screen.getByLabelText('Enable text-to-speech')).toBeChecked();
+  expect(screen.getByText('Whisper base')).toBeVisible();
+  expect(screen.getByText('SenseVoice')).toBeVisible();
+  expect(screen.getByText('Kokoro')).toBeVisible();
+  expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);
+  expect(
+    screen.queryByRole('button', {
+      name: /OpenAI Realtime API key/,
+    }),
+  ).toBeNull();
+  fireEvent.change(screen.getByLabelText('Talk provider'), {
+    target: { value: 'openai_realtime' },
+  });
+  expect(screen.getByLabelText('Realtime voice')).toBeVisible();
+  expect(
+    screen.getByLabelText('Fallback to local Talk if Realtime is unavailable'),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
   expect(
     screen.getByRole('link', { name: 'Open conversation voice' }),
   ).toHaveAttribute('href', '/conversations/conversation-a');
   expect(document.body).not.toHaveTextContent('must-not-render');
   expect(mutation.review).not.toHaveBeenCalled();
+});
+
+it('shows Realtime-only voice controls only for Realtime and hides uninstalled local TTS controls', () => {
+  mutation.page = 'voice';
+  render(
+    <MemoryRouter>
+      <VoiceSnapshotPanel
+        snapshot={{
+          ...snapshot.voice,
+          runtime: {
+            ...snapshot.voice.runtime,
+            talk_provider: 'openai_realtime',
+          },
+          tts: { ...snapshot.voice.tts, installed: false },
+        }}
+        conversationId="conversation-a"
+        mutation={mutation}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByLabelText('Realtime captions')).toBeChecked();
+  expect(screen.getByLabelText('Realtime voice')).toHaveValue('alloy');
+  expect(
+    screen.getByLabelText('Fallback to local Talk if Realtime is unavailable'),
+  ).toBeChecked();
+  expect(screen.getByText('Kokoro not installed')).toBeVisible();
+  expect(screen.queryByLabelText('Enable text-to-speech')).toBeNull();
+  expect(screen.queryByLabelText('Speech speed')).toBeNull();
+});
+
+it('does not expose writable System fields when their tool owner is unavailable', () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        shell: { ...snapshot.system.shell, available: false, enabled: null },
+        browser: {
+          ...snapshot.system.browser,
+          available: false,
+          enabled: null,
+        },
+        computer_use: {
+          ...snapshot.system.computer_use,
+          available: false,
+          enabled: null,
+        },
+        file_operations: {
+          ...snapshot.system.file_operations,
+          available: false,
+          enabled: null,
+        },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(screen.getByText('Shell tool not found')).toBeVisible();
+  expect(screen.getByText('Browser tool not found')).toBeVisible();
+  expect(screen.getByText('Computer Use unavailable')).toBeVisible();
+  expect(screen.getByText('Filesystem tool unavailable')).toBeVisible();
+  expect(screen.queryByLabelText(/Additional blocked patterns/)).toBeNull();
+  expect(screen.queryByLabelText('Allowed operations')).toBeNull();
+});
+
+it('groups available filesystem operations and keeps runtime detail supplemental', () => {
+  renderSetting('system');
+  expect(screen.getByText('Read-only')).toBeVisible();
+  expect(screen.getByText('Write')).toBeVisible();
+  expect(screen.getByText('Destructive')).toBeVisible();
+  expect(screen.getByText('Read files')).toBeVisible();
+  expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);
+  expect(
+    screen.getByText('Computer Use setup details').closest('details'),
+  ).not.toHaveAttribute('open');
 });
 
 it('reviews and saves one retained setting without replaying it', async () => {
@@ -381,6 +541,94 @@ it('checks the original receipt instead of replaying an uncertain save', async (
   );
 });
 
+it('reviews and cancels tracker deletion without executing it', async () => {
+  renderSetting('tracker');
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
+  );
+  expect(await screen.findByText('saved locally')).toBeVisible();
+  expect(mutation.review).toHaveBeenCalledWith(
+    {
+      settings_revision: snapshot.revision,
+      page: 'tracker',
+      field: 'delete_all',
+      value: true,
+    },
+    expect.any(AbortSignal),
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  expect(screen.getByText(/Deletion cancelled/)).toBeVisible();
+  expect(mutation.execute).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
+  ).toBeEnabled();
+});
+
+it('retires a tracker deletion review when the Settings revision changes', async () => {
+  mutation.page = 'tracker';
+  const view = render(
+    <TrackerSnapshotPanel snapshot={snapshot.tracker} mutation={mutation} />,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
+  );
+  expect(await screen.findByText('saved locally')).toBeVisible();
+
+  mutation = { ...mutation, revision: 'settings-newer' };
+  view.rerender(
+    <TrackerSnapshotPanel snapshot={snapshot.tracker} mutation={mutation} />,
+  );
+
+  expect(
+    await screen.findByText(/Tracker data changed. Review the deletion again/),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('button', {
+      name: 'Confirm Delete All Tracker Data',
+    }),
+  ).toBeNull();
+  expect(mutation.execute).not.toHaveBeenCalled();
+});
+
+it('checks the original tracker deletion receipt without replaying it', async () => {
+  mutation.execute = vi.fn().mockRejectedValue({ code: 'operation_uncertain' });
+  mutation.receipt = vi.fn(
+    async (commandId): Promise<SettingsMutationReceipt> => ({
+      command_id: commandId,
+      status: 'completed',
+      settings_revision: 'settings-b',
+      snapshot: {
+        ...snapshot,
+        revision: 'settings-b',
+        tracker: { ...snapshot.tracker, items: [], total_entries: 0 },
+      },
+    }),
+  );
+  renderSetting('tracker');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete All Tracker Data' }),
+  );
+  await screen.findByText('saved locally');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Confirm Delete All Tracker Data' }),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Check original receipt' }),
+  );
+
+  await waitFor(() => expect(mutation.receipt).toHaveBeenCalledTimes(1));
+  expect(mutation.execute).toHaveBeenCalledTimes(1);
+  expect(mutation.onSnapshot).toHaveBeenCalledWith(
+    expect.objectContaining({
+      revision: 'settings-b',
+      tracker: expect.objectContaining({ items: [], total_entries: 0 }),
+    }),
+  );
+});
+
 it('retains a dirty page draft until it is explicitly reverted', () => {
   const first = renderSetting('voice');
   fireEvent.change(screen.getByLabelText('Talk model'), {
@@ -399,6 +647,9 @@ it('retains a dirty page draft until it is explicitly reverted', () => {
 it('does not carry a write draft into a new authenticated session owner', () => {
   const first = renderSetting('accounts');
   fireEvent.click(screen.getByText('GitHub'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Replace or remove GitHub token' }),
+  );
   fireEvent.change(screen.getByLabelText('GitHub token'), {
     target: { value: 'sensitive-local-draft' },
   });
@@ -407,6 +658,9 @@ it('does not carry a write draft into a new authenticated session owner', () => 
   mutation = { ...mutation, drafts: new SettingsDraftOwner() };
   renderSetting('accounts');
   fireEvent.click(screen.getByText('GitHub'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Replace or remove GitHub token' }),
+  );
   expect(screen.getByLabelText('GitHub token')).toHaveValue('');
   expect(mutation.review).not.toHaveBeenCalled();
   expect(mutation.execute).not.toHaveBeenCalled();
@@ -415,26 +669,41 @@ it('does not carry a write draft into a new authenticated session owner', () => 
 it('renders System, Tracker, Accounts, and Utilities controls from one snapshot', () => {
   const system = renderSetting('system');
   expect(screen.getByLabelText('Workspace folder')).toHaveValue('D:/Workspace');
-  expect(screen.getByLabelText('Log level')).toHaveValue('INFO');
+  expect(screen.getByLabelText('File log level')).toHaveValue('INFO');
+  expect(screen.queryByRole('heading', { name: 'Mobile Access' })).toBeNull();
+  expect(screen.getByText('Connected devices')).toBeVisible();
   system.unmount();
 
   const tracker = renderSetting('tracker');
-  expect(screen.getByLabelText('Enable Tracker')).toBeChecked();
+  expect(screen.getByLabelText('Enable Habit Tracker')).toBeChecked();
   expect(screen.getByText(/Water/)).toBeVisible();
+  expect(screen.getByText(/Last 2026-09-14/)).toBeVisible();
   tracker.unmount();
 
   const accounts = renderSetting('accounts');
+  expect(accounts.container.querySelectorAll('details')).toHaveLength(3);
   fireEvent.click(screen.getByText('GitHub'));
+  expect(screen.queryByLabelText('GitHub token')).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Replace or remove GitHub token' }),
+  );
   expect(screen.getByLabelText('GitHub token')).toHaveAttribute(
     'type',
     'password',
   );
+  fireEvent.click(screen.getByText('Google (Gmail & Calendar)'));
+  expect(screen.getByLabelText('Gmail')).toBeChecked();
+  expect(screen.getByLabelText('Calendar')).not.toBeChecked();
   fireEvent.click(screen.getByText('X (Twitter)'));
-  expect(screen.getByText('x search')).toBeVisible();
+  expect(screen.getByText('Search posts')).toBeVisible();
+  expect(screen.getByText('Saved · not checked')).toBeVisible();
   accounts.unmount();
 
   renderSetting('utilities');
   expect(screen.getByLabelText('Enable Calculator')).toBeChecked();
+  expect(screen.getByText('Evaluate calculations locally.')).toBeVisible();
+  expect(screen.getByText('2 available')).toBeVisible();
+  expect(screen.queryByText('Timer')).not.toBeInTheDocument();
 });
 
 it('renders editable document, tool, and preference owners', () => {
@@ -446,15 +715,44 @@ it('renders editable document, tool, and preference owners', () => {
     />,
   );
   expect(screen.getByLabelText('Provider')).toHaveValue('local');
+  expect(screen.getByLabelText('Local model')).toBeVisible();
+  expect(screen.queryByLabelText('Cloud model')).toBeNull();
   expect(screen.getByLabelText('Dimension override')).toHaveValue(null);
+  expect(screen.getByText('12 indexed')).toBeVisible();
+  expect(screen.getByText('Qwen3 0.6B (local)')).toBeVisible();
+  expect(screen.getByText('Vectors current')).toBeVisible();
+  expect(screen.getByText(/Local model: cached/)).toBeVisible();
+  expect(screen.getByText(/Memory index: pending/)).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: /Rebuild document vectors/ }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: /Repair local model/ }),
+  ).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Provider'), {
+    target: { value: 'cloud' },
+  });
+  expect(screen.getByLabelText('Cloud model')).toBeVisible();
+  expect(screen.queryByLabelText('Local model')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+  expect(screen.getByLabelText('Local model')).toBeVisible();
+  expect(screen.queryByLabelText('Cloud model')).toBeNull();
   documents.unmount();
 
   mutation.page = 'tools';
   const tools = render(
     <ToolConfigurationSnapshot snapshot={snapshot.tools} mutation={mutation} />,
   );
-  expect(screen.getByLabelText('External tool loading')).toHaveValue('auto');
+  expect(
+    screen.getByRole('radio', {
+      name: 'Auto-select external tools (recommended)',
+    }),
+  ).toBeChecked();
   expect(screen.getByLabelText('Enable Web Search')).toBeChecked();
+  expect(screen.queryByLabelText('Search API key')).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Replace or remove Search API key' }),
+  );
   expect(screen.getByLabelText('Search API key')).toHaveAttribute(
     'type',
     'password',
@@ -469,7 +767,16 @@ it('renders editable document, tool, and preference owners', () => {
     />,
   );
   expect(screen.getByLabelText('Name')).toHaveValue('Row-Bot');
+  expect(screen.getByRole('textbox', { name: 'Personality' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Preview' })).toBeVisible();
   expect(screen.getByLabelText('Window mode')).toHaveValue('ask');
   expect(screen.getByLabelText('Start hour')).toHaveValue(1);
+  expect(screen.getByText('01:00–05:00 idle window')).toBeVisible();
+  expect(screen.getByText('v1.0.0')).toBeVisible();
+  expect(screen.getByRole('option', { name: 'Ask on Launch' })).toBeVisible();
+  expect(screen.getByRole('option', { name: 'System Browser' })).toBeVisible();
+  expect(
+    screen.getByText('Cached update details').closest('details'),
+  ).not.toHaveAttribute('open');
   expect(screen.getByText(/Update status is cached/)).toBeVisible();
 });

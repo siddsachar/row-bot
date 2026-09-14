@@ -1,8 +1,15 @@
+import { KeyRound, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ProviderStatusSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  CompactAction,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+} from '../../ui/primitives';
 import CatalogStatus from './CatalogStatus';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import CustomProviderCredentials from './CustomProviderCredentials';
@@ -10,10 +17,37 @@ import type { createProviderSettingsSessions } from './provider-settings-session
 
 const groups = {
   local: 'Local',
-  subscription: 'Subscription accounts',
-  api: 'API providers',
-  custom: 'Custom endpoints',
+  subscription: 'Subscription Accounts',
+  api: 'API Providers',
+  custom: 'Custom Endpoints',
 } as const;
+
+function providerState(provider: ProviderStatusSnapshot['providers'][number]) {
+  if (provider.enabled === false)
+    return {
+      label: 'Disabled',
+      detail: 'Disabled in saved configuration',
+      tone: 'disabled',
+    } as const;
+  if (provider.enabled === true)
+    return {
+      label: 'Saved enabled',
+      detail: 'Enabled in saved configuration; readiness not checked',
+      tone: 'saved',
+    } as const;
+  return {
+    label: 'Not checked',
+    detail:
+      provider.catalog_state === 'error'
+        ? 'Last saved catalog read reported an error'
+        : provider.catalog_state === 'unavailable'
+          ? 'No saved catalog; connection readiness not checked'
+          : provider.catalog_state === 'verified_empty'
+            ? 'Saved catalog is empty; connection readiness not checked'
+            : 'Saved catalog; connection readiness not checked',
+    tone: 'unknown',
+  } as const;
+}
 
 export default function ProviderStatus({
   load,
@@ -68,6 +102,7 @@ export default function ProviderStatus({
           disabled={loading}
           onClick={() => setReload((value) => value + 1)}
         >
+          <RefreshCw size={15} aria-hidden />
           Reload saved status
         </Button>
       </div>
@@ -96,6 +131,42 @@ export default function ProviderStatus({
           {snapshot.refresh_running && (
             <p role="status">A catalog refresh is already running.</p>
           )}
+          <div
+            className="settings-summary-strip"
+            role="group"
+            aria-label="Provider summary"
+          >
+            {snapshot.providers.some((item) => item.enabled === true) && (
+              <span className="status-chip success">
+                {
+                  snapshot.providers.filter((item) => item.enabled === true)
+                    .length
+                }{' '}
+                saved enabled
+              </span>
+            )}
+            {(['local', 'api', 'subscription', 'custom'] as const).map(
+              (group) => (
+                <span className="status-chip" key={group}>
+                  {
+                    snapshot.providers.filter((item) => item.group === group)
+                      .length
+                  }{' '}
+                  {
+                    {
+                      local: 'local',
+                      api: 'API',
+                      subscription: 'subscription',
+                      custom: 'custom',
+                    }[group]
+                  }
+                </span>
+              ),
+            )}
+            <span className="status-chip">
+              {snapshot.total_models} saved models
+            </span>
+          </div>
           {!snapshot.providers.length && (
             <EmptyState title="No saved providers">
               Set up a provider to populate this catalog.
@@ -128,13 +199,16 @@ export default function ProviderStatus({
                             .toUpperCase()}
                         </span>
                         <span className="settings-provider-copy">
-                          <strong>{provider.display_name}</strong>
+                          <span className="settings-provider-title">
+                            <span
+                              className={`settings-provider-readiness-dot is-${providerState(provider).tone}`}
+                              aria-hidden
+                            />
+                            <strong>{provider.display_name}</strong>
+                            <span>{providerState(provider).label}</span>
+                          </span>
                           <small>
-                            {provider.enabled === false
-                              ? 'Disabled'
-                              : provider.enabled === true
-                                ? 'Enabled'
-                                : 'Connection not checked'}
+                            {providerState(provider).detail}
                             {' · '}
                             {provider.model_count === null
                               ? 'Model count unknown'
@@ -142,32 +216,28 @@ export default function ProviderStatus({
                           </small>
                         </span>
                         <span className="status-chip">
-                          {provider.group === 'api'
-                            ? 'API key'
-                            : provider.group}
+                          {
+                            {
+                              local: 'Local',
+                              subscription: 'Subscription',
+                              api: 'API key',
+                              custom: 'Custom',
+                            }[provider.group]
+                          }
                         </span>
                       </Link>
                       {owner && ['api', 'custom'].includes(provider.group) && (
-                        <Button
+                        <CompactAction
+                          label={`Edit ${provider.display_name} credentials`}
                           className="settings-row-action"
                           onClick={() => {
                             setNotice('');
                             setSelected(provider.provider_id);
                           }}
                         >
-                          Edit {provider.display_name} credentials
-                        </Button>
+                          <KeyRound size={17} aria-hidden />
+                        </CompactAction>
                       )}
-                      <p className="muted settings-provider-state">
-                        {provider.enabled === false ? 'Disabled. ' : ''}
-                        {provider.catalog_state === 'error'
-                          ? 'Last catalog read reported an error.'
-                          : provider.catalog_state === 'unavailable'
-                            ? 'No saved catalog details.'
-                            : provider.catalog_state === 'verified_empty'
-                              ? 'Last catalog contained no models.'
-                              : 'Saved catalog available.'}
-                      </p>
                     </li>
                   ))}
                 </ul>

@@ -29,17 +29,27 @@ export default function RuntimeInstallations() {
   const sessions = runtimeInstallationsOwner?.get();
   if (!sessions) return null;
   return (
-    <section className="stack" aria-label="Managed runtimes">
-      <h2>Managed runtimes</h2>
-      {(['node', 'uv'] as const).map((runtime) => (
-        <RuntimeInstallation
-          key={runtime}
-          runtime={runtime}
-          session={sessions[runtime]}
-          controller={controller}
-        />
-      ))}
-    </section>
+    <details
+      className="settings-supplemental-disclosure"
+      open={sessions.hasRetained() || undefined}
+    >
+      <summary>
+        <span>
+          <strong>Managed runtimes</strong>
+          <small>Advanced Node.js and uv installation controls</small>
+        </span>
+      </summary>
+      <section className="stack" aria-label="Managed runtimes">
+        {(['node', 'uv'] as const).map((runtime) => (
+          <RuntimeInstallation
+            key={runtime}
+            runtime={runtime}
+            session={sessions[runtime]}
+            controller={controller}
+          />
+        ))}
+      </section>
+    </details>
   );
 }
 

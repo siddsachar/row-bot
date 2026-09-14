@@ -1,5 +1,6 @@
+import { FileText, Trash2 } from 'lucide-react';
 import type { DocumentSummaryPage } from '../../api/types';
-import { Button, Field, Select } from '../../ui/primitives';
+import { CompactAction, Field, Select } from '../../ui/primitives';
 import { SavedCatalog, type SavedLoader } from './KnowledgeCatalog';
 
 const statuses: Record<string, string> = {
@@ -67,37 +68,46 @@ export default function DocumentsCatalog({
       renderItems={(page) => (
         <ul className="settings-results">
           {page.items.map((item) => (
-            <li className="surface" key={item.id}>
+            <li className="settings-document-result" key={item.id}>
               <details>
-                <summary>{item.name}</summary>
-                {item.truncated && (
-                  <p className="muted">This saved name is shortened.</p>
-                )}
-                <dl>
-                  <dt>Record state</dt>
-                  <dd>{recordStates[item.record_state] ?? 'Unknown'}</dd>
-                  <dt>Saved identity</dt>
-                  <dd>{item.id}</dd>
-                  <dt>Saved status</dt>
-                  <dd>{statuses[item.status] ?? 'Unknown'}</dd>
-                  <dt>Saved stage</dt>
-                  <dd>{stages[item.stage] ?? 'Unknown'}</dd>
-                  <dt>Saved indexing progress</dt>
-                  <dd>{progress(item.index_current, item.index_total)}</dd>
-                  <dt>Saved extraction progress</dt>
-                  <dd>
-                    {progress(item.extraction_current, item.extraction_total)}
-                  </dd>
-                  <dt>Current searchability</dt>
-                  <dd>Unknown</dd>
-                  <dt>Last saved update</dt>
-                  <dd>{item.updated_at || 'Unknown'}</dd>
-                </dl>
+                <summary>
+                  <FileText size={18} aria-hidden />
+                  <span>{item.name}</span>
+                </summary>
+                <div className="settings-document-detail">
+                  {item.truncated && (
+                    <p className="muted">This saved name is shortened.</p>
+                  )}
+                  <dl>
+                    <dt>Record state</dt>
+                    <dd>{recordStates[item.record_state] ?? 'Unknown'}</dd>
+                    <dt>Saved identity</dt>
+                    <dd>{item.id}</dd>
+                    <dt>Saved status</dt>
+                    <dd>{statuses[item.status] ?? 'Unknown'}</dd>
+                    <dt>Saved stage</dt>
+                    <dd>{stages[item.stage] ?? 'Unknown'}</dd>
+                    <dt>Saved indexing progress</dt>
+                    <dd>{progress(item.index_current, item.index_total)}</dd>
+                    <dt>Saved extraction progress</dt>
+                    <dd>
+                      {progress(item.extraction_current, item.extraction_total)}
+                    </dd>
+                    <dt>Current searchability</dt>
+                    <dd>Unknown</dd>
+                    <dt>Last saved update</dt>
+                    <dd>{item.updated_at || 'Unknown'}</dd>
+                  </dl>
+                </div>
               </details>
               {onRemove && (
-                <Button onClick={() => onRemove(item.id, item.name)}>
-                  Remove {item.name}
-                </Button>
+                <CompactAction
+                  label={`Remove ${item.name}`}
+                  variant="danger"
+                  onClick={() => onRemove(item.id, item.name)}
+                >
+                  <Trash2 size={17} aria-hidden />
+                </CompactAction>
               )}
             </li>
           ))}

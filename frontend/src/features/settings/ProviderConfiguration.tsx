@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { Network, Plus, Search } from 'lucide-react';
 import type {
   ProviderConfigurationPage,
   ProviderEndpointFields,
@@ -48,6 +49,13 @@ const blank = (): ProviderEndpointFields => ({
   supports_reasoning_replay: false,
   extra_body_json: '{}',
 });
+
+const probeLabels = {
+  agent_ready: 'Agent ready',
+  chat_only: 'Chat only',
+  unavailable: 'Unavailable',
+  unknown: 'Not checked',
+} as const;
 type State = {
   page: ProviderConfigurationPage | null;
   query: string;
@@ -344,23 +352,35 @@ export default function ProviderConfiguration(
   }
   return (
     <section
-      className="stack capability-section"
+      className="stack capability-section settings-provider-configuration"
       aria-label="Provider configuration"
       aria-busy={!!state.busy}
     >
-      <header className="capability-header">
-        <div>
-          <h2>Endpoints and model pickers</h2>
-          <p>
-            These settings are global. Saving does not start a model or change a
-            conversation profile. Readiness shown here is saved evidence.
-          </p>
+      <header className="settings-owner-heading">
+        <div className="settings-provider-configuration-title">
+          <Network size={18} aria-hidden />
+          <div>
+            <h3>Custom / Self-Hosted Endpoints</h3>
+            <p>
+              Saved local and compatible endpoints. Checks run only after an
+              explicit reviewed action.
+            </p>
+          </div>
         </div>
+        {page && (
+          <span className="status-chip">
+            {page.total} saved endpoint{page.total === 1 ? '' : 's'}
+          </span>
+        )}
       </header>
+      <p className="settings-help">
+        These settings are global. Saving does not start a model or change a
+        conversation profile.
+      </p>
       {state.error && <p role="alert">{state.error}</p>}
       {state.notice && <p role="status">{state.notice}</p>}
       {state.busy === 'load' && <Skeleton label="Loading saved endpoints" />}
-      <div className="field-row">
+      <div className="field-row settings-provider-endpoint-search">
         <Field label="Search saved endpoints">
           <Input
             value={state.query}
@@ -370,25 +390,59 @@ export default function ProviderConfiguration(
           />
         </Field>
         <Button disabled={locked} onClick={() => void load()}>
+          <Search size={15} aria-hidden />
           Search
         </Button>
       </div>
       {page && (
         <>
-          <p>
-            {page.total} saved endpoints · showing {page.items.length} on this
-            page
-          </p>
-          <ul className="stack">
+          <ul className="settings-provider-endpoint-list">
             {page.items.map((item) => (
               <li key={item.provider_id}>
-                <div className="actions">
-                  <span>
-                    {item.fields.display_name} ·{' '}
-                    {item.fields.enabled ? 'Enabled' : 'Disabled'} · Saved
-                    probe: {item.probe_state} · Models:{' '}
-                    {item.model_count ?? 'unknown'}
-                  </span>
+                <div className="settings-provider-endpoint-summary">
+                  <Network size={18} aria-hidden />
+                  <div className="settings-provider-copy">
+                    <span className="settings-provider-title">
+                      <span
+                        className={`settings-provider-readiness-dot ${
+                          !item.fields.enabled
+                            ? 'is-disabled'
+                            : item.probe_state === 'agent_ready'
+                              ? 'is-enabled'
+                              : item.probe_state === 'unavailable'
+                                ? 'is-disabled'
+                                : 'is-unknown'
+                        }`}
+                        aria-hidden
+                      />
+                      <strong>{item.fields.display_name}</strong>
+                      <span>
+                        {item.fields.enabled
+                          ? probeLabels[item.probe_state]
+                          : `Disabled · saved probe: ${probeLabels[item.probe_state].toLowerCase()}`}
+                      </span>
+                    </span>
+                    <small>{item.fields.base_url || 'No base URL saved'}</small>
+                  </div>
+                  <div
+                    className="settings-provider-endpoint-meta"
+                    aria-label={`${item.fields.display_name} saved configuration`}
+                  >
+                    <span
+                      className={`status-chip ${item.fields.enabled ? 'success' : 'warning'}`}
+                    >
+                      {item.fields.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    <span className="status-chip">
+                      {item.fields.execution_location}
+                    </span>
+                    <span className="status-chip">{item.fields.profile}</span>
+                    <span className="status-chip">
+                      {item.model_count == null
+                        ? 'models unknown'
+                        : `${item.model_count} models`}
+                    </span>
+                  </div>
                   <Button
                     disabled={locked || state.dirty}
                     onClick={() =>
@@ -408,6 +462,9 @@ export default function ProviderConfiguration(
               </li>
             ))}
           </ul>
+          {!page.items.length && (
+            <p className="settings-help">No saved endpoints match.</p>
+          )}
           {page.next_cursor && (
             <Button
               disabled={locked}
@@ -418,7 +475,7 @@ export default function ProviderConfiguration(
           )}
         </>
       )}
-      <div className="actions">
+      <div className="actions settings-provider-endpoint-actions">
         <Button
           disabled={locked || state.dirty || !page}
           onClick={() =>
@@ -432,6 +489,7 @@ export default function ProviderConfiguration(
             })
           }
         >
+          <Plus size={15} aria-hidden />
           New endpoint
         </Button>
         <Button

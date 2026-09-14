@@ -110,7 +110,7 @@ export function createPluginSettingsSession() {
     page: null,
     selected: null,
     query: '',
-    source: 'all',
+    source: 'installed',
     settings: {},
     secrets: {},
     reviewed: null,
@@ -155,7 +155,7 @@ export function createPluginSettingsSession() {
         page: null,
         selected: null,
         query: '',
-        source: 'all',
+        source: 'installed',
         settings: {},
         secrets: {},
         reviewed: null,
@@ -215,20 +215,21 @@ export default function PluginSettings({
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const locked = !state.active || Boolean(state.busy || state.pending);
 
-  const refresh = async (cursor?: string) => {
+  const refresh = async (
+    cursor?: string,
+    source: State['source'] = state.source,
+  ) => {
     if (locked) return;
     const abort = session.beginRead();
     session.update({ busy: 'load', reviewed: null, message: '' });
     try {
       const page = boundedPage(
-        await load(
-          { query: state.query.trim(), source: state.source, cursor },
-          abort.signal,
-        ),
+        await load({ query: state.query.trim(), source, cursor }, abort.signal),
       );
       if (!abort.signal.aborted)
         session.update({
           page,
+          source,
           busy: '',
           selected: cursor ? state.selected : null,
         });
@@ -426,86 +427,178 @@ export default function PluginSettings({
     <section aria-label="Plugin Center" className="settings-section">
       <h2>Plugin Center</h2>
       <p>
-        Browse installed plugins and the saved marketplace catalog. Marketplace
-        reads stay offline; unavailable lifecycle actions explain their safety
-        gate.
+        Discover, configure, test, enable, update, disable, and uninstall
+        Row-Bot plugins. Passive reads do not install or start anything.
       </p>
-      <div className="field-row">
-        <Field label="Search plugins">
-          <Input
-            type="search"
-            maxLength={256}
-            value={state.query}
-            disabled={locked}
-            onChange={(event) => session.update({ query: event.target.value })}
-          />
-        </Field>
-        <Field label="Plugin source">
-          <Select
-            value={state.source}
-            disabled={locked}
-            onChange={(event) =>
-              session.update({
-                source: event.target.value as State['source'],
-                reviewed: null,
-              })
-            }
-          >
-            <option value="all">All saved plugins</option>
-            <option value="installed">Installed</option>
-            <option value="marketplace">Saved marketplace</option>
-          </Select>
-        </Field>
-        <Button disabled={locked} onClick={() => void refresh()}>
-          Search
+      <div className="settings-plugin-actions">
+        <Button
+          aria-label="Browse saved marketplace"
+          disabled={locked}
+          onClick={() => {
+            session.update({ source: 'marketplace', reviewed: null });
+            void refresh(undefined, 'marketplace');
+          }}
+        >
+          Browse Marketplace
         </Button>
+        <Button
+          aria-label="Reload plugins"
+          disabled={locked}
+          onClick={() => void refresh()}
+        >
+          Reload
+        </Button>
+        {state.page && (
+          <span className="status-chip" role="status">
+            {state.page.items.filter((plugin) => plugin.installed).length}{' '}
+            loaded /{' '}
+            {
+              state.page.items.filter((plugin) =>
+                ['failed', 'error', 'unhealthy'].includes(plugin.health),
+              ).length
+            }{' '}
+            failed
+          </span>
+        )}
       </div>
+      <details className="settings-supplemental-disclosure">
+        <summary>
+          <span>
+            <strong>Search and filter plugins</strong>
+            <small>{state.source.replaceAll('_', ' ')}</small>
+          </span>
+        </summary>
+        <div className="field-row settings-supplemental-content">
+          <Field label="Search plugins">
+            <Input
+              type="search"
+              maxLength={256}
+              value={state.query}
+              disabled={locked}
+              onChange={(event) =>
+                session.update({ query: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="Plugin source">
+            <Select
+              value={state.source}
+              disabled={locked}
+              onChange={(event) =>
+                session.update({
+                  source: event.target.value as State['source'],
+                  reviewed: null,
+                })
+              }
+            >
+              <option value="installed">Installed</option>
+              <option value="all">All saved plugins</option>
+              <option value="marketplace">Saved marketplace</option>
+            </Select>
+          </Field>
+          <Button disabled={locked} onClick={() => void refresh()}>
+            Search
+          </Button>
+        </div>
+      </details>
       {state.page && (
         <>
           <p role="status">{state.page.total} matching plugins.</p>
-          <ul className="settings-results">
+          <ul className="settings-results settings-plugin-list">
             {state.page.items.map((plugin) => (
-              <li className="surface" key={plugin.plugin_id}>
-                <strong>{plugin.name}</strong> v{plugin.version} —{' '}
-                {plugin.installed
-                  ? plugin.enabled
-                    ? 'Enabled'
-                    : 'Disabled'
-                  : 'Saved marketplace entry'}
-                <p>{plugin.description}</p>
-                <p>
-                  Tools {plugin.provides.native_tools ?? 0}; MCP servers{' '}
-                  {plugin.provides.mcp_servers ?? 0}; channels{' '}
-                  {plugin.provides.channels ?? 0}; skills{' '}
-                  {plugin.provides.skills ?? 0}.
-                </p>
-                {plugin.installed ? (
-                  <Button
-                    disabled={locked}
-                    onClick={() => void select(plugin.plugin_id)}
-                  >
-                    Manage {plugin.name}
-                  </Button>
-                ) : (
-                  <p role="status">
-                    Install unavailable: a recoverable plugin lifecycle worker
-                    is not available yet.
-                  </p>
-                )}
+              <li
+                className="surface settings-plugin-row"
+                key={plugin.plugin_id}
+              >
+                <div className="settings-plugin-summary">
+                  <div className="settings-plugin-title">
+                    <strong>{plugin.name}</strong>
+                    <span className="status-chip">v{plugin.version}</span>
+                    <span
+                      className={`status-chip ${plugin.installed && plugin.enabled ? 'success' : plugin.setup_complete ? '' : 'warning'}`}
+                    >
+                      {plugin.installed
+                        ? plugin.enabled
+                          ? 'Enabled'
+                          : plugin.setup_complete
+                            ? 'Disabled'
+                            : 'Setup needed'
+                        : 'Marketplace'}
+                    </span>
+                  </div>
+                  <p>{plugin.description}</p>
+                  <small>
+                    Source:{' '}
+                    {plugin.source === 'installed'
+                      ? 'Installed locally'
+                      : 'Saved marketplace'}
+                  </small>
+                  <div className="settings-summary-strip">
+                    {(plugin.provides.native_tools ?? 0) > 0 && (
+                      <span className="status-chip">
+                        {plugin.provides.native_tools} tools
+                      </span>
+                    )}
+                    {(plugin.provides.mcp_servers ?? 0) > 0 && (
+                      <span className="status-chip">
+                        {plugin.provides.mcp_servers} MCP servers
+                      </span>
+                    )}
+                    {(plugin.provides.channels ?? 0) > 0 && (
+                      <span className="status-chip">
+                        {plugin.provides.channels} channels
+                      </span>
+                    )}
+                    {(plugin.provides.skills ?? 0) > 0 && (
+                      <span className="status-chip success">
+                        {plugin.provides.skills} skills
+                      </span>
+                    )}
+                    {plugin.permissions.map((permission) => (
+                      <span className="status-chip warning" key={permission}>
+                        {permission}
+                      </span>
+                    ))}
+                    {plugin.update_version && (
+                      <span className="status-chip">
+                        Update {plugin.update_version}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="settings-plugin-row-actions">
+                  {plugin.installed ? (
+                    <Button
+                      aria-label={`Manage ${plugin.name}`}
+                      disabled={locked}
+                      onClick={() => void select(plugin.plugin_id)}
+                    >
+                      Configure
+                    </Button>
+                  ) : (
+                    <span className="status-chip warning" role="status">
+                      Install unavailable
+                    </span>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
-          <div className="button-row">
-            <Button disabled={locked} onClick={() => void refresh()}>
-              First page
-            </Button>
-            <Button
-              disabled={locked || !state.page.next_cursor}
-              onClick={() => void refresh(state.page?.next_cursor ?? undefined)}
-            >
-              Next page
-            </Button>
-          </div>
+          {(state.page.next_cursor || state.source !== 'installed') && (
+            <div className="button-row settings-plugin-pagination">
+              <Button disabled={locked} onClick={() => void refresh()}>
+                First page
+              </Button>
+              <Button
+                disabled={locked || !state.page.next_cursor}
+                onClick={() =>
+                  void refresh(state.page?.next_cursor ?? undefined)
+                }
+              >
+                Next page
+              </Button>
+            </div>
+          )}
         </>
       )}
       {state.selected && (

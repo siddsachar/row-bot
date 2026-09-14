@@ -42,7 +42,11 @@ const page: BuddyPackPage = {
       runtime: 'generated_still',
       generated: false,
       available: true,
-      assets: [],
+      assets: [
+        { id: 'preview', content_type: 'image/png' },
+        { id: 'idle', content_type: 'video/mp4' },
+        { id: 'wave', content_type: 'video/webm' },
+      ],
       animation_map: {},
     },
   ],
@@ -88,6 +92,28 @@ describe('Buddy shared companion and preferences', () => {
     expect(input.stop).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Buddy settings' }));
     expect(input.onSettings).toHaveBeenCalledOnce();
+  });
+
+  it('keeps secondary companion settings closed and presents pack readiness before the grid', () => {
+    const input = props();
+    render(<BuddyControls {...input} />);
+
+    const advanced = screen.getByText('Advanced companion').closest('details');
+    expect(advanced).not.toHaveAttribute('open');
+    expect(
+      screen.getByText('Selected: Glyph. Motion pack ready.'),
+    ).toBeVisible();
+    expect(screen.getByText('2 clips · Ready')).toBeVisible();
+    expect(
+      screen.getByText('Selected: Glyph. Motion pack ready.')
+        .nextElementSibling,
+    ).toBe(screen.getByRole('group', { name: 'Buddy looks' }));
+
+    fireEvent.click(screen.getByText('Advanced companion'));
+    expect(advanced).toHaveAttribute('open');
+    expect(screen.getByLabelText('Compact Buddy')).toBeEnabled();
+    expect(screen.getByLabelText('Buddy name')).toHaveValue('Buddy');
+    expect(screen.getByLabelText('Animation intensity')).toHaveValue('normal');
   });
 
   it('saves only explicit changes with the captured revision', async () => {
@@ -203,7 +229,9 @@ describe('Buddy shared companion and preferences', () => {
     render(<BuddyControls {...input} />);
     fireEvent.click(screen.getByRole('button', { name: 'More Buddy looks' }));
     expect(
-      await screen.findByRole('button', { name: 'Missing — Unavailable' }),
+      await screen.findByRole('button', {
+        name: 'Missing — 2 clips · Unavailable',
+      }),
     ).toBeDisabled();
     expect(input.loadPacks).toHaveBeenCalledWith('next');
     expect(

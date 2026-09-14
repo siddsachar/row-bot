@@ -250,6 +250,20 @@ it('shows completed document status alongside partial records and unknown curren
   ).toBeNull();
 });
 
+it('keeps saved documents in compact rows with an explicit removal action', async () => {
+  const remove = vi.fn();
+  const view = render(
+    <DocumentsCatalog load={async () => documents()} onRemove={remove} />,
+  );
+  const name = await screen.findByText('report.txt');
+  expect(name.closest('li')).toHaveClass('settings-document-result');
+  fireEvent.click(screen.getByRole('button', { name: 'Remove report.txt' }));
+  expect(remove).toHaveBeenCalledWith('document', 'report.txt');
+  expect(
+    view.container.querySelectorAll('.settings-results > li.surface'),
+  ).toHaveLength(0);
+});
+
 it('submits document search and saved status through the agreed read contract', async () => {
   const user = userEvent.setup();
   const load = vi.fn(async () => documents());

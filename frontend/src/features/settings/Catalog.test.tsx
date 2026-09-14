@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
@@ -127,7 +128,79 @@ it('shows saved provider facts without inventing runtime readiness or timestamps
       /Account access and runtime readiness have not been checked/,
     ),
   ).toHaveTextContent('No dated catalog snapshot');
+  expect(screen.queryByText('Saved catalog available.')).toBeNull();
   expect(load).toHaveBeenCalledTimes(1);
+});
+
+it('keeps provider groups in the owner order and summarizes only saved facts', async () => {
+  const local = snapshot.providers[0];
+  const grouped: ProviderStatusSnapshot = {
+    ...snapshot,
+    total_models: 9,
+    providers: [
+      local,
+      {
+        ...local,
+        provider_id: 'subscription',
+        display_name: 'Subscription provider',
+        group: 'subscription',
+        model_count: 2,
+      },
+      {
+        ...local,
+        provider_id: 'api',
+        display_name: 'API provider',
+        group: 'api',
+        model_count: 3,
+        enabled: false,
+      },
+      {
+        ...local,
+        provider_id: 'custom',
+        display_name: 'Custom endpoint',
+        group: 'custom',
+        model_count: 3,
+        enabled: true,
+      },
+    ],
+  };
+  const view = render(
+    <MemoryRouter>
+      <ProviderStatus load={async () => grouped} />
+    </MemoryRouter>,
+  );
+  const summary = await screen.findByLabelText('Provider summary');
+  expect(summary).toHaveTextContent('1 local');
+  expect(summary).toHaveTextContent('1 API');
+  expect(summary).toHaveTextContent('1 subscription');
+  expect(summary).toHaveTextContent('1 custom');
+  expect(summary).toHaveTextContent('1 saved enabled');
+  expect(summary).toHaveTextContent('9 saved models');
+  expect(
+    [...view.container.querySelectorAll('.settings-provider-group > h3')].map(
+      (heading) => heading.textContent,
+    ),
+  ).toEqual([
+    'Local',
+    'Subscription Accounts',
+    'API Providers',
+    'Custom Endpoints',
+  ]);
+  expect(
+    within(screen.getByRole('link', { name: /API provider/ })).getByText(
+      'Disabled',
+    ),
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole('link', { name: /Custom endpoint/ })).getByText(
+      'Saved enabled',
+    ),
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole('link', { name: /Local engine/ })).getByText(
+      'Not checked',
+    ),
+  ).toBeVisible();
 });
 
 it('redacts provider failures and supports explicit retry', async () => {
@@ -187,6 +260,51 @@ it('loads bounded pages only on request and preserves unknown model capabilities
   expect(await screen.findByText('Second model · Local engine')).toBeVisible();
   expect(screen.getByText('First model · Local engine')).toBeVisible();
   expect(load.mock.calls[1].slice(0, 3)).toEqual([undefined, '', 'next']);
+});
+
+it('shows saved picker membership and fills only the Brain draft on request', async () => {
+  const onChooseDefault = vi.fn().mockResolvedValue(undefined);
+  const chat = {
+    ...page('Chat model').items[0],
+    categories: ['chat'],
+    input_modalities: ['text', 'image'],
+    output_modalities: ['text'],
+    pinned_surfaces: ['chat', 'vision'],
+  };
+  const image = {
+    ...page('Image model').items[0],
+    categories: ['image'],
+    input_modalities: ['text'],
+    output_modalities: ['image'],
+  };
+  render(
+    <ModelCatalog
+      load={async () => ({ ...page(), total: 2, items: [chat, image] })}
+      loadProviders={providers}
+      onChooseDefault={onChooseDefault}
+    />,
+  );
+  const chatSummary = await screen.findByText('Chat model · Local engine');
+  expect(
+    within(chatSummary.closest('summary')!).getByText('chat'),
+  ).toBeVisible();
+  expect(
+    within(chatSummary.closest('summary')!).getByText('2 pinned'),
+  ).toBeVisible();
+  fireEvent.click(chatSummary);
+  expect(
+    within(chatSummary.closest('details')!).getByText('Pinned pickers')
+      .nextElementSibling,
+  ).toHaveTextContent('Brain, Vision');
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Use Chat model for Brain draft',
+    }),
+  );
+  await waitFor(() => expect(onChooseDefault).toHaveBeenCalledWith(chat));
+  expect(
+    screen.queryByRole('button', { name: /Use Image model/ }),
+  ).not.toBeInTheDocument();
 });
 
 it('searches explicitly and rejects late pages after filters change', async () => {

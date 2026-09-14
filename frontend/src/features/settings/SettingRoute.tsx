@@ -1,4 +1,5 @@
 import BuddySurface from '../buddy/BuddySurface';
+import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   Navigate,
@@ -19,6 +20,7 @@ import KnowledgeCatalog from './KnowledgeCatalog';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import DefaultModelSettings from './DefaultModelSettings';
+import ModelSurfaceSettings from './ModelSurfaceSettings';
 import CapabilitySettings from './CapabilitySettings';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionProbes from './SubscriptionProbes';
@@ -35,6 +37,9 @@ import ChannelSettings from './ChannelSettings';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
 import GoalProfileSettings from './GoalProfileSettings';
+import SettingsConversationPicker, {
+  resolveSettingsConversation,
+} from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
@@ -49,8 +54,9 @@ import {
 
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
-  const [search] = useSearchParams();
+  const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
+  const leaf = resolveSetting(setting);
   const {
     controller,
     providerSettingsSessions,
@@ -87,6 +93,7 @@ export default function SettingRoute() {
   const [modelCatalogOpen, setModelCatalogOpen] = useState(
     Boolean(search.get('provider')),
   );
+  const [modelCatalogRevision, setModelCatalogRevision] = useState(0);
   const [loadedSettingsSnapshot, setLoadedSettingsSnapshot] = useState<{
     session: string;
     snapshot: SettingsSnapshot;
@@ -98,6 +105,12 @@ export default function SettingRoute() {
   const [settingsSnapshotLoading, setSettingsSnapshotLoading] = useState(true);
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
+  const requestedConversationId = search.get('conversation');
+  const settingsConversationId = resolveSettingsConversation(
+    state.conversations,
+    requestedConversationId,
+    state.selectedConversationId,
+  );
 
   useEffect(() => {
     const abort = new AbortController();
@@ -124,7 +137,24 @@ export default function SettingRoute() {
     settingsSnapshotReload,
     state.handshake?.server_epoch,
   ]);
-  const leaf = resolveSetting(setting);
+  useEffect(() => {
+    if (
+      !leaf ||
+      !['buddy', 'goals'].includes(leaf.id) ||
+      !settingsConversationId ||
+      requestedConversationId === settingsConversationId
+    )
+      return;
+    const next = new URLSearchParams(search);
+    next.set('conversation', settingsConversationId);
+    setSearch(next, { replace: true });
+  }, [
+    leaf,
+    requestedConversationId,
+    search,
+    setSearch,
+    settingsConversationId,
+  ]);
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase())
     return (
@@ -185,7 +215,24 @@ export default function SettingRoute() {
         aria-label={leaf.label}
       >
         {leaf?.id === 'buddy' ? (
-          <BuddySurface settings />
+          settingsConversationId ? (
+            <>
+              <SettingsConversationPicker
+                conversations={state.conversations}
+                conversationId={settingsConversationId}
+                onChange={(conversationId) => {
+                  const next = new URLSearchParams(search);
+                  next.set('conversation', conversationId);
+                  setSearch(next, { replace: true });
+                }}
+              />
+              <BuddySurface key={settingsConversationId} settings />
+            </>
+          ) : (
+            <EmptyState title="Open a conversation for Buddy">
+              Buddy uses that conversation’s current profile and approvals.
+            </EmptyState>
+          )
         ) : leaf?.id === 'preferences' ? (
           <Preferences
             snapshot={settingsSnapshot?.preferences}
@@ -277,20 +324,68 @@ export default function SettingRoute() {
         ) : leaf.id === 'models' ? (
           <>
             {defaultModelOwner?.get() && (
-              <DefaultModelSettings
-                session={defaultModelOwner.get()}
-                load={controller.defaultModel}
-                review={(settings_revision, provider_id, model_id, signal) =>
-                  controller.reviewDefaultModel(
-                    { settings_revision, provider_id, model_id },
-                    signal,
-                  )
-                }
-                apply={controller.executeDefaultModel}
-                receipt={controller.defaultModelReceipt}
-                onSaved={() => {}}
-                onBrowseModels={() => setModelCatalogOpen(true)}
-              />
+              <section
+                className="settings-model-defaults-group stack"
+                aria-labelledby="settings-model-defaults-heading"
+              >
+                <header className="settings-owner-heading">
+                  <div>
+                    <h3 id="settings-model-defaults-heading">Defaults</h3>
+                    <p>
+                      Pickers show saved catalog choices plus the current
+                      default.
+                    </p>
+                  </div>
+                  <span className="status-chip">Catalog-backed</span>
+                </header>
+                <DefaultModelSettings
+                  grouped
+                  session={defaultModelOwner.get()}
+                  load={controller.defaultModel}
+                  review={(settings_revision, provider_id, model_id, signal) =>
+                    controller.reviewDefaultModel(
+                      { settings_revision, provider_id, model_id },
+                      signal,
+                    )
+                  }
+                  apply={controller.executeDefaultModel}
+                  receipt={controller.defaultModelReceipt}
+                  onSaved={() => {}}
+                  onBrowseModels={() => setModelCatalogOpen(true)}
+                />
+                <ModelSurfaceSettings
+                  session={defaultModelOwner.get()!}
+                  loadModels={controller.cachedModels}
+                  loadConfiguration={(signal) =>
+                    controller.providerConfiguration('', undefined, signal)
+                  }
+                  review={(operation, revision, fields, signal) =>
+                    controller.reviewProviderConfiguration(
+                      {
+                        operation,
+                        configuration_revision: revision,
+                        fields,
+                      },
+                      signal,
+                    )
+                  }
+                  apply={(operation, revision, fields, commandId, review) => {
+                    if (!review.nonce)
+                      return Promise.reject({ code: 'approval_expired' });
+                    return controller.executeProviderConfiguration(
+                      operation,
+                      revision,
+                      fields,
+                      commandId,
+                      review.nonce,
+                    );
+                  }}
+                  receipt={controller.providerConfigurationReceipt}
+                  onChanged={() =>
+                    setModelCatalogRevision((value) => value + 1)
+                  }
+                />
+              </section>
             )}
             <section
               className="settings-owner-section stack settings-catalog-owner"
@@ -309,7 +404,7 @@ export default function SettingRoute() {
               {modelCatalogOpen && (
                 <div id="model-catalog-content">
                   <ModelCatalog
-                    key={`${session}:${search.get('provider') ?? ''}`}
+                    key={`${session}:${search.get('provider') ?? ''}:${modelCatalogRevision}`}
                     initialProvider={search.get('provider') ?? ''}
                     load={controller.cachedModels}
                     loadProviders={controller.providerStatus}
@@ -395,13 +490,17 @@ export default function SettingRoute() {
               key={session}
               load={controller.savedEntities}
               onOpen={(id) => knowledgeOwner?.get()?.open(id)}
+              snapshot={settingsSnapshot?.knowledge}
             />
             {knowledgeOwner?.get() && (
               <KnowledgeEditors owner={knowledgeOwner.get()!} />
             )}
           </>
         ) : leaf.id === 'wiki' && wikiOwner?.get() ? (
-          <WikiSettings session={wikiOwner.get()!} />
+          <WikiSettings
+            session={wikiOwner.get()!}
+            snapshot={settingsSnapshot?.wiki}
+          />
         ) : leaf.id === 'channels' && channelOwner?.get() ? (
           <ChannelSettings
             session={channelOwner.get()!}
@@ -449,38 +548,52 @@ export default function SettingRoute() {
             }}
           />
         ) : leaf.id === 'goals' && goalProfileOwner?.get() ? (
-          state.selectedConversationId ? (
-            <GoalProfileSettings
-              conversationId={state.selectedConversationId}
-              session={goalProfileOwner.get()!}
-              loadGoals={({ conversation_id, query, cursor }, signal) =>
-                controller.goals(conversation_id, query, cursor, signal)
-              }
-              loadProfiles={({ query, scope, cursor }, signal) =>
-                controller.profiles(query, scope, cursor, signal)
-              }
-              loadProfile={controller.profile}
-              reviewGoal={(payload, signal) =>
-                controller.reviewGoal(
-                  state.selectedConversationId!,
-                  payload,
-                  signal,
-                )
-              }
-              executeGoal={(command, review) =>
-                controller.executeGoal(state.selectedConversationId!, {
-                  ...command,
-                  payload: { ...command.payload, review_id: review.review_id },
-                })
-              }
-              reviewProfile={controller.reviewProfile}
-              executeProfile={(command, review) =>
-                controller.executeProfile({
-                  ...command,
-                  payload: { ...command.payload, review_id: review.review_id },
-                })
-              }
-            />
+          settingsConversationId ? (
+            <>
+              <SettingsConversationPicker
+                conversations={state.conversations}
+                conversationId={settingsConversationId}
+                onChange={(conversationId) => {
+                  const next = new URLSearchParams(search);
+                  next.set('conversation', conversationId);
+                  setSearch(next, { replace: true });
+                }}
+              />
+              <GoalProfileSettings
+                key={settingsConversationId}
+                conversationId={settingsConversationId}
+                session={goalProfileOwner.get()!}
+                loadGoals={({ conversation_id, query, cursor }, signal) =>
+                  controller.goals(conversation_id, query, cursor, signal)
+                }
+                loadProfiles={({ query, scope, cursor }, signal) =>
+                  controller.profiles(query, scope, cursor, signal)
+                }
+                loadProfile={controller.profile}
+                reviewGoal={(payload, signal) =>
+                  controller.reviewGoal(settingsConversationId, payload, signal)
+                }
+                executeGoal={(command, review) =>
+                  controller.executeGoal(settingsConversationId, {
+                    ...command,
+                    payload: {
+                      ...command.payload,
+                      review_id: review.review_id,
+                    },
+                  })
+                }
+                reviewProfile={controller.reviewProfile}
+                executeProfile={(command, review) =>
+                  controller.executeProfile({
+                    ...command,
+                    payload: {
+                      ...command.payload,
+                      review_id: review.review_id,
+                    },
+                  })
+                }
+              />
+            </>
           ) : (
             <EmptyState title="Open a conversation">
               Goals belong to one conversation. Open or create a conversation,
@@ -489,7 +602,7 @@ export default function SettingRoute() {
             </EmptyState>
           )
         ) : leaf.id === 'documents' ? (
-          <>
+          <div className="stack settings-documents-flow">
             {settingsSnapshot && mutation ? (
               <DocumentEmbeddingSnapshot
                 snapshot={settingsSnapshot.documents}
@@ -560,9 +673,24 @@ export default function SettingRoute() {
               }
             />
             {documentRemovalsOwner?.get() && (
-              <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
+              <section
+                className="settings-snapshot-section stack is-danger settings-document-danger"
+                aria-labelledby="settings-document-danger"
+              >
+                <header className="settings-snapshot-heading">
+                  <Trash2 size={18} aria-hidden />
+                  <div>
+                    <h3 id="settings-document-danger">Danger Zone</h3>
+                    <p>
+                      Remove indexed source material through reviewed,
+                      receipt-backed commands.
+                    </p>
+                  </div>
+                </header>
+                <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
+              </section>
             )}
-          </>
+          </div>
         ) : ['voice', 'accounts', 'tracker', 'utilities', 'system'].includes(
             leaf.id,
           ) ? (

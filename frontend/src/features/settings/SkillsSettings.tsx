@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { EllipsisVertical, Pin, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
   Button,
+  CompactAction,
   EmptyState,
   ErrorState,
   Field,
@@ -105,6 +107,8 @@ type State = {
   detail: SkillDetail | null;
   query: string;
   source: '' | 'user' | 'bundled';
+  filter: '' | 'available' | 'pinned';
+  sort: 'name' | 'source' | 'availability' | 'pinned';
   editor: Editor | null;
   importText: string;
   duplicateName: string;
@@ -132,6 +136,8 @@ export function createSkillsSettingsSession() {
     detail: null,
     query: '',
     source: '',
+    filter: '',
+    sort: 'name',
     editor: null,
     importText: '',
     duplicateName: '',
@@ -221,6 +227,10 @@ function validPage(value: SkillPage) {
     Array.isArray(value.items) &&
     value.items.length <= 50
   );
+}
+
+function skillSourceLabel(skill: SkillSummary) {
+  return skill.source === 'user' ? 'Custom' : 'Bundled';
 }
 
 export default function SkillsSettings({
@@ -506,6 +516,31 @@ export default function SkillsSettings({
   };
   const locked = !state.active || Boolean(state.busy || state.pending);
   const revision = state.page?.revision;
+  const displayedSkills = [...(state.page?.items ?? [])]
+    .filter((skill) => {
+      if (state.filter === 'available') return skill.available;
+      if (state.filter === 'pinned') return skill.pinned;
+      return true;
+    })
+    .sort((left, right) => {
+      const byName = left.display_name.localeCompare(right.display_name);
+      if (state.sort === 'source')
+        return (
+          skillSourceLabel(left).localeCompare(skillSourceLabel(right)) ||
+          byName
+        );
+      if (state.sort === 'availability')
+        return Number(right.available) - Number(left.available) || byName;
+      if (state.sort === 'pinned')
+        return Number(right.pinned) - Number(left.pinned) || byName;
+      return byName;
+    });
+  const shownAvailable =
+    state.page?.items.filter((skill) => skill.available).length ?? 0;
+  const shownPinned =
+    state.page?.items.filter((skill) => skill.pinned).length ?? 0;
+  const shownCustom =
+    state.page?.items.filter((skill) => skill.source === 'user').length ?? 0;
 
   return (
     <section
@@ -518,8 +553,24 @@ export default function SkillsSettings({
         Choose which saved workflows are available, pin defaults for new work,
         and review every library change before it is saved.
       </p>
+      {state.page?.availability === 'available' && (
+        <div
+          className="settings-summary-strip"
+          role="group"
+          aria-label="Displayed skill totals"
+        >
+          <span className="status-chip success">
+            {shownAvailable} available shown
+          </span>
+          <span className="status-chip">{shownPinned} pinned shown</span>
+          <span className="status-chip">{shownCustom} custom shown</span>
+          <span className="status-chip">
+            {state.page.total ?? 'Unknown'} total
+          </span>
+        </div>
+      )}
       <form
-        className="field-row"
+        className="field-row settings-skill-toolbar"
         onSubmit={(event) => {
           event.preventDefault();
           void load();
@@ -545,11 +596,47 @@ export default function SkillsSettings({
             <option value="bundled">Built in</option>
           </Select>
         </Field>
+        <Field label="Filter">
+          <Select
+            value={state.filter}
+            onChange={(event) =>
+              session.update({ filter: event.target.value as State['filter'] })
+            }
+          >
+            <option value="">All</option>
+            <option value="pinned">Pinned</option>
+            <option value="available">Available</option>
+          </Select>
+        </Field>
+        <Field label="Sort">
+          <Select
+            value={state.sort}
+            onChange={(event) =>
+              session.update({ sort: event.target.value as State['sort'] })
+            }
+          >
+            <option value="name">Name</option>
+            <option value="source">Source</option>
+            <option value="availability">Availability</option>
+            <option value="pinned">Pinned first</option>
+          </Select>
+        </Field>
         <Button type="submit" disabled={locked}>
           Search
         </Button>
         <Button disabled={locked} onClick={() => void load()}>
           Reload skills
+        </Button>
+        <Button
+          disabled={locked}
+          onClick={() =>
+            session.update({
+              editor: { mode: 'create', name: '', fields: blankFields() },
+              detail: null,
+            })
+          }
+        >
+          Create skill
         </Button>
       </form>
       {state.busy === 'load' && <Skeleton label="Loading saved skills" />}
@@ -577,62 +664,90 @@ export default function SkillsSettings({
       )}
       {state.page?.availability === 'available' && (
         <>
-          <p role="status">{state.page.total ?? 'Unknown'} matching skills</p>
-          {!state.page.items.length && (
+          <p role="status">
+            {displayedSkills.length} shown of {state.page.total ?? 'unknown'}{' '}
+            matching skills
+          </p>
+          {!displayedSkills.length && (
             <EmptyState title="No matching skills">
               Try another search or source.
             </EmptyState>
           )}
-          <ul className="settings-results">
-            {state.page.items.map((skill) => (
-              <li className="surface" key={skill.id}>
-                <div className="row-between">
+          <ul className="settings-results settings-catalog-list settings-skill-list">
+            {displayedSkills.map((skill) => (
+              <li className="settings-skill-row" key={skill.id}>
+                <div
+                  className="settings-skill-preferences"
+                  role="group"
+                  aria-label={`${skill.display_name} preferences`}
+                >
+                  <CompactAction
+                    label={
+                      skill.available ? 'Make unavailable' : 'Make available'
+                    }
+                    disabled={locked || skill.tool_guide}
+                    aria-pressed={skill.available}
+                    onClick={() =>
+                      void requestReview('skill.preference', {
+                        revision,
+                        name: skill.id,
+                        preference: 'availability',
+                        value: !skill.available,
+                      })
+                    }
+                  >
+                    {skill.available ? (
+                      <ToggleRight size={18} aria-hidden />
+                    ) : (
+                      <ToggleLeft size={18} aria-hidden />
+                    )}
+                  </CompactAction>
+                  <CompactAction
+                    label={skill.pinned ? 'Unpin default' : 'Pin for new work'}
+                    disabled={locked || skill.tool_guide}
+                    aria-pressed={skill.pinned}
+                    onClick={() =>
+                      void requestReview('skill.preference', {
+                        revision,
+                        name: skill.id,
+                        preference: 'pin_defaults',
+                        value: !skill.pinned,
+                      })
+                    }
+                  >
+                    <Pin
+                      size={16}
+                      fill={skill.pinned ? 'currentColor' : 'none'}
+                      aria-hidden
+                    />
+                  </CompactAction>
+                </div>
+                <div className="settings-skill-summary">
                   <div>
                     <strong>
                       {skill.icon} {skill.display_name}
                     </strong>
-                    <p>{skill.description || 'No description saved.'}</p>
-                    <small>
-                      {skill.source === 'user' ? 'My skill' : 'Built in'} ·{' '}
-                      {skill.available ? 'Available' : 'Unavailable'} ·{' '}
-                      {skill.pinned ? 'Pinned' : 'Not pinned'}
-                    </small>
+                    {skill.pinned && (
+                      <span className="status-chip">Pinned</span>
+                    )}
                   </div>
-                  <div className="button-row">
-                    <Button
-                      disabled={locked || skill.tool_guide}
-                      onClick={() =>
-                        void requestReview('skill.preference', {
-                          revision,
-                          name: skill.id,
-                          preference: 'availability',
-                          value: !skill.available,
-                        })
-                      }
-                    >
-                      {skill.available ? 'Make unavailable' : 'Make available'}
-                    </Button>
-                    <Button
-                      disabled={locked || skill.tool_guide}
-                      onClick={() =>
-                        void requestReview('skill.preference', {
-                          revision,
-                          name: skill.id,
-                          preference: 'pin_defaults',
-                          value: !skill.pinned,
-                        })
-                      }
-                    >
-                      {skill.pinned ? 'Unpin default' : 'Pin for new work'}
-                    </Button>
-                    <Button
-                      disabled={locked}
-                      onClick={() => void open(skill.id)}
-                    >
-                      Open
-                    </Button>
-                  </div>
+                  <small>{skill.description || 'No description saved.'}</small>
                 </div>
+                <div className="settings-skill-metadata">
+                  <span className="status-chip">{skillSourceLabel(skill)}</span>
+                  <span>{skill.available ? 'Available' : 'Unavailable'}</span>
+                  <span>v{skill.version}</span>
+                  {skill.tags.slice(0, 2).map((tag) => (
+                    <span key={tag}>#{tag}</span>
+                  ))}
+                </div>
+                <CompactAction
+                  label="Open"
+                  disabled={locked}
+                  onClick={() => void open(skill.id)}
+                >
+                  <EllipsisVertical size={18} aria-hidden />
+                </CompactAction>
               </li>
             ))}
           </ul>
@@ -647,44 +762,41 @@ export default function SkillsSettings({
         </>
       )}
 
-      <Surface>
-        <h2>Create or import</h2>
-        <div className="button-row">
+      <details className="settings-supplemental-disclosure">
+        <summary>
+          <span>
+            <strong>Import a skill</strong>
+            <small>Review SKILL.md text before saving it locally</small>
+          </span>
+        </summary>
+        <Surface>
+          <Field label="Import SKILL.md text">
+            <textarea
+              className="input"
+              rows={5}
+              maxLength={65536}
+              value={state.importText}
+              onChange={(event) =>
+                session.update({
+                  importText: event.target.value,
+                  reviewed: null,
+                })
+              }
+            />
+          </Field>
           <Button
-            disabled={locked}
+            disabled={locked || !revision || !state.importText.trim()}
             onClick={() =>
-              session.update({
-                editor: { mode: 'create', name: '', fields: blankFields() },
-                detail: null,
+              void requestReview('skill.import', {
+                revision,
+                content: state.importText,
               })
             }
           >
-            Create skill
+            Review import
           </Button>
-        </div>
-        <Field label="Import SKILL.md text">
-          <textarea
-            className="input"
-            rows={5}
-            maxLength={65536}
-            value={state.importText}
-            onChange={(event) =>
-              session.update({ importText: event.target.value, reviewed: null })
-            }
-          />
-        </Field>
-        <Button
-          disabled={locked || !revision || !state.importText.trim()}
-          onClick={() =>
-            void requestReview('skill.import', {
-              revision,
-              content: state.importText,
-            })
-          }
-        >
-          Review import
-        </Button>
-      </Surface>
+        </Surface>
+      </details>
 
       {state.detail && (
         <Surface elevated>
@@ -848,65 +960,72 @@ export default function SkillsSettings({
       )}
 
       {state.proposals && (
-        <Surface>
-          <h2>Skill proposals</h2>
-          {state.proposals.truncated && (
-            <p>Only the first 100 saved proposals are shown.</p>
-          )}
-          {!state.proposals.items.length && <p>No saved skill proposals.</p>}
-          <ul className="settings-results">
-            {state.proposals.items.map((proposal) => (
-              <li key={proposal.id}>
-                <details>
-                  <summary>
-                    {proposal.title} · {proposal.status}
-                  </summary>
-                  <p>{proposal.rationale}</p>
-                  <p>Risk: {proposal.risk}</p>
-                  <div className="button-row">
-                    <Button
-                      disabled={
-                        locked ||
-                        !revision ||
-                        ['applied', 'verified', 'rejected'].includes(
-                          proposal.status,
-                        )
-                      }
-                      onClick={() =>
-                        void requestReview('skill.proposal.apply', {
-                          revision,
-                          proposal_id: proposal.id,
-                          reason: '',
-                        })
-                      }
-                    >
-                      Review apply
-                    </Button>
-                    <Button
-                      variant="danger"
-                      disabled={
-                        locked ||
-                        !revision ||
-                        ['applied', 'verified', 'rejected'].includes(
-                          proposal.status,
-                        )
-                      }
-                      onClick={() =>
-                        void requestReview('skill.proposal.reject', {
-                          revision,
-                          proposal_id: proposal.id,
-                          reason: 'Rejected from Skills settings.',
-                        })
-                      }
-                    >
-                      Review reject
-                    </Button>
-                  </div>
-                </details>
-              </li>
-            ))}
-          </ul>
-        </Surface>
+        <details className="settings-supplemental-disclosure">
+          <summary>
+            <span>
+              <strong>Skill proposals</strong>
+              <small>{state.proposals.items.length} saved suggestions</small>
+            </span>
+          </summary>
+          <Surface>
+            {state.proposals.truncated && (
+              <p>Only the first 100 saved proposals are shown.</p>
+            )}
+            {!state.proposals.items.length && <p>No saved skill proposals.</p>}
+            <ul className="settings-results">
+              {state.proposals.items.map((proposal) => (
+                <li key={proposal.id}>
+                  <details>
+                    <summary>
+                      {proposal.title} · {proposal.status}
+                    </summary>
+                    <p>{proposal.rationale}</p>
+                    <p>Risk: {proposal.risk}</p>
+                    <div className="button-row">
+                      <Button
+                        disabled={
+                          locked ||
+                          !revision ||
+                          ['applied', 'verified', 'rejected'].includes(
+                            proposal.status,
+                          )
+                        }
+                        onClick={() =>
+                          void requestReview('skill.proposal.apply', {
+                            revision,
+                            proposal_id: proposal.id,
+                            reason: '',
+                          })
+                        }
+                      >
+                        Review apply
+                      </Button>
+                      <Button
+                        variant="danger"
+                        disabled={
+                          locked ||
+                          !revision ||
+                          ['applied', 'verified', 'rejected'].includes(
+                            proposal.status,
+                          )
+                        }
+                        onClick={() =>
+                          void requestReview('skill.proposal.reject', {
+                            revision,
+                            proposal_id: proposal.id,
+                            reason: 'Rejected from Skills settings.',
+                          })
+                        }
+                      >
+                        Review reject
+                      </Button>
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          </Surface>
+        </details>
       )}
       {state.reviewed && (
         <Surface elevated>

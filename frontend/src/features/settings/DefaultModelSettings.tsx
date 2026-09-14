@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Brain, CircleAlert, SlidersHorizontal } from 'lucide-react';
 import type { DefaultModelSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, Field, Input, Skeleton } from '../../ui/primitives';
@@ -21,7 +22,13 @@ export class DefaultModelSession extends ProviderSettingsSession {
     super('default_model');
   }
   hasRetained() {
-    return this.get('dirty', false) || this.retained();
+    return (
+      this.get('dirty', false) ||
+      !!this.get('surfaceReviewed', null) ||
+      !!this.get('surfacePending', null) ||
+      !!this.get('surfaceBusy', '') ||
+      this.retained()
+    );
   }
 }
 export type DefaultModelSettingsProps = {
@@ -43,6 +50,7 @@ export type DefaultModelSettingsProps = {
   }>;
   onSaved: (snapshot: DefaultModelSnapshot) => void;
   onBrowseModels: () => void;
+  grouped?: boolean;
 };
 
 export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
@@ -76,7 +84,12 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
   const [error, setError] = useProviderSettingsValue(session, 'error', '');
   const [notice, setNotice] = useProviderSettingsValue(session, 'notice', '');
   const epoch = useRef(0);
-  const locked = !!busy || !!pending || !session.active;
+  const locked =
+    !!busy ||
+    !!pending ||
+    !!session.get('surfaceBusy', '') ||
+    !!session.get('surfacePending', null) ||
+    !session.active;
   function accept(value: DefaultModelSnapshot) {
     setSnapshot(value);
     setProvider(value.provider_id ?? '');
@@ -217,30 +230,54 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
   }
   return (
     <section
-      className="stack"
+      className={`stack settings-model-default-owner ${props.grouped ? 'is-grouped' : ''}`}
       aria-label="Default chat model"
       aria-busy={!!busy}
     >
-      <h2>Default chat model</h2>
-      <p>
-        This global choice applies to future work without a conversation
-        override. Existing runs keep their captured model. Saving does not test
-        readiness or start, unload or contact a provider.
-      </p>
+      {!props.grouped && (
+        <header className="settings-owner-heading">
+          <SlidersHorizontal size={18} aria-hidden />
+          <div>
+            <h3>Defaults</h3>
+            <p>Saved picker choices plus the current default.</p>
+          </div>
+          <span className="status-chip">Catalog-backed</span>
+        </header>
+      )}
+      <div className="settings-model-role-heading">
+        <Brain size={18} aria-hidden />
+        <div>
+          <h4>Brain</h4>
+          <p>Conversation, tool use, memory, and workflows.</p>
+        </div>
+      </div>
       {busy === 'load' && <Skeleton label="Loading saved default model" />}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {snapshot && (
-        <p>
-          Saved default:{' '}
-          {snapshot.selection_ref ??
-            (snapshot.saved_state === 'missing'
-              ? 'No explicit saved choice'
-              : 'Existing choice needs an explicit provider selection')}{' '}
-          · Runtime readiness: unknown
-        </p>
+        <div
+          className="settings-model-readiness"
+          role="status"
+          aria-label="Default model saved state"
+        >
+          <CircleAlert size={16} aria-hidden />
+          <span>
+            Saved default:{' '}
+            <strong>
+              {snapshot.selection_ref ??
+                (snapshot.saved_state === 'missing'
+                  ? 'No explicit saved choice'
+                  : 'Existing choice needs an explicit provider selection')}
+            </strong>
+          </span>
+          <span className="status-chip warning">Readiness not checked</span>
+        </div>
       )}
-      <div className="field-row">
+      <p className="settings-help">
+        This global choice applies to future work without a conversation
+        override. Saving does not contact or start a provider.
+      </p>
+      <div className="field-row settings-model-default-fields">
         <Field label="Default provider ID">
           <Input
             value={provider}
@@ -274,23 +311,29 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
         >
           Review default model
         </Button>
-        <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
-          Confirm default model
-        </Button>
-        <Button
-          disabled={!pending || !!busy || !session.active}
-          onClick={() => void receipt()}
-        >
-          Check original default receipt
-        </Button>
-        <Button
-          disabled={locked || !dirty}
-          onClick={() => {
-            if (snapshot) accept(snapshot);
-          }}
-        >
-          Discard unsent default
-        </Button>
+        {reviewed && (
+          <Button disabled={locked} onClick={() => void confirm()}>
+            Confirm default model
+          </Button>
+        )}
+        {pending && (
+          <Button
+            disabled={!!busy || !session.active}
+            onClick={() => void receipt()}
+          >
+            Check original default receipt
+          </Button>
+        )}
+        {dirty && (
+          <Button
+            disabled={locked}
+            onClick={() => {
+              if (snapshot) accept(snapshot);
+            }}
+          >
+            Discard unsent default
+          </Button>
+        )}
         <Button disabled={locked || dirty} onClick={() => void load()}>
           Reload saved default
         </Button>

@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Button, Field, Input, Select } from '../../ui/primitives';
 
 export type McpConfigurationPage = {
@@ -219,6 +219,7 @@ export default function CapabilitySettings({
   execute,
 }: CapabilitySettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const [editorOpen, setEditorOpen] = useState(session.hasRetained());
   const { page, draft, busy, pending, reviewed } = state;
   const locked = Boolean(busy || pending || !state.active);
   const canSave =
@@ -378,73 +379,147 @@ export default function CapabilitySettings({
       <header className="capability-header">
         <div>
           <p className="eyebrow">Model Context Protocol</p>
-          <h2>MCP servers</h2>
+          <h2 aria-label="MCP servers">External MCP Tools</h2>
           <p>
-            Manage saved server settings. Launch details and credentials are
+            Connect external Model Context Protocol servers without letting one
+            bad server affect Row-Bot. Launch details and credentials are
             write-only.
           </p>
         </div>
       </header>
-      <div className="capability-section stack" role="search">
-        <Field label="Search saved servers">
-          <Input
-            value={state.query}
-            disabled={locked}
-            onChange={(event) => session.update({ query: event.target.value })}
-            maxLength={128}
-          />
-        </Field>
-        <div className="action-cluster">
-          <Button disabled={locked} onClick={() => void refresh(state.query)}>
-            Search
-          </Button>
-          <Button
-            disabled={Boolean(busy) || !state.active}
-            onClick={() => void refresh()}
-          >
-            Refresh
-          </Button>
-        </div>
-      </div>
       {page && (
         <>
-          <p role="status">
-            {page.total === null
-              ? 'Saved server count unavailable'
-              : `${page.total} saved servers`}
-            .{' '}
-            {page.availability === 'recovery_required'
-              ? 'An interrupted save requires recovery before new changes.'
-              : `Configuration: ${page.availability}.`}
-          </p>
-          <ul className="settings-results capability-summary">
+          <div className="settings-summary-strip" role="status">
+            <span className={`status-chip ${page.enabled ? 'success' : ''}`}>
+              MCP{' '}
+              {page.enabled === null
+                ? 'status unknown'
+                : page.enabled
+                  ? 'enabled'
+                  : 'disabled'}
+            </span>
+            <span className="status-chip">
+              {page.items.filter((server) => server.connection_present).length}{' '}
+              connected
+            </span>
+            <span className="status-chip">
+              {page.items.reduce(
+                (total, server) => total + (server.tool_count ?? 0),
+                0,
+              )}{' '}
+              tools
+            </span>
+            <span className="status-chip">
+              {page.total ?? 'Unknown'} saved servers
+            </span>
+          </div>
+          {page.availability === 'recovery_required' && (
+            <p role="status">
+              An interrupted save requires recovery before new changes.
+            </p>
+          )}
+          <div className="settings-mcp-primary-actions">
+            <Button
+              disabled={locked}
+              onClick={() => {
+                session.update({
+                  draft: emptyDraft(),
+                  reviewed: null,
+                  message: '',
+                });
+                setEditorOpen(true);
+              }}
+            >
+              Add server
+            </Button>
+            <Button
+              disabled={locked}
+              onClick={() => {
+                session.update({
+                  draft: { ...emptyDraft(), operation: 'import' },
+                  reviewed: null,
+                  message: '',
+                });
+                setEditorOpen(true);
+              }}
+            >
+              Import config
+            </Button>
+            <Button
+              disabled={Boolean(busy) || !state.active}
+              onClick={() => void refresh()}
+            >
+              Refresh
+            </Button>
+          </div>
+          <details className="settings-supplemental-disclosure">
+            <summary>
+              <span>
+                <strong>Search saved servers</strong>
+                <small>{state.filter || 'All configured servers'}</small>
+              </span>
+            </summary>
+            <div className="settings-supplemental-content" role="search">
+              <Field label="Search saved servers">
+                <Input
+                  value={state.query}
+                  disabled={locked}
+                  onChange={(event) =>
+                    session.update({ query: event.target.value })
+                  }
+                  maxLength={128}
+                />
+              </Field>
+              <Button
+                disabled={locked}
+                onClick={() => void refresh(state.query)}
+              >
+                Search
+              </Button>
+            </div>
+          </details>
+          <ul className="settings-results settings-mcp-server-list">
             {page.items.map((server) => (
-              <li className="surface stack" key={server.server_id}>
-                <strong>{server.name}</strong> —{' '}
-                {server.enabled === null
-                  ? 'Enablement unknown'
-                  : server.enabled
-                    ? 'Enabled'
-                    : 'Disabled'}
-                ; {server.runtime_status ?? 'Runtime status unknown'}.
-                <span>
-                  {' '}
-                  Configured fields:{' '}
-                  {server.configured_fields.join(', ') || 'none'}.
-                </span>
-                <div className="action-cluster">
+              <li className="settings-mcp-server-row" key={server.server_id}>
+                <div className="settings-mcp-server-summary">
+                  <strong>{server.name}</strong>
+                  <div className="settings-summary-strip">
+                    <span
+                      className={`status-chip ${server.enabled ? 'success' : ''}`}
+                    >
+                      {server.enabled === null
+                        ? 'Enablement unknown'
+                        : server.enabled
+                          ? 'Enabled'
+                          : 'Disabled'}
+                    </span>
+                    <span className="status-chip">{server.transport}</span>
+                    <span className="status-chip">
+                      {server.tool_count == null
+                        ? 'Tool count unknown'
+                        : `${server.tool_count} tools`}
+                    </span>
+                  </div>
+                  <small>
+                    {server.runtime_status ?? 'Runtime status unknown'} ·
+                    Configured: {server.configured_fields.join(', ') || 'none'}
+                  </small>
+                </div>
+                <div className="settings-mcp-server-actions">
                   {onConnection && (
                     <Button
+                      aria-label={`Connection ${server.name}`}
                       onClick={() =>
                         onConnection(server.server_id, server.name)
                       }
                     >
-                      Connection {server.name}
+                      Connection
                     </Button>
                   )}
                   <Button
+                    aria-label={`Edit ${server.name}`}
                     disabled={locked}
-                    onClick={() =>
+                    onClick={() => {
                       session.update({
                         draft: {
                           ...emptyDraft(),
@@ -456,14 +531,16 @@ export default function CapabilitySettings({
                               : server.transport,
                         },
                         reviewed: null,
-                      })
-                    }
+                      });
+                      setEditorOpen(true);
+                    }}
                   >
-                    Edit {server.name}
+                    Edit
                   </Button>
                   <Button
+                    aria-label={`Rename ${server.name}`}
                     disabled={locked}
-                    onClick={() =>
+                    onClick={() => {
                       session.update({
                         draft: {
                           ...emptyDraft(),
@@ -472,141 +549,161 @@ export default function CapabilitySettings({
                           name: server.name,
                         },
                         reviewed: null,
-                      })
-                    }
+                      });
+                      setEditorOpen(true);
+                    }}
                   >
-                    Rename {server.name}
+                    Rename
                   </Button>
                 </div>
               </li>
             ))}
           </ul>
-          <div className="action-cluster">
-            <Button
-              disabled={locked || !state.cursor}
-              onClick={() => void refresh(state.filter)}
-            >
-              First page
-            </Button>
-            <Button
-              disabled={locked || !page.next_cursor}
-              onClick={() =>
-                void refresh(state.filter, page.next_cursor ?? undefined)
-              }
-            >
-              Next page
-            </Button>
-          </div>
+          {(state.cursor || page.next_cursor) && (
+            <div className="action-cluster">
+              <Button
+                disabled={locked || !state.cursor}
+                onClick={() => void refresh(state.filter)}
+              >
+                First page
+              </Button>
+              <Button
+                disabled={locked || !page.next_cursor}
+                onClick={() =>
+                  void refresh(state.filter, page.next_cursor ?? undefined)
+                }
+              >
+                Next page
+              </Button>
+            </div>
+          )}
         </>
       )}
-      <fieldset
-        className="capability-section stack"
-        disabled={locked || !canSave}
+      <details
+        className="settings-supplemental-disclosure settings-mcp-editor"
+        open={editorOpen}
+        onToggle={(event) => setEditorOpen(event.currentTarget.open)}
       >
-        <legend>Save server settings</legend>
-        <Field label="Operation">
-          <Select
-            value={draft.operation}
-            onChange={(event) =>
-              edit({ operation: event.target.value as Draft['operation'] })
-            }
-          >
-            <option value="add">Add</option>
-            <option value="edit" disabled={!draft.serverId}>
-              Edit selected server
-            </option>
-            <option value="rename" disabled={!draft.serverId}>
-              Rename selected server
-            </option>
-            <option value="import">Import JSON</option>
-          </Select>
-        </Field>
-        {draft.operation === 'import' ? (
-          <Field label="Server import JSON">
-            <textarea
-              value={draft.imported}
-              maxLength={131072}
-              onChange={(event) => edit({ imported: event.target.value })}
-            />
-          </Field>
-        ) : (
-          <>
-            <Field
-              label={
-                draft.operation === 'rename' ? 'New server name' : 'Server name'
+        <summary>
+          <span>
+            <strong>Server configuration</strong>
+            <small>
+              {draft.operation === 'import'
+                ? 'Import saved JSON'
+                : `${draft.operation} without connecting`}
+            </small>
+          </span>
+        </summary>
+        <fieldset disabled={locked || !canSave}>
+          <legend>Save server settings</legend>
+          <Field label="Operation">
+            <Select
+              value={draft.operation}
+              onChange={(event) =>
+                edit({ operation: event.target.value as Draft['operation'] })
               }
             >
-              <Input
-                value={draft.name}
-                maxLength={128}
-                disabled={draft.operation === 'edit'}
-                onChange={(event) => edit({ name: event.target.value })}
+              <option value="add">Add</option>
+              <option value="edit" disabled={!draft.serverId}>
+                Edit selected server
+              </option>
+              <option value="rename" disabled={!draft.serverId}>
+                Rename selected server
+              </option>
+              <option value="import">Import JSON</option>
+            </Select>
+          </Field>
+          {draft.operation === 'import' ? (
+            <Field label="Server import JSON">
+              <textarea
+                value={draft.imported}
+                maxLength={131072}
+                onChange={(event) => edit({ imported: event.target.value })}
               />
             </Field>
-            {draft.operation !== 'rename' && (
-              <>
-                <Field label="Transport">
-                  <Select
-                    value={draft.transport}
-                    onChange={(event) =>
-                      edit({ transport: event.target.value })
+          ) : (
+            <>
+              <Field
+                label={
+                  draft.operation === 'rename'
+                    ? 'New server name'
+                    : 'Server name'
+                }
+              >
+                <Input
+                  value={draft.name}
+                  maxLength={128}
+                  disabled={draft.operation === 'edit'}
+                  onChange={(event) => edit({ name: event.target.value })}
+                />
+              </Field>
+              {draft.operation !== 'rename' && (
+                <>
+                  <Field label="Transport">
+                    <Select
+                      value={draft.transport}
+                      onChange={(event) =>
+                        edit({ transport: event.target.value })
+                      }
+                    >
+                      <option value="stdio">Local command</option>
+                      <option value="streamable_http">HTTP</option>
+                      <option value="sse">SSE</option>
+                    </Select>
+                  </Field>
+                  <Field
+                    label={
+                      draft.transport === 'stdio' ? 'New command' : 'New URL'
                     }
                   >
-                    <option value="stdio">Local command</option>
-                    <option value="streamable_http">HTTP</option>
-                    <option value="sse">SSE</option>
-                  </Select>
-                </Field>
-                <Field
-                  label={
-                    draft.transport === 'stdio' ? 'New command' : 'New URL'
-                  }
-                >
-                  <Input
-                    value={draft.launch}
-                    maxLength={16384}
-                    autoComplete="off"
-                    onChange={(event) => edit({ launch: event.target.value })}
-                  />
-                </Field>
-                <Field label="New arguments (JSON array)">
-                  <Input
-                    value={draft.arguments}
-                    maxLength={65536}
-                    autoComplete="off"
-                    onChange={(event) =>
-                      edit({ arguments: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Additional settings (JSON)">
-                  <textarea
-                    value={draft.extra}
-                    maxLength={131072}
-                    autoComplete="off"
-                    onChange={(event) => edit({ extra: event.target.value })}
-                  />
-                </Field>
-                <p>
-                  Optional fields: cwd, env, headers, connect_timeout,
-                  tool_timeout, output_limit. Omitted values remain saved; use
-                  empty objects or arrays to clear them.
-                </p>
-              </>
-            )}
-          </>
-        )}
-        <div className="action-cluster">
-          <Button onClick={() => void requestReview()}>Review settings</Button>
-          <Button
-            variant="primary"
-            disabled={!reviewed}
-            onClick={() => void save(reviewed)}
-          >
-            Save Disabled
-          </Button>
-        </div>
-      </fieldset>
+                    <Input
+                      value={draft.launch}
+                      maxLength={16384}
+                      autoComplete="off"
+                      onChange={(event) => edit({ launch: event.target.value })}
+                    />
+                  </Field>
+                  <Field label="New arguments (JSON array)">
+                    <Input
+                      value={draft.arguments}
+                      maxLength={65536}
+                      autoComplete="off"
+                      onChange={(event) =>
+                        edit({ arguments: event.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Additional settings (JSON)">
+                    <textarea
+                      value={draft.extra}
+                      maxLength={131072}
+                      autoComplete="off"
+                      onChange={(event) => edit({ extra: event.target.value })}
+                    />
+                  </Field>
+                  <p>
+                    Optional fields: cwd, env, headers, connect_timeout,
+                    tool_timeout, output_limit. Omitted values remain saved; use
+                    empty objects or arrays to clear them.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+          <div className="action-cluster">
+            <Button onClick={() => void requestReview()}>
+              Review settings
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!reviewed}
+              onClick={() => void save(reviewed)}
+            >
+              Save Disabled
+            </Button>
+          </div>
+        </fieldset>
+      </details>
       {pending && (
         <Button
           disabled={Boolean(busy) || !state.active}

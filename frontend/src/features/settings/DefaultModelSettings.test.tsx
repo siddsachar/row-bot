@@ -56,9 +56,19 @@ async function review() {
 it('reads saved state without effects and requires exact reviewed provider identity', async () => {
   const props = fixture();
   render(<DefaultModelSettings {...props} />);
+  expect(
+    screen.getByRole('heading', { name: 'Defaults', level: 3 }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('heading', { name: 'Brain', level: 4 }),
+  ).toBeVisible();
   expect(await screen.findByLabelText('Default provider ID')).toHaveValue(
     'openai',
   );
+  expect(
+    screen.getByRole('status', { name: 'Default model saved state' }),
+  ).toHaveTextContent('Saved default: model:openai:same');
+  expect(screen.getByText('Readiness not checked')).toBeVisible();
   expect(props.review).not.toHaveBeenCalled();
   expect(props.apply).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('Default provider ID'), {
@@ -90,8 +100,8 @@ it('invalidates a review when the model changes and retains the draft through fu
     target: { value: 'changed' },
   });
   expect(
-    screen.getByRole('button', { name: 'Confirm default model' }),
-  ).toBeDisabled();
+    screen.queryByRole('button', { name: 'Confirm default model' }),
+  ).not.toBeInTheDocument();
   first.unmount();
   render(<DefaultModelSettings {...props} session={session} />);
   expect(screen.getByLabelText('Default exact model ID')).toHaveValue(
@@ -121,8 +131,8 @@ it('settles a late uncertain save after unmount and reads only its original rece
   render(<DefaultModelSettings {...props} session={session} />);
   expect(screen.getByLabelText('Default provider ID')).toBeDisabled();
   expect(
-    screen.getByRole('button', { name: 'Discard unsent default' }),
-  ).toBeDisabled();
+    screen.queryByRole('button', { name: 'Discard unsent default' }),
+  ).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'Check original default receipt' }),
   );

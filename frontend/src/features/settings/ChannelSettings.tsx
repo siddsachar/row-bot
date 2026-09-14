@@ -1,4 +1,12 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import {
+  Hash,
+  MessageCircle,
+  MessageSquare,
+  MessagesSquare,
+  Send,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button, Field, Input } from '../../ui/primitives';
 
 export type ChannelFieldStatus = {
@@ -177,6 +185,34 @@ const activityLabels: Record<ChannelStatus['activity'], string> = {
   unknown: 'Activity status unavailable',
 };
 
+const ownerChannelOrder = new Map(
+  ['telegram', 'slack', 'sms', 'discord', 'whatsapp'].map((id, index) => [
+    id,
+    index,
+  ]),
+);
+
+const ownerChannelIcons: Record<string, LucideIcon> = {
+  telegram: Send,
+  slack: Hash,
+  sms: MessageSquare,
+  discord: MessagesSquare,
+  whatsapp: MessageCircle,
+};
+
+function ownerOrderedChannels(channels: ChannelStatus[]): ChannelStatus[] {
+  return [...channels].sort((left, right) => {
+    const leftIndex = ownerChannelOrder.get(left.channel_id);
+    const rightIndex = ownerChannelOrder.get(right.channel_id);
+    if (leftIndex != null || rightIndex != null)
+      return (
+        (leftIndex ?? Number.MAX_SAFE_INTEGER) -
+        (rightIndex ?? Number.MAX_SAFE_INTEGER)
+      );
+    return 0;
+  });
+}
+
 function validPage(value: ChannelPage): boolean {
   return (
     value.schema_version === 1 &&
@@ -194,6 +230,20 @@ function validPage(value: ChannelPage): boolean {
         item.activity_history.length <= 1,
     )
   );
+}
+
+function isPassiveCatalogChannel(channel: ChannelStatus): boolean {
+  return (
+    channel.availability.lifecycle === 'configuration_required' &&
+    channel.availability.monitor === 'unavailable' &&
+    channel.fields.every((field) => !field.writable)
+  );
+}
+
+function configuredLabel(channel: ChannelStatus): string {
+  if (channel.configured === true) return 'Configured';
+  if (channel.configured === false) return 'Not configured';
+  return 'Saved state unavailable';
 }
 
 export default function ChannelSettings({
@@ -382,188 +432,263 @@ export default function ChannelSettings({
   };
 
   const locked = !state.active || Boolean(state.busy) || Boolean(state.pending);
+  const channels = ownerOrderedChannels(state.page?.items ?? []);
+  const passiveChannels = channels.filter(isPassiveCatalogChannel);
+  const managedChannels = channels.filter(
+    (channel) => !isPassiveCatalogChannel(channel),
+  );
+  const runtimeKnown = channels.every((channel) => channel.running !== null);
   return (
-    <section aria-label="Channels" className="settings-section stack">
-      <h2>Channel adapters</h2>
-      <p>
-        Connect messaging accounts and monitor adapter status. Saved values,
-        recipient IDs, message content, and delivery targets stay hidden.
-      </p>
-      <Field label="Search channels">
-        <Input
-          value={state.query}
-          maxLength={128}
-          disabled={!state.active || Boolean(state.busy)}
-          onChange={(event) => session.update({ query: event.target.value })}
-        />
-      </Field>
-      <div className="actions">
-        <Button
-          disabled={!state.active || Boolean(state.busy)}
-          onClick={() => session.refresh()}
-        >
-          Refresh channels
-        </Button>
-      </div>
+    <section aria-label="Channels" className="stack settings-channel-page">
       {state.page && (
-        <p role="status">
-          {state.page.total} registered channel
-          {state.page.total === 1 ? '' : 's'}
-          {state.page.truncated
-            ? '; refine the search to see omitted channels'
-            : ''}
-          .
-        </p>
+        <div className="settings-summary-strip" aria-live="polite">
+          <div
+            className="settings-summary-strip"
+            role="group"
+            aria-label="Channel totals"
+          >
+            <span className="status-chip">
+              {channels.filter((channel) => channel.configured === true).length}{' '}
+              configured
+            </span>
+            <span className="status-chip">
+              {runtimeKnown
+                ? `${channels.filter((channel) => channel.running === true).length} running`
+                : 'Runtime status not loaded'}
+            </span>
+          </div>
+          <a className="settings-inline-action" href="/settings/system">
+            Tunnel credentials are in System
+          </a>
+        </div>
       )}
-      {state.page?.items.map((channel) => (
-        <section
-          className="settings-section stack"
+      {passiveChannels.length > 0 && (
+        <div role="group" aria-label="Bundled channel summaries">
+          {passiveChannels.map((channel) => (
+            <details
+              className="settings-account-panel"
+              key={channel.channel_id}
+            >
+              <summary>
+                {(() => {
+                  const ChannelIcon =
+                    ownerChannelIcons[channel.channel_id] ?? MessageSquare;
+                  return <ChannelIcon size={20} aria-hidden />;
+                })()}
+                <strong>{channel.display_name}</strong>
+                <span
+                  className={`status-chip ${
+                    channel.configured === false ? 'warning' : ''
+                  }`}
+                >
+                  {channel.configured === true
+                    ? 'Stopped'
+                    : configuredLabel(channel)}
+                </span>
+              </summary>
+              <div className="settings-account-content stack">
+                <p>
+                  The adapter is not loaded, so lifecycle and activity status
+                  have not been inferred.
+                </p>
+                {channel.capabilities.length > 0 && (
+                  <p>Capabilities: {channel.capabilities.join(', ')}.</p>
+                )}
+                <ul
+                  className="settings-compact-list"
+                  aria-label={`${channel.display_name} saved fields`}
+                >
+                  {channel.fields.map((field) => (
+                    <li key={field.key}>
+                      <strong>{field.label}</strong>
+                      <span>
+                        {field.configured === true
+                          ? `Saved via ${field.source || 'channel storage'}${field.fingerprint ? ` (${field.fingerprint})` : ''}`
+                          : field.configured === false
+                            ? 'Not saved'
+                            : 'Saved state unavailable'}
+                        {field.externally_managed
+                          ? ' · Managed by the server operator'
+                          : ''}
+                      </span>
+                      <span>{field.storage}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="settings-help">
+                  Configuration and lifecycle actions become available when the
+                  adapter is loaded.
+                </p>
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+      {managedChannels.map((channel) => (
+        <details
+          className="settings-account-panel"
           aria-label={`${channel.display_name} channel`}
           key={channel.channel_id}
         >
-          <h3>{channel.display_name}</h3>
-          <p>
-            {channel.running === true
-              ? 'Running'
-              : channel.configured === true
-                ? 'Stopped'
-                : channel.configured === false
-                  ? 'Configuration required'
-                  : 'Status unavailable'}
-            {' · '}
-            {activityLabels[channel.activity]}
-            {channel.source.kind === 'plugin' ? ' · Plugin channel' : ''}
-          </p>
-          {channel.capabilities.length > 0 && (
-            <p>Capabilities: {channel.capabilities.join(', ')}.</p>
-          )}
-          <div
-            className="actions"
-            role="group"
-            aria-label={`${channel.display_name} lifecycle`}
-          >
-            <Button
-              disabled={
-                locked ||
-                channel.availability.lifecycle !== 'available' ||
-                channel.running === true
-              }
-              onClick={() => void requestReview(channel, 'start')}
+          <summary>
+            {(() => {
+              const ChannelIcon =
+                ownerChannelIcons[channel.channel_id] ?? MessageSquare;
+              return <ChannelIcon size={20} aria-hidden />;
+            })()}
+            <strong>{channel.display_name}</strong>
+            <span
+              className={`status-chip ${
+                channel.configured === false ? 'warning' : ''
+              }`}
             >
-              Review start {channel.display_name}
-            </Button>
-            <Button
-              disabled={locked || channel.running !== true}
-              onClick={() => void requestReview(channel, 'stop')}
-            >
-              Review stop {channel.display_name}
-            </Button>
-            <Button
-              disabled={locked || channel.availability.pairing !== 'available'}
-              onClick={() => void requestReview(channel, 'pair')}
-            >
-              Review pairing code for {channel.display_name}
-            </Button>
-          </div>
-          {channel.availability.pairing !== 'available' && (
+              {channel.running === true
+                ? 'Running'
+                : channel.configured === true
+                  ? 'Stopped'
+                  : channel.configured === false
+                    ? 'Not configured'
+                    : 'Status unavailable'}
+            </span>
+          </summary>
+          <div className="settings-account-content stack">
             <p>
-              Pairing controls are {channel.availability.pairing}; use the
-              account method provided by this adapter.
+              {activityLabels[channel.activity]}
+              {channel.source.kind === 'plugin' ? ' · Plugin channel' : ''}
             </p>
-          )}
-          {channel.fields.map((field) => {
-            const draftKey = `${channel.channel_id}:${field.key}`;
-            return (
-              <div className="stack" key={field.key}>
-                <Field
-                  label={`New ${field.label}`}
-                  hint={field.help_text || undefined}
-                >
-                  <Input
-                    type={
-                      field.field_type === 'password'
-                        ? 'password'
-                        : field.field_type === 'number' ||
-                            field.field_type === 'slider'
-                          ? 'number'
-                          : 'text'
-                    }
-                    autoComplete="off"
-                    value={state.drafts[draftKey] ?? ''}
-                    maxLength={16384}
-                    disabled={locked || !field.writable}
-                    onChange={(event) =>
-                      session.setDraft(draftKey, event.target.value)
-                    }
-                  />
-                </Field>
-                <p>
-                  {field.configured === true
-                    ? `Saved via ${field.source || 'channel storage'}${field.fingerprint ? ` (${field.fingerprint})` : ''}.`
-                    : field.configured === false
-                      ? 'Not saved.'
-                      : 'Saved state unavailable.'}
-                  {field.externally_managed
-                    ? ' Managed by the server operator.'
-                    : ''}
-                </p>
-                <div className="actions">
-                  <Button
-                    disabled={
-                      locked ||
-                      !field.writable ||
-                      !(state.drafts[draftKey] ?? '')
-                    }
-                    onClick={() =>
-                      void requestReview(channel, 'configure', field)
-                    }
-                  >
-                    Review save {field.label}
-                  </Button>
-                  <Button
-                    disabled={
-                      locked ||
-                      !field.writable ||
-                      field.configured !== true ||
-                      Boolean(state.drafts[draftKey])
-                    }
-                    onClick={() =>
-                      void requestReview(channel, 'configure', field)
-                    }
-                  >
-                    Review clear {field.label}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-          {channel.paired_identities.length > 0 && (
-            <div className="stack">
-              <h4>Paired accounts</h4>
-              {channel.paired_identities.map((identity) => (
-                <div className="actions" key={identity.identity_id}>
-                  <span>
-                    {identity.display_name || 'Paired account'} ({identity.hint}
-                    )
-                  </span>
-                  <Button
-                    disabled={locked}
-                    onClick={() =>
-                      void requestReview(
-                        channel,
-                        'revoke',
-                        null,
-                        identity.identity_id,
-                      )
-                    }
-                  >
-                    Review revoke {identity.display_name || identity.hint}
-                  </Button>
-                </div>
-              ))}
+            {channel.capabilities.length > 0 && (
+              <p>Capabilities: {channel.capabilities.join(', ')}.</p>
+            )}
+            <div
+              className="actions"
+              role="group"
+              aria-label={`${channel.display_name} lifecycle`}
+            >
+              <Button
+                disabled={
+                  locked ||
+                  channel.availability.lifecycle !== 'available' ||
+                  channel.running === true
+                }
+                onClick={() => void requestReview(channel, 'start')}
+              >
+                Review start {channel.display_name}
+              </Button>
+              <Button
+                disabled={locked || channel.running !== true}
+                onClick={() => void requestReview(channel, 'stop')}
+              >
+                Review stop {channel.display_name}
+              </Button>
+              <Button
+                disabled={
+                  locked || channel.availability.pairing !== 'available'
+                }
+                onClick={() => void requestReview(channel, 'pair')}
+              >
+                Review pairing code for {channel.display_name}
+              </Button>
             </div>
-          )}
-        </section>
+            {channel.availability.pairing !== 'available' && (
+              <p>
+                Pairing controls are {channel.availability.pairing}; use the
+                account method provided by this adapter.
+              </p>
+            )}
+            {channel.fields.map((field) => {
+              const draftKey = `${channel.channel_id}:${field.key}`;
+              return (
+                <div className="stack" key={field.key}>
+                  <Field
+                    label={`New ${field.label}`}
+                    hint={field.help_text || undefined}
+                  >
+                    <Input
+                      type={
+                        field.field_type === 'password'
+                          ? 'password'
+                          : field.field_type === 'number' ||
+                              field.field_type === 'slider'
+                            ? 'number'
+                            : 'text'
+                      }
+                      autoComplete="off"
+                      value={state.drafts[draftKey] ?? ''}
+                      maxLength={16384}
+                      disabled={locked || !field.writable}
+                      onChange={(event) =>
+                        session.setDraft(draftKey, event.target.value)
+                      }
+                    />
+                  </Field>
+                  <p>
+                    {field.configured === true
+                      ? `Saved via ${field.source || 'channel storage'}${field.fingerprint ? ` (${field.fingerprint})` : ''}.`
+                      : field.configured === false
+                        ? 'Not saved.'
+                        : 'Saved state unavailable.'}
+                    {field.externally_managed
+                      ? ' Managed by the server operator.'
+                      : ''}
+                  </p>
+                  <div className="actions">
+                    <Button
+                      disabled={
+                        locked ||
+                        !field.writable ||
+                        !(state.drafts[draftKey] ?? '')
+                      }
+                      onClick={() =>
+                        void requestReview(channel, 'configure', field)
+                      }
+                    >
+                      Review save {field.label}
+                    </Button>
+                    <Button
+                      disabled={
+                        locked ||
+                        !field.writable ||
+                        field.configured !== true ||
+                        Boolean(state.drafts[draftKey])
+                      }
+                      onClick={() =>
+                        void requestReview(channel, 'configure', field)
+                      }
+                    >
+                      Review clear {field.label}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            {channel.paired_identities.length > 0 && (
+              <div className="stack">
+                <h4>Paired accounts</h4>
+                {channel.paired_identities.map((identity) => (
+                  <div className="actions" key={identity.identity_id}>
+                    <span>
+                      {identity.display_name || 'Paired account'} (
+                      {identity.hint})
+                    </span>
+                    <Button
+                      disabled={locked}
+                      onClick={() =>
+                        void requestReview(
+                          channel,
+                          'revoke',
+                          null,
+                          identity.identity_id,
+                        )
+                      }
+                    >
+                      Review revoke {identity.display_name || identity.hint}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
       ))}
       {state.reviewed && (
         <section

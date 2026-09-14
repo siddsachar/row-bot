@@ -70,8 +70,8 @@ const descriptions: Record<string, string> = {
   accounts:
     'Connect GitHub, Google, and X accounts without exposing credentials.',
   channels:
-    'Configure messaging adapters, pairing, tunnels, and delivery boundaries.',
-  utilities: 'Enable compact built-in utilities and review their local scope.',
+    'Connect Row-Bot to external messaging platforms. Tunnel credentials live in System.',
+  utilities: 'Lightweight productivity tools available to the assistant.',
   mcp: 'Configure external MCP servers, runtimes, permissions, and tested tools.',
   plugins:
     'Manage installed plugins, provenance, permissions, and configuration.',

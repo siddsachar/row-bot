@@ -131,11 +131,10 @@ export default function ModelCatalog({
     }
   }
   return (
-    <div className="stack" aria-busy={loading}>
-      <h2>Model catalogue</h2>
+    <div className="stack" aria-label="Saved model catalog" aria-busy={loading}>
       <p>
-        Search the locally saved catalog. Choose a model for a conversation in
-        that conversation’s controls.
+        Search the locally saved catalog. Chat rows can fill the Brain default
+        draft above; pinned pickers are saved catalog membership.
       </p>
       <form
         className="field-row"
@@ -201,15 +200,39 @@ export default function ModelCatalog({
               Try another search or provider.
             </EmptyState>
           )}
-          <ul className="settings-results">
+          <ul className="settings-results settings-catalog-list">
             {page.items.map((model) => (
-              <li className="surface" key={model.selection_ref}>
-                <details>
+              <li
+                className="surface settings-model-catalog-entry"
+                key={model.selection_ref}
+              >
+                <details className="settings-catalog-row">
                   <summary>
-                    {model.display_name} · {model.provider_display_name}
+                    <span className="settings-catalog-row-main">
+                      <strong>
+                        {model.display_name} · {model.provider_display_name}
+                      </strong>
+                    </span>
+                    <span className="actions settings-catalog-row-state">
+                      {model.installed === true && (
+                        <span className="status-chip success">Installed</span>
+                      )}
+                      {model.categories.slice(0, 2).map((category) => (
+                        <span className="status-chip" key={category}>
+                          {category}
+                        </span>
+                      ))}
+                      {!!model.pinned_surfaces.length && (
+                        <span className="status-chip">
+                          {model.pinned_surfaces.length} pinned
+                        </span>
+                      )}
+                    </span>
                   </summary>
-                  <p>{model.selection_ref}</p>
-                  <dl>
+                  <p className="settings-model-selection-ref">
+                    {model.selection_ref}
+                  </p>
+                  <dl className="settings-catalog-facts">
                     <dt>Context window</dt>
                     <dd>
                       {model.context_window == null
@@ -243,6 +266,21 @@ export default function ModelCatalog({
                           ? model.reasoning.thinking_mode
                           : 'Unknown')}
                     </dd>
+                    <dt>Pinned pickers</dt>
+                    <dd>
+                      {model.pinned_surfaces
+                        .map(
+                          (surface) =>
+                            ({
+                              chat: 'Brain',
+                              vision: 'Vision',
+                              image: 'Image',
+                              video: 'Video',
+                              voice: 'Voice',
+                            })[surface] ?? surface,
+                        )
+                        .join(', ') || 'None'}
+                    </dd>
                   </dl>
                 </details>
                 {onChooseDefault && model.categories.includes('chat') && (
@@ -256,7 +294,7 @@ export default function ModelCatalog({
                         .finally(() => setChoosing(false));
                     }}
                   >
-                    Review {model.display_name} as default
+                    Use {model.display_name} for Brain draft
                   </Button>
                 )}
               </li>

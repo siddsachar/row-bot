@@ -133,6 +133,65 @@ it('renders path-free skills as text and searches only on submission', async () 
   expect(container.textContent).not.toMatch(/[A-Z]:\\|\/Users\/|\/home\//);
 });
 
+it('presents compact skill rows with saved metrics, filters, and sorting', async () => {
+  const original = page().items[0];
+  const api = io({
+    list: vi.fn(async () =>
+      page({
+        total: 3,
+        items: [
+          {
+            ...original,
+            id: 'zulu',
+            display_name: 'Zulu bundled',
+            source: 'bundled',
+            pinned: true,
+            editable: false,
+          },
+          {
+            ...original,
+            id: 'alpha',
+            display_name: 'Alpha custom',
+            available: false,
+          },
+          {
+            ...original,
+            id: 'beta',
+            display_name: 'Beta custom',
+          },
+        ],
+      }),
+    ),
+  });
+  const { container } = render(
+    <SkillsSettings session={createSkillsSettingsSession()} io={api} />,
+  );
+  expect(await screen.findByText('2 available shown')).toBeVisible();
+  expect(screen.getByText('1 pinned shown')).toBeVisible();
+  expect(screen.getByText('2 custom shown')).toBeVisible();
+  const list = container.querySelector('.settings-skill-list')!;
+  expect(list.querySelectorAll('.settings-skill-row')).toHaveLength(3);
+  expect(list.querySelector('.surface')).toBeNull();
+  expect(
+    [...list.querySelectorAll('.settings-skill-summary strong')].map(
+      (item) => item.textContent,
+    ),
+  ).toEqual(['✨ Alpha custom', '✨ Beta custom', '✨ Zulu bundled']);
+
+  await userEvent.selectOptions(screen.getByLabelText('Filter'), 'pinned');
+  expect(screen.queryByText('✨ Alpha custom')).not.toBeInTheDocument();
+  expect(screen.getByText('✨ Zulu bundled')).toBeVisible();
+  expect(screen.getByText(/1 shown of 3 matching skills/)).toBeVisible();
+
+  await userEvent.selectOptions(screen.getByLabelText('Filter'), '');
+  await userEvent.selectOptions(screen.getByLabelText('Sort'), 'pinned');
+  expect(
+    [...list.querySelectorAll('.settings-skill-summary strong')].map(
+      (item) => item.textContent,
+    ),
+  ).toEqual(['✨ Zulu bundled', '✨ Alpha custom', '✨ Beta custom']);
+});
+
 it('reviews and applies availability without silently changing the row', async () => {
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
@@ -141,7 +200,11 @@ it('reviews and applies availability without silently changing the row', async (
   );
   fireEvent.click(row.getByRole('button', { name: 'Make unavailable' }));
   expect(await screen.findByText(/Review complete/)).toBeVisible();
-  expect(row.getByText(/Available · Not pinned/)).toBeVisible();
+  expect(row.getByText('Available')).toBeVisible();
+  expect(row.getByRole('button', { name: 'Pin for new work' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   expect(api.review).toHaveBeenCalledWith(
     'skill.preference',
     {
@@ -182,6 +245,8 @@ it('creates and imports only through explicit review', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
 
   const text = '---\nname: imported\n---\nImported workflow.';
+  expect(screen.getByLabelText('Import SKILL.md text')).not.toBeVisible();
+  fireEvent.click(screen.getByText('Import a skill'));
   fireEvent.change(screen.getByLabelText('Import SKILL.md text'), {
     target: { value: text },
   });
@@ -195,6 +260,34 @@ it('creates and imports only through explicit review', async () => {
     },
     expect.any(AbortSignal),
   );
+});
+
+it('keeps supplemental imports and proposals closed in the resting view', async () => {
+  const api = io({
+    proposals: vi.fn(async () => ({
+      ...proposals,
+      items: [
+        {
+          id: 'proposal',
+          type: 'create_skill' as const,
+          title: 'Create a synthetic skill',
+          rationale: 'Saved suggestion details',
+          risk: 'low' as const,
+          status: 'ready',
+          preview: {},
+        },
+      ],
+    })),
+  });
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
+  await screen.findByText('✨ Sample skill');
+  expect(screen.getByRole('button', { name: 'Create skill' })).toBeVisible();
+  expect(screen.getByLabelText('Import SKILL.md text')).not.toBeVisible();
+  expect(
+    screen.getByText('Create a synthetic skill · ready'),
+  ).not.toBeVisible();
+  fireEvent.click(screen.getByText('Skill proposals'));
+  expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
 it('opens, edits, duplicates, and offers destructive delete review', async () => {

@@ -64,11 +64,28 @@ async function reviewNew() {
     screen.getByRole('textbox', { name: 'Describe your Buddy' }),
     { target: { value: 'Synthetic Buddy' } },
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review new Buddy' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review Generate full Buddy' }),
+  );
   await screen.findByRole('region', { name: 'Review Hatch action' });
 }
 
 describe('Buddy Hatch explicit controls', () => {
+  it('presents the owner generation hierarchy without bypassing review', () => {
+    const input = props();
+    render(<BuddyHatch {...input} />);
+
+    expect(
+      screen.getByRole('heading', { name: 'Generate Look' }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Review Generate full Buddy' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Review motion' })).toBeVisible();
+    expect(input.review).not.toHaveBeenCalled();
+    expect(input.confirm).not.toHaveBeenCalled();
+  });
+
   it('never generates on mount and reviews exact models before one explicit confirmation', async () => {
     const input = props();
     render(<BuddyHatch {...input} />);
@@ -111,7 +128,7 @@ describe('Buddy Hatch explicit controls', () => {
       />,
     );
     expect(
-      screen.getByRole('button', { name: 'Review new motion' }),
+      screen.getByRole('button', { name: 'Review motion' }),
     ).toBeDisabled();
     await act(async () => pending.resolve(result));
     expect(
@@ -124,7 +141,7 @@ describe('Buddy Hatch explicit controls', () => {
     const pending = deferred<HatchReview>();
     input.review = vi.fn(() => pending.promise);
     const view = render(<BuddyHatch {...input} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Review new motion' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review motion' }));
     view.rerender(<BuddyHatch {...input} configRevision={null} />);
     await act(async () =>
       pending.resolve({
@@ -151,9 +168,7 @@ describe('Buddy Hatch explicit controls', () => {
     await act(async () => {});
     expect(input.refresh).toHaveBeenCalledExactlyOnceWith('command-one');
     expect(input.confirm).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Review retained still' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Review still only' }));
     await screen.findByText('Provider calls: 0');
     expect(input.review).toHaveBeenCalledWith(
       expect.objectContaining({

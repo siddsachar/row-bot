@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { ClientController } from '../../api';
+import type { WikiSettingsSnapshot } from '../../api/types';
 import { Button, Field, Input } from '../../ui/primitives';
 
 export type WikiAction =
@@ -415,8 +416,10 @@ function Versions({ article }: { article: WikiArticleReview }) {
 }
 export default function WikiSettings({
   session,
+  snapshot,
 }: {
   session: WikiSettingsSession;
+  snapshot?: WikiSettingsSnapshot;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   useEffect(() => {
@@ -436,18 +439,43 @@ export default function WikiSettings({
           </p>
         </div>
       </header>
-      <div className="actions">
+      {snapshot && <WikiSnapshotSummary snapshot={snapshot} />}
+      <div className="actions settings-wiki-actions">
         <Button disabled={locked} onClick={() => void session.load()}>
-          Reload wiki status
+          Check vault sync
         </Button>
         {session.canChooseVault() && (
           <Button disabled={locked} onClick={() => void session.chooseVault()}>
             Choose authorized vault
           </Button>
         )}
+        <Button
+          disabled={
+            locked ||
+            state.status?.availability !== 'available' ||
+            !state.enabled
+          }
+          onClick={() => void session.review('wiki.rebuild')}
+        >
+          Review rebuild
+        </Button>
+        <Button
+          disabled
+          title="Opening a local folder is not exposed by the authenticated Wiki owner."
+        >
+          Open vault folder
+        </Button>
+        <a className="button secondary" href="/settings/knowledge">
+          Browse or create knowledge
+        </a>
       </div>
+      <p className="settings-help">
+        Opening the configured folder is unavailable here because the
+        authenticated Wiki owner does not expose an OS-folder action.
+      </p>
       {state.error && <p role="alert">{state.error}</p>}
       <p role="status">
+        Sync status:{' '}
         {state.busy
           ? 'Working…'
           : state.pending
@@ -510,12 +538,6 @@ export default function WikiSettings({
               onClick={() => void session.review('wiki.publish')}
             >
               Review publish
-            </Button>
-            <Button
-              disabled={locked}
-              onClick={() => void session.review('wiki.rebuild')}
-            >
-              Review rebuild
             </Button>
             <Button
               disabled={locked || state.selected.length === 0}
@@ -632,6 +654,55 @@ export default function WikiSettings({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function WikiSnapshotSummary({ snapshot }: { snapshot: WikiSettingsSnapshot }) {
+  const pathLabels: Record<WikiSettingsSnapshot['path_state'], string> = {
+    available: 'Available',
+    missing: 'Folder not found',
+    not_local: 'Not a local folder',
+    unavailable: 'Unavailable',
+  };
+  const enabled = snapshot.enabled && snapshot.availability === 'available';
+
+  return (
+    <section
+      className="settings-snapshot-section stack"
+      aria-label="Saved wiki configuration"
+    >
+      <div className="settings-owner-heading">
+        <div>
+          <h3>Saved vault</h3>
+          <p>Configured local vault and saved export counts.</p>
+        </div>
+        <span className={enabled ? 'status-chip success' : 'status-chip'}>
+          {snapshot.availability === 'unavailable'
+            ? 'Unavailable'
+            : snapshot.enabled
+              ? 'Enabled'
+              : 'Disabled'}
+        </span>
+      </div>
+      <dl className="settings-facts">
+        <div className="settings-fact">
+          <dt>Vault path</dt>
+          <dd>{snapshot.vault_path || 'Not configured'}</dd>
+        </div>
+        <div className="settings-fact">
+          <dt>Path state</dt>
+          <dd>{pathLabels[snapshot.path_state]}</dd>
+        </div>
+        <div className="settings-fact">
+          <dt>Articles</dt>
+          <dd>{snapshot.articles.toLocaleString()}</dd>
+        </div>
+        <div className="settings-fact">
+          <dt>Conversations</dt>
+          <dd>{snapshot.conversations.toLocaleString()}</dd>
+        </div>
+      </dl>
     </section>
   );
 }

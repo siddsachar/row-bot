@@ -232,11 +232,16 @@ export default function BuddyHatch(props: BuddyHatchProps) {
       aria-label="Hatch a Buddy"
       aria-busy={busy}
     >
-      <p>
-        Create a look and six motion clips with your configured image and video
-        providers. Generation may incur provider charges. Your current look
-        stays available until the new pack is ready.
-      </p>
+      <div className="settings-buddy-section-heading buddy-hatch-heading">
+        <div>
+          <h3>Generate Look</h3>
+          <p>
+            Create a look and six motion clips with your configured image and
+            video providers. Generation may incur provider charges. Your current
+            look stays available until the new pack is ready.
+          </p>
+        </div>
+      </div>
       <Field label="Describe your Buddy">
         <textarea
           aria-label="Describe your Buddy"
@@ -254,7 +259,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
           disabled={busy || running || !prompt.trim()}
           onClick={() => void run('full')}
         >
-          Review new Buddy
+          Review Generate full Buddy
         </Button>
         {props.selectedPack?.available &&
           props.selectedPack.assets.some((asset) => asset.id === 'preview') && (
@@ -262,16 +267,16 @@ export default function BuddyHatch(props: BuddyHatchProps) {
               disabled={busy || running}
               onClick={() => void run('motion')}
             >
-              Review new motion
+              Review motion
             </Button>
           )}
         {result?.has_still && !running && (
           <>
             <Button disabled={busy} onClick={() => void run('still')}>
-              Review retained still
+              Review still only
             </Button>
             <Button disabled={busy} onClick={() => void run('retained-motion')}>
-              Review motion from retained still
+              Review motion from still
             </Button>
           </>
         )}

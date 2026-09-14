@@ -51,6 +51,12 @@ function pending<T>() {
   return { promise, resolve, reject };
 }
 
+async function openCatalog() {
+  const summary = await screen.findByText('Cached tool catalogue');
+  const disclosure = summary.closest('details')!;
+  if (!disclosure.open) fireEvent.click(summary);
+}
+
 it('keeps at most 200 tool rows while forward paging reaches the entire catalog', async () => {
   const chunk = (offset: number) => ({
     ...page(
@@ -66,6 +72,7 @@ it('keeps at most 200 tool rows while forward paging reaches the entire catalog'
       chunk(Number(cursor ?? 0)),
   );
   const view = render(<ToolCatalog load={load} />);
+  await openCatalog();
   await screen.findByText('Tool 099 · Core');
   for (const end of [199, 299, 399]) {
     fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
@@ -94,6 +101,7 @@ it('keeps at most 200 tool rows while forward paging reaches the entire catalog'
 it('distinguishes cached zero counts from unavailable sources and unknown runtime readiness', async () => {
   const load = vi.fn(async () => page());
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   expect(await screen.findByText('First tool · Core')).toBeVisible();
   expect(screen.getByText(/Collection time is unknown/)).toHaveTextContent(
     'Showing cached tool information',
@@ -133,13 +141,14 @@ it('keeps declarations separate from access and renders labels as text', async (
   const { container } = render(
     <ToolCatalog load={async () => page([entry, tool('same', 'core')])} />,
   );
+  await openCatalog();
   const summary = await screen.findByText(
     '<script>privateMarkup()</script> · Plugins',
   );
   expect(container.querySelector('script')).toBeNull();
   fireEvent.click(summary);
   const row = within(summary.closest('li')!);
-  expect(row.getByText('Enabled')).toBeVisible();
+  expect(row.getAllByText('Enabled')).toHaveLength(2);
   expect(row.getByText('Recorded')).toBeVisible();
   expect(row.getAllByText('Not declared')).toHaveLength(2);
   expect(row.getByText('Unknown')).toBeVisible();
@@ -148,6 +157,35 @@ it('keeps declarations separate from access and renders labels as text', async (
   expect(
     screen.queryByText(/ready to run|credentials verified|safe to execute/i),
   ).not.toBeInTheDocument();
+});
+
+it('uses compact friendly-label rows and keeps stable IDs behind disclosure', async () => {
+  const entry = {
+    ...tool('web_search'),
+    label: 'Web Search',
+    enabled: true,
+    configured: true,
+  };
+  const { container } = render(
+    <ToolCatalog load={async () => page([entry])} />,
+  );
+  expect(await screen.findByText('Cached tool catalogue')).toBeVisible();
+  expect(screen.getByText('Web Search · Core')).not.toBeVisible();
+  await openCatalog();
+  const heading = await screen.findByText('Web Search · Core');
+  const row = heading.closest('li')!;
+  expect(row.closest('ul')).toHaveClass(
+    'settings-catalog-list',
+    'settings-tool-catalog-list',
+  );
+  expect(row).not.toHaveClass('surface');
+  const savedState = within(row).getByLabelText('Web Search saved state');
+  expect(within(savedState).getByText('Enabled')).toBeVisible();
+  expect(within(savedState).getByText('Configured')).toBeVisible();
+  expect(within(row).getByText('web_search')).not.toBeVisible();
+  fireEvent.click(heading);
+  expect(within(row).getByText('web_search')).toBeVisible();
+  expect(container.querySelector('.settings-tool-catalog-list')).not.toBeNull();
 });
 
 it('makes unavailable and truncated outcomes explicit', async () => {
@@ -162,6 +200,7 @@ it('makes unavailable and truncated outcomes explicit', async () => {
     })),
   }));
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   expect(await screen.findByText('No matching cached tools')).toBeVisible();
   expect(
     screen.getByText(/Cached tool information is unavailable/),
@@ -179,6 +218,7 @@ it('searches explicitly with keyboard submission and applies the source filter',
   const user = userEvent.setup();
   const load = vi.fn(async () => page());
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   await screen.findByText('First tool · Core');
   await user.click(screen.getByRole('searchbox', { name: 'Search tools' }));
   await user.type(
@@ -212,6 +252,7 @@ it('loads one additional page on request and ignores duplicate load-more clicks'
     .mockResolvedValueOnce(page([tool('First')], 'next'))
     .mockImplementationOnce(() => next.promise);
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   await screen.findByText('First · Core');
   expect(load).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
@@ -236,6 +277,7 @@ it('aborts pending pagination on a source change and excludes its late response'
     .mockImplementationOnce(() => late.promise)
     .mockResolvedValueOnce(page([tool('Filtered', 'mcp')]));
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   await screen.findByText('Old · Core');
   fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
   fireEvent.change(screen.getByRole('combobox', { name: 'Tool source' }), {
@@ -259,6 +301,7 @@ it('aborts initial requests on unmount and ignores their late failure', async ()
     ) => old.promise,
   );
   const { unmount } = render(<ToolCatalog load={load} />);
+  await openCatalog();
   unmount();
   expect(load.mock.calls[0][3]?.aborted).toBe(true);
   await act(async () => old.reject(new Error('private late failure')));
@@ -282,6 +325,7 @@ it.each(['revision', 'cursor'] as const)(
       revision: 'two',
     });
     render(<ToolCatalog load={load} />);
+    await openCatalog();
     await screen.findByText('Original · Core');
     fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
     expect(
@@ -309,6 +353,7 @@ it('redacts errors and supports an explicit first-page retry', async () => {
     .mockRejectedValueOnce(new Error('private token/path'))
     .mockResolvedValueOnce(page());
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   expect(
     await screen.findByText('Row-Bot could not complete this request.'),
   ).toBeVisible();
@@ -328,6 +373,7 @@ it('fences an obsolete first page when its loader changes', async () => {
     ) => old.promise,
   );
   const { rerender } = render(<ToolCatalog load={first} />);
+  await openCatalog();
   rerender(<ToolCatalog load={async () => page([tool('Current')])} />);
   expect(await screen.findByText('Current · Core')).toBeVisible();
   expect(first.mock.calls[0][3]?.aborted).toBe(true);
@@ -342,6 +388,7 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
     .mockRejectedValueOnce(new TypeError('private network detail'))
     .mockResolvedValueOnce(page([tool('Recovered')]));
   render(<ToolCatalog load={load} />);
+  await openCatalog();
   await screen.findByText('Confirmed · Core');
   fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
   expect(

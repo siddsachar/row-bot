@@ -159,7 +159,20 @@ export default function McpConnectionsPanel({
   const selected = owner.selected();
   return (
     <section className="stack" aria-label="MCP connections">
-      {policy && <McpPolicyControls {...policy} session={owner.globalPolicy} />}
+      {policy && (
+        <details
+          className="settings-supplemental-disclosure"
+          open={owner.globalPolicy.hasRetained() || undefined}
+        >
+          <summary>
+            <span>
+              <strong>Saved MCP permissions</strong>
+              <small>Authorize future access without connecting</small>
+            </span>
+          </summary>
+          <McpPolicyControls {...policy} session={owner.globalPolicy} />
+        </details>
+      )}
       {state.message && <p role="status">{state.message}</p>}
       {selected && (
         <>

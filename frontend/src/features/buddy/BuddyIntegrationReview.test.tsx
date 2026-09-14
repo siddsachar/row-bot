@@ -137,7 +137,9 @@ it('dismisses the owned review as well as its visible card so a clean session is
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
     target: { value: 'Synthetic look' },
   });
-  fireEvent.click(screen.getByRole('button', { name: /Review new Buddy/i }));
+  fireEvent.click(
+    screen.getByRole('button', { name: /Review Generate full Buddy/i }),
+  );
   await screen.findByRole('button', { name: 'Dismiss review' });
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss review' }));
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {

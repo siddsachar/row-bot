@@ -90,6 +90,16 @@ async function review() {
 it('reads saved status without implicit probes, secrets or configuration changes', async () => {
   const props = options();
   render(<ProviderConfiguration {...props} />);
+  expect(
+    await screen.findByRole('heading', {
+      name: 'Custom / Self-Hosted Endpoints',
+    }),
+  ).toBeVisible();
+  expect(screen.getByText(fields.base_url)).toBeVisible();
+  expect(
+    screen.getByLabelText('Synthetic endpoint saved configuration'),
+  ).toHaveTextContent('Enabledlocalgeneric_openaimodels unknown');
+  expect(screen.getByText('Not checked')).toBeVisible();
   await edit();
   expect(screen.getByLabelText('Base URL')).toHaveValue(fields.base_url);
   expect(screen.getByLabelText('Endpoint ID')).toBeDisabled();

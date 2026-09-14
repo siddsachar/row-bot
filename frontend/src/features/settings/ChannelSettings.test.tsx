@@ -91,10 +91,18 @@ function options() {
   };
 }
 
+async function openSyntheticChannel() {
+  const disclosure = await screen.findByLabelText('Synthetic Slack channel');
+  const summary = disclosure.querySelector('summary');
+  expect(summary).not.toBeNull();
+  fireEvent.click(summary!);
+  expect(disclosure).toHaveAttribute('open');
+}
+
 it('loads only redacted passive status and does not review or execute', async () => {
   const props = options();
   render(<ChannelSettings {...props} />);
-  await screen.findByRole('heading', { name: 'Synthetic Slack' });
+  await openSyntheticChannel();
   expect(
     screen.getByText(/Inbound activity within the last hour/),
   ).toBeVisible();
@@ -111,6 +119,7 @@ it('loads only redacted passive status and does not review or execute', async ()
 it('keeps credential input write-only through review and clears it on completion', async () => {
   const props = options();
   render(<ChannelSettings {...props} />);
+  await openSyntheticChannel();
   const input = await screen.findByLabelText(/New Bot token/);
   fireEvent.change(input, { target: { value: 'private-replacement-token' } });
   fireEvent.click(
@@ -147,6 +156,7 @@ it('retains an uncertain original and checks it without another review', async (
       code: 'channel_operation_unconfirmed',
     }));
   render(<ChannelSettings {...props} />);
+  await openSyntheticChannel();
   fireEvent.click(
     await screen.findByRole('button', { name: 'Review start Synthetic Slack' }),
   );
@@ -172,6 +182,7 @@ it('shows a pairing code only after explicit review and confirmation', async () 
     pairing_code: 'PAIR1234',
   }));
   render(<ChannelSettings {...props} />);
+  await openSyntheticChannel();
   fireEvent.click(
     await screen.findByRole('button', {
       name: 'Review pairing code for Synthetic Slack',
@@ -187,6 +198,7 @@ it('shows a pairing code only after explicit review and confirmation', async () 
 it('uses the opaque identity when reviewing revocation', async () => {
   const props = options();
   render(<ChannelSettings {...props} />);
+  await openSyntheticChannel();
   fireEvent.click(
     await screen.findByRole('button', {
       name: 'Review revoke Synthetic person',
@@ -214,6 +226,7 @@ it('reports unavailable pairing without inventing an account flow', async () => 
     ],
   });
   render(<ChannelSettings {...props} />);
+  await openSyntheticChannel();
   expect(
     await screen.findByText(/Pairing controls are unavailable/),
   ).toBeVisible();
@@ -229,6 +242,7 @@ it('tombstones private drafts and ignores a late execution after auth loss', asy
   const pending = deferred<ChannelReceipt>();
   props.execute.mockReturnValue(pending.promise);
   render(<ChannelSettings {...props} />);
+  await openSyntheticChannel();
   fireEvent.change(await screen.findByLabelText(/New Bot token/), {
     target: { value: 'private-late-token' },
   });
@@ -263,6 +277,6 @@ it('rejects malformed oversized pages without retaining rows', async () => {
   await screen.findByText(/Channel status is unavailable/);
   expect(props.session.getSnapshot().page).toBeNull();
   expect(
-    screen.queryByRole('heading', { name: 'Synthetic Slack' }),
+    screen.queryByLabelText('Synthetic Slack channel'),
   ).not.toBeInTheDocument();
 });

@@ -192,7 +192,9 @@ test('Settings shell preserves the exact owner order aliases history and reload'
 
   for (const [alias, destination, label] of aliases) {
     await page.goto(settingsPath(alias));
-    await expect(page).toHaveURL(new RegExp(`${settingsPath(destination)}$`));
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe(settingsPath(destination));
     await waitForSettings(page, label);
   }
 

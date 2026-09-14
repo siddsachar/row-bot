@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { EntitySummaryPage } from '../../api/types';
+import { BookOpen, History, ScrollText, Trash2 } from 'lucide-react';
+import type {
+  EntitySummaryPage,
+  KnowledgeSettingsSnapshot,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   Button,
@@ -218,60 +222,257 @@ export function SavedCatalog<P extends SavedPage>({
 export default function KnowledgeCatalog({
   load,
   onOpen,
+  snapshot,
 }: {
   load: SavedLoader<EntitySummaryPage>;
   onOpen?: (id: string) => void;
+  snapshot?: KnowledgeSettingsSnapshot;
 }) {
   return (
-    <SavedCatalog
-      title="Stored Knowledge"
-      noun="knowledge"
-      load={load}
-      description="Browse saved knowledge. Semantic search readiness is unknown. Search matches saved text, including descriptions, aliases and tags."
-      filter={(selected, change) => (
-        <Field
-          label="Entity type"
-          hint="Exact type, or leave blank for all types"
-        >
-          <Input
-            maxLength={64}
-            value={selected}
-            onChange={(event) => change(event.target.value)}
-          />
-        </Field>
+    <div className="stack settings-knowledge-page">
+      {snapshot && <KnowledgeGraphSummary snapshot={snapshot} />}
+      {snapshot && (
+        <>
+          <KnowledgeWikiIntent />
+          <KnowledgeLifecycleSummary snapshot={snapshot} />
+        </>
       )}
-      renderItems={(page) => (
-        <ul className="settings-results">
-          {page.items.map((item) => (
-            <li className="surface" key={item.id}>
-              <details>
-                <summary>
-                  {item.subject || 'Untitled knowledge'} · {item.entity_type}
-                </summary>
-                {item.truncated && (
-                  <p className="muted">This saved summary is shortened.</p>
-                )}
-                <p>{item.description}</p>
-                {onOpen && (
-                  <Button onClick={() => onOpen(item.id)}>
-                    Edit {item.subject || 'knowledge'}
-                  </Button>
-                )}
-                <dl>
-                  <dt>Saved identity</dt>
-                  <dd>{item.id}</dd>
-                  <dt>Saved status</dt>
-                  <dd>Saved</dd>
-                  <dt>Semantic search readiness</dt>
-                  <dd>Unknown</dd>
-                  <dt>Last saved update</dt>
-                  <dd>{item.updated_at || 'Unknown'}</dd>
-                </dl>
-              </details>
-            </li>
-          ))}
-        </ul>
+      <SavedCatalog
+        title="Stored Knowledge"
+        noun="knowledge"
+        load={load}
+        description="Browse saved knowledge. Semantic search readiness is unknown. Search matches saved text, including descriptions, aliases and tags."
+        filter={(selected, change) => (
+          <Field
+            label="Entity type"
+            hint="Exact type, or leave blank for all types"
+          >
+            <Input
+              maxLength={64}
+              value={selected}
+              onChange={(event) => change(event.target.value)}
+            />
+          </Field>
+        )}
+        renderItems={(page) => (
+          <ul className="settings-results">
+            {page.items.map((item) => (
+              <li className="surface" key={item.id}>
+                <details>
+                  <summary>
+                    {item.subject || 'Untitled knowledge'} · {item.entity_type}
+                  </summary>
+                  {item.truncated && (
+                    <p className="muted">This saved summary is shortened.</p>
+                  )}
+                  <p>{item.description}</p>
+                  {onOpen && (
+                    <Button onClick={() => onOpen(item.id)}>
+                      Edit {item.subject || 'knowledge'}
+                    </Button>
+                  )}
+                  <dl>
+                    <dt>Saved identity</dt>
+                    <dd>{item.id}</dd>
+                    <dt>Saved status</dt>
+                    <dd>Saved</dd>
+                    <dt>Semantic search readiness</dt>
+                    <dd>Unknown</dd>
+                    <dt>Last saved update</dt>
+                    <dd>{item.updated_at || 'Unknown'}</dd>
+                  </dl>
+                </details>
+              </li>
+            ))}
+          </ul>
+        )}
+      />
+      {snapshot && <KnowledgeAuditAndDanger />}
+    </div>
+  );
+}
+
+function KnowledgeGraphSummary({
+  snapshot,
+}: {
+  snapshot: KnowledgeSettingsSnapshot;
+}) {
+  const memoryStatus = !snapshot.memory_available
+    ? 'Memory unavailable'
+    : snapshot.memory_enabled === true
+      ? 'Memory enabled'
+      : snapshot.memory_enabled === false
+        ? 'Memory disabled'
+        : 'Memory state unavailable';
+  const statusClass =
+    snapshot.availability === 'available' && snapshot.memory_available
+      ? snapshot.memory_enabled === false
+        ? 'status-chip warning'
+        : 'status-chip success'
+      : 'status-chip warning';
+
+  return (
+    <section
+      className="settings-snapshot-section stack"
+      aria-label="Memory graph summary"
+    >
+      <div className="settings-owner-heading">
+        <div>
+          <h2>Memory graph</h2>
+          <p>
+            Conversation and document entities used for recall and relationship
+            browsing.
+          </p>
+        </div>
+        <span className={statusClass}>{memoryStatus}</span>
+      </div>
+      {snapshot.availability === 'missing' ? (
+        <p>No saved memory graph has been created yet.</p>
+      ) : snapshot.availability === 'unavailable' ? (
+        <p role="status">Saved memory graph statistics are unavailable.</p>
+      ) : (
+        <>
+          <div
+            className="settings-summary-strip"
+            role="group"
+            aria-label="Graph totals"
+          >
+            <span className="status-chip">
+              {snapshot.entities.toLocaleString()} entities
+            </span>
+            <span className="status-chip">
+              {snapshot.relations.toLocaleString()} relations
+            </span>
+          </div>
+          {snapshot.entity_types.length > 0 && (
+            <p className="settings-help">
+              Types:{' '}
+              {snapshot.entity_types
+                .map((item) => `${item.kind}: ${item.count.toLocaleString()}`)
+                .join(', ')}
+            </p>
+          )}
+          <dl className="settings-facts">
+            <div className="settings-fact">
+              <dt>Connected components</dt>
+              <dd>{snapshot.connected_components.toLocaleString()}</dd>
+            </div>
+            <div className="settings-fact">
+              <dt>Largest component</dt>
+              <dd>{snapshot.largest_component.toLocaleString()} entities</dd>
+            </div>
+            <div className="settings-fact">
+              <dt>Isolated entities</dt>
+              <dd>{snapshot.isolated_entities.toLocaleString()}</dd>
+            </div>
+          </dl>
+        </>
       )}
-    />
+    </section>
+  );
+}
+
+function KnowledgeWikiIntent() {
+  return (
+    <section
+      className="settings-snapshot-section stack settings-knowledge-wiki"
+      aria-labelledby="settings-knowledge-wiki"
+    >
+      <header className="settings-snapshot-heading">
+        <BookOpen size={18} aria-hidden />
+        <div>
+          <h3 id="settings-knowledge-wiki">Wiki vault</h3>
+          <p>
+            Publish saved knowledge into the configured local Markdown vault.
+          </p>
+        </div>
+      </header>
+      <div className="settings-control-actions">
+        <a className="button secondary" href="/settings/wiki">
+          Open Wiki settings
+        </a>
+      </div>
+      <p className="settings-help">
+        Vault configuration, saved counts, sync review, and rebuild controls
+        remain on the dedicated Wiki route.
+      </p>
+    </section>
+  );
+}
+
+function KnowledgeLifecycleSummary({
+  snapshot,
+}: {
+  snapshot: KnowledgeSettingsSnapshot;
+}) {
+  const counts = snapshot.status_counts;
+  if (!counts) return null;
+  return (
+    <div
+      className="settings-summary-strip settings-knowledge-lifecycle"
+      role="group"
+      aria-label="Knowledge lifecycle totals"
+    >
+      <span className="status-chip success">
+        {(counts.active ?? 0).toLocaleString()} active
+      </span>
+      <span className="status-chip warning">
+        {(counts.needs_review ?? 0).toLocaleString()} needs review
+      </span>
+      <span className="status-chip">
+        {(counts.superseded ?? 0).toLocaleString()} superseded
+      </span>
+      <span className="status-chip">
+        {(counts.archived ?? 0).toLocaleString()} archived
+      </span>
+    </div>
+  );
+}
+
+function KnowledgeAuditAndDanger() {
+  const unavailable =
+    'This Settings client has no bounded reviewed owner for this operation.';
+  return (
+    <div className="stack settings-knowledge-audit">
+      <details>
+        <summary>
+          <History size={17} aria-hidden /> Recent recall decisions
+        </summary>
+        <p className="settings-help">
+          Recall decision history is not exposed by the bounded Settings read
+          owner.
+        </p>
+      </details>
+      <details>
+        <summary>
+          <ScrollText size={17} aria-hidden /> Memory change log
+        </summary>
+        <p className="settings-help">
+          Memory audit history is not exposed by the bounded Settings read
+          owner.
+        </p>
+      </details>
+      <section
+        className="settings-snapshot-section stack is-danger settings-knowledge-danger"
+        aria-labelledby="settings-knowledge-danger"
+      >
+        <header className="settings-snapshot-heading">
+          <Trash2 size={18} aria-hidden />
+          <div>
+            <h3 id="settings-knowledge-danger">Danger Zone</h3>
+            <p>Permanent actions affecting the complete knowledge store.</p>
+          </div>
+        </header>
+        <div className="settings-control-actions">
+          <Button variant="danger" disabled title={unavailable}>
+            Delete all knowledge
+          </Button>
+        </div>
+        <p className="settings-help">
+          Delete all knowledge is unavailable here because a reviewed,
+          receipt-backed knowledge-wide command owner has not been migrated.
+        </p>
+      </section>
+    </div>
   );
 }

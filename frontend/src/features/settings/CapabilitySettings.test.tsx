@@ -59,6 +59,7 @@ function options() {
 }
 async function enterAndReview() {
   await screen.findByRole('button', { name: 'Edit Synthetic' });
+  fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
   fireEvent.change(screen.getByLabelText('Server name'), {
     target: { value: 'New synthetic' },
   });
@@ -84,6 +85,20 @@ it('does passive reads only and keeps saved launch values write-only', async () 
   expect(screen.getByLabelText('New command')).toHaveValue('');
   expect(screen.getByLabelText('Additional settings (JSON)')).toHaveValue('');
   expect(screen.getByText(/Runtime status unknown/)).toBeVisible();
+});
+
+it('uses a compact owner-style server summary and keeps editors closed at rest', async () => {
+  const props = options();
+  render(<CapabilitySettings {...props} />);
+  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  expect(screen.getByText('MCP enabled')).toBeVisible();
+  expect(screen.getByText('0 connected')).toBeVisible();
+  expect(screen.getByText('0 tools')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Add server' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Import config' })).toBeVisible();
+  expect(screen.getByLabelText('Server name')).not.toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Import config' }));
+  expect(screen.getByLabelText('Server import JSON')).toBeVisible();
 });
 
 it('preserves the exact reviewed draft and command across full unmount', async () => {
@@ -303,6 +318,7 @@ it('rejects malformed and oversized drafts before review or execution', async ()
   const props = options();
   render(<CapabilitySettings {...props} />);
   await screen.findByRole('button', { name: 'Edit Synthetic' });
+  fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
   fireEvent.change(screen.getByLabelText('New arguments (JSON array)'), {
     target: { value: '"not-an-array"' },
   });
