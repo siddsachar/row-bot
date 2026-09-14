@@ -377,6 +377,9 @@ export default function ArtifactPreview({
         </Button>
         <Button
           disabled={loading}
+          aria-describedby={
+            loading && current ? 'design-preview-refresh-status' : undefined
+          }
           onClick={() => setRefresh((value) => value + 1)}
         >
           Refresh preview
@@ -469,6 +472,17 @@ export default function ArtifactPreview({
           <option value="actual">Actual size</option>
         </Select>
       </div>
+      {loading && current && (
+        <p
+          id="design-preview-refresh-status"
+          className="muted"
+          role="status"
+          style={{ margin: 0, flexShrink: 0 }}
+        >
+          The saved preview is refreshing. Refresh preview is available again
+          once this request settles.
+        </p>
+      )}
       {!lifecycle && presentation && (
         <div className="panel-controls" hidden={!presentationOpen}>
           <ArtifactPresentationPanel
@@ -545,7 +559,7 @@ export default function ArtifactPreview({
           {error}
         </ErrorState>
       )}
-      {loading && <Skeleton label="Loading design preview" />}
+      {loading && !current && <Skeleton label="Loading design preview" />}
       {current?.html && (
         <>
           <p aria-live="polite" style={{ margin: 0, flexShrink: 0 }}>

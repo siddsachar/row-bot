@@ -540,9 +540,22 @@ test('actual state messages and recovery controls remain readable in every theme
         });
         await refreshPreview.click();
         await expect(preview).toHaveAttribute('aria-busy', 'true');
+        const refreshExplanation = preview.getByText(
+          'The saved preview is refreshing. Refresh preview is available again once this request settles.',
+          { exact: true },
+        );
+        await expect(refreshExplanation).toBeVisible();
+        await expect(refreshExplanation).toHaveAttribute('role', 'status');
+        await expect(refreshPreview).toHaveAttribute(
+          'aria-describedby',
+          'design-preview-refresh-status',
+        );
         await screenshot(page, info, `${label}-preview-loading`);
         release();
         await expect(preview).toHaveAttribute('aria-busy', 'false');
+        await expect(refreshExplanation).toHaveCount(0);
+        await expect(refreshPreview).toBeEnabled();
+        await expect(refreshPreview).not.toHaveAttribute('aria-describedby');
         await page.unroute(previewPath);
         for (const [status, code] of [
           [404, 'resource_unavailable'],

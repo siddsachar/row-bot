@@ -1034,6 +1034,11 @@ export default function Workspace() {
                       }
                     >
                       {state.error.message}
+                      {state.status === 'reconnecting'
+                        ? ' Row-Bot is trying to reconnect. Sending and live updates are unavailable in the meantime.'
+                        : state.status === 'disconnected'
+                          ? ' Sending and live updates are unavailable until you reconnect.'
+                          : ''}
                     </ErrorState>
                   ) : null}
                   <Conversation

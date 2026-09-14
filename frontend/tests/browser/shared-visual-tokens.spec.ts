@@ -25,7 +25,11 @@ test.beforeEach(async ({ page }) => {
       <label class="field"><span>Workspace name</span><input class="input" value="Reviewed local workspace"></label>
       <div class="actions"><button class="button primary">Review</button><button class="button">Cancel</button></div>
       <div class="transcript"><article class="message message-user"><span class="message-role">You</span><p class="message-text">Preserve readable conversation text.</p></article></div>
+      <span class="connection-status connected">Connected</span>
+      <div class="panel-toolbar"><button class="button">Panel action</button></div>
       <form class="composer"><textarea class="input message-composer" aria-label="Message">Draft stays readable</textarea><div class="composer-toolbar"><button type="button" class="button composer-control">Model</button><button type="button" class="button primary">Send</button></div></form>
+      <span class="status-chip">Waiting</span>
+      <div class="dialog" style="position:static;transform:none">Dialog surface</div>
     </main></body></html>`);
   await theme(page);
 });
@@ -67,9 +71,41 @@ test('reference chrome density preserves reading size, focus and accessible them
             style('.message-text').fontSize,
             style('.message-text').lineHeight,
           ],
+          label: [
+            style('.field > span').fontSize,
+            style('.field > span').lineHeight,
+          ],
+          metadata: [
+            style('.message-role').fontSize,
+            style('.message-role').lineHeight,
+          ],
+          status: [
+            style('.connection-status').fontSize,
+            style('.connection-status').lineHeight,
+          ],
+          panelLabel: [
+            style('.panel-toolbar .button').fontSize,
+            style('.panel-toolbar .button').lineHeight,
+          ],
           composer: [style('textarea').fontSize, style('textarea').lineHeight],
           cardRadius: style('.nav-conversations').borderRadius,
+          panelRadius: surface.borderRadius,
           controlRadius: button.borderRadius,
+          dialogRadius: style('.dialog').borderRadius,
+          composerRadius: style('.composer').borderRadius,
+          pillRadius: style('.status-chip').borderRadius,
+          borders: {
+            card: [
+              style('.nav-conversations').borderTopWidth,
+              style('.nav-conversations').borderTopStyle,
+            ],
+            panel: [surface.borderTopWidth, surface.borderTopStyle],
+            control: [button.borderTopWidth, button.borderTopStyle],
+            dialog: [
+              style('.dialog').borderTopWidth,
+              style('.dialog').borderTopStyle,
+            ],
+          },
           controlHeight: document
             .querySelector('.primary')!
             .getBoundingClientRect().height,
@@ -87,6 +123,10 @@ test('reference chrome density preserves reading size, focus and accessible them
       });
       expect(measured.body).toEqual(['14px', '21px']);
       expect(measured.reading).toEqual(['16px', '24px']);
+      expect(measured.label).toEqual(['13px', '20px']);
+      expect(measured.metadata).toEqual(['12px', '18px']);
+      expect(measured.status).toEqual(['12px', '18px']);
+      expect(measured.panelLabel).toEqual(['13px', '20px']);
       // Firefox serializes its 1/64px layout units as 15.2031px for 15.2px.
       expect(parseFloat(measured.composer[0])).toBeCloseTo(
         compact ? 15.2 : 16,
@@ -94,7 +134,17 @@ test('reference chrome density preserves reading size, focus and accessible them
       );
       expect(measured.composer[1]).toBe(compact ? '21px' : '24px');
       expect(measured.cardRadius).toBe('10px');
+      expect(measured.panelRadius).toBe('12px');
       expect(measured.controlRadius).toBe('6px');
+      expect(measured.dialogRadius).toBe('16px');
+      expect(measured.composerRadius).toBe('18px');
+      expect(measured.pillRadius).toBe('999px');
+      expect(measured.borders).toEqual({
+        card: ['1px', 'solid'],
+        panel: ['1px', 'solid'],
+        control: ['1px', 'solid'],
+        dialog: ['1px', 'solid'],
+      });
       expect(measured.controlHeight).toBeGreaterThanOrEqual(compact ? 34 : 44);
       expect(measured.inputHeight).toBeGreaterThanOrEqual(compact ? 34 : 44);
       expect(measured.primaryContrast).toBeGreaterThanOrEqual(4.5);

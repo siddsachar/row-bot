@@ -140,6 +140,57 @@ it('does no hidden loading and retains exact HTML on unchanged refresh', async (
   expect(screen.queryByTitle('Slide preview: Opening')).not.toBeInTheDocument();
 });
 
+it('explains a busy saved-preview refresh and restores the same action eligibility when it settles', async () => {
+  let finish!: (value: Preview) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(snapshot())
+    .mockImplementationOnce(
+      () =>
+        new Promise<Preview>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+      />,
+    ),
+  );
+  const preview = screen.getByRole('region', { name: 'Design preview' });
+  const refresh = screen.getByRole('button', { name: 'Refresh preview' });
+  const previous = screen.getByRole('button', { name: 'Previous slide' });
+  const next = screen.getByRole('button', { name: 'Next slide' });
+  expect(refresh).toBeEnabled();
+  expect(previous).toBeDisabled();
+  expect(next).toBeEnabled();
+  await act(async () => fireEvent.click(refresh));
+  const explanation = screen.getByText(
+    'The saved preview is refreshing. Refresh preview is available again once this request settles.',
+  );
+  expect(preview).toHaveAttribute('aria-busy', 'true');
+  expect(explanation).toBeVisible();
+  expect(explanation).toHaveAttribute('role', 'status');
+  expect(refresh).toBeDisabled();
+  expect(refresh).toHaveAttribute(
+    'aria-describedby',
+    'design-preview-refresh-status',
+  );
+  expect(previous).toBeDisabled();
+  expect(next).toBeDisabled();
+  await act(async () => finish({ ...snapshot(), html: null, unchanged: true }));
+  expect(preview).toHaveAttribute('aria-busy', 'false');
+  expect(screen.queryByText(/saved preview is refreshing/i)).toBeNull();
+  expect(refresh).toBeEnabled();
+  expect(refresh).not.toHaveAttribute('aria-describedby');
+  expect(previous).toBeDisabled();
+  expect(next).toBeEnabled();
+});
+
 it('aborts and fences reversed resource responses', async () => {
   let finishA!: (value: Preview) => void;
   let finishB!: (value: Preview) => void;

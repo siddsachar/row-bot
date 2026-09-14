@@ -1,7 +1,13 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  --type-size-body: 14px;
+  --type-line-body: 21px;
+  --type-size-label: 13px;
+  --type-line-label: 20px;
+  --type-size-metadata: 12px;
+  --type-line-metadata: 18px;
+  font-size: var(--type-size-body);
+  line-height: var(--type-line-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --space-1: 4px;
@@ -12,8 +18,11 @@
   --space-8: 32px;
   --space-12: 48px;
   --radius-control: 6px;
+  --radius-card: 10px;
   --radius-panel: 12px;
+  --radius-shell: var(--radius-panel);
   --radius-dialog: 16px;
+  --radius-composer: 18px;
   --control-size: 44px;
   --panel-padding: 16px;
   --content-gap: 16px;
@@ -51,7 +60,7 @@
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 .command-trigger {
   font-size: 12px;
@@ -128,8 +137,8 @@ svg {
 }
 .eyebrow {
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -212,7 +221,7 @@ svg {
   justify-content: flex-start;
   gap: 8px;
   padding: 8px;
-  font-size: 12px;
+  font-size: var(--type-size-label);
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -370,7 +379,8 @@ svg {
 .message-role {
   display: block;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   color: var(--text-muted);
 }
 .message-text {
@@ -440,7 +450,8 @@ svg {
   max-height: 150px;
   overflow: auto;
   border-top: 1px solid var(--border-subtle);
-  font-size: 13px;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
 }
 .chat-content > .activity {
   flex: 0 0 auto;
@@ -465,7 +476,8 @@ svg {
 .run-status {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
 }
 .chat-error {
   padding: 12px;
@@ -537,8 +549,8 @@ svg {
   overflow-wrap: anywhere;
 }
 .connection-status {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -579,8 +591,8 @@ svg {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
 }
 .resize-handle {
   width: 12px;
@@ -655,7 +667,7 @@ svg {
   gap: 12px;
   padding: 16px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--canvas);
 }
 .panel-rail {
@@ -703,7 +715,7 @@ svg {
   min-height: 64px;
   padding: 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   text-decoration: none;
   color: var(--text-primary);
 }
@@ -754,7 +766,7 @@ hr {
 .status-example {
   padding: 12px;
   border: 1px solid;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .status-example.info {
   color: var(--status-info-text);
@@ -869,8 +881,8 @@ h3 {
 }
 small {
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
 }
 .visually-hidden {
   position: absolute;
@@ -961,6 +973,8 @@ small {
   line-height: 20px;
 }
 .field > span {
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -1008,7 +1022,7 @@ small {
 .menu,
 .popover {
   z-index: 80;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface-raised);
   color: var(--text-primary);
   max-width: min(360px, calc(100vw - 24px));
@@ -1208,7 +1222,7 @@ small {
   padding: 12px 16px;
   background: var(--surface-raised);
   color: var(--text-primary);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 .empty-state {
@@ -1229,7 +1243,7 @@ small {
   padding: 16px;
   background: var(--status-danger-background);
   border: 1px solid var(--status-danger-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   color: var(--status-danger-text);
 }
 .state-message p {
@@ -1493,8 +1507,8 @@ progress {
 .media-preview-status,
 .context-usage-summary {
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   overflow-wrap: anywhere;
 }
 .nav-conversation-error,
@@ -1515,7 +1529,8 @@ progress {
   align-items: baseline;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
 }
 .message-actions {
   justify-content: flex-start;
@@ -1708,9 +1723,6 @@ progress {
 /* Shared NiceGUI alignment: charcoal layers, grouped cards and compact chrome. */
 :root {
   --brand-accent: var(--accent-solid);
-  --radius-composer: 18px;
-  --radius-card: 10px;
-  --radius-shell: 12px;
   --card-tint: color-mix(
     in srgb,
     var(--surface-raised) 94%,
@@ -1824,7 +1836,7 @@ progress {
   gap: 2px;
 }
 .conversation-list .button {
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 .workspace-columns {
   padding: 0 8px 8px 0;
@@ -1877,7 +1889,7 @@ progress {
   background: color-mix(in srgb, var(--accent-subtle) 42%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--accent-solid) 18%, transparent);
   margin-inline-start: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 .transcript {
   padding: 4px 0;
@@ -1946,7 +1958,7 @@ progress {
   padding: 4px 8px;
   min-width: 0;
   max-width: 100%;
-  font-size: 12px;
+  font-size: var(--type-size-label);
   font-weight: 400;
   border-color: transparent;
 }
@@ -2093,7 +2105,8 @@ progress {
 }
 .home-item-copy small {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
 }
 .home-resource-identity {
   font-size: 11px;
@@ -2109,7 +2122,7 @@ progress {
 }
 .home-empty {
   border: 1px dashed var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   padding: 16px;
   color: var(--text-muted);
   font-size: 14px;
@@ -2118,12 +2131,14 @@ progress {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   border-top: 1px solid var(--border-subtle);
   padding-top: 16px;
 }
 .home-connection-status {
-  font-size: 12px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   color: var(--text-muted);
 }
 .dock {
@@ -2159,7 +2174,8 @@ progress {
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
 }
 @media (pointer: fine) and (min-width: 1024px) {
   :root[data-density='compact'] {
@@ -2436,7 +2452,8 @@ progress {
   min-width: 0;
 }
 .resource-setup .checkbox-row {
-  font-size: 13px;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
 }
 .resource-setup .setup-submit {
   position: sticky;
@@ -2562,7 +2579,7 @@ progress {
 }
 .panel-toolbar .button,
 .panel-toolbar .input {
-  font-size: 12px;
+  font-size: var(--type-size-label);
 }
 .status-chip {
   display: inline-flex;
@@ -2576,7 +2593,8 @@ progress {
   border-radius: 999px;
   color: var(--status-info-text);
   background: var(--status-info-background);
-  font-size: 12px;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
   font-weight: 600;
   overflow-wrap: anywhere;
 }

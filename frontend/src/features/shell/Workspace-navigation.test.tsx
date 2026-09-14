@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -111,3 +117,69 @@ it.each([1440, 900, 390])(
     }
   },
 );
+
+it('explains disconnected conversation state, preserves the local draft, and restores send eligibility after reconnect', async () => {
+  vi.stubGlobal('innerWidth', 1440);
+  vi.stubGlobal('innerHeight', 900);
+  class ReadyWorkspaceTransport extends FixtureTransport {
+    workspace = vi.fn(async (conversationId: string) => ({
+      conversation_id: conversationId,
+      revision: '1',
+      controls: {},
+      profiles: [],
+      resources: [],
+      actions: [{ action: 'send' as const, ready: true }],
+    }));
+  }
+  const transport = new ReadyWorkspaceTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  const rendered = render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const composer = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(composer, { target: { value: 'Local reconnect draft' } });
+  const send = screen.getByRole('button', { name: 'Send' });
+  expect(send).toBeEnabled();
+  await act(async () => controller.setOnline(false));
+  const connectionStatus =
+    rendered.container.querySelector('.connection-status');
+  expect(connectionStatus).toHaveAttribute('role', 'status');
+  expect(connectionStatus).toHaveTextContent('disconnected');
+  const connectionAlert = screen
+    .getByText('Connection interrupted', { exact: true })
+    .closest('[role="alert"]');
+  expect(connectionAlert).toHaveTextContent(
+    'Disconnected. Your last confirmed view is preserved. Sending and live updates are unavailable until you reconnect.',
+  );
+  expect(screen.getByRole('button', { name: 'Reconnect' })).toBeEnabled();
+  const composerReason = screen.getByText(
+    'Reconnect to send. Your draft remains on this device.',
+  );
+  expect(composerReason).toHaveAttribute('role', 'status');
+  expect(send).toBeDisabled();
+  expect(send).toHaveAttribute('aria-describedby', composerReason.id);
+  expect(composer).toHaveValue('Local reconnect draft');
+  const commands = transport.counters.commands;
+  fireEvent.keyDown(composer, { key: 'Enter' });
+  expect(transport.counters.commands).toBe(commands);
+  await act(async () => controller.setOnline(true));
+  await waitFor(() => expect(connectionStatus).toHaveTextContent('Connected'));
+  expect(
+    screen.queryByText('Connection interrupted', { exact: true }),
+  ).toBeNull();
+  expect(screen.queryByText(/Reconnect to send/)).toBeNull();
+  expect(composer).toHaveValue('Local reconnect draft');
+  expect(send).toBeEnabled();
+  expect(send).not.toHaveAttribute('aria-describedby');
+});

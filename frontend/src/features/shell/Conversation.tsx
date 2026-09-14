@@ -600,7 +600,9 @@ export default function Conversation({
       !draft.text.trim() ||
       pendingSteering ||
       pendingSubmit ||
-      pendingResume
+      pendingResume ||
+      state.status !== 'ready' ||
+      !sendActionReady
     )
       return;
     try {
@@ -1559,6 +1561,7 @@ export default function Conversation({
                       Boolean(pendingSubmit) ||
                       Boolean(pendingResume) ||
                       !draft.text.trim() ||
+                      state.status !== 'ready' ||
                       !state.workspace?.actions.find((a) => a.action === 'send')
                         ?.ready
                     }
