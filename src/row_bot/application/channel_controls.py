@@ -467,6 +467,7 @@ def read_channels(
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ChannelControlError("invalid_limit")
     use_passive_core = registry_owner is None
+    use_default_secret_owner = secret_owner is None
     registry_owner, config_owner, auth_owner, secret_owner = _owners(
         registry_owner=registry_owner,
         config_owner=config_owner,
@@ -478,7 +479,7 @@ def read_channels(
         from row_bot.channels.passive_catalog import passive_core_channels
 
         channels = list(passive_core_channels())
-        if secret_owner is None:
+        if use_default_secret_owner:
             secret_owner = _passive_secret_owner()
     if len(channels) > _MAX_CHANNELS:
         raise ChannelControlError("channel_status_unavailable")
