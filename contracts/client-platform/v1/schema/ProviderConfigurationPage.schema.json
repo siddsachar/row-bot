@@ -147,6 +147,14 @@
           ],
           "title": "Model Count"
         },
+        "probe_components": {
+          "items": {
+            "$ref": "#/$defs/ProviderProbeComponent"
+          },
+          "maxItems": 20,
+          "title": "Probe Components",
+          "type": "array"
+        },
         "probe_state": {
           "enum": [
             "agent_ready",
@@ -168,6 +176,12 @@
           "default": "unknown",
           "title": "Runtime State",
           "type": "string"
+        },
+        "transport": {
+          "default": "openai_chat",
+          "maxLength": 80,
+          "title": "Transport",
+          "type": "string"
         }
       },
       "required": [
@@ -177,6 +191,27 @@
         "model_count"
       ],
       "title": "ProviderEndpointSnapshot",
+      "type": "object"
+    },
+    "ProviderProbeComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "ProviderProbeComponent",
       "type": "object"
     }
   },

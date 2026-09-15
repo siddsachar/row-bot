@@ -1,0 +1,56 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Message",
+      "type": "string"
+    },
+    "model_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Count"
+    },
+    "ok": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ok"
+    },
+    "provider_id": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "running": {
+      "title": "Running",
+      "type": "boolean"
+    },
+    "started": {
+      "title": "Started",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "running",
+    "started"
+  ],
+  "title": "ProviderCatalogRefresh",
+  "type": "object"
+}

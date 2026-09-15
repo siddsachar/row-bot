@@ -432,6 +432,18 @@ export interface ClientTransport {
   ): Promise<Wire.ResourceChoicePage>;
   deckSetup?(signal?: AbortSignal): Promise<Wire.DeckSetupOptions>;
   providerStatus?(signal?: AbortSignal): Promise<Wire.ProviderStatusSnapshot>;
+  liveProviderStatus?(signal?: AbortSignal): Promise<Wire.ProviderLiveSnapshot>;
+  refreshLiveProvider?(
+    provider: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProviderCatalogRefresh>;
+  liveProviderRefresh?(
+    signal?: AbortSignal,
+  ): Promise<Wire.ProviderCatalogRefresh>;
+  testLiveProviderRuntime?(
+    provider: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProviderRuntimeProbe>;
   reviewDocumentProcessing?(
     conversation: string,
     body: Wire.DocumentProcessingReviewRequest,

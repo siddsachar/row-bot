@@ -23,6 +23,12 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "interactive_provider_settings",
+        ("src/row_bot/providers/live_settings.py",),
+        ("tests/subsystem/client_protocol/test_provider_live_settings.py",),
+        "Interactive provider cards share NiceGUI connection facts while explicit refresh and runtime checks remain authenticated.",
+    ),
+    SourceTestRule(
         "reviewed_workspace_undo",
         ("src/row_bot/application/workspace_undo_commands.py", "src/row_bot/developer/client_undo.py",
          "src/row_bot/developer/change_ledger.py", "src/row_bot/developer/client_imports.py",

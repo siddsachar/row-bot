@@ -29,6 +29,9 @@ export class SubscriptionOptionsSession extends ProviderSettingsSession {
 }
 export type SubscriptionOptionsProps = {
   collapsedAtRest?: boolean;
+  compact?: boolean;
+  initialProvider?: SubscriptionOptionsReview['provider_id'];
+  onClose?: () => void;
   session?: SubscriptionOptionsSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionOptionsSnapshot>;
   review: (
@@ -229,6 +232,153 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
   }
   const needsAttention =
     dirty || !!reviewed || !!pending || !!error || !!notice;
+  async function performDirect(
+    provider: SubscriptionOptionsReview['provider_id'],
+    operation: SubscriptionOptionsReview['operation'],
+  ) {
+    if (!snapshot || locked) return;
+    const intent = {
+      provider_id: provider,
+      provider_revision: snapshot.revision,
+      operation,
+      value: operation === 'client_id_save' ? client : null,
+    };
+    setBusy('review');
+    setError('');
+    setNotice('');
+    let value: SubscriptionOptionsReview;
+    try {
+      value = await props.review(intent);
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setBusy('');
+      return;
+    }
+    if (!session.active) return;
+    if (
+      value.provider_id !== provider ||
+      value.provider_revision !== snapshot.revision ||
+      value.operation !== operation ||
+      value.value !== intent.value
+    ) {
+      setError(clientError({ code: 'revision_conflict' }).message);
+      setBusy('');
+      return;
+    }
+    const original = {
+      commandId: crypto.randomUUID(),
+      review: structuredClone(value),
+    };
+    setPending(original);
+    setBusy('apply');
+    try {
+      const result = await session.perform([original], () =>
+        props.apply(structuredClone(original.review), original.commandId),
+      );
+      if (!session.active) return;
+      accept(result);
+      setPending(null);
+      session.resolved();
+      setNotice(
+        operation === 'reference'
+          ? 'CLI login referenced.'
+          : operation === 'client_id_reset'
+            ? 'Using the default OAuth client ID.'
+            : 'OAuth client ID saved.',
+      );
+      props.onSaved(result);
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setNotice(
+        'The outcome is uncertain. Read the original receipt before another action.',
+      );
+    } finally {
+      setBusy('');
+    }
+  }
+  if (props.compact) {
+    const provider = props.initialProvider ?? 'xai_oauth';
+    const reference = snapshot?.references.find(
+      (item) => item.provider_id === provider,
+    );
+    return (
+      <section
+        className="stack settings-provider-option-dialog"
+        aria-label="Subscription account options"
+        aria-busy={!!busy}
+      >
+        <h2>
+          {provider === 'xai_oauth'
+            ? 'xAI OAuth Client ID'
+            : provider === 'codex'
+              ? 'Codex CLI login'
+              : 'Claude Code login'}
+        </h2>
+        {busy === 'load' && <Skeleton label="Loading account options" />}
+        {error && <p role="alert">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {provider === 'xai_oauth' ? (
+          <>
+            <p>
+              Most users can use the built-in client ID. Enter an override only
+              for your own xAI OAuth app.
+            </p>
+            {snapshot && <p>Current source: {snapshot.xai_client_id_source}</p>}
+            <Field label="OAuth client ID override">
+              <Input
+                value={client}
+                maxLength={512}
+                disabled={locked}
+                onChange={(event) => {
+                  setClient(event.target.value);
+                  setDirty(true);
+                }}
+              />
+            </Field>
+            <div className="actions">
+              <Button
+                disabled={locked || !client.trim()}
+                onClick={() => void performDirect(provider, 'client_id_save')}
+              >
+                Save override
+              </Button>
+              <Button
+                disabled={locked}
+                onClick={() => void performDirect(provider, 'client_id_reset')}
+              >
+                Reset to default
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>
+              {reference?.metadata_saved
+                ? 'CLI login reference saved.'
+                : 'No CLI login is referenced.'}
+            </p>
+            <p>Reference an existing CLI login for account metadata.</p>
+            <Button
+              disabled={locked || !snapshot}
+              onClick={() => void performDirect(provider, 'reference')}
+            >
+              Reference login
+            </Button>
+          </>
+        )}
+        <div className="actions">
+          {pending && (
+            <Button disabled={!!busy} onClick={() => void receipt()}>
+              Read original receipt
+            </Button>
+          )}
+          <Button disabled={!!busy || !!pending} onClick={props.onClose}>
+            Close
+          </Button>
+        </div>
+      </section>
+    );
+  }
   return (
     <details
       className="settings-provider-secondary"

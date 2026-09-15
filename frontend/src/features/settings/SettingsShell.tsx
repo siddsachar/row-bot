@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ComponentType, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -51,7 +52,7 @@ const icons: Record<string, Icon> = {
 
 const descriptions: Record<string, string> = {
   providers:
-    'Connect model providers, review credential sources, and check saved connection status.',
+    'Connect model providers, review credential sources, refresh catalogs, and check provider health. Model pinning and defaults live in the Models tab.',
   models: 'Choose defaults, input models, and pinned catalogue choices.',
   knowledge: 'Manage memory, graph health, and stored knowledge.',
   wiki: 'Keep the local Wiki Vault in sync with saved knowledge.',
@@ -97,8 +98,11 @@ export default function SettingsShell({
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [location.pathname]);
-  return (
-    <section className="settings-shell" aria-label="Settings">
+  const surface = (
+    <section
+      className={`settings-shell${leaf.id === 'providers' ? ' is-providers' : ''}`}
+      aria-label="Settings"
+    >
       <header className="settings-shell-header">
         <Settings2 size={20} aria-hidden />
         <h1>Settings</h1>
@@ -156,4 +160,7 @@ export default function SettingsShell({
       </div>
     </section>
   );
+  return leaf.id === 'providers' && typeof document !== 'undefined'
+    ? createPortal(surface, document.body)
+    : surface;
 }

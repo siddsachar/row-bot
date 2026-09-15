@@ -10,6 +10,7 @@ import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
 type ProviderSettingsView = ProviderSettingsSnapshot;
 type Operation = 'save' | 'clear' | 'restore';
 export type ProviderSettingsEditorProps = {
+  compact?: boolean;
   providerId: string;
   session?: ProviderSettingsSession;
   load: (
@@ -188,7 +189,7 @@ export default function ProviderSettingsEditor(
         setError(clientError(cause).message);
     } finally {
       session.finishRead(abort);
-      if (!abort.signal.aborted && alive(generation)) setBusy('');
+      if (alive(generation)) setBusy('');
     }
   }
   async function confirm() {
@@ -271,6 +272,139 @@ export default function ProviderSettingsEditor(
     !!pending ||
     !!snapshot?.externally_managed ||
     (!!snapshot?.storage_unavailable && operation !== 'restore');
+  async function performDirect(next: 'save' | 'clear') {
+    if (
+      !snapshot ||
+      locked ||
+      effectPending.current ||
+      (next === 'save' && !secret.trim())
+    )
+      return;
+    const abort = session.read();
+    const generation = epoch.current;
+    setBusy('review');
+    setError('');
+    setNotice('');
+    let reviewedSnapshot: ProviderSettingsView;
+    try {
+      reviewedSnapshot = await review(
+        providerId,
+        snapshot.revision,
+        next,
+        next === 'save' ? secret : undefined,
+        abort.signal,
+      );
+      if (abort.signal.aborted || !alive(generation)) return;
+      if (
+        reviewedSnapshot.provider_id !== providerId ||
+        reviewedSnapshot.revision !== snapshot.revision
+      )
+        throw { code: 'revision_conflict' };
+    } catch (cause) {
+      if (!abort.signal.aborted && alive(generation))
+        setError(clientError(cause).message);
+      return;
+    } finally {
+      session.finishRead(abort);
+      if (alive(generation)) setBusy('');
+    }
+    if (!alive(generation)) return;
+    const identity = crypto.randomUUID();
+    const value = next === 'save' ? secret : undefined;
+    effectPending.current = true;
+    setPending(identity);
+    setBusy('save');
+    setSecret('');
+    try {
+      const result = await session.perform(
+        [providerId, snapshot.revision, next, value, identity],
+        () => apply(providerId, snapshot.revision, next, value, identity),
+      );
+      if (!alive(generation)) return;
+      if (result.provider_id !== providerId)
+        throw { code: 'operation_uncertain' };
+      setSnapshot(result);
+      setPending(null);
+      session.resolved();
+      setNotice(next === 'save' ? 'API key saved.' : 'API key cleared.');
+      if (generation === epoch.current) onSaved(result);
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setNotice(
+        'The outcome is uncertain. Read the original receipt before another change.',
+      );
+    } finally {
+      effectPending.current = false;
+      setBusy('');
+    }
+  }
+  if (props.compact)
+    return (
+      <section
+        className="stack settings-provider-key-dialog"
+        aria-label="Provider credential settings"
+        aria-busy={!!busy}
+      >
+        <h2>{snapshot?.display_name ?? 'Provider'} API key</h2>
+        {busy === 'load' && <Skeleton label="Loading API key status" />}
+        {error && <p role="alert">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {snapshot && (
+          <>
+            <p>
+              {snapshot.configured ? 'Connected' : 'Not connected'} ·{' '}
+              {snapshot.source === 'keyring'
+                ? 'Saved in keyring'
+                : snapshot.source || 'No saved key'}
+            </p>
+            {snapshot.externally_managed ? (
+              <p>
+                This key is managed by the environment or server secret file.
+              </p>
+            ) : (
+              <>
+                <Field label="API key">
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={secret}
+                    maxLength={16384}
+                    disabled={locked}
+                    onChange={(event) => setSecret(event.target.value)}
+                  />
+                </Field>
+                <div className="actions">
+                  <Button
+                    disabled={locked || !secret.trim()}
+                    onClick={() => void performDirect('save')}
+                  >
+                    {snapshot.configured ? 'Replace key' : 'Save key'}
+                  </Button>
+                  {snapshot.configured && (
+                    <Button
+                      disabled={locked}
+                      onClick={() => void performDirect('clear')}
+                    >
+                      Clear key
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        )}
+        <div className="actions">
+          {pending && (
+            <Button disabled={!!busy} onClick={() => void checkReceipt()}>
+              Read original receipt
+            </Button>
+          )}
+          <Button disabled={!!busy || !!pending} onClick={onCancel}>
+            Close
+          </Button>
+        </div>
+      </section>
+    );
   return (
     <section
       className="stack"

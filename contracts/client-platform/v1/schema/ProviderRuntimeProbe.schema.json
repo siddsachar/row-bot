@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "maxLength": 256,
+      "title": "Detail",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "provider_id": {
+      "enum": [
+        "claude_subscription",
+        "xai_oauth"
+      ],
+      "title": "Provider Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider_id",
+    "ok",
+    "detail"
+  ],
+  "title": "ProviderRuntimeProbe",
+  "type": "object"
+}

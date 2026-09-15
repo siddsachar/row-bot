@@ -10,6 +10,10 @@ import { blockFixtureServiceWorkers } from './unified-helpers';
 import type { Locator, Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
+// Legacy Providers cases below exercise the removed review/reload page. The
+// row-based Providers route has browser coverage in providers-parity.spec.ts;
+// retained command and receipt behavior remains in focused component/API tests.
+
 async function seed(page: Page, state: 'populated' | 'empty' | 'changed') {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
   const base = process.env.ROW_BOT_BROWSER_BASE_URL;
@@ -173,6 +177,7 @@ test('Owner-review Settings shell keeps all 18 routed owners in one responsive h
   const label = (id: string) =>
     id === 'mcp' ? 'MCP' : id[0].toUpperCase() + id.slice(1);
 
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/app-v2/settings');
   await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
   const settingsNavigation = page.getByRole('navigation', {
@@ -180,7 +185,7 @@ test('Owner-review Settings shell keeps all 18 routed owners in one responsive h
   });
   const settingsHeading = page
     .getByRole('region', { name: 'Settings', exact: true })
-    .locator('h1');
+    .locator('.settings-pane-header h2');
   await expect(settingsNavigation.getByRole('link')).toHaveCount(18);
   for (const id of leaves) {
     await page.goto(`/app-v2/settings/${id}`);
@@ -253,7 +258,7 @@ test('Owner-review narrow Settings keeps representative owners behind one access
     name: 'Settings',
     exact: true,
   });
-  const heading = settings.locator('h1');
+  const heading = settings.locator('.settings-pane-header h2');
   const picker = page.getByRole('combobox', { name: 'Settings section' });
   await expect(
     page.getByRole('navigation', { name: 'Settings sections' }),
@@ -1418,7 +1423,7 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
   await accessibility(page, info, 'buddy-reduced-motion');
 });
 
-test('Subscription checks retain the original review and expose actual cancellation without replay', async ({
+test.skip('Subscription checks retain the original review and expose actual cancellation without replay', async ({
   page,
 }, info) => {
   if (info.project.use.browserName !== 'firefox')
@@ -1664,7 +1669,7 @@ test('Default model selection uses the saved catalog and retains reviewed edits 
   }
 });
 
-test('Phase 4 saved providers lead to bounded searchable model details without a live probe', async ({
+test.skip('Phase 4 saved providers lead to bounded searchable model details without a live probe', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
@@ -1782,7 +1787,7 @@ test('Phase 4 model pagination rejects changed snapshots and explicit reload rec
   await accessibility(page, info, 'saved-models-empty');
 });
 
-test('Phase 4 credentials retain a private reviewed draft and save disconnect restore locally', async ({
+test.skip('Phase 4 credentials retain a private reviewed draft and save disconnect restore locally', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
@@ -1864,7 +1869,7 @@ test('Phase 4 credentials retain a private reviewed draft and save disconnect re
   );
 });
 
-test('Phase 4 endpoint configuration retains drafts and reviews create edit remove', async ({
+test.skip('Phase 4 endpoint configuration retains drafts and reviews create edit remove', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
@@ -2088,7 +2093,7 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
   ).toBeEnabled();
 });
 
-test('Subscription accounts retain the reviewed sign-in and publish disconnect recover synthetic credentials', async ({
+test.skip('Subscription accounts retain the reviewed sign-in and publish disconnect recover synthetic credentials', async ({
   page,
 }, info) => {
   const seeded = await page.request.post('/__p4_fixture/subscriptions', {
@@ -2156,7 +2161,7 @@ test('Subscription accounts retain the reviewed sign-in and publish disconnect r
   await expect(editor.getByText(/Saved status: saved/)).toBeVisible();
 });
 
-test('Subscription options retain exact reviews and save reference override reset through canonical owners', async ({
+test.skip('Subscription options retain exact reviews and save reference override reset through canonical owners', async ({
   page,
 }, info) => {
   const seeded = await page.request.post('/__p4_fixture/subscription-options', {

@@ -11,11 +11,13 @@ export default function ProviderSettingsPanel({
   providerId,
   onSaved,
   onCancel,
+  compact = false,
 }: {
   owner: Owner;
   providerId: string;
   onSaved: ProviderSettingsEditorProps['onSaved'];
   onCancel: () => void;
+  compact?: boolean;
 }) {
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
   const [entry, setEntry] = useState<ReturnType<Owner['open']>>(null);
@@ -54,6 +56,7 @@ export default function ProviderSettingsPanel({
       providerId={providerId}
       onSaved={onSaved}
       onCancel={onCancel}
+      compact={compact}
     />
   );
 }

@@ -26,7 +26,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "CachedModelPage", "TaskSummaryPage", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "TaskSummaryPage", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
     "EntitySummaryPage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -123,6 +123,10 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/voice/talk/{lease_id}/run", None, "VoiceRunView"),
     ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}/run", None, "VoiceRunView"),
     ("get", "/settings/providers", None, "ProviderStatusSnapshot"),
+    ("get", "/settings/providers/live", None, "ProviderLiveSnapshot"),
+    ("post", "/settings/providers/live/{provider_id}/refresh", None, "ProviderCatalogRefresh"),
+    ("get", "/settings/providers/live/refresh", None, "ProviderCatalogRefresh"),
+    ("post", "/settings/providers/live/{provider_id}/runtime-test", None, "ProviderRuntimeProbe"),
     ("post", "/settings/providers/commands", "Command", "CommandReceipt"),
     ("post", "/settings/mcp/commands", "Command", "CommandReceipt"),
     ("get", "/settings/mcp/configuration", None, "McpConfigurationPage"),
@@ -505,6 +509,14 @@ export const getArtifactSetup = (base: string, mode: ArtifactSetupOptions['mode'
   jsonRequest(base, '/resources/setup/artifact/' + id(mode ?? 'deck'), 'ArtifactSetupOptions', proof, 'GET', undefined, undefined, signal);
 export const getProviderStatus = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProviderStatusSnapshot> =>
   jsonRequest(base, '/settings/providers', 'ProviderStatusSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getLiveProviderStatus = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProviderLiveSnapshot> =>
+  jsonRequest(base, '/settings/providers/live', 'ProviderLiveSnapshot', proof, 'GET', undefined, undefined, signal);
+export const refreshLiveProvider = (base: string, proof: SessionProof, provider: string, signal?: AbortSignal): Promise<ProviderCatalogRefresh> =>
+  jsonRequest(base, `/settings/providers/live/${id(provider)}/refresh`, 'ProviderCatalogRefresh', proof, 'POST', undefined, undefined, signal);
+export const getLiveProviderRefresh = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProviderCatalogRefresh> =>
+  jsonRequest(base, '/settings/providers/live/refresh', 'ProviderCatalogRefresh', proof, 'GET', undefined, undefined, signal);
+export const testLiveProviderRuntime = (base: string, proof: SessionProof, provider: string, signal?: AbortSignal): Promise<ProviderRuntimeProbe> =>
+  jsonRequest(base, `/settings/providers/live/${id(provider)}/runtime-test`, 'ProviderRuntimeProbe', proof, 'POST', undefined, undefined, signal);
 export const getSavedEntities = (base: string, proof: SessionProof, search = '', entity_type?: string, cursor?: string, signal?: AbortSignal): Promise<EntitySummaryPage> =>
   jsonRequest(base, '/knowledge/entities' + query({query:search, entity_type, cursor}), 'EntitySummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getSavedDocuments = (base: string, proof: SessionProof, search = '', status?: string, cursor?: string, signal?: AbortSignal): Promise<DocumentSummaryPage> =>

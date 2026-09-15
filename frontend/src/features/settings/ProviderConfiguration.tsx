@@ -1,5 +1,15 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
-import { Network, Plus, Search } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  Network,
+  Plus,
+  Search,
+  RefreshCw,
+  FlaskConical,
+  Pencil,
+  Trash2,
+  ListChecks,
+  KeyRound,
+} from 'lucide-react';
 import type {
   ProviderConfigurationPage,
   ProviderEndpointFields,
@@ -138,6 +148,8 @@ export class ProviderConfigurationSession {
 }
 
 export type ProviderConfigurationProps = {
+  compact?: boolean;
+  credentialRefreshRequest?: { providerId: string; token: number };
   session?: ProviderConfigurationSession;
   load: (
     query: string,
@@ -162,7 +174,7 @@ export type ProviderConfigurationProps = {
     signal?: AbortSignal,
   ) => Promise<'completed' | 'rejected' | 'uncertain'>;
   onSaved: () => void;
-  onCredentials: () => void;
+  onCredentials: (providerId?: string) => void;
 };
 
 export default function ProviderConfiguration(
@@ -172,7 +184,11 @@ export default function ProviderConfiguration(
   if (!local.current) local.current = new ProviderConfigurationSession();
   const session = props.session ?? local.current;
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const [probeDetails, setProbeDetails] = useState<
+    ProviderConfigurationPage['items'][number] | null
+  >(null);
   const epoch = useRef(0);
+  const handledCredentialRefresh = useRef(0);
   const { page, fields, pending, operation } = state;
   const locked = !!state.busy || !!pending || !state.active;
   const modelAction = operation.startsWith('provider.model.');
@@ -350,6 +366,562 @@ export default function ProviderConfiguration(
       session.update({ busy: '' });
     }
   }
+  async function performDirect(next: Operation, captured: Fields) {
+    if (locked || !page) return;
+    const generation = epoch.current;
+    const revision = page.revision;
+    session.update({ busy: 'review', error: '', notice: '' });
+    let reviewed: Review;
+    try {
+      reviewed = await props.review(next, revision, structuredClone(captured));
+    } catch (cause) {
+      session.update({ busy: '', error: clientError(cause).message });
+      return;
+    }
+    if (!session.getSnapshot().active) return;
+    if (
+      reviewed.operation !== next ||
+      reviewed.configuration_revision !== revision
+    ) {
+      session.update({
+        busy: '',
+        error: clientError({ code: 'revision_conflict' }).message,
+      });
+      return;
+    }
+    const original: Pending = {
+      commandId: crypto.randomUUID(),
+      operation: next,
+      revision,
+      fields: captured,
+      review: reviewed,
+    };
+    session.update({ pending: original, busy: 'apply' });
+    try {
+      await props.apply(
+        next,
+        revision,
+        structuredClone(captured),
+        original.commandId,
+        structuredClone(reviewed),
+      );
+      if (!session.getSnapshot().active) return;
+      session.update({
+        pending: null,
+        busy: '',
+        dirty: false,
+        editing: false,
+        fields: blank(),
+        page: null,
+        notice:
+          next === 'provider.endpoint.probe'
+            ? 'Endpoint probe completed.'
+            : next === 'provider.endpoint.refresh'
+              ? 'Endpoint models refreshed.'
+              : 'Endpoint settings saved.',
+      });
+      if (generation === epoch.current) props.onSaved();
+      if (
+        (next === 'provider.endpoint.create' ||
+          next === 'provider.endpoint.save') &&
+        'auth_required' in captured
+      ) {
+        if (next === 'provider.endpoint.create' && captured.auth_required) {
+          void load();
+          if (generation === epoch.current)
+            props.onCredentials(`custom_openai_${captured.endpoint_id}`);
+        } else if (captured.enabled) {
+          session.update({ notice: 'Endpoint saved; refreshing models...' });
+          try {
+            const current = await props.load('', undefined);
+            if (!session.getSnapshot().active) return;
+            const fields = { endpoint_id: captured.endpoint_id };
+            const refreshReview = await props.review(
+              'provider.endpoint.refresh',
+              current.revision,
+              fields,
+            );
+            if (
+              refreshReview.operation !== 'provider.endpoint.refresh' ||
+              refreshReview.configuration_revision !== current.revision
+            )
+              throw { code: 'revision_conflict' };
+            const refresh: Pending = {
+              commandId: crypto.randomUUID(),
+              operation: 'provider.endpoint.refresh',
+              revision: current.revision,
+              fields,
+              review: refreshReview,
+            };
+            session.update({ pending: refresh, busy: 'refresh' });
+            await props.apply(
+              refresh.operation,
+              refresh.revision,
+              refresh.fields,
+              refresh.commandId,
+              refresh.review,
+            );
+            if (!session.getSnapshot().active) return;
+            session.update({
+              pending: null,
+              busy: '',
+              notice: 'Endpoint saved and models refreshed.',
+              page: null,
+            });
+            if (generation === epoch.current) props.onSaved();
+            void load();
+          } catch (cause) {
+            session.update({
+              busy: '',
+              error: clientError(cause).message,
+              notice: session.getSnapshot().pending
+                ? 'Endpoint saved; the model refresh outcome is uncertain. Read its original receipt.'
+                : 'Endpoint saved, but model refresh did not start.',
+            });
+            if (!session.getSnapshot().pending) void load();
+          }
+        } else void load();
+      } else void load();
+    } catch (cause) {
+      session.update({
+        busy: '',
+        error: clientError(cause).message,
+        notice:
+          'The outcome is uncertain. Read the original receipt before another action.',
+      });
+    }
+  }
+  useEffect(() => {
+    const request = props.credentialRefreshRequest;
+    if (
+      !props.compact ||
+      !request ||
+      request.token <= handledCredentialRefresh.current ||
+      locked ||
+      !page
+    )
+      return;
+    handledCredentialRefresh.current = request.token;
+    void performDirect('provider.endpoint.refresh', {
+      endpoint_id: request.providerId.replace(/^custom_openai_/, ''),
+    });
+    // Refresh requests come only from a successfully saved endpoint credential.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.credentialRefreshRequest, props.compact, locked, page]);
+  if (props.compact)
+    return (
+      <section
+        className="stack settings-provider-endpoints"
+        aria-label="Custom / Self-Hosted Endpoints"
+        aria-busy={!!state.busy}
+      >
+        <h3>Custom / Self-Hosted Endpoints</h3>
+        {state.busy === 'load' && <Skeleton label="Loading custom endpoints" />}
+        {state.error && <p role="alert">{state.error}</p>}
+        {state.notice && <p role="status">{state.notice}</p>}
+        {page && (
+          <ul className="settings-custom-endpoint-list">
+            {page.items.map((item) => (
+              <li key={item.provider_id}>
+                <Network size={19} aria-hidden />
+                <span className="settings-provider-copy">
+                  <strong>{item.fields.display_name}</strong>
+                  <small>{item.fields.base_url}</small>
+                </span>
+                <span className="settings-provider-row-meta">
+                  <span className="status-chip">
+                    {item.fields.execution_location}
+                  </span>
+                  <span className="status-chip">{item.fields.profile}</span>
+                  <span className="status-chip">
+                    {item.transport ?? 'openai_chat'}
+                  </span>
+                  {item.probe_state !== 'unknown' && (
+                    <span className="status-chip">
+                      {probeLabels[item.probe_state].toLowerCase()}
+                    </span>
+                  )}
+                  {!!item.probe_components?.length && (
+                    <Button
+                      className="settings-endpoint-icon"
+                      aria-label={`Show ${item.fields.display_name} probe details`}
+                      onClick={() => setProbeDetails(item)}
+                    >
+                      <ListChecks size={16} aria-hidden />
+                    </Button>
+                  )}
+                  {item.model_count !== null && (
+                    <span className="status-chip">
+                      {item.model_count} models
+                    </span>
+                  )}
+                </span>
+                <Button
+                  className="settings-endpoint-icon"
+                  aria-label={`Refresh ${item.fields.display_name} models`}
+                  disabled={locked}
+                  onClick={() =>
+                    void performDirect('provider.endpoint.refresh', {
+                      endpoint_id: item.fields.endpoint_id,
+                    })
+                  }
+                >
+                  <RefreshCw size={16} aria-hidden />
+                </Button>
+                <Button
+                  className="settings-endpoint-icon"
+                  aria-label={`Probe ${item.fields.display_name}`}
+                  disabled={locked}
+                  onClick={() =>
+                    void performDirect('provider.endpoint.probe', {
+                      endpoint_id: item.fields.endpoint_id,
+                    })
+                  }
+                >
+                  <FlaskConical size={16} aria-hidden />
+                </Button>
+                <Button
+                  className="settings-endpoint-icon"
+                  aria-label={`Edit ${item.fields.display_name}`}
+                  disabled={locked}
+                  onClick={() =>
+                    session.update({
+                      fields: structuredClone(item.fields),
+                      revision: page.revision,
+                      existing: true,
+                      editing: true,
+                      operation: 'provider.endpoint.save',
+                      reviewed: null,
+                    })
+                  }
+                >
+                  <Pencil size={16} aria-hidden />
+                </Button>
+                {item.fields.auth_required && (
+                  <Button
+                    className="settings-endpoint-icon"
+                    aria-label={`Manage ${item.fields.display_name} API key`}
+                    disabled={locked}
+                    onClick={() => props.onCredentials(item.provider_id)}
+                  >
+                    <KeyRound size={16} aria-hidden />
+                  </Button>
+                )}
+                <Button
+                  className="settings-endpoint-icon is-danger"
+                  aria-label={`Remove ${item.fields.display_name}`}
+                  disabled={locked}
+                  onClick={() => {
+                    if (window.confirm(`Remove ${item.fields.display_name}?`))
+                      void performDirect('provider.endpoint.delete', {
+                        endpoint_id: item.fields.endpoint_id,
+                      });
+                  }}
+                >
+                  <Trash2 size={16} aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {page?.next_cursor && !state.editing && (
+          <Button
+            disabled={locked}
+            onClick={() => void load(page.next_cursor!)}
+          >
+            Next endpoint page
+          </Button>
+        )}
+        {!state.editing && (
+          <button
+            className="settings-add-endpoint"
+            disabled={locked || !page}
+            onClick={() =>
+              session.update({
+                fields: blank(),
+                revision: page!.revision,
+                existing: false,
+                editing: true,
+                operation: 'provider.endpoint.create',
+                reviewed: null,
+              })
+            }
+          >
+            <Plus size={20} aria-hidden /> Add custom endpoint
+          </button>
+        )}
+        {state.editing && (
+          <div className="settings-provider-dialog-backdrop">
+            <div
+              className="settings-provider-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={
+                state.existing ? 'Edit custom endpoint' : 'Add custom endpoint'
+              }
+            >
+              <h2>
+                {state.existing
+                  ? 'Edit Custom Endpoint'
+                  : 'Add custom endpoint'}
+              </h2>
+              {!state.existing && (
+                <Field label="Endpoint id">
+                  <Input
+                    value={fields.endpoint_id}
+                    disabled={locked}
+                    onChange={(event) =>
+                      field('endpoint_id', event.target.value)
+                    }
+                  />
+                </Field>
+              )}
+              <Field label="Display name">
+                <Input
+                  value={fields.display_name}
+                  disabled={locked}
+                  onChange={(event) =>
+                    field('display_name', event.target.value)
+                  }
+                />
+              </Field>
+              <Field label="Base URL">
+                <Input
+                  value={fields.base_url}
+                  disabled={locked}
+                  onChange={(event) => field('base_url', event.target.value)}
+                />
+              </Field>
+              {!state.existing && (
+                <div className="field-row">
+                  <Field label="Endpoint profile">
+                    <Select
+                      value={fields.profile}
+                      disabled={locked}
+                      onChange={(event) => field('profile', event.target.value)}
+                    >
+                      {page?.profiles.map((profile) => (
+                        <option key={profile}>{profile}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Execution location">
+                    <Select
+                      value={fields.execution_location}
+                      disabled={locked}
+                      onChange={(event) =>
+                        field(
+                          'execution_location',
+                          event.target
+                            .value as ProviderEndpointFields['execution_location'],
+                        )
+                      }
+                    >
+                      <option value="local">Local/private</option>
+                      <option value="remote">Remote/proxy</option>
+                    </Select>
+                  </Field>
+                </div>
+              )}
+              <label className="actions">
+                <input
+                  type="checkbox"
+                  checked={fields.enabled}
+                  disabled={locked}
+                  onChange={(event) => field('enabled', event.target.checked)}
+                />{' '}
+                Enable endpoint
+              </label>
+              <label className="actions">
+                <input
+                  type="checkbox"
+                  checked={fields.auth_required}
+                  disabled={locked}
+                  onChange={(event) =>
+                    field('auth_required', event.target.checked)
+                  }
+                />{' '}
+                API key required
+              </label>
+              {!state.existing && fields.auth_required && (
+                <p>
+                  After saving, add the API key before refreshing this
+                  endpoint's models.
+                </p>
+              )}
+              <details>
+                <summary>Advanced</summary>
+                <div className="stack">
+                  {(
+                    ['vision_mode', 'tool_mode', 'reasoning_mode'] as const
+                  ).map((key) => (
+                    <Field
+                      key={key}
+                      label={
+                        {
+                          vision_mode: 'Vision input',
+                          tool_mode: 'Tool calling',
+                          reasoning_mode: 'Reasoning mode',
+                        }[key]
+                      }
+                    >
+                      <Select
+                        value={fields[key]}
+                        disabled={locked}
+                        onChange={(event) =>
+                          field(
+                            key,
+                            event.target
+                              .value as ProviderEndpointFields[typeof key],
+                          )
+                        }
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                      </Select>
+                    </Field>
+                  ))}
+                  <Field label="Native context limit">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={fields.context_window ?? ''}
+                      disabled={locked}
+                      onChange={(event) =>
+                        field(
+                          'context_window',
+                          event.target.value
+                            ? Number(event.target.value)
+                            : null,
+                        )
+                      }
+                    />
+                  </Field>
+                  <Field label="Thinking budget">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={fields.thinking_budget ?? ''}
+                      disabled={locked}
+                      onChange={(event) =>
+                        field(
+                          'thinking_budget',
+                          event.target.value
+                            ? Number(event.target.value)
+                            : null,
+                        )
+                      }
+                    />
+                  </Field>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={fields.supports_reasoning_content}
+                      disabled={locked}
+                      onChange={(event) =>
+                        field(
+                          'supports_reasoning_content',
+                          event.target.checked,
+                        )
+                      }
+                    />{' '}
+                    Endpoint returns reasoning content
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={fields.supports_reasoning_replay}
+                      disabled={locked}
+                      onChange={(event) =>
+                        field('supports_reasoning_replay', event.target.checked)
+                      }
+                    />{' '}
+                    Replay preserved reasoning
+                  </label>
+                  <Field label="Extra request JSON">
+                    <textarea
+                      className="input"
+                      value={fields.extra_body_json}
+                      disabled={locked}
+                      onChange={(event) =>
+                        field('extra_body_json', event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+              </details>
+              <div className="actions">
+                <Button
+                  disabled={
+                    locked ||
+                    !fields.display_name.trim() ||
+                    !fields.base_url.trim()
+                  }
+                  onClick={() =>
+                    void performDirect(
+                      state.existing
+                        ? 'provider.endpoint.save'
+                        : 'provider.endpoint.create',
+                      structuredClone(fields),
+                    )
+                  }
+                >
+                  Save
+                </Button>
+                <Button
+                  disabled={locked}
+                  onClick={() =>
+                    session.update({
+                      editing: false,
+                      dirty: false,
+                      reviewed: null,
+                      fields: blank(),
+                    })
+                  }
+                >
+                  Cancel
+                </Button>
+                {pending && (
+                  <Button
+                    disabled={!!state.busy}
+                    onClick={() => void receipt()}
+                  >
+                    Read original receipt
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {pending && !state.editing && (
+          <Button disabled={!!state.busy} onClick={() => void receipt()}>
+            Read original receipt
+          </Button>
+        )}
+        {probeDetails && (
+          <div className="settings-provider-dialog-backdrop">
+            <div
+              className="settings-provider-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Endpoint probe details"
+            >
+              <h2>{probeDetails.fields.display_name} probe</h2>
+              <p>{probeLabels[probeDetails.probe_state]}</p>
+              <ul>
+                {probeDetails.probe_components?.map((check, index) => (
+                  <li key={`${check.name}:${index}`}>
+                    {check.name}: {check.status.replaceAll('_', ' ')}
+                  </li>
+                ))}
+              </ul>
+              <Button onClick={() => setProbeDetails(null)}>Close</Button>
+            </div>
+          </div>
+        )}
+      </section>
+    );
   return (
     <section
       className="stack capability-section settings-provider-configuration"
@@ -506,7 +1078,9 @@ export default function ProviderConfiguration(
         >
           Model picker settings
         </Button>
-        <Button onClick={props.onCredentials}>Manage credentials</Button>
+        <Button onClick={() => props.onCredentials()}>
+          Manage credentials
+        </Button>
       </div>
       {state.editing && (
         <>

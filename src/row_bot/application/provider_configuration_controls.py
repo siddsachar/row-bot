@@ -43,6 +43,8 @@ class ProviderEndpointSnapshot:
     fields: ProviderEndpointFields
     probe_state: str
     model_count: int | None
+    probe_components: tuple[dict[str, str], ...] = ()
+    transport: str = "openai_chat"
     runtime_state: str = "unknown"
 
 
@@ -126,9 +128,15 @@ def _snapshot(raw: dict) -> ProviderEndpointSnapshot:
         "supports_reasoning_replay": endpoint["supports_reasoning_replay"], "extra_body_json": json.dumps(extra)})
     probe = endpoint.get("last_probe", {})
     classification = probe.get("classification")
+    summary = custom.custom_probe_summary(probe if isinstance(probe, dict) else {})
+    components = tuple({
+        "name": str(item.get("name") or item.get("id") or "Check")[:80],
+        "status": str(item.get("status") or "unknown")[:80],
+    } for item in summary.get("components", [])[:20] if isinstance(item, dict))
     return ProviderEndpointSnapshot(endpoint["provider_id"], fields,
         classification if classification in {"agent_ready", "chat_only", "unavailable"} else "unknown",
-        len(endpoint["models"]) if "models" in endpoint else None)
+        len(endpoint["models"]) if "models" in endpoint else None, components,
+        str(endpoint.get("transport") or "openai_chat")[:80])
 
 
 def read_provider_configuration(*, query: str = "", cursor: str | None = None, limit: int = 20) -> ProviderConfigurationPage:

@@ -92,6 +92,46 @@ async function reviewStart() {
   );
   await screen.findByRole('button', { name: 'Confirm account action' });
 }
+it('starts subscription sign-in from the compact row action and shows its flow', async () => {
+  const p = props({
+    compact: true,
+    initialProvider: 'codex',
+    initialAction: 'connect',
+  });
+  render(<SubscriptionAccounts {...p} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
+  expect(vi.mocked(p.apply).mock.calls[0][1].nonce).toBe('original-nonce');
+  expect(await screen.findByText('Sign-in: waiting')).toBeVisible();
+  expect(screen.getByDisplayValue('SYNTHETIC')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Review sign-in' })).toBeNull();
+});
+it('keeps an active sign-in attached to its provider when another row is opened', async () => {
+  const session = new SubscriptionAccountsSession();
+  const p = props({
+    session,
+    compact: true,
+    initialProvider: 'codex',
+    initialAction: 'connect',
+  });
+  const first = render(<SubscriptionAccounts {...p} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  await screen.findByText('Sign-in: waiting');
+  first.unmount();
+  render(
+    <SubscriptionAccounts
+      {...p}
+      initialProvider="xai_oauth"
+      initialAction="disconnect"
+    />,
+  );
+  expect(
+    screen.getByText(/Finish or cancel this sign-in before opening xAI Grok/),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull();
+  expect(vi.mocked(p.apply).mock.calls).toHaveLength(1);
+  session.dispose();
+});
 it('keeps secondary account actions collapsed at rest while loading passively', async () => {
   const p = props({ collapsedAtRest: true });
   render(<SubscriptionAccounts {...p} />);

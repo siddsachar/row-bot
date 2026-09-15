@@ -4375,6 +4375,71 @@ def create_router(
             asdict(await call(read_provider_snapshot)),
         )
 
+    @router.get("/settings/providers/live")
+    async def live_provider_status(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.providers.live_settings import read_live_provider_cards
+
+        result = await call(read_live_provider_cards)
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.ProviderLiveSnapshot, result)
+
+    @router.post("/settings/providers/live/{provider_id}/refresh")
+    async def refresh_live_provider(provider_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        from row_bot.providers.catalog import get_provider_definition
+        from row_bot.providers.custom import get_custom_endpoint
+        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+
+        if get_provider_definition(provider_id) is None and get_custom_endpoint(provider_id) is None:
+            raise ProtocolError("not_found", 404)
+        await call(dispatch_validation(request, current))
+        started = await call(start_model_catalog_refresh_background, reason="manual", provider_id=provider_id, force=True)
+        return await respond(request, dto.ProviderCatalogRefresh, {
+            "running": True, "started": started, "provider_id": provider_id if started else "",
+        })
+
+    @router.get("/settings/providers/live/refresh")
+    async def live_provider_refresh_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.providers.model_catalog_cache import model_catalog_refresh_state
+
+        state = await call(model_catalog_refresh_state)
+        result = state.get("last_result") if isinstance(state.get("last_result"), dict) else {}
+        provider_id = str(result.get("provider_id") or "")
+        provider_statuses = result.get("provider_status") if isinstance(result.get("provider_status"), dict) else {}
+        provider = provider_statuses.get(provider_id) if isinstance(provider_statuses.get(provider_id), dict) else {}
+        count = provider.get("count")
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.ProviderCatalogRefresh, {
+            "running": bool(state.get("running")), "started": False,
+            "provider_id": provider_id,
+            "ok": bool(result.get("ok")) if result else None,
+            "model_count": count if type(count) is int and count >= 0 else None,
+            "message": "",
+        })
+
+    @router.post("/settings/providers/live/{provider_id}/runtime-test")
+    async def live_provider_runtime_test(provider_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        if provider_id == "claude_subscription":
+            from row_bot.providers.claude_subscription import run_claude_subscription_runtime_probe as probe
+        elif provider_id == "xai_oauth":
+            from row_bot.providers.xai_oauth import run_xai_oauth_runtime_probe as probe
+        else:
+            raise ProtocolError("not_found", 404)
+        await call(dispatch_validation(request, current))
+        try:
+            result = await call(probe)
+        except Exception:
+            result = {"ok": False}
+        await call(dispatch_validation(request, current))
+        ok = bool(result.get("ok")) if isinstance(result, dict) else False
+        return await respond(request, dto.ProviderRuntimeProbe, {
+            "provider_id": provider_id, "ok": ok,
+            "detail": "Runtime and tool calls work" if ok else "Runtime test failed",
+        })
+
     @router.post("/settings/providers/commands")
     async def provider_mutation(request: Request) -> JSONResponse:
         return await command("providers", request, provider_command=True)

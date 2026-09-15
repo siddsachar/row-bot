@@ -1,12 +1,7 @@
 import BuddySurface from '../buddy/BuddySurface';
 import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import {
-  Navigate,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from 'react-router-dom';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
@@ -19,11 +14,11 @@ import ToolCatalog from './ToolCatalog';
 import KnowledgeCatalog from './KnowledgeCatalog';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
+import ProviderSettingsPanel from './ProviderSettingsPanel';
 import DefaultModelSettings from './DefaultModelSettings';
 import ModelSurfaceSettings from './ModelSurfaceSettings';
 import CapabilitySettings from './CapabilitySettings';
 import SubscriptionAccounts from './SubscriptionAccounts';
-import SubscriptionProbes from './SubscriptionProbes';
 import SubscriptionOptions from './SubscriptionOptions';
 import McpConnectionsPanel from './McpConnections';
 import RuntimeInstallations from '../mcp/RuntimeInstallations';
@@ -55,7 +50,6 @@ import {
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
   const [search, setSearch] = useSearchParams();
-  const navigate = useNavigate();
   const leaf = resolveSetting(setting);
   const {
     controller,
@@ -65,7 +59,6 @@ export default function SettingRoute() {
     capabilitySettingsOwner,
     subscriptionAccountsOwner,
     subscriptionOptionsOwner,
-    subscriptionProbesOwner,
     mcpConnectionsOwner,
     documentRemovalsOwner,
     documentQueueOwner,
@@ -90,6 +83,17 @@ export default function SettingRoute() {
       owner: new SettingsDraftOwner(),
     };
   const [processingSelectionError, setProcessingSelectionError] = useState('');
+  const [selectedSubscription, setSelectedSubscription] = useState<{
+    provider: string;
+    action: 'connect' | 'manage' | 'disconnect';
+  } | null>(null);
+  const [selectedSubscriptionOption, setSelectedSubscriptionOption] =
+    useState('');
+  const [selectedCustomCredential, setSelectedCustomCredential] = useState('');
+  const [endpointCredentialRefresh, setEndpointCredentialRefresh] = useState<
+    { providerId: string; token: number; session: string } | undefined
+  >();
+  const [providerReload, setProviderReload] = useState(0);
   const [modelCatalogOpen, setModelCatalogOpen] = useState(
     Boolean(search.get('provider')),
   );
@@ -246,51 +250,79 @@ export default function SettingRoute() {
         ) : leaf.id === 'providers' ? (
           <>
             <ProviderStatus
-              key={session}
-              load={controller.providerStatus}
+              key={`${session}:${providerReload}`}
+              load={controller.liveProviderStatus}
+              refresh={controller.refreshLiveProvider}
+              refreshState={controller.liveProviderRefresh}
+              testRuntime={controller.testLiveProviderRuntime}
               owner={providerSettingsSessions}
+              onSubscription={(provider, action) =>
+                setSelectedSubscription({ provider, action })
+              }
+              onSubscriptionOption={setSelectedSubscriptionOption}
             />
-            {subscriptionAccountsOwner?.get() && (
-              <SubscriptionAccounts
-                collapsedAtRest
-                session={subscriptionAccountsOwner.get()}
-                load={controller.subscriptionAccounts}
-                review={controller.reviewSubscriptionAction}
-                apply={controller.applySubscriptionAction}
-                readFlow={controller.subscriptionFlow}
-                cancel={controller.cancelSubscriptionFlow}
-                cancelStart={controller.cancelSubscriptionStart}
-                receipt={controller.subscriptionReceipt}
-                onSaved={() => {}}
-              />
+            {selectedSubscription && subscriptionAccountsOwner?.get() && (
+              <div className="settings-provider-dialog-backdrop">
+                <div
+                  className="settings-provider-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Manage subscription account"
+                >
+                  <SubscriptionAccounts
+                    compact
+                    initialProvider={
+                      selectedSubscription.provider as
+                        'codex' | 'claude_subscription' | 'xai_oauth'
+                    }
+                    initialAction={selectedSubscription.action}
+                    onClose={() => setSelectedSubscription(null)}
+                    session={subscriptionAccountsOwner.get()}
+                    load={controller.subscriptionAccounts}
+                    review={controller.reviewSubscriptionAction}
+                    apply={controller.applySubscriptionAction}
+                    readFlow={controller.subscriptionFlow}
+                    cancel={controller.cancelSubscriptionFlow}
+                    cancelStart={controller.cancelSubscriptionStart}
+                    receipt={controller.subscriptionReceipt}
+                    onSaved={() => setProviderReload((value) => value + 1)}
+                  />
+                </div>
+              </div>
             )}
-            {subscriptionOptionsOwner?.get() && (
-              <SubscriptionOptions
-                collapsedAtRest
-                session={subscriptionOptionsOwner.get()}
-                load={controller.subscriptionOptions}
-                review={controller.reviewSubscriptionOptions}
-                apply={controller.applySubscriptionOptions}
-                receipt={controller.subscriptionOptionsReceipt}
-                onSaved={() => {}}
-              />
-            )}
-            {subscriptionProbesOwner?.get() && (
-              <SubscriptionProbes
-                collapsedAtRest
-                session={subscriptionProbesOwner.get()}
-                load={controller.subscriptionProbes}
-                review={controller.reviewSubscriptionProbe}
-                apply={controller.applySubscriptionProbe}
-                status={controller.subscriptionProbeStatus}
-                cancel={controller.cancelSubscriptionProbe}
-                receipt={controller.subscriptionProbeReceipt}
-                onSaved={() => {}}
-                onBrowseModels={() => navigate('/settings/models')}
-              />
+            {selectedSubscriptionOption && subscriptionOptionsOwner?.get() && (
+              <div className="settings-provider-dialog-backdrop">
+                <div
+                  className="settings-provider-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Account options"
+                >
+                  <SubscriptionOptions
+                    compact
+                    initialProvider={
+                      selectedSubscriptionOption as
+                        'codex' | 'claude_subscription' | 'xai_oauth'
+                    }
+                    onClose={() => setSelectedSubscriptionOption('')}
+                    session={subscriptionOptionsOwner.get()}
+                    load={controller.subscriptionOptions}
+                    review={controller.reviewSubscriptionOptions}
+                    apply={controller.applySubscriptionOptions}
+                    receipt={controller.subscriptionOptionsReceipt}
+                    onSaved={() => setProviderReload((value) => value + 1)}
+                  />
+                </div>
+              </div>
             )}
             {providerConfigurationOwner?.get() && (
               <ProviderConfiguration
+                compact
+                credentialRefreshRequest={
+                  endpointCredentialRefresh?.session === session
+                    ? endpointCredentialRefresh
+                    : undefined
+                }
                 key={`configuration:${session}`}
                 session={providerConfigurationOwner.get()}
                 load={controller.providerConfiguration}
@@ -319,13 +351,39 @@ export default function SettingRoute() {
                     )
                   ).status
                 }
-                onSaved={() => {}}
-                onCredentials={() =>
-                  document
-                    .getElementById('provider-saved-status')
-                    ?.scrollIntoView()
-                }
+                onSaved={() => setProviderReload((value) => value + 1)}
+                onCredentials={(providerId) => {
+                  if (providerId) setSelectedCustomCredential(providerId);
+                }}
               />
+            )}
+            {selectedCustomCredential && providerSettingsSessions && (
+              <div className="settings-provider-dialog-backdrop">
+                <div
+                  className="settings-provider-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Custom endpoint API key"
+                >
+                  <ProviderSettingsPanel
+                    compact
+                    owner={providerSettingsSessions}
+                    providerId={selectedCustomCredential}
+                    onSaved={(saved) => {
+                      const providerId = selectedCustomCredential;
+                      setSelectedCustomCredential('');
+                      setProviderReload((value) => value + 1);
+                      if (saved.configured)
+                        setEndpointCredentialRefresh((current) => ({
+                          providerId,
+                          session,
+                          token: (current?.token ?? 0) + 1,
+                        }));
+                    }}
+                    onCancel={() => setSelectedCustomCredential('')}
+                  />
+                </div>
+              </div>
             )}
           </>
         ) : leaf.id === 'models' ? (

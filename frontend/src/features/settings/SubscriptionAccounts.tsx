@@ -47,6 +47,10 @@ export class SubscriptionAccountsSession extends ProviderSettingsSession {
 }
 export type SubscriptionAccountsProps = {
   collapsedAtRest?: boolean;
+  compact?: boolean;
+  initialProvider?: SubscriptionFlowSnapshot['provider_id'];
+  initialAction?: 'connect' | 'manage' | 'disconnect';
+  onClose?: () => void;
   session?: SubscriptionAccountsSession;
   load: (signal?: AbortSignal) => Promise<SubscriptionAccountsSnapshot>;
   review: (
@@ -141,6 +145,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     !!flow &&
     (!flow.quiescent ||
       !['connected', 'cancelled', 'expired'].includes(flow.state));
+  const retained = session.hasRetained();
   async function load() {
     if (
       !session.active ||
@@ -175,6 +180,91 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     // Callback changes must not replace a retained private intent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
+  useEffect(() => {
+    if (
+      props.initialProvider &&
+      !session.hasRetained() &&
+      provider !== props.initialProvider
+    ) {
+      setFlow(null);
+      setCode('');
+      setProvider(props.initialProvider);
+    }
+  }, [
+    props.initialProvider,
+    provider,
+    retained,
+    setCode,
+    setFlow,
+    setProvider,
+    session,
+  ]);
+  async function performDirect(operation: Action) {
+    if (locked || !snapshot) return;
+    const intent: Intent = {
+      provider_id: provider,
+      provider_revision: snapshot.revision,
+      operation,
+      ...(['submit', 'import_token'].includes(operation)
+        ? { value: code }
+        : {}),
+      ...(['check', 'submit'].includes(operation) && flow
+        ? { flow_id: flow.flow_id, server_epoch: flow.server_epoch }
+        : {}),
+    };
+    if (intent.value !== undefined && !intent.value.trim()) {
+      setError('Enter the authorization code or setup token.');
+      return;
+    }
+    const generation = epoch.current;
+    setBusy('review');
+    setError('');
+    setNotice('');
+    let review: SubscriptionActionReview;
+    try {
+      review = await props.review(structuredClone(intent));
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setBusy('');
+      return;
+    }
+    if (!session.active) return;
+    const original: Pending = {
+      intent,
+      review,
+      commandId: crypto.randomUUID(),
+    };
+    setPending(original);
+    setBusy('apply');
+    try {
+      const result = await session.perform([original], () =>
+        props.apply(
+          structuredClone(intent),
+          structuredClone(review),
+          original.commandId,
+        ),
+      );
+      if (!session.active) return;
+      if (result.command_id !== original.commandId)
+        throw { code: 'operation_uncertain' };
+      setSnapshot(result.accounts);
+      if (result.flow) setFlow(result.flow);
+      setCode('');
+      setPending(null);
+      session.resolved();
+      setNotice(
+        `${labels[provider]} ${operation === 'start' ? 'sign-in started' : operation === 'disconnect' ? 'disconnected' : operation === 'import_token' ? 'setup token saved' : 'updated'}.`,
+      );
+      if (generation === epoch.current) props.onSaved(result.accounts);
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setNotice(
+        'The outcome is uncertain. Read the original receipt before another action.',
+      );
+    } finally {
+      setBusy('');
+    }
+  }
   async function review(operation: Action) {
     if (locked || !snapshot) return;
     const intent: Intent = {
@@ -415,6 +505,181 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
   const login = safeLogin(flow?.authorization_url ?? null);
   const needsAttention =
     !!flow || !!code || !!reviewed || !!pending || !!error || !!notice;
+  if (
+    props.compact &&
+    props.initialProvider &&
+    provider !== props.initialProvider &&
+    retained
+  )
+    return (
+      <section
+        className="stack settings-provider-account-dialog"
+        aria-label="Current subscription sign-in"
+      >
+        <h2>{labels[provider]} sign-in in progress</h2>
+        <p>
+          Finish or cancel this sign-in before opening{' '}
+          {labels[props.initialProvider]}.
+        </p>
+        {flow && <p>Sign-in: {flow.state.replaceAll('_', ' ')}</p>}
+        {pending && (
+          <Button disabled={!!busy} onClick={() => void readReceipt()}>
+            Read original receipt
+          </Button>
+        )}
+        {active && (
+          <div className="actions">
+            <Button
+              disabled={locked}
+              onClick={() =>
+                void (provider === 'codex' ? performDirect('check') : inspect())
+              }
+            >
+              {provider === 'codex' ? 'Check login' : 'Check sign-in'}
+            </Button>
+            <Button disabled={cancelling} onClick={() => void cancel()}>
+              Cancel sign-in
+            </Button>
+          </div>
+        )}
+        <Button onClick={props.onClose}>Close</Button>
+      </section>
+    );
+  if (props.compact)
+    return (
+      <section
+        className="stack settings-provider-account-dialog"
+        aria-label={`${labels[provider]} account`}
+        aria-busy={!!busy}
+      >
+        <h2>{labels[provider]}</h2>
+        {busy === 'load' && <Skeleton label="Loading account" />}
+        {error && <p role="alert">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {account && (
+          <p>
+            {account.saved_state === 'saved'
+              ? 'Connected'
+              : account.saved_state === 'metadata_only'
+                ? 'CLI login referenced'
+                : 'Not connected'}
+            {account.expires_at
+              ? ` · Expires ${new Date(account.expires_at).toLocaleString()}`
+              : ''}
+          </p>
+        )}
+        {flow && (
+          <div className="stack">
+            <p>Sign-in: {flow.state.replaceAll('_', ' ')}</p>
+            {login && (
+              <a href={login} target="_blank" rel="noopener noreferrer">
+                Open sign-in page
+              </a>
+            )}
+            {flow.device_code && (
+              <Field label="Device code">
+                <Input readOnly value={flow.device_code} />
+              </Field>
+            )}
+            {active && (
+              <div className="actions">
+                <Button
+                  disabled={locked}
+                  onClick={() =>
+                    void (provider === 'codex'
+                      ? performDirect('check')
+                      : inspect())
+                  }
+                >
+                  {provider === 'codex' ? 'Check login' : 'Check sign-in'}
+                </Button>
+                <Button disabled={cancelling} onClick={() => void cancel()}>
+                  Cancel sign-in
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {active && provider !== 'codex' && (
+          <Field label="Authorization code or callback URL">
+            <Input
+              type="password"
+              value={code}
+              disabled={locked}
+              onChange={(event) => setCode(event.target.value)}
+            />
+          </Field>
+        )}
+        {!active &&
+          provider === 'claude_subscription' &&
+          props.initialAction === 'manage' && (
+            <Field label="Claude setup token">
+              <Input
+                type="password"
+                value={code}
+                disabled={locked}
+                onChange={(event) => setCode(event.target.value)}
+              />
+            </Field>
+          )}
+        <div className="actions">
+          {!active && props.initialAction === 'connect' && (
+            <Button
+              disabled={locked}
+              onClick={() => void performDirect('start')}
+            >
+              {account?.saved_state === 'saved' ? 'Reconnect' : 'Connect'}
+            </Button>
+          )}
+          {active && provider !== 'codex' && (
+            <Button
+              disabled={locked || !code}
+              onClick={() => void performDirect('submit')}
+            >
+              Connect with code
+            </Button>
+          )}
+          {!active &&
+            provider === 'claude_subscription' &&
+            props.initialAction === 'manage' && (
+              <Button
+                disabled={locked || !code}
+                onClick={() => void performDirect('import_token')}
+              >
+                Import setup token
+              </Button>
+            )}
+          {!active &&
+            props.initialAction === 'disconnect' &&
+            account?.saved_state !== 'disconnected' && (
+              <Button
+                disabled={locked}
+                onClick={() => void performDirect('disconnect')}
+              >
+                Disconnect
+              </Button>
+            )}
+          {!active &&
+            props.initialAction === 'manage' &&
+            account?.has_recovery && (
+              <Button
+                disabled={locked}
+                onClick={() => void performDirect('restore')}
+              >
+                Restore previous login
+              </Button>
+            )}
+          {pending && (
+            <Button disabled={!!busy} onClick={() => void readReceipt()}>
+              Read original receipt
+            </Button>
+          )}
+          <Button disabled={!!busy || !!pending} onClick={props.onClose}>
+            Close
+          </Button>
+        </div>
+      </section>
+    );
   return (
     <details
       className="settings-provider-secondary"

@@ -50,6 +50,9 @@ def test_create_edit_delete_review_is_passive_replay_retains_proof(service, stor
         assert receipt.json()['status'] == 'completed' and receipt.headers['Cache-Control'] == 'no-store'
         endpoint = custom.get_custom_endpoint('synthetic')
         assert endpoint['base_url'] == fields()['base_url']
+        status = client.get(BASE, headers=headers)
+        assert status.status_code == 200, status.text
+        assert status.json()['items'][0]['transport'] == endpoint['transport']
         for operation, values in [('provider.endpoint.save', {**fields(), 'enabled': False}),
                                   ('provider.endpoint.delete', {'endpoint_id': 'synthetic'})]:
             changed = reviewed(client, headers, operation, values)

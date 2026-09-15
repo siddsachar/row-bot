@@ -1526,6 +1526,22 @@ export class ClientController {
     this.query(() => this.transport.deckSetup?.(signal));
   providerStatus = (signal?: AbortSignal) =>
     this.query(() => this.transport.providerStatus?.(signal));
+  liveProviderStatus = (signal?: AbortSignal) =>
+    this.query(() => this.transport.liveProviderStatus?.(signal));
+  refreshLiveProvider = (provider: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.refreshLiveProvider)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.refreshLiveProvider(provider, signal);
+    });
+  liveProviderRefresh = (signal?: AbortSignal) =>
+    this.query(() => this.transport.liveProviderRefresh?.(signal));
+  testLiveProviderRuntime = (provider: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.testLiveProviderRuntime)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.testLiveProviderRuntime(provider, signal);
+    });
   mcpConfiguration = (query: string, cursor?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.mcpConfiguration?.(query, cursor, signal));
   mcpPolicy = (

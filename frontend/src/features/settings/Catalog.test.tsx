@@ -6,11 +6,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { CachedModelPage, ProviderStatusSnapshot } from '../../api/types';
 import ModelCatalog from './ModelCatalog';
-import ProviderStatus from './ProviderStatus';
 
 const snapshot: ProviderStatusSnapshot = {
   schema_version: 1,
@@ -111,139 +109,6 @@ it('bounds rendered models while keeping later pages reachable and reload return
     view.container.querySelectorAll('.settings-results > li'),
   ).toHaveLength(100);
   expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
-});
-
-it('shows saved provider facts without inventing runtime readiness or timestamps', async () => {
-  const load = vi.fn(async () => snapshot);
-  render(
-    <MemoryRouter>
-      <ProviderStatus load={load} />
-    </MemoryRouter>,
-  );
-  expect(
-    await screen.findByRole('link', { name: /Local engine/ }),
-  ).toHaveAttribute('href', '/settings/models?provider=local');
-  expect(
-    screen.getByText(
-      /Account access and runtime readiness have not been checked/,
-    ),
-  ).toHaveTextContent('No dated catalog snapshot');
-  expect(screen.queryByText('Saved catalog available.')).toBeNull();
-  expect(load).toHaveBeenCalledTimes(1);
-});
-
-it('keeps provider groups in the owner order and summarizes only saved facts', async () => {
-  const local = snapshot.providers[0];
-  const grouped: ProviderStatusSnapshot = {
-    ...snapshot,
-    total_models: 9,
-    providers: [
-      local,
-      {
-        ...local,
-        provider_id: 'subscription',
-        display_name: 'Subscription provider',
-        group: 'subscription',
-        model_count: 2,
-      },
-      {
-        ...local,
-        provider_id: 'api',
-        display_name: 'API provider',
-        group: 'api',
-        model_count: 3,
-        enabled: false,
-      },
-      {
-        ...local,
-        provider_id: 'custom',
-        display_name: 'Custom endpoint',
-        group: 'custom',
-        model_count: 3,
-        enabled: true,
-      },
-    ],
-  };
-  const view = render(
-    <MemoryRouter>
-      <ProviderStatus load={async () => grouped} />
-    </MemoryRouter>,
-  );
-  const summary = await screen.findByLabelText('Provider summary');
-  expect(summary).toHaveTextContent('1 local');
-  expect(summary).toHaveTextContent('1 API');
-  expect(summary).toHaveTextContent('1 subscription');
-  expect(summary).toHaveTextContent('1 custom');
-  expect(summary).toHaveTextContent('1 saved enabled');
-  expect(summary).toHaveTextContent('9 saved models');
-  expect(
-    [...view.container.querySelectorAll('.settings-provider-group > h3')].map(
-      (heading) => heading.textContent,
-    ),
-  ).toEqual([
-    'Local',
-    'Subscription Accounts',
-    'API Providers',
-    'Custom Endpoints',
-  ]);
-  expect(
-    within(screen.getByRole('link', { name: /API provider/ })).getByText(
-      'Disabled',
-    ),
-  ).toBeVisible();
-  expect(
-    within(screen.getByRole('link', { name: /Custom endpoint/ })).getByText(
-      'Saved enabled',
-    ),
-  ).toBeVisible();
-  expect(
-    within(screen.getByRole('link', { name: /Local engine/ })).getByText(
-      'Not checked',
-    ),
-  ).toBeVisible();
-});
-
-it('redacts provider failures and supports explicit retry', async () => {
-  const load = vi
-    .fn()
-    .mockRejectedValueOnce(new Error('private secret'))
-    .mockResolvedValue(snapshot);
-  render(
-    <MemoryRouter>
-      <ProviderStatus load={load} />
-    </MemoryRouter>,
-  );
-  expect(
-    await screen.findByText('Row-Bot could not complete this request.'),
-  ).toBeVisible();
-  expect(screen.queryByText(/private secret/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Reload saved status' }));
-  expect(
-    await screen.findByRole('link', { name: /Local engine/ }),
-  ).toBeVisible();
-  expect(load).toHaveBeenCalledTimes(2);
-});
-
-it('aborts old provider reads and excludes their late response', async () => {
-  const old = pending<ProviderStatusSnapshot>();
-  const load = vi.fn((_signal?: AbortSignal) => old.promise);
-  const { rerender } = render(
-    <MemoryRouter>
-      <ProviderStatus load={load} />
-    </MemoryRouter>,
-  );
-  const next = vi.fn(async () => ({ ...snapshot, providers: [] }));
-  rerender(
-    <MemoryRouter>
-      <ProviderStatus load={next} />
-    </MemoryRouter>,
-  );
-  expect(await screen.findByText('No saved providers')).toBeVisible();
-  expect(load.mock.calls[0][0]?.aborted).toBe(true);
-  await act(async () => old.resolve(snapshot));
-  expect(
-    screen.queryByRole('link', { name: /Local engine/ }),
-  ).not.toBeInTheDocument();
 });
 
 it('loads bounded pages only on request and preserves unknown model capabilities', async () => {

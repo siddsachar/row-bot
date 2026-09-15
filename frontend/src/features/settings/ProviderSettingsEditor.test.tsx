@@ -43,6 +43,36 @@ function props() {
   };
 }
 
+it('saves a key from the compact provider dialog with one explicit action', async () => {
+  const options = props();
+  render(<ProviderSettingsEditor {...options} compact />);
+  const input = await screen.findByLabelText('API key');
+  fireEvent.change(input, { target: { value: 'synthetic-private-input' } });
+  expect(screen.queryByRole('button', { name: 'Review change' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Reload saved status' }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
+  expect(options.review).toHaveBeenCalledWith(
+    'openai',
+    snapshot.revision,
+    'save',
+    'synthetic-private-input',
+    expect.any(AbortSignal),
+  );
+  expect(options.apply).toHaveBeenCalledWith(
+    'openai',
+    snapshot.revision,
+    'save',
+    'synthetic-private-input',
+    expect.any(String),
+  );
+  expect(input).toHaveValue('');
+  expect(options.onSaved).toHaveBeenCalledOnce();
+  expect(document.body.textContent).not.toContain('synthetic-private-input');
+});
+
 it('retains the exact reviewed private draft across a full editor remount', async () => {
   const options = props(),
     session = new ProviderSettingsSession('openai');

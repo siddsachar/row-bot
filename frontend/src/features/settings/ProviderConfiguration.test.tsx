@@ -64,6 +64,123 @@ function options() {
     onCredentials: vi.fn(),
   };
 }
+it('runs a custom endpoint probe from its compact row action and reloads the result', async () => {
+  const props = options();
+  props.load.mockResolvedValueOnce(page).mockResolvedValue({
+    ...page,
+    items: [
+      {
+        ...page.items[0],
+        probe_state: 'agent_ready',
+        probe_components: [{ name: 'Tool round trip', status: 'ok' }],
+      },
+    ],
+  });
+  render(<ProviderConfiguration {...props} compact />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Probe Synthetic endpoint' }),
+  );
+  await waitFor(() =>
+    expect(props.apply).toHaveBeenCalledWith(
+      'provider.endpoint.probe',
+      page.revision,
+      { endpoint_id: 'synthetic' },
+      expect.any(String),
+      expect.objectContaining({ nonce: 'original-session-nonce' }),
+    ),
+  );
+  expect(await screen.findByText('agent ready')).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Show Synthetic endpoint probe details',
+    }),
+  );
+  expect(screen.getByText('Tool round trip: ok')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Review configuration' }),
+  ).toBeNull();
+});
+it('refreshes a saved no-key endpoint using the reviewed endpoint operation', async () => {
+  const props = options();
+  render(<ProviderConfiguration {...props} compact />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Edit Synthetic endpoint' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(props.apply).mock.calls.map((call) => call[0])).toEqual([
+    'provider.endpoint.save',
+    'provider.endpoint.refresh',
+  ]);
+  expect(props.review).toHaveBeenNthCalledWith(
+    2,
+    'provider.endpoint.refresh',
+    page.revision,
+    { endpoint_id: 'synthetic' },
+  );
+  expect(
+    await screen.findByText('Endpoint saved and models refreshed.'),
+  ).toBeVisible();
+});
+it('opens the credential dialog after creating an endpoint that needs a key', async () => {
+  const props = options();
+  render(<ProviderConfiguration {...props} compact />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add custom endpoint' }),
+  );
+  fireEvent.change(screen.getByLabelText('Endpoint id'), {
+    target: { value: 'keyed' },
+  });
+  fireEvent.change(screen.getByLabelText('Display name'), {
+    target: { value: 'Keyed endpoint' },
+  });
+  fireEvent.change(screen.getByLabelText('Base URL'), {
+    target: { value: 'https://example.invalid/v1' },
+  });
+  fireEvent.click(screen.getByLabelText('API key required'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(props.onCredentials).toHaveBeenCalledWith('custom_openai_keyed'),
+  );
+  expect(vi.mocked(props.apply).mock.calls).toHaveLength(1);
+});
+it('refreshes endpoint models once after a new API key was saved', async () => {
+  const props = options();
+  const view = render(<ProviderConfiguration {...props} compact />);
+  await screen.findByRole('button', {
+    name: 'Refresh Synthetic endpoint models',
+  });
+  view.rerender(
+    <ProviderConfiguration
+      {...props}
+      compact
+      credentialRefreshRequest={{
+        providerId: 'custom_openai_synthetic',
+        token: 1,
+      }}
+    />,
+  );
+  await waitFor(() =>
+    expect(props.apply).toHaveBeenCalledWith(
+      'provider.endpoint.refresh',
+      page.revision,
+      { endpoint_id: 'synthetic' },
+      expect.any(String),
+      expect.objectContaining({ nonce: 'original-session-nonce' }),
+    ),
+  );
+  view.rerender(
+    <ProviderConfiguration
+      {...props}
+      compact
+      credentialRefreshRequest={{
+        providerId: 'custom_openai_synthetic',
+        token: 1,
+      }}
+    />,
+  );
+  expect(props.apply).toHaveBeenCalledOnce();
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (cause: unknown) => void;

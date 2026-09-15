@@ -979,11 +979,18 @@ class ProviderEndpointFields(WireModel):
     extra_body_json: str = Field(default="{}", max_length=16384)
 
 
+class ProviderProbeComponent(WireModel):
+    name: str = Field(max_length=80)
+    status: str = Field(max_length=80)
+
+
 class ProviderEndpointSnapshot(WireModel):
     provider_id: str = Field(min_length=1, max_length=160)
     fields: ProviderEndpointFields
     probe_state: Literal["agent_ready", "chat_only", "unavailable", "unknown"]
     model_count: int | None = Field(ge=0)
+    probe_components: list[ProviderProbeComponent] = Field(default_factory=list, max_length=20)
+    transport: str = Field(default="openai_chat", max_length=80)
     runtime_state: Literal["unknown"] = "unknown"
 
 
@@ -2952,6 +2959,50 @@ class ProviderStatusSnapshot(WireModel):
     refresh_running: bool
     providers: list[ProviderStatusRow] = Field(max_length=512)
     total_models: int = Field(ge=0)
+
+
+class ProviderLiveCard(WireModel):
+    provider_id: OpaqueId
+    display_name: str = Field(max_length=256)
+    group: Literal["local", "subscription", "api", "custom"]
+    icon: str = Field(max_length=32)
+    configured: bool
+    source: str = Field(max_length=80)
+    runtime_enabled: bool
+    model_count: int | None = Field(default=None, ge=0)
+    model_count_source: str = Field(max_length=80)
+    chat_count: int = Field(ge=0)
+    media_count: int = Field(ge=0)
+    plan_type: str = Field(max_length=80)
+    fingerprint: str = Field(max_length=80)
+    account_id_hash: str = Field(max_length=80)
+    user_hash: str = Field(max_length=80)
+    oauth_client_id_fingerprint: str = Field(max_length=80)
+    oauth_client_id_configured: bool
+    external_reference_exists: bool
+    reconnect_required: bool = False
+    risk_label: str = Field(max_length=80)
+    last_runtime_probe_ok: bool | None = None
+
+
+class ProviderLiveSnapshot(WireModel):
+    schema_version: Literal[1] = 1
+    providers: list[ProviderLiveCard] = Field(max_length=512)
+
+
+class ProviderCatalogRefresh(WireModel):
+    running: bool
+    started: bool
+    provider_id: str = Field(default="", max_length=80)
+    ok: bool | None = None
+    model_count: int | None = Field(default=None, ge=0)
+    message: str = Field(default="", max_length=256)
+
+
+class ProviderRuntimeProbe(WireModel):
+    provider_id: Literal["claude_subscription", "xai_oauth"]
+    ok: bool
+    detail: str = Field(max_length=256)
 
 
 class CachedReasoning(WireModel):

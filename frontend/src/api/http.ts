@@ -1246,6 +1246,28 @@ export class HttpTransport implements ClientTransport {
   providerStatus(signal?: AbortSignal) {
     return wire.getProviderStatus(this.base, this.session(), signal);
   }
+  liveProviderStatus(signal?: AbortSignal) {
+    return wire.getLiveProviderStatus(this.base, this.session(), signal);
+  }
+  refreshLiveProvider(provider: string, signal?: AbortSignal) {
+    return wire.refreshLiveProvider(
+      this.base,
+      this.session(),
+      provider,
+      signal,
+    );
+  }
+  liveProviderRefresh(signal?: AbortSignal) {
+    return wire.getLiveProviderRefresh(this.base, this.session(), signal);
+  }
+  testLiveProviderRuntime(provider: string, signal?: AbortSignal) {
+    return wire.testLiveProviderRuntime(
+      this.base,
+      this.session(),
+      provider,
+      signal,
+    );
+  }
   savedEntities(
     query = '',
     entityType?: string,
