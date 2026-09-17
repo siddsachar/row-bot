@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cameras": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 65,
+      "title": "Cameras",
+      "type": "array"
+    }
+  },
+  "required": [
+    "cameras"
+  ],
+  "title": "ModelCameraList",
+  "type": "object"
+}

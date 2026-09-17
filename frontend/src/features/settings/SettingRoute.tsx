@@ -9,14 +9,12 @@ import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { resolveSetting } from './model';
 import Preferences from './Preferences';
 import ProviderStatus from './ProviderStatus';
-import ModelCatalog from './ModelCatalog';
 import ToolCatalog from './ToolCatalog';
 import KnowledgeCatalog from './KnowledgeCatalog';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
-import DefaultModelSettings from './DefaultModelSettings';
-import ModelSurfaceSettings from './ModelSurfaceSettings';
+import ModelsPanel from './ModelsPanel';
 import CapabilitySettings from './CapabilitySettings';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
@@ -94,10 +92,6 @@ export default function SettingRoute() {
     { providerId: string; token: number; session: string } | undefined
   >();
   const [providerReload, setProviderReload] = useState(0);
-  const [modelCatalogOpen, setModelCatalogOpen] = useState(
-    Boolean(search.get('provider')),
-  );
-  const [modelCatalogRevision, setModelCatalogRevision] = useState(0);
   const [loadedSettingsSnapshot, setLoadedSettingsSnapshot] = useState<{
     session: string;
     snapshot: SettingsSnapshot;
@@ -386,124 +380,12 @@ export default function SettingRoute() {
               </div>
             )}
           </>
-        ) : leaf.id === 'models' ? (
-          <>
-            {defaultModelOwner?.get() && (
-              <section
-                className="settings-model-defaults-group stack"
-                aria-labelledby="settings-model-defaults-heading"
-              >
-                <header className="settings-owner-heading">
-                  <div>
-                    <h3 id="settings-model-defaults-heading">Defaults</h3>
-                    <p>
-                      Pickers show saved catalog choices plus the current
-                      default.
-                    </p>
-                  </div>
-                  <span className="status-chip">Catalog-backed</span>
-                </header>
-                <DefaultModelSettings
-                  grouped
-                  session={defaultModelOwner.get()}
-                  load={controller.defaultModel}
-                  review={(settings_revision, provider_id, model_id, signal) =>
-                    controller.reviewDefaultModel(
-                      { settings_revision, provider_id, model_id },
-                      signal,
-                    )
-                  }
-                  apply={controller.executeDefaultModel}
-                  receipt={controller.defaultModelReceipt}
-                  onSaved={() => {}}
-                  onBrowseModels={() => setModelCatalogOpen(true)}
-                />
-                <ModelSurfaceSettings
-                  session={defaultModelOwner.get()!}
-                  loadModels={controller.cachedModels}
-                  loadConfiguration={(signal) =>
-                    controller.providerConfiguration('', undefined, signal)
-                  }
-                  review={(operation, revision, fields, signal) =>
-                    controller.reviewProviderConfiguration(
-                      {
-                        operation,
-                        configuration_revision: revision,
-                        fields,
-                      },
-                      signal,
-                    )
-                  }
-                  apply={(operation, revision, fields, commandId, review) => {
-                    if (!review.nonce)
-                      return Promise.reject({ code: 'approval_expired' });
-                    return controller.executeProviderConfiguration(
-                      operation,
-                      revision,
-                      fields,
-                      commandId,
-                      review.nonce,
-                    );
-                  }}
-                  receipt={controller.providerConfigurationReceipt}
-                  onChanged={() =>
-                    setModelCatalogRevision((value) => value + 1)
-                  }
-                />
-              </section>
-            )}
-            <section
-              className="settings-owner-section stack settings-catalog-owner"
-              aria-labelledby="model-catalog-disclosure-heading"
-            >
-              <button
-                className="settings-disclosure"
-                type="button"
-                aria-expanded={modelCatalogOpen}
-                aria-controls="model-catalog-content"
-                onClick={() => setModelCatalogOpen((value) => !value)}
-              >
-                <span id="model-catalog-disclosure-heading">Model Catalog</span>
-                <span aria-hidden>{modelCatalogOpen ? '−' : '+'}</span>
-              </button>
-              {modelCatalogOpen && (
-                <div id="model-catalog-content">
-                  <ModelCatalog
-                    key={`${session}:${search.get('provider') ?? ''}:${modelCatalogRevision}`}
-                    initialProvider={search.get('provider') ?? ''}
-                    load={controller.cachedModels}
-                    loadProviders={controller.providerStatus}
-                    onChooseDefault={
-                      defaultModelOwner
-                        ? async (model) => {
-                            const editor = defaultModelOwner.get();
-                            if (
-                              !editor?.active ||
-                              editor.get('busy', '') ||
-                              editor.get('pending', null)
-                            )
-                              throw { code: 'operation_uncertain' };
-                            if (!editor.get('snapshot', null)) {
-                              const snapshot = await controller.defaultModel();
-                              if (
-                                !editor.active ||
-                                defaultModelOwner.get() !== editor
-                              )
-                                throw { code: 'session_expired' };
-                              editor.set('snapshot', snapshot);
-                            }
-                            editor.set('provider', model.provider_id);
-                            editor.set('model', model.model_id);
-                            editor.set('dirty', true);
-                            editor.set('reviewed', null);
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
-              )}
-            </section>
-          </>
+        ) : leaf.id === 'models' && defaultModelOwner?.get() ? (
+          <ModelsPanel
+            controller={controller}
+            session={defaultModelOwner.get()!}
+            initialProvider={search.get('provider') ?? ''}
+          />
         ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
           <>
             <CapabilitySettings

@@ -5801,6 +5801,111 @@ def create_router(
         }
         return await respond(request, dto.ProviderSettingsReceipt, result)
 
+    @router.get("/settings/models/state")
+    async def models_settings_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_models_settings import read_models_settings
+        return await respond(request, dto.ModelsSettingsState, await call(
+            read_models_settings, validate=dispatch_validation(request, current)))
+
+    @router.post("/settings/models/surface")
+    async def models_surface_update(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ModelSurfaceMutation, 2048)
+        from row_bot.application.client_models_settings import update_model_surface
+        try:
+            result = await call(update_model_surface, body.surface, body.action,
+                selection_ref=body.selection_ref, enabled=body.enabled,
+                camera_index=body.camera_index,
+                validate=dispatch_validation(request, current))
+        except ValueError as exc:
+            raise ProtocolError(str(exc), 422) from None
+        return await respond(request, dto.ModelsSettingsState, result)
+
+    @router.post("/settings/models/context")
+    async def models_context_update(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ModelContextMutation, 2048)
+        from row_bot.application.client_models_settings import update_model_context
+        try:
+            result = await call(update_model_context, body.policy_kind, body.cap,
+                validate=dispatch_validation(request, current))
+        except ValueError as exc:
+            raise ProtocolError(str(exc), 422) from None
+        return await respond(request, dto.ModelsSettingsState, result)
+
+    @router.get("/settings/models/agents")
+    async def models_agent_settings(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_models_settings import read_agent_settings
+        return await respond(request, dto.AgentRuntimeSettingsState, await call(
+            read_agent_settings, validate=dispatch_validation(request, current)))
+
+    @router.post("/settings/models/agents")
+    async def models_agent_settings_save(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.AgentRuntimeSettingsState, 2048)
+        from row_bot.application.client_models_settings import save_agent_settings
+        try:
+            result = await call(save_agent_settings, body.model_dump(mode="json"),
+                validate=dispatch_validation(request, current))
+        except ValueError as exc:
+            raise ProtocolError("invalid_agent_settings", 422) from exc
+        return await respond(request, dto.AgentRuntimeSettingsState, result)
+
+    @router.post("/settings/models/agents/reset")
+    async def models_agent_settings_reset(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        from row_bot.application.client_models_settings import save_agent_settings
+        result = await call(save_agent_settings, None,
+            validate=dispatch_validation(request, current))
+        return await respond(request, dto.AgentRuntimeSettingsState, result)
+
+    @router.get("/settings/models/catalog-summary")
+    async def models_catalog_summary(request: Request, surface: str = "chat") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_models_settings import catalog_provider_summary
+        try:
+            result = await call(catalog_provider_summary, surface,
+                validate=dispatch_validation(request, current))
+        except ValueError:
+            raise ProtocolError("invalid_model_surface", 422) from None
+        return await respond(request, dto.ModelCatalogSummary, result)
+
+    @router.post("/settings/models/refresh")
+    async def models_catalog_refresh(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+        await call(dispatch_validation(request, current))
+        started = await call(start_model_catalog_refresh_background,
+            reason="manual", force=True)
+        return await respond(request, dto.ProviderCatalogRefresh, {
+            "running": True, "started": started, "provider_id": ""})
+
+    @router.post("/settings/models/cameras/refresh")
+    async def models_cameras_refresh(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        from row_bot.vision import list_cameras
+        result = await call(list_cameras)
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.ModelCameraList, {
+            "cameras": [camera for camera in result if type(camera) is int and 0 <= camera <= 64][:65]})
+
+    @router.get("/settings/models/catalog")
+    async def models_catalog_page(request: Request, surface: str = "chat",
+                                  provider_id: str | None = None, query: str = "",
+                                  cursor: str | None = None) -> JSONResponse:
+        current = await session(request)
+        from row_bot.providers.client_status import ProviderStatusError, list_cached_models
+        try:
+            result = await call(list_cached_models, surface=surface,
+                provider_id=provider_id, query=query, cursor=cursor, limit=80,
+                readiness=True)
+        except ProviderStatusError as exc:
+            raise ProtocolError(exc.code, 410 if exc.code == "cursor_expired" else 422) from None
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.CachedModelPage, asdict(result))
+
     @router.get("/settings/models")
     async def cached_models(
         request: Request,

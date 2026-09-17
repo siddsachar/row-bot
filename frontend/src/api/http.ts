@@ -1743,6 +1743,63 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  modelsSettings(signal?: AbortSignal) {
+    return wire.getModelsSettings(this.base, this.session(), signal);
+  }
+  updateModelSurface(body: wire.ModelSurfaceMutation, signal?: AbortSignal) {
+    return wire.updateModelSurface(this.base, this.session(), body, signal);
+  }
+  updateModelContext(body: wire.ModelContextMutation, signal?: AbortSignal) {
+    return wire.updateModelContext(this.base, this.session(), body, signal);
+  }
+  agentRuntimeSettings(signal?: AbortSignal) {
+    return wire.getAgentRuntimeSettings(this.base, this.session(), signal);
+  }
+  saveAgentRuntimeSettings(
+    body: wire.AgentRuntimeSettingsState,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveAgentRuntimeSettings(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
+  }
+  resetAgentRuntimeSettings(signal?: AbortSignal) {
+    return wire.resetAgentRuntimeSettings(this.base, this.session(), signal);
+  }
+  modelCatalogSummary(surface: string, signal?: AbortSignal) {
+    return wire.getModelCatalogSummary(
+      this.base,
+      this.session(),
+      surface,
+      signal,
+    );
+  }
+  modelCatalogPage(
+    surface: string,
+    providerId?: string,
+    query = '',
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getModelCatalogPage(
+      this.base,
+      this.session(),
+      surface,
+      providerId,
+      query,
+      cursor,
+      signal,
+    );
+  }
+  refreshModelsCatalog(signal?: AbortSignal) {
+    return wire.refreshModelsCatalog(this.base, this.session(), signal);
+  }
+  refreshModelCameras(signal?: AbortSignal) {
+    return wire.refreshModelCameras(this.base, this.session(), signal);
+  }
   artifactSetup(
     mode: NonNullable<wire.ArtifactSetupOptions['mode']>,
     signal?: AbortSignal,

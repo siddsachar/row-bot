@@ -1,5 +1,4 @@
 import { useEffect, useRef, type ComponentType, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -98,11 +97,8 @@ export default function SettingsShell({
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [location.pathname]);
-  const surface = (
-    <section
-      className={`settings-shell${leaf.id === 'providers' ? ' is-providers' : ''}`}
-      aria-label="Settings"
-    >
+  return (
+    <section className="settings-shell" aria-label="Settings">
       <header className="settings-shell-header">
         <Settings2 size={20} aria-hidden />
         <h1>Settings</h1>
@@ -160,7 +156,4 @@ export default function SettingsShell({
       </div>
     </section>
   );
-  return leaf.id === 'providers' && typeof document !== 'undefined'
-    ? createPortal(surface, document.body)
-    : surface;
 }

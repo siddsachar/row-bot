@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 
 import pytest
@@ -151,6 +151,32 @@ def test_search_before_paging_counts_and_revision_invalidation(saved):
     saved(cloud={"changed": _model()})
     with pytest.raises(status.ProviderStatusError, match="cursor_expired"):
         status.list_cached_models(cursor=first.next_cursor)
+
+
+def test_models_scoped_readiness_and_category_cursor_leave_passive_status_alone(saved, monkeypatch):
+    saved(cloud={f"model-{i:03}": _model(label=f"Name {i:03}", capabilities_snapshot={
+        "tasks": ["chat"], "output_modalities": ["text"], "tool_calling": True,
+    }) for i in range(90)})
+    calls = []
+
+    def project(rows):
+        calls.append("local-readiness")
+        return [replace(row, configured=True, runtime_ready=True, installed=True,
+                        runtime_mode="agent") for row in rows]
+
+    monkeypatch.setattr(status, "project_saved_catalog_readiness", project)
+    passive = status.list_cached_models(limit=1, now=1000)
+    assert calls == []
+    assert passive.items[0].runtime_state == "unknown"
+    first = status.list_cached_models(surface="chat", readiness=True, limit=80, now=1000)
+    second = status.list_cached_models(surface="chat", readiness=True, cursor=first.next_cursor,
+                                       limit=80, now=1000)
+    assert [len(first.items), len(second.items)] == [80, 10]
+    assert first.items[0].runtime_state == "ready"
+    assert first.items[0].selection_ref.startswith("model:openai:")
+    assert len(calls) == 2
+    with pytest.raises(status.ProviderStatusError, match="cursor_expired"):
+        status.list_cached_models(surface="vision", readiness=True, cursor=first.next_cursor)
 
 
 @pytest.mark.parametrize("kwargs", [{"limit": 0}, {"limit": 101}, {"limit": True}, {"query": "x" * 257}, {"query": None}, {"provider_id": ""}])

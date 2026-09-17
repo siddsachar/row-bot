@@ -3041,7 +3041,12 @@ class CachedModelRow(WireModel):
     pinned_surfaces: list[Annotated[str, StringConstraints(max_length=80)]] = Field(
         max_length=32
     )
-    runtime_state: Literal["unknown"] = "unknown"
+    configured: bool
+    runtime_ready: bool
+    status_reason: str = Field(max_length=256)
+    runtime_mode: str = Field(max_length=32)
+    source: str = Field(max_length=80)
+    runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
 
 
 class CachedModelPage(WireModel):
@@ -3052,6 +3057,84 @@ class CachedModelPage(WireModel):
     items: list[CachedModelRow] = Field(max_length=100)
     total: int = Field(ge=0)
     next_cursor: str | None = Field(default=None, max_length=2048)
+
+
+class ModelPickerOption(WireModel):
+    selection_ref: str = Field(max_length=647)
+    label: str = Field(max_length=256)
+    source: str = Field(max_length=80)
+    available: bool
+    context_window: int | None = Field(default=None, ge=1)
+    reason: str = Field(default="", max_length=256)
+
+
+class ModelPickerSurface(WireModel):
+    current_ref: str = Field(max_length=647)
+    enabled: bool | None = None
+    warning: str = Field(default="", max_length=256)
+    options: list[ModelPickerOption] = Field(max_length=4096)
+
+
+class ModelContextState(WireModel):
+    policy_kind: Literal["local", "provider"]
+    selected_cap: int | None = Field(default=None, ge=16384, le=10000000)
+    native_max: int | None = Field(default=None, ge=1)
+    effective_cap: int | None = Field(default=None, ge=1)
+    warning: str = Field(default="", max_length=512)
+
+
+class ModelsSettingsState(WireModel):
+    schema_version: Literal[1] = 1
+    brain: ModelPickerSurface
+    vision: ModelPickerSurface
+    image: ModelPickerSurface
+    video: ModelPickerSurface
+    camera_index: int = Field(ge=0, le=64)
+    context: ModelContextState
+    freshness: Literal["fresh", "stale", "unavailable"]
+    generated_at: float | None = None
+    refresh_running: bool
+
+
+class ModelSurfaceMutation(WireModel):
+    surface: Literal["vision", "image", "video"]
+    action: Literal["default", "enabled", "camera"]
+    selection_ref: str | None = Field(default=None, max_length=647)
+    enabled: bool | None = None
+    camera_index: int | None = Field(default=None, ge=0, le=64)
+
+
+class ModelContextMutation(WireModel):
+    policy_kind: Literal["local", "provider"]
+    cap: int | None = Field(default=None, ge=16384, le=10000000)
+
+
+class AgentRuntimeSettingsState(WireModel):
+    schema_version: Literal[1] = 1
+    max_iterations: int = Field(ge=1, le=1000000)
+    max_spawn_depth: int = Field(ge=1, le=1000000)
+    max_concurrent_children: int = Field(ge=1, le=1000000)
+    max_active_children_global: int = Field(ge=1, le=1000000)
+    child_timeout_seconds: int = Field(ge=0, le=1000000)
+
+
+class ModelCatalogProviderSummary(WireModel):
+    provider_id: str = Field(max_length=160)
+    display_name: str = Field(max_length=256)
+    total: int = Field(ge=0)
+    ready: int = Field(ge=0)
+    pinned: int = Field(ge=0)
+
+
+class ModelCatalogSummary(WireModel):
+    schema_version: Literal[1] = 1
+    revision: str = Field(max_length=128)
+    surface: Literal["chat", "vision", "image", "video", "voice"]
+    providers: list[ModelCatalogProviderSummary] = Field(max_length=256)
+
+
+class ModelCameraList(WireModel):
+    cameras: list[int] = Field(max_length=65)
 
 
 class SteerPayload(WireModel):

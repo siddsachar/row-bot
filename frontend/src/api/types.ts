@@ -978,6 +978,40 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.CachedModelPage>;
+  modelsSettings?(signal?: AbortSignal): Promise<Wire.ModelsSettingsState>;
+  updateModelSurface?(
+    body: Wire.ModelSurfaceMutation,
+    signal?: AbortSignal,
+  ): Promise<Wire.ModelsSettingsState>;
+  updateModelContext?(
+    body: Wire.ModelContextMutation,
+    signal?: AbortSignal,
+  ): Promise<Wire.ModelsSettingsState>;
+  agentRuntimeSettings?(
+    signal?: AbortSignal,
+  ): Promise<Wire.AgentRuntimeSettingsState>;
+  saveAgentRuntimeSettings?(
+    body: Wire.AgentRuntimeSettingsState,
+    signal?: AbortSignal,
+  ): Promise<Wire.AgentRuntimeSettingsState>;
+  resetAgentRuntimeSettings?(
+    signal?: AbortSignal,
+  ): Promise<Wire.AgentRuntimeSettingsState>;
+  modelCatalogSummary?(
+    surface: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ModelCatalogSummary>;
+  modelCatalogPage?(
+    surface: string,
+    providerId?: string,
+    query?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CachedModelPage>;
+  refreshModelsCatalog?(
+    signal?: AbortSignal,
+  ): Promise<Wire.ProviderCatalogRefresh>;
+  refreshModelCameras?(signal?: AbortSignal): Promise<Wire.ModelCameraList>;
   artifactSetup?(
     mode: NonNullable<Wire.ArtifactSetupOptions['mode']>,
     signal?: AbortSignal,

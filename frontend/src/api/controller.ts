@@ -3407,6 +3407,66 @@ export class ClientController {
     this.query(() =>
       this.transport.cachedModels?.(providerId, query, cursor, signal),
     );
+  modelsSettings = (signal?: AbortSignal) =>
+    this.query(() => this.transport.modelsSettings?.(signal));
+  updateModelSurface = (body: import('./types').ModelSurfaceMutation) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.updateModelSurface)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.updateModelSurface(body, signal);
+    });
+  updateModelContext = (body: import('./types').ModelContextMutation) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.updateModelContext)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.updateModelContext(body, signal);
+    });
+  agentRuntimeSettings = (signal?: AbortSignal) =>
+    this.query(() => this.transport.agentRuntimeSettings?.(signal));
+  saveAgentRuntimeSettings = (
+    body: import('./types').AgentRuntimeSettingsState,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.saveAgentRuntimeSettings)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.saveAgentRuntimeSettings(body, signal);
+    });
+  resetAgentRuntimeSettings = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.resetAgentRuntimeSettings)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.resetAgentRuntimeSettings(signal);
+    });
+  modelCatalogSummary = (surface: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.modelCatalogSummary?.(surface, signal));
+  modelCatalogPage = (
+    surface: string,
+    providerId?: string,
+    query = '',
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.modelCatalogPage?.(
+        surface,
+        providerId,
+        query,
+        cursor,
+        signal,
+      ),
+    );
+  refreshModelsCatalog = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.refreshModelsCatalog)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.refreshModelsCatalog(signal);
+    });
+  refreshModelCameras = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.refreshModelCameras)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.refreshModelCameras(signal);
+    });
   settingsSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.settingsSnapshot?.(signal));
   reviewSettingsMutation = (

@@ -12,6 +12,10 @@
           "title": "Categories",
           "type": "array"
         },
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
         "context_window": {
           "anyOf": [
             {
@@ -97,9 +101,22 @@
           ],
           "default": null
         },
+        "runtime_mode": {
+          "maxLength": 32,
+          "title": "Runtime Mode",
+          "type": "string"
+        },
+        "runtime_ready": {
+          "title": "Runtime Ready",
+          "type": "boolean"
+        },
         "runtime_state": {
-          "const": "unknown",
           "default": "unknown",
+          "enum": [
+            "unknown",
+            "ready",
+            "unavailable"
+          ],
           "title": "Runtime State",
           "type": "string"
         },
@@ -107,6 +124,16 @@
           "maxLength": 647,
           "minLength": 1,
           "title": "Selection Ref",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "status_reason": {
+          "maxLength": 256,
+          "title": "Status Reason",
           "type": "string"
         },
         "tool_calling": {
@@ -131,7 +158,12 @@
         "categories",
         "input_modalities",
         "output_modalities",
-        "pinned_surfaces"
+        "pinned_surfaces",
+        "configured",
+        "runtime_ready",
+        "status_reason",
+        "runtime_mode",
+        "source"
       ],
       "title": "CachedModelRow",
       "type": "object"

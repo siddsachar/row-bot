@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 import time
 from typing import Any, Iterable
@@ -351,6 +351,28 @@ def build_saved_model_catalog_rows(
     return sorted(rows.values(), key=lambda row: (
         row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id,
     ))
+
+
+def project_saved_catalog_readiness(rows: Iterable[CatalogModelRow]) -> list[CatalogModelRow]:
+    """Apply the NiceGUI availability rules using local status and saved metadata.
+
+    A cached cloud row means catalog presence, not a verified provider response.
+    Status reads must not refresh tokens or contact provider runtimes.
+    """
+    statuses = _provider_status_by_id()
+    projected = []
+    for row in rows:
+        assessed = _catalog_row(
+            provider_id=row.provider_id, model_id=row.model_id,
+            display_name=row.display_name, categories=row.categories,
+            capabilities_snapshot=row.capabilities_snapshot,
+            provider_status=statuses, pinned_by_ref={row.selection_ref: set(row.pinned_surfaces)},
+            default_refs={}, context_window=row.context_window,
+            installed=row.installed if row.provider_id == "ollama" else True,
+            downloadable=False, source=row.source, risk_label=row.risk_label,
+        )
+        projected.append(replace(assessed, provider_display_name=row.provider_display_name))
+    return projected
 
 
 def _add_model_info_row(

@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "child_timeout_seconds": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "title": "Child Timeout Seconds",
+      "type": "integer"
+    },
+    "max_active_children_global": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Max Active Children Global",
+      "type": "integer"
+    },
+    "max_concurrent_children": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Max Concurrent Children",
+      "type": "integer"
+    },
+    "max_iterations": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Max Iterations",
+      "type": "integer"
+    },
+    "max_spawn_depth": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Max Spawn Depth",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "max_iterations",
+    "max_spawn_depth",
+    "max_concurrent_children",
+    "max_active_children_global",
+    "child_timeout_seconds"
+  ],
+  "title": "AgentRuntimeSettingsState",
+  "type": "object"
+}

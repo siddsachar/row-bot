@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "default",
+        "enabled",
+        "camera"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "camera_index": {
+      "anyOf": [
+        {
+          "maximum": 64,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Camera Index"
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Enabled"
+    },
+    "selection_ref": {
+      "anyOf": [
+        {
+          "maxLength": 647,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selection Ref"
+    },
+    "surface": {
+      "enum": [
+        "vision",
+        "image",
+        "video"
+      ],
+      "title": "Surface",
+      "type": "string"
+    }
+  },
+  "required": [
+    "surface",
+    "action"
+  ],
+  "title": "ModelSurfaceMutation",
+  "type": "object"
+}

@@ -1593,80 +1593,48 @@ test.beforeEach(async ({ context, page }) => {
   });
 });
 
-test('Default model selection uses the saved catalog and retains reviewed edits across navigation', async ({
+test('Models catalog applies a default and retains it across Providers navigation', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
-  await page.goto('/app-v2/settings/providers');
-  const editor = page.getByRole('region', {
-    name: 'Default chat model',
-    exact: true,
-  });
-  await activateRoute(
-    page,
-    editor.getByRole('button', {
-      name: 'Browse saved models',
-      exact: true,
-    }),
-    { path: '/app-v2/settings/models', headingName: 'Models' },
-  );
-  await page
-    .getByRole('searchbox', { name: 'Search models' })
-    .fill('phase4-104');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await activateRoute(
-    page,
-    page.getByRole('button', {
-      name: 'Review Saved example 104 as default',
-      exact: true,
-    }),
-    { path: '/app-v2/settings/providers', headingName: 'Providers' },
-  );
+  const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!;
+  const base = process.env.ROW_BOT_BROWSER_BASE_URL!;
+  const headers = { 'X-Fixture-Token': token, Origin: new URL(base).origin };
+  expect(
+    (
+      await page.request.post('/__p4_fixture/provider-credentials', { headers })
+    ).ok(),
+  ).toBe(true);
+  await page.goto('/app-v2/settings/models');
+  const models = page.locator('[aria-label="Models settings"]');
+  const defaultPicker = models.getByRole('combobox', { name: 'Default model' });
+  await expect(defaultPicker).toBeVisible();
+  const index = (await defaultPicker.inputValue()).endsWith('-104')
+    ? '103'
+    : '104';
+  const label = 'Saved example ' + index;
+  await models.getByRole('button', { name: 'Model Catalog' }).click();
+  await models.getByRole('button', { name: 'Open' }).first().click();
+  await models.getByRole('button', { name: 'Show more models' }).click();
+  const row = models
+    .locator('.settings-model-row-list > li')
+    .filter({ hasText: label });
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: 'Pin ' + label + ' for chat' }).click();
   await expect(
-    editor.getByRole('textbox', { name: 'Default provider ID' }),
-  ).toHaveValue('openai');
-  await expect(
-    editor.getByRole('textbox', { name: 'Default exact model ID' }),
-  ).toHaveValue('phase4-104');
-  await editor
-    .getByRole('button', { name: 'Review default model', exact: true })
-    .click();
-  await expect(
-    editor.getByText(/Reviewed global default: openai/),
+    row.getByRole('button', { name: 'Unpin ' + label + ' for chat' }),
   ).toBeVisible();
-  await activateRoute(
-    page,
-    editor.getByRole('button', {
-      name: 'Browse saved models',
-      exact: true,
-    }),
-    { path: '/app-v2/settings/models', headingName: 'Models' },
-  );
-  await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Providers',
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
-  });
-  await expect(
-    editor.getByRole('textbox', { name: 'Default exact model ID' }),
-  ).toHaveValue('phase4-104');
-  await editor
-    .getByRole('button', { name: 'Confirm default model', exact: true })
+  await row
+    .getByRole('button', { name: 'Set ' + label + ' as chat default' })
     .click();
-  await expect(
-    editor.getByText(/Saved default: model:openai:phase4-104/),
-  ).toBeVisible();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await expect(page.locator('html')).toHaveAttribute(
-      'data-theme',
-      appearance,
-    );
-    await assertNoOverflow(page);
-    await screenshot(page, info, `default-model-${appearance}`);
-    await accessibility(page, info, `default-model-${appearance}`);
-  }
+  await expect(defaultPicker).toHaveValue('model:openai:phase4-' + index);
+  await models.getByRole('link', { name: 'Provider connections' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await page.goBack();
+  await expect(defaultPicker).toHaveValue('model:openai:phase4-' + index);
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'models-default-retained');
+  await accessibility(page, info, 'models-default-retained');
 });
 
 test.skip('Phase 4 saved providers lead to bounded searchable model details without a live probe', async ({
@@ -1740,14 +1708,14 @@ test.skip('Phase 4 saved providers lead to bounded searchable model details with
   });
 });
 
-test('Phase 4 model pagination rejects changed snapshots and explicit reload recovers', async ({
+test('Models catalog recovers an expired page cursor only when requested', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
   await page.goto('/app-v2/settings/models?provider=openai');
-  await expect(page.getByText('106 matching models')).toBeVisible();
+  const models = page.locator('[aria-label="Models settings"]');
+  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
   await seed(page, 'changed');
-  // The public protocol deliberately returns410 for this injected expired cursor.
   if (info.project.use.browserName !== 'firefox')
     info.annotations.push({
       type: 'expected-console-error',
@@ -1759,29 +1727,25 @@ test('Phase 4 model pagination rejects changed snapshots and explicit reload rec
         fixture: 'changed saved catalog after page one',
       }),
     });
-  await page
-    .getByRole('button', { name: 'Load more models', exact: true })
-    .click();
+  await models.getByRole('button', { name: 'Show more models' }).click();
   await expect(
-    page.getByText('The catalog changed. Reload saved models to continue.'),
+    models.getByRole('button', { name: 'Reload catalog results' }),
   ).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Load more models', exact: true }),
+    models.getByRole('button', { name: 'Show more models' }),
   ).toBeDisabled();
-  await expect(page.locator('.settings-results > li')).toHaveCount(50);
-  await page
-    .getByRole('button', { name: 'Reload saved models', exact: true })
-    .click();
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  await page
-    .getByRole('button', { name: 'Load more models', exact: true })
-    .click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(100);
+  await models.getByRole('button', { name: 'Reload catalog results' }).click();
+  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
+  await models.getByRole('button', { name: 'Show more models' }).click();
+  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(
+    105,
+  );
   await seed(page, 'empty');
-  await page
-    .getByRole('button', { name: 'Reload saved models', exact: true })
-    .click();
-  await expect(page.getByText('No matching saved models')).toBeVisible();
+  await models.getByRole('combobox', { name: 'Provider' }).selectOption('');
+  await models
+    .getByRole('combobox', { name: 'Provider' })
+    .selectOption('openai');
+  await expect(models.getByText('No matching models')).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'saved-models-empty');
   await accessibility(page, info, 'saved-models-empty');

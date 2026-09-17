@@ -1,0 +1,228 @@
+{
+  "$defs": {
+    "ModelContextState": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_cap": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Cap"
+        },
+        "native_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Max"
+        },
+        "policy_kind": {
+          "enum": [
+            "local",
+            "provider"
+          ],
+          "title": "Policy Kind",
+          "type": "string"
+        },
+        "selected_cap": {
+          "anyOf": [
+            {
+              "maximum": 10000000,
+              "minimum": 16384,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Cap"
+        },
+        "warning": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Warning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_kind"
+      ],
+      "title": "ModelContextState",
+      "type": "object"
+    },
+    "ModelPickerOption": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "context_window": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Window"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Reason",
+          "type": "string"
+        },
+        "selection_ref": {
+          "maxLength": 647,
+          "title": "Selection Ref",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "selection_ref",
+        "label",
+        "source",
+        "available"
+      ],
+      "title": "ModelPickerOption",
+      "type": "object"
+    },
+    "ModelPickerSurface": {
+      "additionalProperties": false,
+      "properties": {
+        "current_ref": {
+          "maxLength": 647,
+          "title": "Current Ref",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/ModelPickerOption"
+          },
+          "maxItems": 4096,
+          "title": "Options",
+          "type": "array"
+        },
+        "warning": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Warning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "current_ref",
+        "options"
+      ],
+      "title": "ModelPickerSurface",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "brain": {
+      "$ref": "#/$defs/ModelPickerSurface"
+    },
+    "camera_index": {
+      "maximum": 64,
+      "minimum": 0,
+      "title": "Camera Index",
+      "type": "integer"
+    },
+    "context": {
+      "$ref": "#/$defs/ModelContextState"
+    },
+    "freshness": {
+      "enum": [
+        "fresh",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Freshness",
+      "type": "string"
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "image": {
+      "$ref": "#/$defs/ModelPickerSurface"
+    },
+    "refresh_running": {
+      "title": "Refresh Running",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "video": {
+      "$ref": "#/$defs/ModelPickerSurface"
+    },
+    "vision": {
+      "$ref": "#/$defs/ModelPickerSurface"
+    }
+  },
+  "required": [
+    "brain",
+    "vision",
+    "image",
+    "video",
+    "camera_index",
+    "context",
+    "freshness",
+    "refresh_running"
+  ],
+  "title": "ModelsSettingsState",
+  "type": "object"
+}

@@ -1,256 +1,210 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import type { CachedModelPage, ProviderStatusSnapshot } from '../../api/types';
+import type { ClientController } from '../../api/controller';
+import type { CachedModelPage, ModelCatalogSummary } from '../../api/types';
 import ModelCatalog from './ModelCatalog';
 
-const snapshot: ProviderStatusSnapshot = {
+const row: CachedModelPage['items'][number] = {
+  provider_id: 'codex',
+  model_id: 'gpt-6-astra',
+  selection_ref: 'model:codex:gpt-6-astra',
+  display_name: 'GPT-6-Astra',
+  provider_display_name: 'ChatGPT / Codex',
+  categories: ['chat', 'vision'],
+  input_modalities: ['text', 'image'],
+  output_modalities: ['text'],
+  tool_calling: true,
+  reasoning: null,
+  context_window: 272000,
+  installed: true,
+  pinned_surfaces: ['chat'],
+  configured: true,
+  runtime_ready: true,
+  status_reason: '',
+  runtime_mode: 'agent',
+  source: 'saved_catalog',
+  runtime_state: 'unknown',
+};
+const summary: ModelCatalogSummary = {
   schema_version: 1,
   revision: 'one',
-  generated_at: null,
-  freshness: 'unavailable',
-  refresh_running: false,
-  total_models: 1,
+  surface: 'chat',
   providers: [
     {
-      provider_id: 'local',
-      display_name: 'Local engine',
-      group: 'local',
-      auth_methods: [],
-      catalog_state: 'cached',
-      model_count: 1,
-      runtime_state: 'unknown',
-      enabled: null,
+      provider_id: 'codex',
+      display_name: 'ChatGPT / Codex',
+      total: 81,
+      ready: 80,
+      pinned: 1,
     },
   ],
 };
-const providers = vi.fn(async () => snapshot);
 function page(
-  name = 'First model',
-  cursor: string | null = null,
+  items: CachedModelPage['items'],
+  next: string | null = null,
 ): CachedModelPage {
   return {
     schema_version: 1,
     revision: 'one',
-    generated_at: null,
-    freshness: 'unavailable',
-    total: 2,
-    next_cursor: cursor,
-    items: [
-      {
-        provider_id: 'local',
-        model_id: name,
-        selection_ref: `local:${name}`,
-        display_name: name,
-        provider_display_name: 'Local engine',
-        categories: [],
-        input_modalities: [],
-        output_modalities: [],
-        tool_calling: null,
-        reasoning: null,
-        context_window: null,
-        installed: null,
-        pinned_surfaces: [],
-        runtime_state: 'unknown',
-      },
-    ],
+    generated_at: 1000,
+    freshness: 'fresh',
+    total: 81,
+    next_cursor: next,
+    items,
   };
 }
-function pending<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-it('bounds rendered models while keeping later pages reachable and reload returning to start', async () => {
-  const chunk = (offset: number): CachedModelPage => ({
-    ...page(),
-    total: 400,
-    next_cursor: offset < 300 ? String(offset + 100) : null,
-    items: Array.from(
-      { length: 100 },
-      (_, i) => page(`Model ${String(offset + i).padStart(3, '0')}`).items[0],
+function fixture(
+  first = page([row], 'next'),
+  second = page([
+    {
+      ...row,
+      model_id: 'gpt-5.5',
+      selection_ref: 'model:codex:gpt-5.5',
+      display_name: 'GPT-5.5',
+    },
+  ]),
+) {
+  const controller = {
+    modelCatalogSummary: vi.fn(async (surface: string) => ({
+      ...summary,
+      surface,
+    })),
+    modelCatalogPage: vi.fn(
+      async (
+        _surface: string,
+        _provider?: string,
+        _query?: string,
+        cursor?: string,
+      ) => (cursor ? second : first),
     ),
-  });
-  const load = vi.fn(
-    async (_provider?: string, _query?: string, cursor?: string) =>
-      chunk(Number(cursor ?? 0)),
-  );
-  const view = render(<ModelCatalog load={load} loadProviders={providers} />);
-  await screen.findByText('Model 099 · Local engine');
-  for (const end of [199, 299, 399]) {
-    fireEvent.click(screen.getByRole('button', { name: 'Load more models' }));
-    await screen.findByText(`Model ${end} · Local engine`);
-    expect(
-      view.container.querySelectorAll('.settings-results > li'),
-    ).toHaveLength(200);
-  }
-  expect(
-    screen.queryByText('Model 000 · Local engine'),
-  ).not.toBeInTheDocument();
-  expect(screen.getByText(/Showing entries 201–400/)).toBeVisible();
-  expect(load.mock.calls.map((call) => call[2])).toEqual([
-    undefined,
-    '100',
-    '200',
-    '300',
-  ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Reload saved models' }));
-  await screen.findByText('Model 000 · Local engine');
-  expect(
-    view.container.querySelectorAll('.settings-results > li'),
-  ).toHaveLength(100);
-  expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
-});
+  } as unknown as ClientController;
+  const onDefault = vi.fn(async () => {});
+  const onPin = vi.fn(async () => {});
+  const onChanged = vi.fn(async () => {});
+  return { controller, onDefault, onPin, onChanged };
+}
+function show(props = fixture()) {
+  render(<ModelCatalog {...props} defaults={{ chat: '' }} />);
+  return props;
+}
 
-it('loads bounded pages only on request and preserves unknown model capabilities', async () => {
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(page('First model', 'next'))
-    .mockResolvedValueOnce(page('Second model'));
-  render(<ModelCatalog load={load} loadProviders={providers} />);
-  expect(await screen.findByText('First model · Local engine')).toBeVisible();
-  fireEvent.click(screen.getByText('First model · Local engine'));
-  expect(screen.getAllByText('Unknown')).toHaveLength(6);
-  expect(load).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Load more models' }));
-  expect(await screen.findByText('Second model · Local engine')).toBeVisible();
-  expect(screen.getByText('First model · Local engine')).toBeVisible();
-  expect(load.mock.calls[1].slice(0, 3)).toEqual([undefined, '', 'next']);
-});
-
-it('shows saved picker membership and fills only the Brain draft on request', async () => {
-  const onChooseDefault = vi.fn().mockResolvedValue(undefined);
-  const chat = {
-    ...page('Chat model').items[0],
-    categories: ['chat'],
-    input_modalities: ['text', 'image'],
-    output_modalities: ['text'],
-    pinned_surfaces: ['chat', 'vision'],
-  };
-  const image = {
-    ...page('Image model').items[0],
-    categories: ['image'],
-    input_modalities: ['text'],
-    output_modalities: ['image'],
-  };
-  render(
-    <ModelCatalog
-      load={async () => ({ ...page(), total: 2, items: [chat, image] })}
-      loadProviders={providers}
-      onChooseDefault={onChooseDefault}
-    />,
-  );
-  const chatSummary = await screen.findByText('Chat model · Local engine');
+it('shows provider counts first and loads 80-row pages only after a provider opens', async () => {
+  const eighty = Array.from({ length: 80 }, (_, index) => ({
+    ...row,
+    model_id: `model-${index}`,
+    selection_ref: `model:codex:model-${index}`,
+    display_name: `Model ${index}`,
+  }));
+  const props = show(fixture(page(eighty, 'next')));
   expect(
-    within(chatSummary.closest('summary')!).getByText('chat'),
+    await screen.findByText('81 chat model(s) · 80 ready · 1 pinned'),
   ).toBeVisible();
-  expect(
-    within(chatSummary.closest('summary')!).getByText('2 pinned'),
-  ).toBeVisible();
-  fireEvent.click(chatSummary);
-  expect(
-    within(chatSummary.closest('details')!).getByText('Pinned pickers')
-      .nextElementSibling,
-  ).toHaveTextContent('Brain, Vision');
-  fireEvent.click(
-    screen.getByRole('button', {
-      name: 'Use Chat model for Brain draft',
-    }),
+  expect(props.controller.modelCatalogPage).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  expect(await screen.findByText('Model 79')).toBeVisible();
+  expect(screen.getAllByRole('button', { name: /Unpin Model/ })).toHaveLength(
+    80,
   );
-  await waitFor(() => expect(onChooseDefault).toHaveBeenCalledWith(chat));
-  expect(
-    screen.queryByRole('button', { name: /Use Image model/ }),
-  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show more models' }));
+  expect(await screen.findByText('GPT-5.5')).toBeVisible();
+  expect(props.controller.modelCatalogPage).toHaveBeenCalledTimes(2);
 });
 
-it('searches explicitly and rejects late pages after filters change', async () => {
-  const late = pending<CachedModelPage>();
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(page('First model', 'next'))
-    .mockImplementationOnce(() => late.promise)
-    .mockResolvedValueOnce(page('Filtered model'));
-  render(<ModelCatalog load={load} loadProviders={providers} />);
-  await screen.findByText('First model · Local engine');
-  fireEvent.click(screen.getByRole('button', { name: 'Load more models' }));
+it('filters category and search before mounting rows', async () => {
+  const props = show();
+  await screen.findByText('Providers');
+  fireEvent.click(screen.getByRole('tab', { name: 'VISION' }));
+  await waitFor(() =>
+    expect(props.controller.modelCatalogSummary).toHaveBeenCalledWith(
+      'vision',
+      expect.anything(),
+    ),
+  );
+  expect(props.controller.modelCatalogPage).not.toHaveBeenCalled();
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search models' }), {
-    target: { value: 'filtered' },
+    target: { value: 'astra' },
   });
-  expect(load).toHaveBeenCalledTimes(2);
-  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-  expect(
-    await screen.findByText('Filtered model · Local engine'),
-  ).toBeVisible();
-  expect(load.mock.calls[1][3].aborted).toBe(true);
-  await act(async () => late.resolve(page('Obsolete model')));
-  expect(
-    screen.queryByText('Obsolete model · Local engine'),
-  ).not.toBeInTheDocument();
-  expect(load.mock.calls[2].slice(0, 3)).toEqual([
+  fireEvent.click(screen.getByRole('button', { name: 'Search models' }));
+  await screen.findByText('GPT-6-Astra');
+  expect(props.controller.modelCatalogPage).toHaveBeenCalledWith(
+    'vision',
     undefined,
-    'filtered',
+    'astra',
     undefined,
-  ]);
+    expect.anything(),
+  );
 });
 
-it.each(['revision', 'expired'])(
-  'requires reload after a %s model cursor change',
-  async (cause) => {
-    const load = vi.fn().mockResolvedValueOnce(page('First model', 'next'));
-    if (cause === 'revision')
-      load.mockResolvedValueOnce({ ...page('Changed model'), revision: 'two' });
-    else load.mockRejectedValueOnce({ code: 'cursor_expired' });
-    load.mockResolvedValueOnce(page('Reloaded model', 'new-next'));
-    render(<ModelCatalog load={load} loadProviders={providers} />);
-    await screen.findByText('First model · Local engine');
-    fireEvent.click(screen.getByRole('button', { name: 'Load more models' }));
-    expect(
-      await screen.findByText(
-        'The catalog changed. Reload saved models to continue.',
+it('pins and applies actual defaults through compact icons; unavailable rows are disabled', async () => {
+  const props = show(
+    fixture(
+      page(
+        [
+          row,
+          {
+            ...row,
+            model_id: 'offline',
+            selection_ref: 'model:codex:offline',
+            display_name: 'Offline',
+            runtime_ready: false,
+            status_reason: 'Connect the provider.',
+          },
+        ],
+        null,
       ),
-    ).toBeVisible();
-    expect(
-      screen.queryByText('Changed model · Local engine'),
-    ).not.toBeInTheDocument();
-    const more = screen.getByRole('button', { name: 'Load more models' });
-    expect(more).toBeDisabled();
-    fireEvent.click(more);
-    expect(load).toHaveBeenCalledTimes(2);
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Reload saved models' }),
-    );
-    await screen.findByText('Reloaded model · Local engine');
-    expect(
-      screen.getByRole('button', { name: 'Load more models' }),
-    ).toBeEnabled();
-    expect(load.mock.calls[2][2]).toBeUndefined();
-  },
-);
+    ),
+  );
+  await screen.findByText('Providers');
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  await screen.findByText('GPT-6-Astra');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Unpin GPT-6-Astra for chat' }),
+  );
+  await waitFor(() => expect(props.onPin).toHaveBeenCalledWith('chat', row));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Set GPT-6-Astra as chat default' }),
+  );
+  await waitFor(() =>
+    expect(props.onDefault).toHaveBeenCalledWith('chat', row),
+  );
+  expect(
+    screen.getByRole('button', { name: 'Unpin Offline for chat' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Set Offline as chat default' }),
+  ).toBeDisabled();
+  expect(screen.queryByText(/Brain draft/)).not.toBeInTheDocument();
+});
 
-it('keeps a deep-linked provider filter when its separate metadata read fails', async () => {
-  const load = vi.fn(async () => ({ ...page(), items: [], total: 0 }));
-  render(
-    <ModelCatalog
-      load={load}
-      loadProviders={async () => {
-        throw new Error('unavailable');
-      }}
-      initialProvider="saved-provider"
-    />,
+it('offers a reload only after the bounded catalog cursor expires', async () => {
+  const props = fixture();
+  vi.spyOn(props.controller, 'modelCatalogPage').mockImplementation(
+    async (_surface, _provider, _query, cursor) => {
+      if (cursor) throw { code: 'cursor_expired' };
+      return page([row], 'next');
+    },
   );
-  expect(await screen.findByText('No matching saved models')).toBeVisible();
-  expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveValue(
-    'saved-provider',
+  show(props);
+  await screen.findByText('Providers');
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  await screen.findByText('GPT-6-Astra');
+  expect(
+    screen.queryByRole('button', { name: 'Reload catalog results' }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show more models' }));
+  expect(
+    await screen.findByRole('button', { name: 'Reload catalog results' }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Show more models' }),
+  ).toBeDisabled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Reload catalog results' }),
   );
-  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-  expect(load.mock.calls[0]?.length).toBe(4);
+  await waitFor(() =>
+    expect(props.controller.modelCatalogPage).toHaveBeenCalledTimes(3),
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Reload catalog results' }),
+  ).not.toBeInTheDocument();
 });

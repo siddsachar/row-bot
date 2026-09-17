@@ -26,7 +26,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "TaskSummaryPage", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
     "EntitySummaryPage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -273,6 +273,16 @@ OPERATIONS = (
     ("get", "/settings/snapshot/commands/{command_id}", None, "SettingsMutationReceipt"),
     ("post", "/settings/snapshot/commands", "SettingsMutationCommand", "SettingsMutationReceipt"),
     ("get", "/settings/models", None, "CachedModelPage"),
+    ("get", "/settings/models/state", None, "ModelsSettingsState"),
+    ("post", "/settings/models/surface", "ModelSurfaceMutation", "ModelsSettingsState"),
+    ("post", "/settings/models/context", "ModelContextMutation", "ModelsSettingsState"),
+    ("get", "/settings/models/agents", None, "AgentRuntimeSettingsState"),
+    ("post", "/settings/models/agents", "AgentRuntimeSettingsState", "AgentRuntimeSettingsState"),
+    ("post", "/settings/models/agents/reset", None, "AgentRuntimeSettingsState"),
+    ("get", "/settings/models/catalog-summary", None, "ModelCatalogSummary"),
+    ("get", "/settings/models/catalog", None, "CachedModelPage"),
+    ("post", "/settings/models/refresh", None, "ProviderCatalogRefresh"),
+    ("post", "/settings/models/cameras/refresh", None, "ModelCameraList"),
     ("get", "/resources/{reference}", None, "ResourceView"),
     ("post", "/uploads", "bytes", "AttachmentView"),
     ("post", "/uploads/sessions", "UploadRequest", "UploadView"),
@@ -614,6 +624,26 @@ export const getTaskApprovals = (base: string, proof: SessionProof, task: string
   jsonRequest(base, `/tasks/${id(task)}/runs/${id(run)}/approvals` + query({cursor}), 'TaskApprovalPage', proof, 'GET', undefined, undefined, signal);
 export const getCachedModels = (base: string, proof: SessionProof, provider_id?: string, search = '', cursor?: string, signal?: AbortSignal): Promise<CachedModelPage> =>
   jsonRequest(base, '/settings/models' + query({provider_id, query:search, cursor}), 'CachedModelPage', proof, 'GET', undefined, undefined, signal);
+export const getModelsSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelsSettingsState> =>
+  jsonRequest(base, '/settings/models/state', 'ModelsSettingsState', proof, 'GET', undefined, undefined, signal);
+export const updateModelSurface = (base: string, proof: SessionProof, body: ModelSurfaceMutation, signal?: AbortSignal): Promise<ModelsSettingsState> =>
+  jsonRequest(base, '/settings/models/surface', 'ModelsSettingsState', proof, 'POST', body, undefined, signal);
+export const updateModelContext = (base: string, proof: SessionProof, body: ModelContextMutation, signal?: AbortSignal): Promise<ModelsSettingsState> =>
+  jsonRequest(base, '/settings/models/context', 'ModelsSettingsState', proof, 'POST', body, undefined, signal);
+export const getAgentRuntimeSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AgentRuntimeSettingsState> =>
+  jsonRequest(base, '/settings/models/agents', 'AgentRuntimeSettingsState', proof, 'GET', undefined, undefined, signal);
+export const saveAgentRuntimeSettings = (base: string, proof: SessionProof, body: AgentRuntimeSettingsState, signal?: AbortSignal): Promise<AgentRuntimeSettingsState> =>
+  jsonRequest(base, '/settings/models/agents', 'AgentRuntimeSettingsState', proof, 'POST', body, undefined, signal);
+export const resetAgentRuntimeSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AgentRuntimeSettingsState> =>
+  jsonRequest(base, '/settings/models/agents/reset', 'AgentRuntimeSettingsState', proof, 'POST', undefined, undefined, signal);
+export const getModelCatalogSummary = (base: string, proof: SessionProof, surface: string, signal?: AbortSignal): Promise<ModelCatalogSummary> =>
+  jsonRequest(base, '/settings/models/catalog-summary' + query({surface}), 'ModelCatalogSummary', proof, 'GET', undefined, undefined, signal);
+export const getModelCatalogPage = (base: string, proof: SessionProof, surface: string, provider_id?: string, search = '', cursor?: string, signal?: AbortSignal): Promise<CachedModelPage> =>
+  jsonRequest(base, '/settings/models/catalog' + query({surface, provider_id, query:search, cursor}), 'CachedModelPage', proof, 'GET', undefined, undefined, signal);
+export const refreshModelsCatalog = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProviderCatalogRefresh> =>
+  jsonRequest(base, '/settings/models/refresh', 'ProviderCatalogRefresh', proof, 'POST', undefined, undefined, signal);
+export const refreshModelCameras = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelCameraList> =>
+  jsonRequest(base, '/settings/models/cameras/refresh', 'ModelCameraList', proof, 'POST', undefined, undefined, signal);
 export const pickFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<FolderGrantView> =>
   jsonRequest(base, '/resources/folder-selection', 'FolderGrantView', proof, 'POST', undefined, undefined, signal);
 export const getWikiStatus = (base: string, proof: SessionProof, folder_grant?: string, signal?: AbortSignal): Promise<WikiStatus> =>

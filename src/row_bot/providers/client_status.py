@@ -1,7 +1,8 @@
 """Allowlisted, passive views of saved provider and model catalog metadata.
 
-Reading these views never verifies credentials, discovers models, changes
-defaults or refreshes a provider. Runtime readiness is deliberately unknown.
+Reading these views never discovers models, changes defaults or refreshes a
+provider. Scoped Models availability uses local credential state and saved model
+metadata; the legacy passive Providers view leaves runtime readiness unknown.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from typing import Literal
 from row_bot.providers.catalog import PROVIDER_DEFINITIONS
 from row_bot.providers.config import load_provider_config
 from row_bot.providers.custom import normalize_custom_endpoint
-from row_bot.providers.model_catalog import CatalogModelRow, build_saved_model_catalog_rows
+from row_bot.providers.model_catalog import CatalogModelRow, build_saved_model_catalog_rows, project_saved_catalog_readiness
 from row_bot.providers.model_catalog_cache import (
     CATALOG_CACHE_TTL_SECONDS,
     is_model_catalog_refresh_running,
@@ -65,7 +66,12 @@ class CachedModelRow:
     context_window: int | None
     installed: bool | None
     pinned_surfaces: tuple[str, ...]
-    runtime_state: Literal["unknown"] = "unknown"
+    configured: bool
+    runtime_ready: bool
+    status_reason: str
+    runtime_mode: str
+    source: str
+    runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
 
 
 @dataclass(frozen=True)
@@ -140,7 +146,8 @@ def _reasoning(value: object) -> CachedReasoning | None:
     )
 
 
-def _public_model(row: CatalogModelRow, *, provider_label: str, installed: bool | None) -> CachedModelRow:
+def _public_model(row: CatalogModelRow, *, provider_label: str, installed: bool | None,
+                  include_readiness: bool) -> CachedModelRow:
     snapshot = row.capabilities_snapshot
     return CachedModelRow(
         row.provider_id, row.model_id, row.selection_ref, _label(row.display_name, row.model_id),
@@ -149,15 +156,21 @@ def _public_model(row: CatalogModelRow, *, provider_label: str, installed: bool 
         tuple(item for item in _MODALITIES if item in snapshot.get("output_modalities", ())),
         _boolean(snapshot.get("tool_calling")), _reasoning(snapshot.get("reasoning")),
         _integer(row.context_window), installed, row.pinned_surfaces,
+        row.configured, row.runtime_ready, _label(row.status_reason, ""),
+        row.runtime_mode, row.source,
+        "ready" if include_readiness and row.configured and row.runtime_ready and installed is True
+        else "unavailable" if include_readiness else "unknown",
     )
 
 
-def _read(now: float | None) -> tuple[ProviderStatusSnapshot, tuple[CachedModelRow, ...]]:
+def _read(now: float | None, *, include_readiness: bool = False) -> tuple[ProviderStatusSnapshot, tuple[CachedModelRow, ...]]:
     saved = read_model_catalog_cache(allow_runtime_bootstrap=False)
     config = load_provider_config()
     rows = build_saved_model_catalog_rows(
         cloud_cache=saved.cloud_cache, ollama_rows=saved.ollama_rows, provider_config=config,
     )
+    if include_readiness:
+        rows = project_saved_catalog_readiness(rows)
     rows = [row for row in rows if _provider_identity(row.provider_id) and _identity(row.model_id, 512)]
     endpoints = {}
     for raw in config.get("custom_endpoints", []):
@@ -178,8 +191,8 @@ def _read(now: float | None) -> tuple[ProviderStatusSnapshot, tuple[CachedModelR
         labels.setdefault(row.provider_id, row.provider_id)
     local_install = {item["model_id"]: _boolean(item.get("installed")) for item in saved.ollama_rows if isinstance(item.get("model_id"), str)}
     models = tuple(sorted((
-        _public_model(row, provider_label=labels[row.provider_id],
-                      installed=local_install.get(row.model_id) if row.provider_id == "ollama" else None)
+        _public_model(row, provider_label=labels[row.provider_id], include_readiness=include_readiness,
+                      installed=local_install.get(row.model_id) if row.provider_id == "ollama" else True if include_readiness else None)
         for row in rows
     ), key=lambda row: (row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id)))
     providers = []
@@ -217,14 +230,15 @@ def read_provider_snapshot(*, now: float | None = None) -> ProviderStatusSnapsho
 
 def list_cached_models(
     *, provider_id: str | None = None, query: str = "", cursor: str | None = None,
-    limit: int = 50, now: float | None = None,
+    limit: int = 50, surface: str | None = None, readiness: bool = False,
+    now: float | None = None,
 ) -> CachedModelPage:
     """Search the entire saved catalog, then page a stable public revision."""
-    if type(limit) is not int or not 1 <= limit <= 100 or not isinstance(query, str) or len(query) > 256 or (provider_id is not None and not _identity(provider_id, 128)):
+    if type(limit) is not int or not 1 <= limit <= 100 or not isinstance(query, str) or len(query) > 256 or (provider_id is not None and not _identity(provider_id, 128)) or (surface is not None and surface not in {"chat", "vision", "image", "video", "voice"}):
         raise ProviderStatusError("invalid_catalog_query")
     query = query.strip().casefold()
-    snapshot, models = _read(now)
-    matches = tuple(row for row in models if (provider_id is None or row.provider_id == provider_id) and (
+    snapshot, models = _read(now, include_readiness=readiness)
+    matches = tuple(row for row in models if (surface is None or surface in row.categories) and (provider_id is None or row.provider_id == provider_id) and (
         not query or any(query in value.casefold() for value in (row.model_id, row.display_name, row.provider_display_name, row.provider_id))
     ))
     offset = 0
@@ -232,11 +246,14 @@ def list_cached_models(
         try:
             if not isinstance(cursor, str) or len(cursor) > 2048:
                 raise ValueError
-            revision, previous_provider, previous_query, offset = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
-            if revision != snapshot.revision or previous_provider != provider_id or previous_query != query or type(offset) is not int or not 0 <= offset <= len(matches):
+            fields = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
+            if not isinstance(fields, list) or len(fields) != (5 if surface else 4):
+                raise ValueError
+            revision, previous_provider, previous_query, offset = fields[:4]
+            if revision != snapshot.revision or previous_provider != provider_id or previous_query != query or (surface and fields[4] != surface) or type(offset) is not int or not 0 <= offset <= len(matches):
                 raise ValueError
         except (ValueError, TypeError, UnicodeError) as exc:
             raise ProviderStatusError("cursor_expired") from exc
     end = min(len(matches), offset + limit)
-    next_cursor = base64.urlsafe_b64encode(json.dumps([snapshot.revision, provider_id, query, end]).encode()).decode() if end < len(matches) else None
+    next_cursor = base64.urlsafe_b64encode(json.dumps([snapshot.revision, provider_id, query, end] + ([surface] if surface else [])).encode()).decode() if end < len(matches) else None
     return CachedModelPage(1, snapshot.revision, snapshot.generated_at, snapshot.freshness, matches[offset:end], len(matches), next_cursor)

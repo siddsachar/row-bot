@@ -23,6 +23,14 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "react_models_settings",
+        ("src/row_bot/application/client_models_settings.py",),
+        ("tests/subsystem/client_protocol/test_models_settings_api.py",
+         "tests/subsystem/providers/test_client_status.py",
+         "tests/subsystem/agents/test_agent_settings.py"),
+        "Models defaults and catalog state cross provider, media, and agent owners without automatic provider refresh.",
+    ),
+    SourceTestRule(
         "interactive_provider_settings",
         ("src/row_bot/providers/live_settings.py",),
         ("tests/subsystem/client_protocol/test_provider_live_settings.py",),
