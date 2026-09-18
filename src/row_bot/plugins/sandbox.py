@@ -266,6 +266,25 @@ def _run(argv: list[str], *, cwd: pathlib.Path, timeout: int) -> None:
                 process.wait(timeout=3)
 
 
+def _normalise_created_environment(environment: pathlib.Path) -> None:
+    """Remove only stdlib venv's lib64 alias from a freshly created candidate.
+
+    Readiness validation remains link-free; never use this on a prepared tree.
+    """
+    environment = _candidate_location(environment)
+    _checked_path(pathlib.Path(environment.anchor), environment)
+    alias = environment / "lib64"
+    if not os.path.lexists(alias):
+        return
+    info = alias.lstat()
+    if not stat.S_ISLNK(info.st_mode):
+        _no_link(alias)
+        return
+    if os.readlink(alias) != "lib" or not stat.S_ISDIR(_no_link(environment / "lib").st_mode):
+        raise EnvironmentError("environment_path_invalid")
+    alias.unlink()
+
+
 def create_environment(environment: pathlib.Path) -> None:
     """Create a fresh fixed-location candidate, never a host or shared target."""
     environment = _candidate_location(environment)
@@ -273,6 +292,7 @@ def create_environment(environment: pathlib.Path) -> None:
     if environment.exists() or environment.is_symlink():
         raise EnvironmentError("environment_already_exists")
     _run([sys.executable, "-I", "-m", "venv", "--copies", str(environment)], cwd=environment.parent, timeout=120)
+    _normalise_created_environment(environment)
     _target(environment)
 
 

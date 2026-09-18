@@ -22,7 +22,7 @@ def api_saved(saved, monkeypatch):  # noqa: F811 - shared isolated fixture
     monkeypatch.setattr(runtime, "provider_status", lambda *args, **kwargs: {"configured": False})
     clock = [1001.0]
     read = status._read
-    monkeypatch.setattr(status, "_read", lambda _: read(clock[0]))
+    monkeypatch.setattr(status, "_read", lambda _, **kwargs: read(clock[0], **kwargs))
     return saved, clock
 
 

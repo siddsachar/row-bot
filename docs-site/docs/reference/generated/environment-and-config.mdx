@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Environment And Config
 
 <!-- generated-from: src/row_bot/brand.py -->
-<!-- inventory-hash: 5ddbe7860e0da15b -->
+<!-- inventory-hash: 73938de9de84d6ff -->
 
 <GeneratedNotice source="src/row_bot/brand.py" />
 
@@ -23,7 +23,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | ROW_BOT_DEPLOYMENT_MODE | Choose desktop or authenticated server request policy. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/launcher.py, src/row_bot/secret_store.py` |
 | ROW_BOT_PUBLIC_URL | Set the canonical browser-facing origin for server mode. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py` |
 | ROW_BOT_PUBLIC_ORIGINS | Set one or more allowed browser-facing origins. | `src/row_bot/access/config.py` |
-| ROW_BOT_ALLOWED_HOSTS | Allow exact HTTP Host authorities accepted by the access gate. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/ui/remote_access_settings.py, src/row_bot/ui/settings.py` |
+| ROW_BOT_ALLOWED_HOSTS | Allow exact HTTP Host authorities accepted by the access gate. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/application/settings_snapshot.py, src/row_bot/ui/remote_access_settings.py, src/row_bot/ui/settings.py` |
 | ROW_BOT_TRUSTED_PROXY_CIDRS | Trust forwarding headers only from exact connecting proxy networks. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py` |
 | ROW_BOT_UNTRUSTED_FORWARDED_ACTION | Reject or ignore forwarding headers received from an untrusted peer. | `src/row_bot/access/config.py` |
 | ROW_BOT_WORKERS | Set the server worker count; Row-Bot requires exactly one. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py` |
@@ -37,7 +37,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | ROW_BOT_INSTALL_ROOT | Identify the installed application root for updater and repair flows. | `src/row_bot/startup_diagnostics.py, src/row_bot/updater.py` |
 | ROW_BOT_PLUGIN_INDEX_URL | Override the public plugin marketplace index URL. | `src/row_bot/plugins/marketplace.py` |
 | ROW_BOT_PLUGIN_REPO_URL | Override the plugin repository used by marketplace installs. | `src/row_bot/plugins/installer.py` |
-| ROW_BOT_XAI_OAUTH_CLIENT_ID | Override the xAI OAuth client identifier. | `src/row_bot/providers/xai_oauth.py` |
+| ROW_BOT_XAI_OAUTH_CLIENT_ID | Override the xAI OAuth client identifier. | `src/row_bot/application/subscription_options.py, src/row_bot/providers/xai_oauth.py` |
 | ROW_BOT_XAI_OAUTH_REDIRECT_PORT | Override the local xAI OAuth callback port. | `src/row_bot/providers/xai_oauth.py` |
 | ROW_BOT_XAI_OAUTH_SCOPES | Override the requested xAI OAuth scopes. | `src/row_bot/providers/xai_oauth.py` |
 | ROW_BOT_REALTIME_INSTRUCTIONS | Override additional realtime voice session instructions. | `src/row_bot/app.py, src/row_bot/voice/openai_realtime.py` |

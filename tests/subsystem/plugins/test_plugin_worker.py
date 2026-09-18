@@ -25,6 +25,8 @@ def worker_fixture(plugin_modules):
     # This explicitly creates a disposable stdlib interpreter only; no pip,
     # dependency installation, network or inherited host site-packages.
     venv.EnvBuilder(with_pip=False, symlinks=False).create(environment)
+    from row_bot.plugins.sandbox import _normalise_created_environment
+    _normalise_created_environment(environment)
 
     def publish():
         old = state.get_plugin_environment_state("sample-plugin")

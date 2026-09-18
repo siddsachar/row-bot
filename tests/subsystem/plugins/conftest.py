@@ -156,6 +156,8 @@ def prepare_worker_environment(modules: dict[str, object], plugin_dir: Path) -> 
     operation = str(uuid4())
     environment = installer._generation_path(plugin_id, operation, create=True)
     venv.EnvBuilder(with_pip=False, symlinks=False).create(environment)
+    from row_bot.plugins.sandbox import _normalise_created_environment
+    _normalise_created_environment(environment)
     old = state.get_plugin_environment_state(plugin_id)
     updated = {**old, "active_operation_id": operation,
         "operations": {**old.get("operations", {}), operation: {

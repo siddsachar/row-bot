@@ -124,6 +124,11 @@ def test_dockerfile_builds_shipping_client_with_its_pinned_toolchain() -> None:
     assert client.index(locked_inputs) < client.index(install) < client.index(source_inputs)
     assert client.index(source_inputs) < client.index(build) < client.index(stage)
     assert client.index(wire_inputs) < client.index(build)
+    realtime_inputs = (
+        "COPY src/row_bot/voice/realtime_runtime.js "
+        "src/row_bot/voice/realtime_runtime.d.ts /build/src/row_bot/voice/"
+    )
+    assert client.index(install) < client.index(realtime_inputs) < client.index(build)
     assert "npm install" not in client
     assert "--package\n" not in client
     runtime = source.split("FROM ${PYTHON_IMAGE} AS runtime", 1)[1]
