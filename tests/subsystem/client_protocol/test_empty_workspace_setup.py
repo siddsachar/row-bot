@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -262,10 +263,11 @@ def test_process_interruption_after_directory_creation_is_not_replayed(workspace
     service, storage, parent, client, headers, _, _ = workspace_api
     class ProcessLost(BaseException):
         pass
-    original = Path.mkdir
+    original = os.mkdir
     def create_then_interrupt(path, *args, **kwargs):
         result = original(path, *args, **kwargs)
-        if path == parent / "new-project":
+        if (Path(path) == parent / "new-project" or
+                path == "new-project" and kwargs.get("dir_fd") is not None):
             raise ProcessLost()
         return result
     grant = _grant(client, headers)
@@ -275,7 +277,7 @@ def test_process_interruption_after_directory_creation_is_not_replayed(workspace
         "client_session_id": headers["X-Client-Session"], "type": "resource.setup",
         "expected_revision": "0", "payload": _payload(grant)})).model_dump(mode="json")
     with monkeypatch.context() as patch:
-        patch.setattr(Path, "mkdir", create_then_interrupt)
+        patch.setattr(os, "mkdir", create_then_interrupt)
         with pytest.raises(ProcessLost):
             service.execute(owner_id=service.instance_id, idempotency_key=key, command=wire,
                             target="resources", authorized_folder=AuthorizedWorkspaceFolder(parent, parent, grant))

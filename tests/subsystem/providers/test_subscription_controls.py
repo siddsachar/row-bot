@@ -469,4 +469,5 @@ def test_xai_strict_listener_releases_accepted_partial_header_after_cancel(monke
         finally:
             cancel.set()
     with socket.socket() as rebound:
+        rebound.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         rebound.bind(("127.0.0.1", port))

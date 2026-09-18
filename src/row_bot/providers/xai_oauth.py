@@ -473,6 +473,8 @@ def wait_for_xai_oauth_loopback_authorization(
             _write_page(self, 200, "xAI Grok connected", "You can close this browser tab and return to Row-Bot.")
 
     class _LoopbackHTTPServer(HTTPServer):
+        allow_reuse_address = True
+
         def get_request(self):
             connection, address = super().get_request()
             if receive_timeout is not None:

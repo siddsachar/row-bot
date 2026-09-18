@@ -905,6 +905,31 @@ def _windows_edit_metadata(path: pathlib.Path) -> bytes:
     return (flags & ~(0x20 | 0x80)).to_bytes(4, "little") + descriptor.raw[:size.value]
 
 
+def _has_edit_xattrs(path: pathlib.Path | int) -> bool:
+    if sys.platform == "darwin":
+        # CPython exposes os.listxattr on Linux, not macOS. Use the native
+        # no-follow/descriptor API; an unavailable query still fails closed.
+        import ctypes
+        library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        if isinstance(path, int):
+            query = library.flistxattr
+            query.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+            target, options = path, 0
+        else:
+            query = library.listxattr
+            query.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+            target, options = os.fsencode(path), 0x0001  # XATTR_NOFOLLOW
+        query.restype = ctypes.c_ssize_t
+        size = query(target, None, 0, options)
+        if size < 0:
+            raise FileEditError("file_metadata_unavailable")
+        return size != 0
+    if not hasattr(os, "listxattr"):
+        raise FileEditError("file_metadata_unavailable")
+    return bool(os.listxattr(path) if isinstance(path, int)
+                else os.listxattr(path, follow_symlinks=False))
+
+
 def file_edit_metadata_digest(path: pathlib.Path | int) -> str:
     """Compare supported replacement metadata; fail closed for ADS/xattrs.
 
@@ -919,8 +944,7 @@ def file_edit_metadata_digest(path: pathlib.Path | int) -> str:
         if os.name == "nt":
             value = _windows_edit_metadata(path)
         else:
-            if not hasattr(os, "listxattr") or (os.listxattr(path) if isinstance(path, int)
-                                               else os.listxattr(path, follow_symlinks=False)):
+            if _has_edit_xattrs(path):
                 raise FileEditError("file_metadata_unavailable")
             value = f"{before.st_uid}:{before.st_gid}:{stat.S_IMODE(before.st_mode)}".encode("ascii")
         after = os.fstat(path) if isinstance(path, int) else path.lstat()
