@@ -363,7 +363,12 @@ def register(api):
         descendant = psutil.Process(fixture.state.get_plugin_config("sample-plugin", "synthetic_child_pid"))
         api._revoke()
         deadline = time.monotonic() + 3
-        while descendant.is_running() and descendant.status() != psutil.STATUS_ZOMBIE:
+        while True:
+            try:
+                if not descendant.is_running() or descendant.status() == psutil.STATUS_ZOMBIE:
+                    break
+            except psutil.NoSuchProcess:
+                break
             assert time.monotonic() < deadline
             threading.Event().wait(0.01)
         assert api._worker._process.poll() is not None
