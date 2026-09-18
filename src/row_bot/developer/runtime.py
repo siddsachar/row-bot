@@ -401,6 +401,11 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
             validate()
     except Exception:
         state.code = "process_admission_failed"
+        if bootstrap_argv is None:
+            # The trusted local bootstrap cannot execute without the request.
+            # admit() has not started, so there are no command descendants.
+            # Remote launchers still require their own completion proof.
+            state.remote_done.set()
         _close_process_containment(state)
         process.wait(timeout=5)
         for stream in (process.stdin, process.stdout, process.stderr):
