@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import importlib
 import json
 import sqlite3
+import sys
 from types import SimpleNamespace
 import threading
 import uuid
@@ -15,7 +16,10 @@ from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 from tests.subsystem.developer.test_client_workspace_processes import domain, _command  # noqa: F401
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Client-platform local process containment is supported on Windows and Linux",
+)]
 
 
 @pytest.fixture

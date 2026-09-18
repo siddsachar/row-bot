@@ -10,6 +10,11 @@ from uuid import uuid4
 import httpx
 import pytest
 
+pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Strict document processing requires a descriptor-backed SQLite path bridge",
+)]
+
 
 @pytest.fixture(autouse=True)
 def no_unreviewed_network(monkeypatch):

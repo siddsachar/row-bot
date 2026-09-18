@@ -540,7 +540,7 @@ def test_windows_alternate_stream_is_retained_before_any_publication(domain):
     assert target.stat().st_ino == identity and d.receipts == []
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX native xattr semantics")
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="Native xattr mutation unavailable")
 def test_posix_extended_attributes_are_not_discarded(domain):
     d = domain
     target = d.root / "hello.txt"

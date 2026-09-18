@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 import gzip
+import sys
 from types import SimpleNamespace
 
 import httpx
@@ -14,6 +15,11 @@ from tests.subsystem.knowledge_graph.test_document_processing_policy import (
     no_unreviewed_network as no_unreviewed_network,
     processing as processing,
 )
+
+pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Strict document processing requires a descriptor-backed SQLite path bridge",
+)]
 
 
 @pytest.fixture

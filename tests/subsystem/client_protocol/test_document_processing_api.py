@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import importlib
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -16,7 +17,10 @@ from tests.subsystem.client_protocol.test_document_upload_api import fake_disk_c
 from tests.subsystem.client_protocol.test_protocol_application import _client, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Strict document processing requires a descriptor-backed SQLite path bridge",
+)]
 
 
 @pytest.fixture

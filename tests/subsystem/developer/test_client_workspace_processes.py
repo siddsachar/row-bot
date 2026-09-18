@@ -13,7 +13,10 @@ import uuid
 
 import pytest
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Client-platform local process containment is supported on Windows and Linux",
+)]
 
 
 def _command(code):

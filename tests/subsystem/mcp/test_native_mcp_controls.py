@@ -336,7 +336,7 @@ def test_restricted_windows_configuration_keeps_permissions_before_write(owner):
     assert _windows_edit_metadata(path) == metadata and owner[0]._enabled["mcp"] is False
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX extended attribute semantics")
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="Native xattr mutation unavailable")
 def test_posix_configuration_extended_attributes_are_not_discarded(owner):
     path = configuration.configuration_path()
     before = path.read_bytes()

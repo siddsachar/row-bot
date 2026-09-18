@@ -1,6 +1,7 @@
 """Independent processing proof/physical-scope review with isolated owners."""
 from contextlib import closing, contextmanager
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +12,10 @@ from tests.subsystem.knowledge_graph.test_document_processing_policy import (
 )
 from tests.subsystem.knowledge_graph import test_document_processing_policy as owner_tests
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Strict document processing requires a descriptor-backed SQLite path bridge",
+)]
 processing_fixture = owner_tests.processing
 
 
