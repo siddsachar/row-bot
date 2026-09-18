@@ -243,7 +243,13 @@ def test_startup_timeout_terminates_actual_owned_bootstrap(domain, monkeypatch, 
     monkeypatch.setattr(d.runtime, "__file__", str(tmp_path / "runtime.py"))
     state = d.runtime.launch_tracked_process(d.root, [sys.executable, "-V"], "fixture", startup_timeout=0.05)
     assert state.code == "process_start_timeout"
-    assert state.done.wait(10) and state.quiesced and state.process.poll() is not None
+    assert state.done.wait(10) and state.process.poll() is not None
+    assert state.host_quiesced
+    if sys.platform.startswith("linux"):
+        # This fake supervisor never supplies the required descendant receipt.
+        assert not state.quiesced and not state.remote_done.is_set()
+    else:
+        assert state.quiesced
 
 
 def test_postcommit_admission_event_failure_releases_only_own_writer(domain, monkeypatch):
