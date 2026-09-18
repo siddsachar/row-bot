@@ -222,7 +222,9 @@ def _remote_process(argv: list[str], payload: dict) -> int:
     signal.signal(signal.SIGINT, lambda *_: stopped.set())
     def control():
         # EOF requests cleanup; it is never itself a completion proof.
-        sys.stdin.buffer.readline(16)
+        # A daemon must not hold a buffered-reader lock at Python shutdown.
+        # After admission the host sends only cancellation or EOF here.
+        os.read(sys.stdin.fileno(), 16)
         stopped.set()
     threading.Thread(target=control, daemon=True).start()
     pumps = []
