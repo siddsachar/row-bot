@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "browser_dictation_available": {
+      "title": "Browser Dictation Available",
+      "type": "boolean"
+    },
+    "native_capture_available": {
+      "const": false,
+      "default": false,
+      "title": "Native Capture Available",
+      "type": "boolean"
+    },
+    "reason": {
+      "enum": [
+        "available",
+        "host_unavailable"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "browser_dictation_available",
+    "reason"
+  ],
+  "title": "DictationCapability",
+  "type": "object"
+}

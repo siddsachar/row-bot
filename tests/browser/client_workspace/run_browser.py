@@ -4,11 +4,44 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
+
+
+def _build_fixture_assets(destination: Path, environment: dict[str, str]) -> None:
+    """Build an isolated fixture-enabled client without replacing production dist."""
+    node = shutil.which("node", path=environment.get("PATH"))
+    if node is None:
+        raise RuntimeError("The browser fixture requires the documented Node runtime")
+    destination.mkdir(parents=True, exist_ok=True)
+    build_environment = dict(environment)
+    build_environment["VITE_ENABLE_FIXTURES"] = "1"
+    commands = (
+        (
+            node,
+            str(ROOT / "frontend/node_modules/vite/bin/vite.js"),
+            "build",
+            "--outDir",
+            str(destination),
+            "--emptyOutDir",
+        ),
+        (
+            node,
+            str(ROOT / "frontend/scripts/asset-manifest.mjs"),
+            str(destination),
+        ),
+    )
+    for command in commands:
+        subprocess.run(
+            command,
+            cwd=ROOT / "frontend",
+            env=build_environment,
+            check=True,
+        )
 
 
 class _FixtureProcessAdapter:
@@ -48,6 +81,9 @@ def main() -> int:
         config = short / "synthetic-gitconfig"
         config.write_text("", encoding="utf-8")
         env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(config)})
+        fixture_assets = short / "client-assets"
+        _build_fixture_assets(fixture_assets, env)
+        env["ROW_BOT_TEST_CLIENT_ASSET_ROOT"] = str(fixture_assets)
         return env
 
     runner.private_environment = isolated_git_environment

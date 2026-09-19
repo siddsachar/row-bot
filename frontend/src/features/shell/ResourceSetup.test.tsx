@@ -6,8 +6,7 @@ import type {
   ResourceChoice,
   ResourceChoicePage,
 } from '../../api/types';
-import ResourceSetup from './ResourceSetup';
-import type { HomeSetupEntry } from './Home';
+import ResourceSetup, { type ResourceSetupEntry } from './ResourceSetup';
 import { setupSessions } from './setup-state';
 
 const mock = vi.hoisted(() => ({
@@ -15,6 +14,7 @@ const mock = vi.hoisted(() => ({
     getSnapshot: vi.fn(),
     getSelectionVersion: vi.fn(),
     deckSetup: vi.fn(),
+    artifactSetup: vi.fn(),
     workspaceFor: vi.fn(),
     receipt: vi.fn(),
     intent: vi.fn(),
@@ -156,7 +156,7 @@ it('never restores an opaque folder grant after reopening with a new handshake',
 });
 function view(
   conversationId: string | null = 'conversation-a',
-  initialEntry?: HomeSetupEntry,
+  initialEntry?: ResourceSetupEntry,
 ) {
   return render(
     <MemoryRouter>
@@ -184,6 +184,10 @@ beforeEach(() => {
     selectedConversationId: 'conversation-a',
   });
   mock.controller.deckSetup.mockResolvedValue({
+    mode: 'deck',
+    default_template: 'blank_deck',
+    default_canvas: '16:9',
+    default_name: 'Untitled Deck',
     templates: [{ id: 'blank_deck', label: 'Blank Deck' }],
     canvases: [{ id: '16:9', label: 'Wide' }],
     default_brand: 'Default brand',
@@ -221,6 +225,142 @@ beforeEach(() => {
   mock.controller.intent.mockImplementation(
     async (_target, _kind, _payload, _revision, id) => result(id),
   );
+});
+
+it.each([
+  ['document', 'Document'],
+  ['landing', 'Landing page'],
+  ['app_mockup', 'App mockup'],
+  ['storyboard', 'Storyboard'],
+])(
+  'creates %s with its own advertised defaults and no generation',
+  async (mode, label) => {
+    mock.controller.artifactSetup.mockResolvedValue({
+      mode,
+      templates: [{ id: `blank_${mode}`, label: 'Blank' }],
+      canvases: [{ id: 'native', label: 'Native canvas' }],
+      default_template: `blank_${mode}`,
+      default_canvas: 'native',
+      default_name: `Untitled ${label}`,
+      default_brand: 'Default brand',
+    });
+    await act(async () => view());
+    await act(async () =>
+      fireEvent.change(screen.getByLabelText('Design type'), {
+        target: { value: mode },
+      }),
+    );
+    expect(mock.controller.artifactSetup).toHaveBeenCalledWith(
+      mode,
+      expect.any(AbortSignal),
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: `Create ${label}` })),
+    );
+    expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+    expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
+      kind: 'artifact',
+      intent: 'create',
+      artifact: { mode, template_id: `blank_${mode}`, aspect_ratio: 'native' },
+    });
+    expect(mock.controller.intent.mock.calls[0][2]).not.toHaveProperty('deck');
+  },
+);
+
+it('requires an explicit name and parent before creating one empty workspace', async () => {
+  mock.controller.pickFolder.mockResolvedValue({
+    status: 'selected',
+    grant_id: 'parent-grant',
+    name: 'Parent',
+  });
+  await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Folder setup'), {
+      target: { value: 'empty_folder' },
+    }),
+  );
+  const create = screen.getByRole('button', { name: 'Create empty workspace' });
+  expect(create).toBeDisabled();
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('New folder name'), {
+      target: { value: 'New project' },
+    }),
+  );
+  expect(create).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose parent folder' }),
+    ),
+  );
+  expect(create).toBeEnabled();
+  expect(mock.controller.intent).not.toHaveBeenCalled();
+  await act(async () => fireEvent.click(create));
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
+    kind: 'workspace',
+    intent: 'create',
+    folder_grant: 'parent-grant',
+    empty_workspace: { folder_name: 'New project' },
+  });
+  expect(
+    sessionStorage.getItem(
+      setupSessions.scope(mock.handshake.instance_id, null),
+    ),
+  ).not.toContain('parent-grant');
+});
+
+it('continues an unregistered folder using renewed authority without an undefined revision field', async () => {
+  const original = crypto.randomUUID();
+  const partial: CommandReceipt = {
+    command_id: original,
+    setup_command_id: original,
+    status: 'partial',
+    resource_kind: 'workspace',
+    resource_id: 'new-folder',
+    conversation_id: 'conversation-a',
+    folder_reselection_required: true,
+    confirmed_stages: [],
+  };
+  const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a');
+  setupSessions.reserve(key, original);
+  setupSessions.confirm(key, original, partial);
+  mock.controller.receipt.mockResolvedValue(partial);
+  mock.controller.pickFolder.mockResolvedValue({
+    status: 'selected',
+    grant_id: 'renewed-parent',
+    name: 'Parent',
+  });
+  await act(async () => view());
+  expect(screen.getByRole('button', { name: 'Continue setup' })).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose parent folder again' }),
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Continue setup' })),
+  );
+  expect(mock.controller.intent.mock.calls[0].slice(0, 4)).toEqual([
+    'conversation-a',
+    'resource.continue',
+    { setup_command_id: original, folder_grant: 'renewed-parent' },
+    '4',
+  ]);
+  expect(mock.controller.intent.mock.calls[0][2]).not.toHaveProperty(
+    'expected_resource_revision',
+  );
+  expect(screen.getByText('Resource ready')).toBeVisible();
+});
+
+it('retains loaded defaults when the selected design mode is selected again', async () => {
+  await act(async () => view());
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Design type'), {
+      target: { value: 'deck' },
+    }),
+  );
+  expect(screen.getByRole('button', { name: 'Create Deck' })).toBeEnabled();
+  expect(mock.controller.deckSetup).toHaveBeenCalledTimes(1);
 });
 
 it('opens the exact Home resource through canonical setup after refreshing its library identity', async () => {

@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "flow_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Flow Id"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "start",
+        "check",
+        "submit",
+        "cancel",
+        "disconnect",
+        "restore",
+        "import_token"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "provider_id": {
+      "enum": [
+        "codex",
+        "claude_subscription",
+        "xai_oauth"
+      ],
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Revision",
+      "type": "string"
+    },
+    "server_epoch": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Server Epoch"
+    }
+  },
+  "required": [
+    "provider_id",
+    "provider_revision",
+    "operation",
+    "flow_id",
+    "server_epoch",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "SubscriptionActionReview",
+  "type": "object"
+}

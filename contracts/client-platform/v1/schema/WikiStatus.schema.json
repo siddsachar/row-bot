@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "articles": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Articles"
+    },
+    "availability": {
+      "enum": [
+        "available",
+        "scope_required",
+        "unavailable"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "conflicts": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Conflicts"
+    },
+    "edited": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Edited"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "scope_id": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Scope Id"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "enabled",
+    "availability",
+    "scope_id",
+    "articles",
+    "edited",
+    "conflicts"
+  ],
+  "title": "WikiStatus",
+  "type": "object"
+}

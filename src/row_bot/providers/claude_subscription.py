@@ -8,7 +8,6 @@ import pathlib
 import secrets
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -373,19 +372,21 @@ def claude_subscription_runtime_credentials(
     *,
     refresh_if_needed: bool = True,
     http_client: Any | None = None,
+    _snapshot: tuple | None = None,
 ) -> ClaudeSubscriptionTokenSet:
-    from row_bot.providers.auth_store import get_provider_secret
-    from row_bot.providers.config import load_provider_config
+    from dataclasses import replace
+    from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
 
-    access_token = get_provider_secret(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "access_token")
-    refresh_token = get_provider_secret(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "refresh_token")
-    id_token = get_provider_secret(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "id_token")
-    provider_cfg = load_provider_config().get("providers", {}).get(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
+    captured, provider_cfg, revision = _snapshot if _snapshot is not None else read_provider_oauth_bundle_snapshot(CLAUDE_SUBSCRIPTION_PROVIDER_ID)
+
+    access_token = captured["access_token"]
+    refresh_token = captured["refresh_token"]
+    id_token = captured["id_token"]
     if provider_cfg.get("auth_method") != AuthMethod.OAUTH_PKCE.value:
         return ClaudeSubscriptionTokenSet(access_token="")
     expires_at = str(provider_cfg.get("expires_at") or "")
-    user_id = get_provider_secret(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "user_id")
-    account_id = get_provider_secret(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "account")
+    user_id = captured["user_id"]
+    account_id = captured["account"]
     plan_type = str(provider_cfg.get("plan_type") or "")
     scopes = _string_tuple(provider_cfg.get("scopes"))
 
@@ -403,7 +404,8 @@ def claude_subscription_runtime_credentials(
 
     if refresh_if_needed and refresh_token and (not access_token or _expires_soon(expires_at)):
         refreshed = refresh_claude_subscription_token(refresh_token, http_client=http_client)
-        saved = save_claude_subscription_oauth_tokens(refreshed)
+        refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or refresh_token, id_token=refreshed.id_token or id_token, account_id=refreshed.account_id or account_id, user_id=refreshed.user_id or user_id)
+        saved = save_claude_subscription_oauth_tokens(refreshed, expected_revision=revision)
         access_token = refreshed.access_token
         refresh_token = refreshed.refresh_token or refresh_token
         id_token = refreshed.id_token or id_token
@@ -430,8 +432,11 @@ def check_claude_subscription_token_health(
     refresh_if_needed: bool = True,
     http_client: Any | None = None,
 ) -> ClaudeSubscriptionTokenHealth:
+    from dataclasses import replace
+    from row_bot.providers.auth_store import read_provider_oauth_bundle_snapshot
     try:
-        credentials = claude_subscription_runtime_credentials(refresh_if_needed=False)
+        captured = read_provider_oauth_bundle_snapshot(CLAUDE_SUBSCRIPTION_PROVIDER_ID)
+        credentials = claude_subscription_runtime_credentials(refresh_if_needed=False, _snapshot=captured)
     except Exception as exc:
         return ClaudeSubscriptionTokenHealth("error", f"Could not read Claude Subscription credentials: {exc}")
 
@@ -450,7 +455,8 @@ def check_claude_subscription_token_health(
     if should_refresh:
         try:
             refreshed = refresh_claude_subscription_token(credentials.refresh_token, http_client=http_client)
-            saved = save_claude_subscription_oauth_tokens(refreshed)
+            refreshed = replace(refreshed, refresh_token=refreshed.refresh_token or credentials.refresh_token, id_token=refreshed.id_token or credentials.id_token, account_id=refreshed.account_id or credentials.account_id, user_id=refreshed.user_id or credentials.user_id)
+            saved = save_claude_subscription_oauth_tokens(refreshed, expected_revision=captured[2])
             credentials = ClaudeSubscriptionTokenSet(
                 access_token=refreshed.access_token,
                 refresh_token=refreshed.refresh_token or credentials.refresh_token,
@@ -564,10 +570,10 @@ def claude_subscription_oauth_betas() -> str:
     return ",".join(CLAUDE_SUBSCRIPTION_OAUTH_BETAS)
 
 
-def claude_subscription_oauth_headers(*, accept: str = "application/json") -> dict[str, str]:
+def claude_subscription_oauth_headers(*, accept: str = "application/json", allow_cli_probe: bool = True) -> dict[str, str]:
     headers = {
         "anthropic-beta": claude_subscription_oauth_betas(),
-        "user-agent": claude_subscription_oauth_user_agent(),
+        "user-agent": claude_subscription_oauth_user_agent() if allow_cli_probe else CLAUDE_SUBSCRIPTION_OAUTH_USER_AGENT_TEMPLATE.format(version=_claude_subscription_cli_version_cache or CLAUDE_SUBSCRIPTION_OAUTH_USER_AGENT_VERSION_FALLBACK),
         "x-app": "cli",
     }
     if accept:
@@ -588,6 +594,7 @@ def claude_subscription_sdk_client(
     base_url: str = CLAUDE_SUBSCRIPTION_API_ROOT_URL,
     timeout: float = 120.0,
     client_factory: Any | None = None,
+    allow_cli_probe: bool = True,
 ) -> Any:
     token = str(access_token or "").strip()
     if not token:
@@ -601,7 +608,7 @@ def claude_subscription_sdk_client(
 
     kwargs: dict[str, Any] = {
         "auth_token": token,
-        "default_headers": claude_subscription_oauth_headers(accept=""),
+        "default_headers": claude_subscription_oauth_headers(accept="", allow_cli_probe=allow_cli_probe),
         "timeout": Timeout(timeout=float(timeout), connect=10.0),
     }
     if base_url:
@@ -864,49 +871,12 @@ def import_claude_subscription_setup_token(
     ))
 
 
-def save_claude_subscription_oauth_tokens(token_set: ClaudeSubscriptionTokenSet) -> dict[str, Any]:
-    from row_bot.providers.auth_store import set_provider_secret
-    from row_bot.providers.config import update_provider_config
+def save_claude_subscription_oauth_tokens(token_set: ClaudeSubscriptionTokenSet, *, expected_revision: str | None = None,
+                            validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
+    from row_bot.providers.auth_store import replace_provider_oauth_bundle
 
-    set_provider_secret(
-        CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-        "access_token",
-        token_set.access_token,
-        source=AuthMethod.OAUTH_PKCE.value,
-        auth_method=AuthMethod.OAUTH_PKCE,
-    )
-    if token_set.refresh_token:
-        set_provider_secret(
-            CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-            "refresh_token",
-            token_set.refresh_token,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
-    if token_set.id_token:
-        set_provider_secret(
-            CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-            "id_token",
-            token_set.id_token,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
-    if token_set.user_id:
-        set_provider_secret(
-            CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-            "user_id",
-            token_set.user_id,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
-    if token_set.account_id:
-        set_provider_secret(
-            CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-            "account",
-            token_set.account_id,
-            source=AuthMethod.OAUTH_PKCE.value,
-            auth_method=AuthMethod.OAUTH_PKCE,
-        )
+    if not token_set.access_token:
+        raise ValueError("missing_access_token")
 
     token_metadata = claude_subscription_token_metadata(token_set.access_token, token_set.id_token)
     fingerprint = secret_store.fingerprint(token_set.access_token)
@@ -933,22 +903,23 @@ def save_claude_subscription_oauth_tokens(token_set: ClaudeSubscriptionTokenSet)
         })
         entry.pop("last_runtime_probe", None)
 
-    cfg = update_provider_config(_update)
-    return dict(cfg.get("providers", {}).get(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {}))
+    return replace_provider_oauth_bundle(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {"access_token": token_set.access_token, "refresh_token": token_set.refresh_token, "id_token": token_set.id_token, "account": token_set.account_id, "user_id": token_set.user_id},
+        update_metadata=_update, expected_revision=expected_revision, validate=validate, command_proof=command_proof)
 
 
-def disconnect_claude_subscription_metadata(*, remove_row_bot_tokens: bool = True) -> None:
-    from row_bot.providers.auth_store import delete_provider_secret
-    from row_bot.providers.config import update_provider_config
-
-    if remove_row_bot_tokens:
-        for credential_name in ("access_token", "refresh_token", "id_token", "user_id", "account"):
-            delete_provider_secret(CLAUDE_SUBSCRIPTION_PROVIDER_ID, credential_name)
+def disconnect_claude_subscription_metadata(*, remove_row_bot_tokens: bool = True, expected_revision: str | None = None,
+                                  validate: Any = lambda: None, command_proof: dict | None = None) -> None:
+    from row_bot.providers.auth_store import replace_provider_oauth_bundle, disconnect_provider_oauth_metadata
 
     def _update(cfg: dict[str, Any]) -> None:
         cfg.setdefault("providers", {}).pop(CLAUDE_SUBSCRIPTION_PROVIDER_ID, None)
 
-    update_provider_config(_update)
+    if remove_row_bot_tokens:
+        replace_provider_oauth_bundle(CLAUDE_SUBSCRIPTION_PROVIDER_ID, None, update_metadata=_update,
+            expected_revision=expected_revision, validate=validate, command_proof=command_proof)
+    else:
+        disconnect_provider_oauth_metadata(CLAUDE_SUBSCRIPTION_PROVIDER_ID, update_metadata=_update,
+            expected_revision=expected_revision, validate=validate)
 
 
 def summarize_claude_credentials_json(path: pathlib.Path | str | None = None) -> dict[str, Any]:
@@ -1120,13 +1091,23 @@ def external_reference_metadata(path: pathlib.Path | str | None = None) -> dict[
     }
 
 
-def save_external_reference(path: pathlib.Path | str | None = None) -> dict[str, Any]:
-    from row_bot.providers.config import update_provider_config
+def save_external_reference(path: pathlib.Path | str | None = None, *, expected_revision: str | None = None,
+                            validate: Any = lambda: None, command_proof: dict | None = None,
+                            _captured_metadata: dict | None = None) -> dict[str, Any]:
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
-    metadata = external_reference_metadata(path)
+    validate()
+    metadata = dict(_captured_metadata) if _captured_metadata is not None else external_reference_metadata(path)
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
+        if (_captured_metadata is not None and entry and entry.get("source") != "external_cli"
+                and not (entry.get("oauth_bundle_ref") == {"cleared": True} and isinstance(entry.get("oauth_bundle_previous"), dict))):
+            entry["oauth_bundle_previous"] = {"reference": entry.get("oauth_bundle_ref", {"legacy": True}),
+                "metadata": {name: value for name, value in entry.items() if name not in {"oauth_bundle_previous", "oauth_bundle_ref", "oauth_bundle_command"}}}
         entry.update(metadata)
         entry.update({
             "provider_id": CLAUDE_SUBSCRIPTION_PROVIDER_ID,
@@ -1138,12 +1119,19 @@ def save_external_reference(path: pathlib.Path | str | None = None) -> dict[str,
             "last_error": "" if metadata["external_reference_exists"] else "Claude Code credentials were not found.",
         })
 
+        if command_proof is not None:
+            entry["subscription_options_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_options_command", None)
+        validate()
+
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {}))
 
 
-def save_claude_subscription_runtime_probe(probe: dict[str, Any]) -> dict[str, Any]:
-    from row_bot.providers.config import update_provider_config
+def save_claude_subscription_runtime_probe(probe: dict[str, Any], *, expected_revision: str | None = None,
+    validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
+    from row_bot.providers.config import update_provider_config, provider_config_revision, ProviderConfigError
 
     safe_probe = dict(probe or {})
     safe_probe["provider_id"] = CLAUDE_SUBSCRIPTION_PROVIDER_ID
@@ -1157,9 +1145,18 @@ def save_claude_subscription_runtime_probe(probe: dict[str, Any]) -> dict[str, A
     safe_probe["errors"] = errors[:5]
 
     def _update(cfg: dict[str, Any]) -> None:
+        validate()
+        if expected_revision is not None and provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
         entry = cfg.setdefault("providers", {}).setdefault(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
         entry["last_runtime_probe"] = dict(safe_probe)
         entry["last_error"] = "" if safe_probe.get("ok") else "; ".join(errors[:2])
+
+        if command_proof is not None:
+            entry["subscription_probe_command"] = dict(command_proof)
+        else:
+            entry.pop("subscription_probe_command", None)
+        validate()
 
     cfg = update_provider_config(_update)
     return dict(cfg.get("providers", {}).get(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {}).get("last_runtime_probe", {}))
@@ -1197,8 +1194,16 @@ def run_claude_subscription_runtime_probe(
     model_name: str = "claude-sonnet-4-6",
     *,
     chat_model: Any | None = None,
+    strict: bool = False,
+    expected_revision: str | None = None,
+    validate: Any = lambda: None,
+    command_proof: dict | None = None,
 ) -> dict[str, Any]:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    if strict and (chat_model is None or not isinstance(expected_revision, str) or len(expected_revision) != 64 or not isinstance(model_name, str) or not model_name.strip() or len(model_name.encode("utf-8")) > 512):
+        raise ValueError("invalid_subscription_probe_model")
+    validate()
 
     result: dict[str, Any] = {
         "provider_id": CLAUDE_SUBSCRIPTION_PROVIDER_ID,
@@ -1220,7 +1225,9 @@ def run_claude_subscription_runtime_probe(
             model = ChatClaudeSubscriptionMessages(model_name=result["model"], max_tokens=96)
 
         expected = "row-bot-claude-smoke-ok"
+        validate()
         text_response = model.invoke([HumanMessage(content=f"Reply with exactly this text and nothing else: {expected}")])
+        validate()
         text = _probe_text_content(text_response).strip().strip("`").strip()
         result["chat_ok"] = expected in text
         if not result["chat_ok"]:
@@ -1228,7 +1235,9 @@ def run_claude_subscription_runtime_probe(
 
         tool_model = model.bind_tools([_probe_calculate_tool()], tool_choice="calculate")
         tool_prompt = "Use the calculate tool for the expression 1 + 1. Do not answer in text."
+        validate()
         tool_response = tool_model.invoke([HumanMessage(content=tool_prompt)])
+        validate()
         tool_calls = [
             dict(call)
             for call in (getattr(tool_response, "tool_calls", None) or [])
@@ -1241,6 +1250,7 @@ def run_claude_subscription_runtime_probe(
             result["errors"].append(f"tools: expected calculate tool call, got {names or 'none'}")
         else:
             call_id = str(calculate_call.get("id") or "call_row_bot_claude_probe")
+            validate()
             replay_response = model.invoke([
                 HumanMessage(content=tool_prompt),
                 AIMessage(content="", tool_calls=[{
@@ -1251,12 +1261,14 @@ def run_claude_subscription_runtime_probe(
                 }]),
                 ToolMessage(content="1 + 1 = 2", name="calculate", tool_call_id=call_id),
             ])
+            validate()
             result["tool_round_trip"] = replay_response is not None
     except Exception as exc:
         result["errors"].append(_redact_text(str(exc), limit=220))
         if result["tool_calling"] is None:
             result["tool_calling"] = False
         if result["tool_round_trip"] is None:
+            validate()
             result["tool_round_trip"] = False
 
     result["ok"] = (
@@ -1264,8 +1276,10 @@ def run_claude_subscription_runtime_probe(
         and result.get("tool_calling") is True
         and result.get("tool_round_trip") is True
     )
+    if strict:
+        result["errors"] = [] if result["ok"] else ["probe_failed"]
+        return save_claude_subscription_runtime_probe(result, expected_revision=expected_revision, validate=validate, command_proof=command_proof)
     return save_claude_subscription_runtime_probe(result)
-
 
 def _normalize_modalities(value: Any) -> set[str]:
     if isinstance(value, str):

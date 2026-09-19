@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "skill.preference",
+        "skill.create",
+        "skill.import",
+        "skill.edit",
+        "skill.duplicate",
+        "skill.delete",
+        "skill.proposal.apply",
+        "skill.proposal.reject"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "after": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "After"
+    },
+    "before_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Before Revision"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "target": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "revision",
+    "target",
+    "before_revision",
+    "after",
+    "action_digest",
+    "review_id"
+  ],
+  "title": "SkillReview",
+  "type": "object"
+}

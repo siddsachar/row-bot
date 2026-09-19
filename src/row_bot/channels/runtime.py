@@ -221,7 +221,7 @@ def _channel_delivery_metadata(delivery: Any | None) -> dict[str, Any]:
     if delivery is None:
         return {}
     metadata: dict[str, Any] = {}
-    for key in ("delivered", "streamed", "finalized", "fallback_sent", "transport"):
+    for key in ("delivered", "streamed", "finalized", "fallback_sent", "transport", "uncertain"):
         if hasattr(delivery, key):
             metadata[key] = getattr(delivery, key)
     error = str(getattr(delivery, "error", "") or "").strip()

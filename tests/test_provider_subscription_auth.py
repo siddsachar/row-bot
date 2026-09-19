@@ -599,7 +599,8 @@ def test_codex_disconnect_removes_row_bot_metadata_and_owned_tokens(tmp_path, mo
 
         disconnect_codex_metadata()
 
-        assert "codex" not in provider_config.load_provider_config()["providers"]
+        assert provider_config.load_provider_config()["providers"]["codex"]["configured"] is False
+        assert provider_config.load_provider_config()["providers"]["codex"]["oauth_bundle_ref"] == {"cleared": True}
         assert get_provider_secret("codex", "access_token") == ""
         assert auth_path.exists()
     finally:

@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "connect",
+        "test",
+        "disconnect"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "resource_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "runtime_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Runtime Id"
+    },
+    "server_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Server Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_revision",
+    "server_id",
+    "operation",
+    "runtime_id",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "McpRuntimeReview",
+  "type": "object"
+}

@@ -158,13 +158,21 @@ export default function QueueControls({
     });
   }
   return (
-    <section aria-label="Queued messages" aria-busy={loading || busy}>
-      <h2>Queued messages</h2>
-      <p className="muted">
-        Queued messages run in order with their accepted model and resource
-        targets. Consumed means the message reached a model invocation. Paused
-        messages need an explicit continuation.
-      </p>
+    <section
+      className="queue-surface"
+      aria-label="Queued messages"
+      aria-busy={loading || busy}
+    >
+      <header className="queue-heading">
+        <div>
+          <span className="eyebrow">Run input</span>
+          <h2>Queued messages</h2>
+        </div>
+        <p className="muted">
+          Messages run in order with the model and resource targets accepted
+          when they were queued. Paused messages need an explicit continuation.
+        </p>
+      </header>
       <div className="toolbar" role="group" aria-label="Queued message pages">
         <Button disabled={loading || busy || !cursor} onClick={firstPage}>
           First page
@@ -198,16 +206,16 @@ export default function QueueControls({
         </ErrorState>
       )}
       {current && (
-        <ol aria-label="Queued message list">
+        <ol className="queue-list" aria-label="Queued message list">
           {current.items.map((item) => (
-            <li key={item.id} style={{ overflowWrap: 'anywhere' }}>
-              <p style={{ whiteSpace: 'pre-wrap' }}>
+            <li key={item.id} className="queue-item">
+              <p className="queue-item-text">
                 {item.text ||
                   (item.state === 'cancelled'
                     ? 'Removed queued message'
                     : 'Message content unavailable')}
               </p>
-              <p className="muted">
+              <p className="muted queue-item-meta">
                 <span>
                   {item.state[0]!.toUpperCase() + item.state.slice(1)}
                 </span>
@@ -226,7 +234,7 @@ export default function QueueControls({
                       }
                     />
                   </Field>
-                  <div className="button-row">
+                  <div className="button-row queue-actions">
                     <Button
                       disabled={busy || loading || !draft.text.trim()}
                       onClick={() => void act('edit', draft.item, draft.text)}
@@ -239,7 +247,7 @@ export default function QueueControls({
                   </div>
                 </div>
               ) : (
-                <div className="button-row">
+                <div className="button-row queue-actions">
                   {item.editable && (
                     <Button
                       disabled={busy || loading}
@@ -284,7 +292,7 @@ export default function QueueControls({
         </EmptyState>
       )}
       {current && (
-        <p className="muted" aria-live="polite">
+        <p className="muted queue-page-status" aria-live="polite">
           {current.items.length} messages on this page.{' '}
           {current.has_more
             ? 'More messages are available.'

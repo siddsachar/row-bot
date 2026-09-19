@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "McpGlobalPolicyIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "global_enabled",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "enabled"
+      ],
+      "title": "McpGlobalPolicyIntent",
+      "type": "object"
+    },
+    "McpServerPolicyIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "server_enabled",
+          "title": "Operation",
+          "type": "string"
+        },
+        "server_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Server Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "server_id",
+        "enabled"
+      ],
+      "title": "McpServerPolicyIntent",
+      "type": "object"
+    },
+    "McpToolPolicyIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "tool_enabled",
+            "tool_approval"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "server_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Server Id",
+          "type": "string"
+        },
+        "tool_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "server_id",
+        "tool_id",
+        "enabled"
+      ],
+      "title": "McpToolPolicyIntent",
+      "type": "object"
+    },
+    "McpUtilityPolicyIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "utility_enabled",
+          "title": "Operation",
+          "type": "string"
+        },
+        "server_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Server Id",
+          "type": "string"
+        },
+        "utility": {
+          "enum": [
+            "resources",
+            "prompts"
+          ],
+          "title": "Utility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "server_id",
+        "utility",
+        "enabled"
+      ],
+      "title": "McpUtilityPolicyIntent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "intent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpGlobalPolicyIntent"
+        },
+        {
+          "$ref": "#/$defs/McpServerPolicyIntent"
+        },
+        {
+          "$ref": "#/$defs/McpToolPolicyIntent"
+        },
+        {
+          "$ref": "#/$defs/McpUtilityPolicyIntent"
+        }
+      ],
+      "title": "Intent"
+    }
+  },
+  "required": [
+    "configuration_revision",
+    "intent"
+  ],
+  "title": "McpPolicyRequest",
+  "type": "object"
+}

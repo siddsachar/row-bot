@@ -280,20 +280,21 @@ def test_custom_endpoint_reasoning_capability_config_is_persisted(tmp_path, monk
 
 
 def test_custom_endpoint_save_no_auth_removes_stored_secret(tmp_path, monkeypatch):
+    from tests.test_provider_auth_store import _MemoryKeyring
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    import row_bot.providers.custom as custom
-
-    deleted = []
-    monkeypatch.setattr(custom, "delete_provider_secret", lambda provider_id, key: deleted.append((provider_id, key)))
-
-    save_custom_endpoint({
-        "id": "dummy",
-        "name": "Dummy",
-        "base_url": "http://127.0.0.1:8000/v1",
-        "auth_required": False,
-    })
-
-    assert deleted == [("custom_openai_dummy", "api_key")]
+    backend = _MemoryKeyring()
+    _set_backend_for_tests(backend)
+    try:
+        save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": True, "api_key": "synthetic-retained-key"})
+        before = dict(backend.values)
+        save_custom_endpoint({"id": "dummy", "name": "Dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
+        assert auth_store.get_provider_secret(custom_provider_id("dummy")) == ""
+        assert not get_custom_endpoint("dummy")["auth_required"]
+        assert all(backend.values[key] == value for key, value in before.items())
+        auth_store.replace_provider_api_key(custom_provider_id("dummy"), None, restore=True)
+        assert auth_store.get_provider_secret(custom_provider_id("dummy")) == "synthetic-retained-key"
+    finally:
+        _set_backend_for_tests(None)
 
 
 def test_server_managed_profiles_do_not_send_context_as_request_param(tmp_path, monkeypatch):
@@ -470,12 +471,12 @@ def test_custom_endpoint_refresh_uses_session_secret_when_keyring_unavailable(tm
     auth_store._clear_session_secrets_for_tests()
     _set_backend_for_tests(_FailingKeyring())
     try:
-        save_custom_endpoint({
-            "id": "headless",
-            "base_url": "http://127.0.0.1:8000/v1",
-            "auth_required": True,
-            "api_key": "sk-local-session",
-        })
+        # Existing session credentials remain usable; new endpoint saves now
+        # require durable staged publication and never create this fallback.
+        provider_config.save_provider_config({"custom_endpoints": [{
+            "id": "headless", "base_url": "http://127.0.0.1:8000/v1", "auth_required": True,
+        }]})
+        auth_store._set_session_provider_secret(custom_provider_id("headless"), "api_key", "sk-local-session")
 
         class _Response:
             def raise_for_status(self):

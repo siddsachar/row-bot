@@ -10,6 +10,10 @@ import secrets
 import sqlite3
 import threading
 import uuid
+import stat
+import time
+import sys
+from pathlib import Path
 from collections.abc import Iterator
 
 _LOCK = threading.RLock()
@@ -28,6 +32,11 @@ def transaction() -> Iterator[sqlite3.Connection]:
     with _LOCK:
         conn = _get_conn()
         try:
+            from row_bot.docs_capture import is_docs_real_data_capture
+
+            if is_docs_real_data_capture():
+                yield conn
+                return
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS client_instance (
                     id INTEGER PRIMARY KEY CHECK(id=1), instance_id TEXT NOT NULL, secret TEXT NOT NULL);
@@ -87,7 +96,8 @@ def instance_identity() -> str:
         return str(conn.execute("SELECT instance_id FROM client_instance WHERE id=1").fetchone()[0])
 
 
-def claim_command(owner_id: str, key: str, command: dict, target: str) -> dict | None:
+def claim_command(owner_id: str, key: str, command: dict, target: str, *, exclusive_target: bool = False,
+                  initial_result: dict | None = None) -> dict | None:
     with transaction() as conn:
         secret = conn.execute("SELECT secret FROM client_instance WHERE id=1").fetchone()[0]
         semantic = {key: value for key, value in command.items() if key != "client_session_id"}
@@ -105,10 +115,23 @@ def claim_command(owner_id: str, key: str, command: dict, target: str) -> dict |
                 failure = json.loads(existing["result_json"])
                 raise AdmissionError(failure["code"], failure.get("current_revision"))
             raise AdmissionError("operation_uncertain")
+        if exclusive_target and conn.execute(
+            "SELECT 1 FROM client_commands WHERE target=? AND (status NOT IN ('completed','rejected') OR status IS NULL) LIMIT 1",
+            (target,),
+        ).fetchone():
+            raise AdmissionError("operation_pending")
         try:
-            conn.execute("INSERT INTO client_commands(owner_id,key,command_id,target,type,verifier,status) "
-                         "VALUES(?,?,?,?,?,?,'admitting')",
-                         (owner_id, key, command["command_id"], target, command["type"], verifier))
+            if initial_result is not None and type(initial_result) is not dict:
+                raise ValueError
+            initial_json = json.dumps(initial_result or {}, allow_nan=False, separators=(",", ":"))
+            if len(initial_json.encode("utf-8")) > 256 * 1024:
+                raise ValueError
+        except (TypeError, ValueError, RecursionError):
+            raise AdmissionError("invalid_command") from None
+        try:
+            conn.execute("INSERT INTO client_commands(owner_id,key,command_id,target,type,verifier,status,result_json) "
+                         "VALUES(?,?,?,?,?,?,'admitting',?)",
+                         (owner_id, key, command["command_id"], target, command["type"], verifier, initial_json))
         except sqlite3.IntegrityError as exc:
             raise AdmissionError("idempotency_mismatch") from exc
     return None
@@ -127,11 +150,104 @@ def reject_command(owner_id: str, key: str, code: str, current_revision: str | N
                      (json.dumps({"code": code, "current_revision": current_revision}), owner_id, key))
 
 
-def receipt(owner_id: str, command_id: str) -> dict | None:
+def receipt(owner_id: str, command_id: str, *, include_type: bool = False) -> dict | None:
     with transaction() as conn:
-        row = conn.execute("SELECT status,result_json FROM client_commands WHERE owner_id=? AND command_id=?",
+        row = conn.execute("SELECT status,result_json,type FROM client_commands WHERE owner_id=? AND command_id=?",
                            (owner_id, command_id)).fetchone()
-        return ({"command_id": command_id, "status": row["status"], **json.loads(row["result_json"])} if row else None)
+        return ({"command_id": command_id, "status": row["status"], **json.loads(row["result_json"]),
+                 **({"_command_type": row["type"]} if include_type else {})} if row else None)
+
+
+@contextlib.contextmanager
+def _read_command_connection() -> Iterator[sqlite3.Connection | None]:
+    """Read canonical command metadata without initialization or mutation.
+
+    SQLite may maintain its existing WAL coordination files. Preflight rejects
+    linked paths; this is not a held-handle filesystem race guarantee.
+    """
+    from row_bot.data_paths import get_tasks_db_path
+    loaded_tasks = sys.modules.get("row_bot.tasks")
+    path = Path(loaded_tasks._DB_PATH if loaded_tasks is not None else get_tasks_db_path(create_parent=False)).absolute()
+    try:
+        for leaf in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
+            for component in (*reversed(leaf.parents), leaf):
+                try:
+                    info = component.lstat()
+                except FileNotFoundError:
+                    break
+                if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                    raise ValueError
+        if not path.exists():
+            yield None
+            return
+        with contextlib.closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 1024 * 1024)
+            deadline, steps = time.monotonic() + 2, 0
+            def interrupted() -> bool:
+                nonlocal steps
+                steps += 1000
+                return steps >= 10_000_000 or time.monotonic() >= deadline
+            conn.set_progress_handler(interrupted, 1000)
+            conn.execute("PRAGMA query_only=ON")
+            conn.execute("BEGIN")
+            tables = [row for row in conn.execute("PRAGMA table_list") if row[0] == "main" and row[1] == "client_commands"]
+            if not tables:
+                yield None
+                return
+            columns = list(conn.execute('PRAGMA table_xinfo("client_commands")'))
+            if tables[0][2] != "table" or any(row[6] for row in columns) or not {"owner_id", "key", "command_id", "target", "type", "status"}.issubset({row[1] for row in columns}):
+                raise ValueError
+            yield conn
+    except (OSError, ValueError, sqlite3.Error):
+        raise AdmissionError("command_metadata_unavailable") from None
+
+
+def read_command_metadata(owner_id: str, command_id: str) -> dict | None:
+    """Private receipt lookup; never exposes result JSON or mutates admissions."""
+    with _read_command_connection() as conn:
+        if conn is None:
+            return None
+        row = conn.execute("SELECT key,target,type,status FROM client_commands WHERE owner_id=? AND command_id=?",
+                           (owner_id, command_id)).fetchone()
+        if row is not None and any(not isinstance(value, str) or len(value) > 1024 for value in row):
+            raise AdmissionError("command_metadata_unavailable")
+        return dict(row) if row is not None else None
+
+
+def read_command_receipt(owner_id: str, command_id: str) -> dict | None:
+    """Read one bounded saved receipt without schema, key or command writes."""
+    with _read_command_connection() as conn:
+        if conn is None:
+            return None
+        row = conn.execute("SELECT status,substr(result_json,1,262145) FROM client_commands "
+                           "WHERE owner_id=? AND command_id=?", (owner_id, command_id)).fetchone()
+        if row is None:
+            return None
+        try:
+            if not isinstance(row[1], str) or len(row[1].encode('utf-8')) > 262144:
+                raise ValueError
+            result = json.loads(row[1])
+            if not isinstance(result, dict):
+                raise ValueError
+            return {"command_id": command_id, "status": row[0], **result}
+        except (ValueError, RecursionError):
+            raise AdmissionError("command_metadata_unavailable") from None
+
+
+def read_unfinished_target_commands(target: str, *, limit: int = 32) -> dict:
+    """Bounded cross-owner guard; overflow must remain a recovery requirement."""
+    if type(limit) is not int or not 1 <= limit <= 32:
+        raise AdmissionError("command_metadata_unavailable")
+    with _read_command_connection() as conn:
+        if conn is None:
+            return {"items": [], "overflow": False}
+        rows = conn.execute("SELECT owner_id,key,command_id,type,status FROM client_commands "
+                            "WHERE target=? AND (status NOT IN ('completed','rejected') OR status IS NULL) ORDER BY owner_id,key LIMIT ?",
+                            (target, limit + 1)).fetchmany(limit + 1)
+        if any(not isinstance(value, str) or len(value) > 1024 for row in rows for value in row):
+            raise AdmissionError("command_metadata_unavailable")
+        return {"items": [dict(row) for row in rows[:limit]], "overflow": len(rows) > limit}
 
 
 def command_progress(owner_id: str, key: str, result: dict) -> None:
@@ -253,10 +369,18 @@ def _owner_alive(row: dict) -> bool:
         return True
 
 
-def keyed_digest(value: dict) -> str:
+def keyed_digest(value: dict, *, read_only: bool = False) -> str:
     """Opaque equality proof over private authoritative action state."""
-    with transaction() as conn:
-        secret = bytes.fromhex(conn.execute("SELECT secret FROM client_instance WHERE id=1").fetchone()[0])
+    with (_read_command_connection() if read_only else transaction()) as conn:
+        if conn is None:
+            raise AdmissionError("command_metadata_unavailable")
+        try:
+            row = conn.execute("SELECT substr(secret,1,65) FROM client_instance WHERE id=1").fetchone()
+            if row is None or not isinstance(row[0], str) or len(row[0]) != 64:
+                raise ValueError
+            secret = bytes.fromhex(row[0])
+        except (ValueError, sqlite3.Error):
+            raise AdmissionError("command_metadata_unavailable") from None
     canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode()
     return hmac.new(secret, canonical, hashlib.sha256).hexdigest()
 
@@ -285,6 +409,21 @@ def bind_output(pass_id: str, segment_id: str, message_id: str, revision: str, l
 
 def deletion_state(conversation_id: str) -> str:
     with transaction() as conn:
+        if conn.execute("SELECT 1 FROM conversation_deletion_receipts WHERE conversation_id=?", (conversation_id,)).fetchone():
+            return "physical_delete_ready"
+        row = conn.execute("SELECT state FROM conversation_lifecycle WHERE conversation_id=?", (conversation_id,)).fetchone()
+        return str(row[0]) if row else "active"
+
+
+def read_deletion_state(conversation_id: str) -> str:
+    """Read initialized lifecycle state without nested schema or writer locks.
+
+    Command claim initializes the canonical schema before this is used by
+    authority callbacks inside task transactions. Missing schema fails closed.
+    """
+    from pathlib import Path
+    from row_bot import tasks
+    with contextlib.closing(sqlite3.connect(Path(tasks._DB_PATH).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         if conn.execute("SELECT 1 FROM conversation_deletion_receipts WHERE conversation_id=?", (conversation_id,)).fetchone():
             return "physical_delete_ready"
         row = conn.execute("SELECT state FROM conversation_lifecycle WHERE conversation_id=?", (conversation_id,)).fetchone()

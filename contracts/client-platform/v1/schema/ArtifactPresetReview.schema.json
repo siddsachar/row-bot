@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    }
+  },
+  "required": [
+    "nonce"
+  ],
+  "title": "ArtifactPresetReview",
+  "type": "object"
+}

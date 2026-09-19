@@ -11,7 +11,9 @@ type BrowserEvidence = {
   networkMode: 'external-abort-routing' | 'native-with-verified-csp';
   console: { type: string; text: string }[];
   pageErrors: string[];
+  pageErrorDetails: { name: string; stack: string }[];
   network: { event: string; path: string; status?: number }[];
+  webSockets: { event: 'open' | 'close' | 'error'; path: string }[];
   blockedExternal: string[];
 };
 
@@ -97,6 +99,7 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
       ),
   ).toBe(true);
   expect(directives.get('img-src')).toEqual(["'self'", 'data:', 'blob:']);
+  expect(directives.get('media-src')).toEqual(["'self'", 'blob:']);
   expect(directives.get('font-src')).toEqual(["'self'", 'data:']);
   expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"]);
   expect(directives.get('frame-src')).toEqual(["'self'"]);
@@ -107,7 +110,14 @@ export const test = base.extend<{
   evidence: BrowserEvidence;
   nativeNetwork: boolean;
 }>({
-  nativeNetwork: [false, { option: true }],
+  // WebKit reports routed, same-origin requests cancelled by an intentional
+  // document navigation as access-control page exceptions. Exercise its
+  // native cancellation path after verifying the app's local-only CSP; the
+  // request listener below still fails any attempted external request.
+  nativeNetwork: [
+    async ({ browserName }, provide) => provide(browserName === 'webkit'),
+    { option: true },
+  ],
   evidence: [
     async ({ context, page, baseURL, nativeNetwork }, use, testInfo) => {
       const evidence: BrowserEvidence = {
@@ -116,7 +126,9 @@ export const test = base.extend<{
           : 'external-abort-routing',
         console: [],
         pageErrors: [],
+        pageErrorDetails: [],
         network: [],
+        webSockets: [],
         blockedExternal: [],
       };
       const origin = new URL(baseURL!).origin;
@@ -144,9 +156,13 @@ export const test = base.extend<{
             text: safeText(event.text()),
           }),
         );
-        observed.on('pageerror', (error) =>
-          evidence.pageErrors.push(safeText(error.message)),
-        );
+        observed.on('pageerror', (error) => {
+          evidence.pageErrors.push(safeText(error.message));
+          evidence.pageErrorDetails.push({
+            name: error.name,
+            stack: safeText(error.stack ?? ''),
+          });
+        });
         observed.on('response', (response) =>
           evidence.network.push({
             event: 'response',
@@ -160,6 +176,16 @@ export const test = base.extend<{
             path: publicPath(request.url()),
           }),
         );
+        observed.on('websocket', (socket) => {
+          const path = publicPath(socket.url());
+          evidence.webSockets.push({ event: 'open', path });
+          socket.on('close', () =>
+            evidence.webSockets.push({ event: 'close', path }),
+          );
+          socket.on('socketerror', () =>
+            evidence.webSockets.push({ event: 'error', path }),
+          );
+        });
       };
       observe(page);
       context.on('page', observe);
@@ -168,6 +194,10 @@ export const test = base.extend<{
       expect(
         evidence.pageErrors,
         'Unexplained JavaScript page exceptions',
+      ).toEqual([]);
+      expect(
+        evidence.webSockets,
+        'The new client uses authenticated SSE and must not open WebSockets',
       ).toEqual([]);
       assertConsoleEvidence(evidence, testInfo);
       expect(
@@ -203,11 +233,77 @@ export async function screenshot(
 }
 
 export async function assertNoOverflow(page: Page): Promise<void> {
-  const dimensions = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    content: document.documentElement.scrollWidth,
-  }));
-  expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1);
+  const dimensions = await page.evaluate(() => {
+    const root = document.documentElement;
+    const viewport = root.clientWidth;
+    const content = root.scrollWidth;
+    const bounds = (element: Element | null) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? { left: box.left, right: box.right, width: box.width }
+        : null;
+    };
+    const offenders = [...document.querySelectorAll<HTMLElement>('body *')]
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        let visibleLeft = box.left;
+        let visibleRight = box.right;
+        for (
+          let parent = element.parentElement;
+          parent;
+          parent = parent.parentElement
+        ) {
+          const style = getComputedStyle(parent);
+          if (!/(auto|scroll|hidden|clip)/.test(style.overflowX)) continue;
+          const parentBox = parent.getBoundingClientRect();
+          const scale = parent.offsetWidth
+            ? parentBox.width / parent.offsetWidth
+            : 1;
+          visibleLeft = Math.max(
+            visibleLeft,
+            parentBox.left + parent.clientLeft * scale,
+          );
+          visibleRight = Math.min(
+            visibleRight,
+            parentBox.left + (parent.clientLeft + parent.clientWidth) * scale,
+          );
+        }
+        return {
+          tag: element.tagName,
+          id: element.id,
+          classes: element.className,
+          left: box.left,
+          right: box.right,
+          width: box.width,
+          visibleLeft,
+          visibleRight,
+        };
+      })
+      .filter(
+        (item) =>
+          item.visibleRight > item.visibleLeft &&
+          (item.visibleLeft < -1 || item.visibleRight > viewport + 1),
+      )
+      .sort(
+        (left, right) =>
+          Math.max(right.visibleRight - viewport, -right.visibleLeft) -
+          Math.max(left.visibleRight - viewport, -left.visibleLeft),
+      )
+      .slice(0, 12);
+    return {
+      viewport,
+      content,
+      root: bounds(root),
+      body: bounds(document.body),
+      workspace: bounds(document.querySelector('.workspace')),
+      columns: bounds(document.querySelector('#workspace-columns')),
+      offenders,
+    };
+  });
+  expect(
+    dimensions.offenders,
+    `Horizontal overflow geometry: ${JSON.stringify(dimensions)}`,
+  ).toEqual([]);
 }
 
 export async function accessibility(
@@ -223,16 +319,27 @@ export async function accessibility(
   ]);
   const opaquePreviewScope = [];
   if (options.opaquePreview) {
-    const selector = '[aria-label="Design preview"] iframe[sandbox=""]';
+    const selector =
+      '[aria-label="Design preview"] iframe[sandbox=""], [aria-label="Design preview"] iframe[sandbox="allow-scripts"]';
     const frames = page.locator(selector);
     for (let index = 0; index < (await frames.count()); index++) {
       const frame = frames.nth(index);
-      await expect(frame).toHaveAttribute('sandbox', '');
-      await expect(frame).toHaveAttribute('title', /^Slide preview: .+/);
+      const sandbox = await frame.getAttribute('sandbox');
+      expect(['', 'allow-scripts']).toContain(sandbox);
+      await expect(frame).toHaveAttribute(
+        'title',
+        /^(?:(Slide|Page) preview|Presentation|Thumbnail): .+/,
+      );
+      const title = await frame.getAttribute('title');
+      if (title?.startsWith('Presentation:') || title?.startsWith('Thumbnail:'))
+        expect(sandbox, 'Presentation artwork must remain script-free').toBe(
+          '',
+        );
       opaquePreviewScope.push({
         selector,
         index,
         title: await frame.getAttribute('title'),
+        sandbox,
       });
     }
     if (opaquePreviewScope.length) builder.exclude(selector);
@@ -241,7 +348,7 @@ export async function accessibility(
   await writeEvidence(testInfo, name, {
     opaquePreviewScope,
     scope: opaquePreviewScope.length
-      ? 'Only generated artwork inside the named opaque, script-disabled preview iframe is excluded from axe injection. Chrome and controls remain scanned; iframe title/sandbox are asserted and artwork geometry/visual evidence is separate. No sandbox or CSP permission is changed.'
+      ? 'Only generated artwork inside the named opaque preview iframe is excluded from cross-frame axe injection. Chrome and controls remain scanned; iframe title/sandbox are asserted and artwork geometry/visual evidence is separate. Artwork accessibility requires separate verification. No sandbox or CSP permission is changed.'
       : 'Complete default axe context; no preview exclusions.',
     violations: result.violations,
     incomplete: result.incomplete,

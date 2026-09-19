@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "TaskRunSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Finished At"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "started_at": {
+          "maxLength": 80,
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        },
+        "steps_done": {
+          "minimum": 0,
+          "title": "Steps Done",
+          "type": "integer"
+        },
+        "steps_total": {
+          "minimum": 0,
+          "title": "Steps Total",
+          "type": "integer"
+        },
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "conversation_id",
+        "status",
+        "started_at",
+        "finished_at",
+        "steps_total",
+        "steps_done"
+      ],
+      "title": "TaskRunSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approved",
+        "denied"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "run": {
+      "$ref": "#/$defs/TaskRunSummary"
+    }
+  },
+  "required": [
+    "approval_id",
+    "decision",
+    "run"
+  ],
+  "title": "TaskApprovalResult",
+  "type": "object"
+}

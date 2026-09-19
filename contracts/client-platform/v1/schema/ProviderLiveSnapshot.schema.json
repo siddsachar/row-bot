@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "ProviderLiveCard": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id_hash": {
+          "maxLength": 80,
+          "title": "Account Id Hash",
+          "type": "string"
+        },
+        "chat_count": {
+          "minimum": 0,
+          "title": "Chat Count",
+          "type": "integer"
+        },
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "external_reference_exists": {
+          "title": "External Reference Exists",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "maxLength": 80,
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "group": {
+          "enum": [
+            "local",
+            "subscription",
+            "api",
+            "custom"
+          ],
+          "title": "Group",
+          "type": "string"
+        },
+        "icon": {
+          "maxLength": 32,
+          "title": "Icon",
+          "type": "string"
+        },
+        "last_runtime_probe_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Runtime Probe Ok"
+        },
+        "media_count": {
+          "minimum": 0,
+          "title": "Media Count",
+          "type": "integer"
+        },
+        "model_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Count"
+        },
+        "model_count_source": {
+          "maxLength": 80,
+          "title": "Model Count Source",
+          "type": "string"
+        },
+        "oauth_client_id_configured": {
+          "title": "Oauth Client Id Configured",
+          "type": "boolean"
+        },
+        "oauth_client_id_fingerprint": {
+          "maxLength": 80,
+          "title": "Oauth Client Id Fingerprint",
+          "type": "string"
+        },
+        "plan_type": {
+          "maxLength": 80,
+          "title": "Plan Type",
+          "type": "string"
+        },
+        "provider_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "reconnect_required": {
+          "default": false,
+          "title": "Reconnect Required",
+          "type": "boolean"
+        },
+        "risk_label": {
+          "maxLength": 80,
+          "title": "Risk Label",
+          "type": "string"
+        },
+        "runtime_enabled": {
+          "title": "Runtime Enabled",
+          "type": "boolean"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "user_hash": {
+          "maxLength": 80,
+          "title": "User Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "display_name",
+        "group",
+        "icon",
+        "configured",
+        "source",
+        "runtime_enabled",
+        "model_count_source",
+        "chat_count",
+        "media_count",
+        "plan_type",
+        "fingerprint",
+        "account_id_hash",
+        "user_hash",
+        "oauth_client_id_fingerprint",
+        "oauth_client_id_configured",
+        "external_reference_exists",
+        "risk_label"
+      ],
+      "title": "ProviderLiveCard",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "providers": {
+      "items": {
+        "$ref": "#/$defs/ProviderLiveCard"
+      },
+      "maxItems": 512,
+      "title": "Providers",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "providers"
+  ],
+  "title": "ProviderLiveSnapshot",
+  "type": "object"
+}

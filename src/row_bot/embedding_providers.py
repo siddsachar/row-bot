@@ -9,6 +9,11 @@ import pathlib
 import sys
 import threading
 import time
+from copy import deepcopy
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -22,6 +27,7 @@ logger = logging.getLogger(__name__)
 _provider_lock = threading.Lock()
 _provider = None
 _provider_key: tuple[Any, ...] | None = None
+_captured_provider: ContextVar[tuple | None] = ContextVar("document_captured_embedding_provider", default=None)
 _LOCAL_EMBEDDING_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="row-bot-local-embedding",
@@ -55,6 +61,138 @@ class LocalEmbeddingUnavailable(RuntimeError):
         self.code = str(code or "local_model_failed")
         self.detail = str(detail or "The local embedding model could not be loaded.")
         super().__init__(self.detail)
+
+
+@dataclass(frozen=True, repr=False)
+class CapturedEmbeddingRuntime:
+    config: dict[str, Any]
+    provider: str
+    credential: str = field(repr=False)
+    base_url: str
+
+
+@contextmanager
+def use_captured_embeddings(config: dict, provider, validate: Callable[[], None]) -> Iterator[None]:
+    """Route this worker's nested semantic reads/repair through its exact provider."""
+    validate()
+    token = _captured_provider.set((deepcopy(config), provider, validate))
+    try:
+        yield
+    finally:
+        _captured_provider.reset(token)
+
+
+def _scoped_provider(config):
+    scope = _captured_provider.get()
+    if scope is None:
+        return None
+    captured, provider, validate = scope
+    validate()
+    current = config if config is not None else get_embedding_config()
+    if deepcopy(current) != captured:
+        raise ValueError("document_processing_policy_changed")
+    return provider
+
+
+def capture_embedding_runtime(config: dict[str, Any]) -> CapturedEmbeddingRuntime:
+    """Capture only metadata/auth; construction stays at an admitted worker boundary."""
+    cfg = deepcopy(config)
+    if cfg.get("provider") == "local":
+        if cfg.get("local_model") not in LOCAL_MODELS:
+            raise ValueError("document_embedding_unavailable")
+        return CapturedEmbeddingRuntime(cfg, "local", "", "")
+    if cfg.get("provider") != "cloud" or cfg.get("cloud_model") not in CLOUD_MODELS:
+        raise ValueError("document_embedding_unavailable")
+    from row_bot.providers.auth_store import get_provider_secret
+    from row_bot.providers.catalog import get_provider_definition
+    definition = CLOUD_MODELS[cfg["cloud_model"]]
+    provider = definition["provider"]
+    credential = get_provider_secret(provider) or ""
+    if not credential or len(credential) > 16384:
+        raise ValueError("document_embedding_unavailable")
+    base_url = get_provider_definition(provider).base_url
+    if provider == "google":
+        base_url = base_url.removesuffix("/v1beta")
+    return CapturedEmbeddingRuntime(cfg, provider, credential, base_url)
+
+
+class _CapturedEmbeddings(Embeddings):
+    def __init__(self, inner, validate):
+        self.inner, self.validate = inner, validate
+    def _call(self, method, value):
+        try:
+            return self._invoke(method,value)
+        except Exception:
+            if getattr(self.validate,"error",None) is not None:
+                raise self.validate.error
+            raise
+    def _invoke(self, method, value):
+        self.validate()
+        if isinstance(self.inner, _DimensionAdapter):
+            result = _CapturedEmbeddings(self.inner.inner, self.validate)._call(method, value)
+            result = ([self.inner._trim(vector) for vector in result] if method == "embed_documents"
+                      else self.inner._trim(result))
+        elif isinstance(self.inner, _SerializedLocalEmbeddings):
+            def run():
+                self.validate()
+                return getattr(self.inner.inner, method)(value)
+            result = _LOCAL_EMBEDDING_EXECUTOR.submit(run).result()
+        else:
+            result = getattr(self.inner, method)(value)
+        self.validate()
+        return result
+    def embed_documents(self, texts):
+        return self._call("embed_documents", texts)
+    def embed_query(self, text):
+        return self._call("embed_query", text)
+
+
+@contextmanager
+def captured_embedding_provider(capture: CapturedEmbeddingRuntime, *, validate: Callable[[], None]) -> Iterator[Any]:
+    """Uncached cloud account, or existing cache-only local model, with current authority."""
+    if type(capture) is not CapturedEmbeddingRuntime:
+        raise ValueError("document_embedding_unavailable")
+    capture = deepcopy(capture)
+    from row_bot.providers.runtime import _CapturedValidation
+    validate = _CapturedValidation(validate)
+    validate()
+    if capture.provider == "local":
+        # Existing owner permits only already-cached snapshots; no download path.
+        provider = get_embedding_provider(capture.config)
+        validate()
+        yield _CapturedEmbeddings(provider, validate)
+        return
+    from row_bot.providers.runtime import captured_http_clients, captured_google_client
+    dimension = int(active_embedding_metadata(capture.config)["dimension"])
+    definition = CLOUD_MODELS[capture.config["cloud_model"]]
+    with captured_http_clients(capture.base_url, validate) as (sync, asynchronous):
+        if capture.provider == "openai":
+            import openai
+            from langchain_openai import OpenAIEmbeddings
+            root = openai.OpenAI(api_key=capture.credential, base_url=capture.base_url,
+                organization="", project="", max_retries=0, http_client=sync)
+            async_root = openai.AsyncOpenAI(api_key=capture.credential, base_url=capture.base_url,
+                organization="", project="", max_retries=0, http_client=asynchronous)
+            provider = OpenAIEmbeddings(model=definition["model"], dimensions=dimension,
+                api_key=capture.credential, base_url=capture.base_url, openai_organization="", openai_proxy="",
+                check_embedding_ctx_length=False,
+                max_retries=0, client=root.embeddings, async_client=async_root.embeddings,
+                http_client=sync, http_async_client=asynchronous)
+        elif capture.provider == "google":
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            from pydantic import model_validator
+            client = captured_google_client(capture.credential, capture.base_url, sync, asynchronous)
+            class CapturedGoogleEmbeddings(GoogleGenerativeAIEmbeddings):
+                @model_validator(mode="after")
+                def _initialize_client(self):
+                    self.client = client
+                    return self
+            provider = CapturedGoogleEmbeddings(model=definition["model"], google_api_key=capture.credential,
+                vertexai=False, base_url=capture.base_url, output_dimensionality=dimension)
+        else:
+            raise ValueError("document_embedding_unavailable")
+        validate()
+        yield _CapturedEmbeddings(provider, validate)
 
 
 class _DimensionAdapter(Embeddings):
@@ -203,9 +341,12 @@ def _get_or_build_provider(
         return _provider
 
 
-def get_embedding_provider() -> Any:
-    """Return the active embedding object, blocking for explicit embedding work."""
-    cfg = get_embedding_config()
+def get_embedding_provider(config: dict[str, Any] | None = None) -> Any:
+    """Return the provider for captured configuration during explicit work."""
+    scoped = _scoped_provider(config)
+    if scoped is not None:
+        return scoped
+    cfg = deepcopy(config) if config is not None else get_embedding_config()
     ensure_embedding_runtime_available(cfg)
     key = _embedding_key(cfg)
     if _provider is not None and _provider_key == key:
@@ -234,12 +375,12 @@ def _local_load_worker(cfg: dict[str, Any], key: tuple[Any, ...], generation: in
     _finish_local_load(key, generation)
 
 
-def start_local_embedding_load(*, force: bool = False) -> dict[str, Any]:
+def start_local_embedding_load(*, force: bool = False, config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Start one background, cache-only load for the selected local model."""
     global _load_thread
-    cfg = get_embedding_config()
+    cfg = deepcopy(config) if config is not None else get_embedding_config()
     if cfg.get("provider") != "local":
-        return get_local_embedding_status()
+        return get_local_embedding_status(config=cfg)
     key = _embedding_key(cfg)
     generation, should_start = _begin_local_load(key, force=force)
     if should_start:
@@ -253,19 +394,22 @@ def start_local_embedding_load(*, force: bool = False) -> dict[str, Any]:
             if _load_key == key and _load_generation == generation:
                 _load_thread = thread
         thread.start()
-    return get_local_embedding_status(probe_cache=False)
+    return get_local_embedding_status(probe_cache=False, config=cfg)
 
 
-def get_embedding_provider_for_recall() -> Any:
+def get_embedding_provider_for_recall(config: dict[str, Any] | None = None) -> Any:
     """Return the provider after the shared first-load grace, or fail quickly."""
-    cfg = get_embedding_config()
+    scoped = _scoped_provider(config)
+    if scoped is not None:
+        return scoped
+    cfg = deepcopy(config) if config is not None else get_embedding_config()
     if cfg.get("provider") != "local":
-        return get_embedding_provider()
+        return get_embedding_provider(cfg)
     key = _embedding_key(cfg)
     if _provider is not None and _provider_key == key:
         return _provider
 
-    start_local_embedding_load()
+    start_local_embedding_load(config=cfg)
     with _load_state_lock:
         status = _load_status if _load_key == key else "idle"
         event = _load_event
@@ -313,9 +457,9 @@ def _cached_snapshot(model_key: str) -> pathlib.Path | None:
         return None
 
 
-def get_local_embedding_status(*, probe_cache: bool = True) -> dict[str, Any]:
+def get_local_embedding_status(*, probe_cache: bool = True, config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return display-safe state for the selected local embedding model."""
-    cfg = get_embedding_config()
+    cfg = deepcopy(config) if config is not None else get_embedding_config()
     model_key = str(cfg.get("local_model") or "mxbai-large-v1")
     model_def = LOCAL_MODELS[model_key]
     key = _embedding_key(cfg)
@@ -421,6 +565,8 @@ def _build_provider(cfg: dict[str, Any]) -> Any:
 
 def ensure_embedding_runtime_available(cfg: dict[str, Any] | None = None) -> None:
     """Raise a clear error if the configured embedding runtime cannot start."""
+    if _scoped_provider(cfg) is not None:
+        return  # The captured worker already constructed and validated this runtime.
     cfg = cfg or get_embedding_config()
     if cfg.get("provider") == "cloud":
         model_key = str(cfg.get("cloud_model") or "openai:text-embedding-3-small")

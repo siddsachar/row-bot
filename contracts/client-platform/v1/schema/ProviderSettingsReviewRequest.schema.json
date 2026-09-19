@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "operation": {
+      "enum": [
+        "save",
+        "clear",
+        "restore"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "provider_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Revision",
+      "type": "string"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "maxLength": 16384,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    }
+  },
+  "required": [
+    "provider_revision",
+    "operation"
+  ],
+  "title": "ProviderSettingsReviewRequest",
+  "type": "object"
+}

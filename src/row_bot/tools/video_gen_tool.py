@@ -36,7 +36,8 @@ import logging
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
+from collections.abc import Callable
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -127,6 +128,29 @@ def _normalize_xai_params(
 # ── Side-channel for generated videos ────────────────────────────────────
 # The streaming layer reads and clears this after generate/animate calls.
 _last_generated_video: dict | None = None  # {path, filename, provider, model, duration, mode}
+_strict_output: contextvars.ContextVar[tuple[str, Callable[[], None], Callable[[bytes], str]] | None] = contextvars.ContextVar(
+    "strict_video_generation_output", default=None)
+
+
+@contextmanager
+def strict_generation_output(*, selection: str, validate: Callable[[], None],
+                             sink: Callable[[bytes], str], auth=None) -> Iterator[None]:
+    """Bind one reviewed selection and owned output; legacy saving is unchanged."""
+    if not isinstance(selection, str) or not 1 <= len(selection) <= 256 or "/" not in selection:
+        raise ValueError("invalid_media_selection")
+    token = _strict_output.set((selection, validate, sink))
+    try:
+        from row_bot.providers.media_auth import media_auth_scope
+        with media_auth_scope(auth, selection=selection, validate=validate):
+            yield
+    finally:
+        _strict_output.reset(token)
+
+
+def _validate_generation() -> None:
+    scope = _strict_output.get()
+    if scope is not None:
+        scope[1]()
 _video_output_dir_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
     "video_output_dir",
     default=None,
@@ -214,6 +238,9 @@ def get_available_video_models() -> dict[str, str]:
 
 def _get_configured_selection() -> str:
     """Return the raw 'provider/model' string from tool config."""
+    scope = _strict_output.get()
+    if scope is not None:
+        return scope[0]
     val = registry.get_tool_config("video_gen", "model", None)
     if val:
         return val
@@ -233,6 +260,9 @@ def _get_configured_model() -> str:
 
 def _get_google_client():
     """Return a google.genai.Client configured with the user's API key."""
+    from row_bot.providers.media_auth import current_media_auth, google_client
+    if current_media_auth("google") is not None:
+        return google_client()
     from row_bot.api_keys import get_key
     api_key = get_key("GOOGLE_API_KEY")
     if not api_key:
@@ -325,6 +355,12 @@ def _save_video_to_disk(video_bytes: bytes, prefix: str = "vid") -> str | None:
 
     Returns the absolute path as a string, or None if saving fails.
     """
+    scope = _strict_output.get()
+    if scope is not None:
+        _validate_generation()
+        if not isinstance(video_bytes, bytes) or not video_bytes or len(video_bytes) > 64 * 1024 * 1024:
+            raise ValueError("generated_media_too_large")
+        return scope[2](video_bytes)
     override_dir = _video_output_dir_var.get()
     if override_dir is not None:
         try:
@@ -401,8 +437,11 @@ def _generate_video_google(
             img = types.Image(image_bytes=image_bytes, mime_type=mime)
             kwargs["image"] = img
 
+        _validate_generation()
         operation = client.models.generate_videos(**kwargs)
     except Exception as e:
+        if _strict_output.get() is not None:
+            raise
         logger.error("Video generation request failed: %s", e, exc_info=True)
         return f"Video generation failed: {e}"
 
@@ -419,8 +458,11 @@ def _generate_video_google(
         time.sleep(_GOOGLE_POLL_INTERVAL)
         elapsed += _GOOGLE_POLL_INTERVAL
         try:
+            _validate_generation()
             operation = client.operations.get(operation)
         except Exception as e:
+            if _strict_output.get() is not None:
+                raise
             logger.error("Polling failed: %s", e, exc_info=True)
             return f"Video generation polling failed: {e}"
 
@@ -428,6 +470,7 @@ def _generate_video_google(
     try:
         generated_video = operation.response.generated_videos[0]
         # Download to a temporary buffer
+        _validate_generation()
         client.files.download(file=generated_video.video)
 
         # The SDK saves video data into the file object — read it
@@ -436,9 +479,17 @@ def _generate_video_google(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = tmp.name
         generated_video.video.save(tmp_path)
-        video_bytes = Path(tmp_path).read_bytes()
+        if _strict_output.get() is not None:
+            with open(tmp_path, "rb") as downloaded:
+                video_bytes = downloaded.read(64 * 1024 * 1024 + 1)
+            if len(video_bytes) > 64 * 1024 * 1024:
+                raise ValueError("generated_media_too_large")
+        else:
+            video_bytes = Path(tmp_path).read_bytes()
         os.unlink(tmp_path)
     except Exception as e:
+        if _strict_output.get() is not None:
+            raise
         logger.error("Video download failed: %s", e, exc_info=True)
         return f"Video generated but download failed: {e}"
 
@@ -507,6 +558,7 @@ def _generate_video_xai(
 
     # Step 1: Start generation
     try:
+        _validate_generation()
         start_data = xai_media_json_request(
             provider_id,
             "POST",
@@ -518,6 +570,8 @@ def _generate_video_xai(
         if not request_id:
             return "xAI video generation returned no request_id."
     except Exception as e:
+        if _strict_output.get() is not None:
+            raise
         logger.error("%s video generation request failed: %s", provider_label, e, exc_info=True)
         return f"Video generation failed: {e}"
 
@@ -535,6 +589,7 @@ def _generate_video_xai(
         elapsed += _XAI_POLL_INTERVAL
 
         try:
+            _validate_generation()
             data = xai_media_json_request(
                 provider_id,
                 "GET",
@@ -542,6 +597,8 @@ def _generate_video_xai(
                 timeout=30,
             )
         except Exception as e:
+            if _strict_output.get() is not None:
+                raise
             logger.error("%s polling failed: %s", provider_label, e, exc_info=True)
             return f"Video generation polling failed: {e}"
 
@@ -560,9 +617,12 @@ def _generate_video_xai(
         return f"Video generation completed but no URL returned. Request ID: {request_id}"
 
     try:
+        _validate_generation()
         dl_resp = xai_media_get(provider_id, video_url, timeout=120, follow_redirects=True)
         video_bytes = dl_resp.content
     except Exception as e:
+        if _strict_output.get() is not None:
+            raise
         logger.error("%s video download failed: %s", provider_label, e, exc_info=True)
         return f"Video generated but download failed: {e}"
 
@@ -600,6 +660,7 @@ def _generate_video(
     resolution: str = "720p",
 ) -> str:
     """Generate a video from a text prompt."""
+    _validate_generation()
     provider, _ = _parse_model_config(_get_configured_selection())
 
     if provider == "google":
@@ -618,6 +679,7 @@ def _animate_image(
     resolution: str = "720p",
 ) -> str:
     """Turn a still image into a short video clip."""
+    _validate_generation()
     try:
         image_bytes = _resolve_image_source(image_source)
     except ValueError as e:

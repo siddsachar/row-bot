@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "server_epoch": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Server Epoch",
+      "type": "string"
+    },
+    "voice_session_id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Voice Session Id",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "voice_session_id",
+    "server_epoch",
+    "lease_id",
+    "conversation_id"
+  ],
+  "title": "DictationHandle",
+  "type": "object"
+}

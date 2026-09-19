@@ -66,6 +66,7 @@ def build_review_report(
     scope: str = "page",
     page_index: int | None = None,
     dismissed: Iterable[str] | None = None,
+    strict: bool = False,
 ) -> dict[str, Any]:
     """Run critique + brand-lint over the requested scope and return a merged
     report. ``scope`` is ``"page"`` (single page) or ``"project"`` (all pages).
@@ -121,7 +122,8 @@ def build_review_report(
                     ),
                 ))
         except Exception:
-            pass
+            if strict:
+                raise
 
         # Brand-lint findings
         try:
@@ -141,7 +143,8 @@ def build_review_report(
                     auto_fixable=(lf.category in _BRAND_AUTO_CATEGORIES),
                 ))
         except Exception:
-            pass
+            if strict:
+                raise
 
     # Dedup: same (category, page, element_ref, message) keeps higher severity.
     by_key: dict[tuple, ReviewFinding] = {}

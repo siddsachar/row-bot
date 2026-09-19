@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "global_enabled",
+        "server_enabled",
+        "tool_enabled",
+        "tool_approval",
+        "utility_enabled"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "saved_disabled": {
+      "title": "Saved Disabled",
+      "type": "null"
+    },
+    "server_ids": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 1,
+      "title": "Server Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "configuration_revision",
+    "operation",
+    "action_digest",
+    "server_ids",
+    "saved_disabled",
+    "nonce"
+  ],
+  "title": "McpPolicyReview",
+  "type": "object"
+}

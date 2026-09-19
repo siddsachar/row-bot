@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "DocumentClearInput": {
+      "additionalProperties": false,
+      "properties": {
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/DocumentControlTarget"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "targets"
+      ],
+      "title": "DocumentClearInput",
+      "type": "object"
+    },
+    "DocumentControlInput": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "target_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Target Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id",
+        "revision"
+      ],
+      "title": "DocumentControlInput",
+      "type": "object"
+    },
+    "DocumentControlTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "title": "DocumentControlTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "document.batch.pause",
+        "document.batch.resume",
+        "document.batch.cancel",
+        "document.job.cancel",
+        "document.job.retry",
+        "document.jobs.clear_finished"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DocumentControlInput"
+        },
+        {
+          "$ref": "#/$defs/DocumentClearInput"
+        }
+      ],
+      "title": "Payload"
+    }
+  },
+  "required": [
+    "action",
+    "payload"
+  ],
+  "title": "DocumentControlReviewRequest",
+  "type": "object"
+}

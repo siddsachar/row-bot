@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "flow_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Flow Id"
+    },
+    "operation": {
+      "enum": [
+        "start",
+        "check",
+        "submit",
+        "cancel",
+        "disconnect",
+        "restore",
+        "import_token"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "provider_id": {
+      "enum": [
+        "codex",
+        "claude_subscription",
+        "xai_oauth"
+      ],
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Revision",
+      "type": "string"
+    },
+    "server_epoch": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Server Epoch"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    }
+  },
+  "required": [
+    "provider_id",
+    "provider_revision",
+    "operation"
+  ],
+  "title": "SubscriptionActionRequest",
+  "type": "object"
+}

@@ -54,6 +54,8 @@ class ChatOpenAICompatible(BaseChatModel):
     timeout: float = Field(default_factory=_default_read_timeout)
     http_client: Any | None = None
     reasoning_plan: Any | None = None
+    context_captured: bool = False
+    captured_context_size: int | None = None
 
     @property
     def _llm_type(self) -> str:
@@ -534,6 +536,10 @@ class ChatOpenAICompatible(BaseChatModel):
             return
         param_name = str(self.endpoint.get("context_param_name") or "").strip()
         if not param_name:
+            return
+        if self.context_captured:
+            if self.captured_context_size and self.captured_context_size > 0:
+                body[param_name] = int(self.captured_context_size)
             return
         try:
             from row_bot.models import get_context_policy

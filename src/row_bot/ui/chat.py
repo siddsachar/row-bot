@@ -2074,11 +2074,14 @@ def build_chat(
             def _start_browser_voice(mode: str) -> None:
                 from row_bot.ui.streaming import run_realtime_client_js
                 from row_bot.voice.browser_client import start_browser_voice_capture_js
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
 
+                selected_mode = "dictate" if mode == "dictate" else "talk"
+                if start_voice_for_ui(lambda: state.voice_coordinator.start_browser(selected_mode)) is None:
+                    return
                 _register_active_voice_binding()
-                state.voice_input_mode = "dictate" if mode == "dictate" else "talk"
+                state.voice_input_mode = selected_mode
                 state.voice_enabled = True
-                state.voice_coordinator.start_browser(state.voice_input_mode)
                 delivered = run_realtime_client_js(
                     p,
                     start_browser_voice_capture_js(
@@ -2095,10 +2098,12 @@ def build_chat(
                 if _browser_voice_required():
                     _start_browser_voice("talk")
                     return
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
+                if start_voice_for_ui(state.voice_coordinator.start_talk) is None:
+                    return
                 _register_active_voice_binding()
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
-                state.voice_coordinator.start_talk()
                 if p.dictate_btn:
                     _set_dictate_button_active(p, False)
 
@@ -2118,10 +2123,13 @@ def build_chat(
                         if p.voice_switch:
                             _set_talk_button_active(p, False)
                     return
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
+                session_id = start_voice_for_ui(state.voice_coordinator.start_realtime_talk)
+                if session_id is None:
+                    return
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
                 _register_active_voice_binding()
-                session_id = state.voice_coordinator.start_realtime_talk()
                 if p.dictate_btn:
                     _set_dictate_button_active(p, False)
                 delivered = run_realtime_client_js(
@@ -2191,13 +2199,17 @@ def build_chat(
                     if p.dictate_btn:
                         _set_dictate_button_active(p, False)
                     return
-                state.voice_input_mode = "dictate"
-                state.voice_enabled = True
-                _register_active_voice_binding()
                 if _browser_voice_required():
                     _start_browser_voice("dictate")
                 else:
-                    state.voice_coordinator.start_dictation()
+                    from row_bot.ui.voice_lifecycle import start_voice_for_ui
+                    if start_voice_for_ui(state.voice_coordinator.start_dictation) is None:
+                        return
+                    state.voice_input_mode = "dictate"
+                    state.voice_enabled = True
+                    _register_active_voice_binding()
+                if not state.voice_enabled or state.voice_input_mode != "dictate":
+                    return
                 if p.voice_switch:
                     _set_talk_button_active(p, False)
                 if p.dictate_btn:

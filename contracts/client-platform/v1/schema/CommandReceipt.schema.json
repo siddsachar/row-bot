@@ -1,6 +1,1322 @@
 {
+  "$defs": {
+    "ArtifactDesignOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Id"
+        },
+        "code": {
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "operation": {
+          "maxLength": 64,
+          "title": "Operation",
+          "type": "string"
+        },
+        "preset_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preset Id"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "title": "Resource Revision",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "saved",
+            "unchanged",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "resource_revision",
+        "operation",
+        "status",
+        "code"
+      ],
+      "title": "ArtifactDesignOutcome",
+      "type": "object"
+    },
+    "ArtifactShareOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "link_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "local",
+                "remote_access"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Link Kind"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "title": "Resource Revision",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "published",
+            "submitted",
+            "partial",
+            "uncertain",
+            "denied"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "submitted_count": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Submitted Count",
+          "type": "integer"
+        },
+        "total_count": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Total Count",
+          "type": "integer"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Url"
+        }
+      },
+      "required": [
+        "status",
+        "code",
+        "resource_id",
+        "resource_revision",
+        "url",
+        "link_kind",
+        "submitted_count",
+        "total_count"
+      ],
+      "title": "ArtifactShareOutcome",
+      "type": "object"
+    },
+    "ArtifactShareProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "index": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "publication_prepared",
+            "publish_file_started",
+            "publish_file_completed",
+            "publish_metadata_completed",
+            "tunnel_started",
+            "tunnel_completed",
+            "tunnel_unavailable",
+            "send_started",
+            "send_submitted",
+            "send_not_started",
+            "send_uncertain"
+          ],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "index",
+        "count"
+      ],
+      "title": "ArtifactShareProgress",
+      "type": "object"
+    },
+    "DefaultModelSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Id"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider Id"
+        },
+        "revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "saved_state": {
+          "enum": [
+            "saved",
+            "missing",
+            "unavailable"
+          ],
+          "title": "Saved State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "selection_ref": {
+          "anyOf": [
+            {
+              "maxLength": 647,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selection Ref"
+        }
+      },
+      "required": [
+        "revision",
+        "selection_ref",
+        "provider_id",
+        "model_id",
+        "saved_state",
+        "runtime_state"
+      ],
+      "title": "DefaultModelSnapshot",
+      "type": "object"
+    },
+    "DocumentRemovalOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "derived_entities_removed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Derived Entities Removed",
+          "type": "integer"
+        },
+        "document_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document Id"
+        },
+        "failure_codes": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Failure Codes",
+          "type": "array"
+        },
+        "removal_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Removal Id",
+          "type": "string"
+        },
+        "removed": {
+          "title": "Removed",
+          "type": "boolean"
+        },
+        "retained_copy_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Retained Copy Count",
+          "type": "integer"
+        },
+        "retained_kinds": {
+          "items": {
+            "enum": [
+              "raw_copy",
+              "document_source",
+              "document_index",
+              "legacy_index",
+              "externally_edited_raw",
+              "wiki_external_and_recovery_copies",
+              "interrupted_source_copies",
+              "legacy_index_created_after_request"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Retained Kinds",
+          "type": "array"
+        },
+        "stage_counts": {
+          "$ref": "#/$defs/DocumentRemovalStageCounts"
+        },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/DocumentRemovalStage"
+          },
+          "maxItems": 10,
+          "title": "Stages",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "pending",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "removal_id",
+        "document_id",
+        "status",
+        "removed",
+        "derived_entities_removed",
+        "retained_copy_count",
+        "retained_kinds",
+        "stages",
+        "stage_counts",
+        "failure_codes"
+      ],
+      "title": "DocumentRemovalOutcome",
+      "type": "object"
+    },
+    "DocumentRemovalStage": {
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "enum": [
+            "worker",
+            "derived_snapshot",
+            "index",
+            "source",
+            "raw_copy",
+            "derived_knowledge",
+            "markers",
+            "record",
+            "legacy_index",
+            "bulk_removal"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "pending",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "status"
+      ],
+      "title": "DocumentRemovalStage",
+      "type": "object"
+    },
+    "DocumentRemovalStageCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Complete",
+          "type": "integer"
+        },
+        "partial": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Partial",
+          "type": "integer"
+        },
+        "pending": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "complete",
+        "pending",
+        "partial"
+      ],
+      "title": "DocumentRemovalStageCounts",
+      "type": "object"
+    },
+    "McpConfigurationOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "const": "mcp_configuration_unconfirmed",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revision"
+        },
+        "runtime_cleanup": {
+          "const": "not_requested",
+          "title": "Runtime Cleanup",
+          "type": "string"
+        },
+        "saved_disabled": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved Disabled"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "server_ids": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Server Ids",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "saved",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "revision",
+        "server_ids",
+        "saved_disabled",
+        "runtime_cleanup",
+        "code"
+      ],
+      "title": "McpConfigurationOutcome",
+      "type": "object"
+    },
+    "McpRuntimeOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "mcp_cleanup_incomplete",
+                "mcp_runtime_unconfirmed",
+                "mcp_connection_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "operation": {
+          "enum": [
+            "connect",
+            "test",
+            "disconnect"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "runtime_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Runtime Id"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "server_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Server Id",
+          "type": "string"
+        },
+        "session_quiesced": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Quiesced"
+        },
+        "state": {
+          "enum": [
+            "not_started",
+            "connecting",
+            "connected",
+            "stopping",
+            "stopped",
+            "failed",
+            "dependency_missing",
+            "cleanup_incomplete",
+            "unknown",
+            "tested"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "server_id",
+        "operation",
+        "runtime_id",
+        "state",
+        "session_quiesced",
+        "code"
+      ],
+      "title": "McpRuntimeOutcome",
+      "type": "object"
+    },
+    "ProviderCredentialState": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "externally_managed": {
+          "title": "Externally Managed",
+          "type": "boolean"
+        },
+        "provider_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "recovery_available": {
+          "title": "Recovery Available",
+          "type": "boolean"
+        },
+        "revision": {
+          "maxLength": 64,
+          "minLength": 64,
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "environment",
+            "secret_file",
+            "conflict",
+            "session",
+            "keyring",
+            "encrypted_file",
+            "api_keys",
+            "unknown"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "storage_unavailable": {
+          "title": "Storage Unavailable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider_id",
+        "revision",
+        "configured",
+        "source",
+        "externally_managed",
+        "storage_unavailable",
+        "recovery_available"
+      ],
+      "title": "ProviderCredentialState",
+      "type": "object"
+    },
+    "SubscriptionAccountSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_storage": {
+          "enum": [
+            "durable",
+            "session",
+            "unknown"
+          ],
+          "title": "Credential Storage",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "has_recovery": {
+          "title": "Has Recovery",
+          "type": "boolean"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription",
+            "xai_oauth"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "saved_state": {
+          "enum": [
+            "disconnected",
+            "saved",
+            "metadata_only",
+            "unavailable"
+          ],
+          "title": "Saved State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "revision",
+        "saved_state",
+        "credential_storage",
+        "has_recovery",
+        "expires_at",
+        "runtime_state"
+      ],
+      "title": "SubscriptionAccountSnapshot",
+      "type": "object"
+    },
+    "SubscriptionAccountsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "#/$defs/SubscriptionAccountSnapshot"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Accounts",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "accounts"
+      ],
+      "title": "SubscriptionAccountsSnapshot",
+      "type": "object"
+    },
+    "SubscriptionFlowSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_url": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Authorization Url"
+        },
+        "device_code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Device Code"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "flow_id": {
+          "format": "uuid",
+          "title": "Flow Id",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "device_code",
+            "authorization_code",
+            "loopback"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription",
+            "xai_oauth"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "provider_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Provider Revision",
+          "type": "string"
+        },
+        "quiescent": {
+          "title": "Quiescent",
+          "type": "boolean"
+        },
+        "server_epoch": {
+          "format": "uuid",
+          "title": "Server Epoch",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "waiting",
+            "checking",
+            "exchanging",
+            "publishing",
+            "connected",
+            "cancelled",
+            "expired",
+            "uncertain",
+            "draining"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "flow_id",
+        "server_epoch",
+        "provider_id",
+        "provider_revision",
+        "state",
+        "method",
+        "authorization_url",
+        "device_code",
+        "expires_at",
+        "quiescent"
+      ],
+      "title": "SubscriptionFlowSnapshot",
+      "type": "object"
+    },
+    "SubscriptionOptionsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "references": {
+          "items": {
+            "$ref": "#/$defs/SubscriptionReferenceState"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "References",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "runtime_state": {
+          "const": "unknown",
+          "title": "Runtime State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "xai_client_id_source": {
+          "enum": [
+            "environment",
+            "override",
+            "default",
+            "missing"
+          ],
+          "title": "Xai Client Id Source",
+          "type": "string"
+        },
+        "xai_default_available": {
+          "title": "Xai Default Available",
+          "type": "boolean"
+        },
+        "xai_saved_client_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Xai Saved Client Id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "references",
+        "xai_client_id_source",
+        "xai_saved_client_id",
+        "xai_default_available",
+        "runtime_state"
+      ],
+      "title": "SubscriptionOptionsSnapshot",
+      "type": "object"
+    },
+    "SubscriptionProbeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Chat Ok"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked At"
+        },
+        "kind": {
+          "enum": [
+            "tokens",
+            "runtime",
+            "vision"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_ref": {
+          "anyOf": [
+            {
+              "maxLength": 647,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Ref"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription",
+            "xai_oauth"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "missing",
+            "expired",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_calling": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Calling"
+        },
+        "tool_round_trip": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Round Trip"
+        },
+        "vision_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vision Ok"
+        }
+      },
+      "required": [
+        "provider_id",
+        "kind",
+        "model_ref",
+        "status",
+        "chat_ok",
+        "tool_calling",
+        "tool_round_trip",
+        "vision_ok",
+        "checked_at"
+      ],
+      "title": "SubscriptionProbeResult",
+      "type": "object"
+    },
+    "SubscriptionReferenceState": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata_saved": {
+          "title": "Metadata Saved",
+          "type": "boolean"
+        },
+        "provider_id": {
+          "enum": [
+            "codex",
+            "claude_subscription"
+          ],
+          "title": "Provider Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "metadata_saved"
+      ],
+      "title": "SubscriptionReferenceState",
+      "type": "object"
+    },
+    "WorkspaceEditResult": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "binding_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Binding Revision",
+          "type": "string"
+        },
+        "change_set_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change Set Id"
+        },
+        "code": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "digest": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Digest",
+          "type": "string"
+        },
+        "file_saved": {
+          "default": false,
+          "title": "File Saved",
+          "type": "boolean"
+        },
+        "ledger_saved": {
+          "default": false,
+          "title": "Ledger Saved",
+          "type": "boolean"
+        },
+        "pending_change_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Change Id"
+        },
+        "relative_path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "title": "Resource Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "saved",
+            "unchanged",
+            "pending_import",
+            "conflict",
+            "denied",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "enum": [
+            "workspace",
+            "sandbox_shadow"
+          ],
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "conversation_id",
+        "relative_path",
+        "resource_revision",
+        "binding_id",
+        "binding_revision",
+        "target",
+        "status"
+      ],
+      "title": "WorkspaceEditResult",
+      "type": "object"
+    },
+    "WorkspaceProcessInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "process_id": {
+          "format": "uuid",
+          "title": "Process Id",
+          "type": "string"
+        },
+        "quiesced": {
+          "title": "Quiesced",
+          "type": "boolean"
+        },
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "running",
+            "stopping",
+            "exited",
+            "failed",
+            "cleanup_incomplete"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process_id",
+        "command_id",
+        "run_id",
+        "command",
+        "state",
+        "exit_code",
+        "quiesced"
+      ],
+      "title": "WorkspaceProcessInfo",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
+    "accounts": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubscriptionAccountsSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "admission_sequence": {
       "anyOf": [
         {
@@ -28,6 +1344,17 @@
       ],
       "default": null,
       "title": "Approval Id"
+    },
+    "artifact_design": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactDesignOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "association_required": {
       "default": false,
@@ -64,6 +1391,19 @@
       "default": null,
       "title": "Binding Id"
     },
+    "binding_revision": {
+      "anyOf": [
+        {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Binding Revision"
+    },
     "code": {
       "anyOf": [
         {
@@ -81,6 +1421,19 @@
       "format": "uuid",
       "title": "Command Id",
       "type": "string"
+    },
+    "configuration_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Configuration Revision"
     },
     "confirmed_stages": {
       "items": {
@@ -111,6 +1464,17 @@
       "default": null,
       "title": "Conversation Id"
     },
+    "credential": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProviderCredentialState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "current_revision": {
       "anyOf": [
         {
@@ -140,6 +1504,35 @@
       "default": null,
       "title": "Execution Id"
     },
+    "export_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Export Id"
+    },
+    "flow": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubscriptionFlowSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "folder_reselection_required": {
+      "default": false,
+      "title": "Folder Reselection Required",
+      "type": "boolean"
+    },
     "generation_id": {
       "anyOf": [
         {
@@ -155,6 +1548,39 @@
       "default": null,
       "title": "Generation Id"
     },
+    "mcp_configuration": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpConfigurationOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mcp_runtime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpRuntimeOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "options": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubscriptionOptionsSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "pass_id": {
       "anyOf": [
         {
@@ -169,6 +1595,17 @@
       ],
       "default": null,
       "title": "Pass Id"
+    },
+    "removal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DocumentRemovalOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "resource_id": {
       "anyOf": [
@@ -214,6 +1651,17 @@
       "default": null,
       "title": "Resource Revision"
     },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubscriptionProbeResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "revision": {
       "anyOf": [
         {
@@ -226,6 +1674,17 @@
       ],
       "default": null,
       "title": "Revision"
+    },
+    "selection": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DefaultModelSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "setup_command_id": {
       "anyOf": [
@@ -259,6 +1718,28 @@
       "default": null,
       "title": "Setup Intent"
     },
+    "share_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactShareOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "share_progress": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactShareProgress"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "status": {
       "enum": [
         "accepted",
@@ -290,6 +1771,161 @@
       ],
       "default": null,
       "title": "Submission Id"
+    },
+    "task_approval_decision": {
+      "anyOf": [
+        {
+          "enum": [
+            "approved",
+            "denied"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Approval Decision"
+    },
+    "task_approval_recorded": {
+      "default": false,
+      "title": "Task Approval Recorded",
+      "type": "boolean"
+    },
+    "task_created": {
+      "default": false,
+      "title": "Task Created",
+      "type": "boolean"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "task_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Revision"
+    },
+    "task_run_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Run Id"
+    },
+    "task_run_quiesced": {
+      "default": false,
+      "title": "Task Run Quiesced",
+      "type": "boolean"
+    },
+    "task_run_reserved": {
+      "default": false,
+      "title": "Task Run Reserved",
+      "type": "boolean"
+    },
+    "task_saved": {
+      "default": false,
+      "title": "Task Saved",
+      "type": "boolean"
+    },
+    "task_stop_requested": {
+      "default": false,
+      "title": "Task Stop Requested",
+      "type": "boolean"
+    },
+    "workspace_edit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkspaceEditResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "workspace_process": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkspaceProcessInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "workspace_process_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace Process Id"
+    },
+    "workspace_process_phase": {
+      "anyOf": [
+        {
+          "enum": [
+            "start_reserved",
+            "cleanup_requested"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace Process Phase"
+    },
+    "workspace_process_run_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace Process Run Id"
     }
   },
   "required": [

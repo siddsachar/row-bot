@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "DictationHandle": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "server_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Server Epoch",
+          "type": "string"
+        },
+        "voice_session_id": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Voice Session Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "voice_session_id",
+        "server_epoch",
+        "lease_id",
+        "conversation_id"
+      ],
+      "title": "DictationHandle",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "expires_in_ms": {
+      "maximum": 120000,
+      "minimum": 0,
+      "title": "Expires In Ms",
+      "type": "integer"
+    },
+    "handle": {
+      "$ref": "#/$defs/DictationHandle"
+    },
+    "max_audio_bytes": {
+      "const": 8388608,
+      "default": 8388608,
+      "title": "Max Audio Bytes",
+      "type": "integer"
+    },
+    "max_utterance_ms": {
+      "const": 30000,
+      "default": 30000,
+      "title": "Max Utterance Ms",
+      "type": "integer"
+    },
+    "quiesced": {
+      "title": "Quiesced",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "capturing",
+        "receiving",
+        "transcribing",
+        "completed",
+        "stopping",
+        "stopped"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "handle",
+    "state",
+    "quiesced",
+    "expires_in_ms"
+  ],
+  "title": "DictationSnapshot",
+  "type": "object"
+}

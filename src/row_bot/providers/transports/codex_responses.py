@@ -11,7 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.providers import codex as codex_auth
@@ -34,6 +34,14 @@ class ChatCodexResponses(BaseChatModel):
     installation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     http_client: Any | None = None
     reasoning_plan: Any | None = None
+    _captured_snapshot: Any = PrivateAttr(default=None)
+    _captured_validate: Any = PrivateAttr(default=None)
+
+    def bind_captured_credentials(self, snapshot: tuple, validate: Any, *, headers: dict | None = None) -> None:
+        """Bind one private account snapshot without refresh or global mutation."""
+        import copy
+        self._captured_snapshot = copy.deepcopy(snapshot)
+        self._captured_validate = validate
 
     @property
     def _llm_type(self) -> str:
@@ -168,7 +176,7 @@ class ChatCodexResponses(BaseChatModel):
 
     def _post(self, body: dict[str, Any]) -> Any:
         response = self._post_once(body)
-        if int(getattr(response, "status_code", 0) or 0) == 401:
+        if int(getattr(response, "status_code", 0) or 0) == 401 and self._captured_snapshot is None:
             credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=False)
             if credentials.refresh_token:
                 refreshed = codex_auth.refresh_codex_token(credentials.refresh_token)
@@ -245,6 +253,8 @@ class ChatCodexResponses(BaseChatModel):
         return nullcontext(client.post(url, **kwargs))
 
     def _refresh_access_token_if_possible(self) -> bool:
+        if self._captured_snapshot is not None:
+            return False
         credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=False)
         if not credentials.refresh_token:
             return False
@@ -272,7 +282,12 @@ class ChatCodexResponses(BaseChatModel):
                 client.close()
 
     def _headers(self) -> dict[str, str]:
-        credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=True)
+        if self._captured_validate is not None:
+            self._captured_validate()
+        if self._captured_snapshot is None:
+            credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=True)
+        else:
+            credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=False,_snapshot=self._captured_snapshot)
         if not credentials.access_token:
             raise RuntimeError("Codex access token is missing. Connect ChatGPT in Settings -> Providers.")
         if not credentials.account_id:

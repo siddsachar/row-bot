@@ -1,5 +1,4 @@
 import {
-  lazy,
   memo,
   Suspense,
   useEffect,
@@ -11,6 +10,7 @@ import {
 } from 'react';
 import * as DockTabs from '@radix-ui/react-tabs';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { settingsLeaves } from '../settings/model';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import {
   ChevronLeft,
@@ -55,15 +55,15 @@ import { PanelSubscriptions } from '../panels/subscriptions';
 import { useWorkspaceLayout } from './layout';
 import Commands from './Commands';
 import Navigation from './Navigation';
-import Home, { type HomeSetupEntry } from './Home';
-import SearchConversations from './SearchConversations';
+import Home from './Home';
 import useNewChat from './useNewChat';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import ResourceSetup from './ResourceSetup';
 import ResourcePanel from '../panels/ResourcePanel';
+import BrowserLiveControls from '../browser/BrowserLiveControls';
+import { WorkspaceActionsContext } from './workspace-actions';
 
-const Preferences = lazy(() => import('../settings/Preferences'));
 const subscriptions = new PanelSubscriptions();
 export const panelMetrics = Object.assign(subscriptions.metrics, {
   renders: 0,
@@ -124,6 +124,36 @@ const SamplePanel = memo(function SamplePanel({
   );
 });
 
+function BrowserPanel({ visible }: { visible: boolean }) {
+  const conversationId = useClientSelector(
+    (value) => value.selectedConversationId,
+  );
+  const { controller, browserControlOwner } = useRuntime();
+  const session = conversationId
+    ? browserControlOwner?.get()?.get(conversationId)
+    : undefined;
+  if (!visible) return null;
+  if (!conversationId || !session)
+    return (
+      <EmptyState title="Managed browser unavailable">
+        Open an authenticated conversation after pending browser actions are
+        resolved.
+      </EmptyState>
+    );
+  return (
+    <BrowserLiveControls
+      session={session}
+      load={controller.browserControls}
+      review={(action, payload, signal) =>
+        controller.reviewBrowserControl(conversationId, action, payload, signal)
+      }
+      execute={(command, review) =>
+        controller.executeBrowserControl(conversationId, command, review)
+      }
+    />
+  );
+}
+
 function PanelContent({
   panel,
   visible,
@@ -134,6 +164,8 @@ function PanelContent({
   return panel.descriptor.panel_kind === 'artifact.preview' ||
     panel.descriptor.panel_kind === 'workspace.inspector' ? (
     <ResourcePanel panel={panel} visible={visible} />
+  ) : panel.descriptor.panel_kind === 'browser.live' ? (
+    <BrowserPanel visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -169,6 +201,7 @@ export default function Workspace() {
     : null;
   const homeOpen = location.pathname === '/';
   const routeOpen = !homeOpen && !routeConversation;
+  const settingsOpen = location.pathname.startsWith('/settings');
   const [layout, setLayout] = useWorkspaceLayout(
     state.handshake?.instance_id,
     conversationId ?? 'home',
@@ -306,30 +339,6 @@ export default function Workspace() {
     state.selectedConversationId,
     state.handshake?.instance_id,
   ]);
-  function preferences() {
-    overlay.open({
-      title: 'Preferences',
-      description: 'Make this workspace your own.',
-      content: (
-        <Suspense fallback={<Skeleton />}>
-          <Preferences onReset={() => update(resetLayout)} />
-        </Suspense>
-      ),
-    });
-  }
-  function setup(entry?: HomeSetupEntry) {
-    overlay.open({
-      title: 'New or open resource',
-      description: 'Create a Deck or register an existing coding folder.',
-      content: (
-        <ResourceSetup
-          conversationId={null}
-          onPanel={showPanel}
-          initialEntry={entry}
-        />
-      ),
-    });
-  }
   const closeCompactSheet = useEffectEvent(() =>
     overlay.dismiss('workspace-panel'),
   );
@@ -363,6 +372,30 @@ export default function Workspace() {
                 void creation.newChat();
               },
             },
+            {
+              label: 'Workflows',
+              keywords: 'tasks reminders schedules',
+              run: () => {
+                overlay.close();
+                navigate('/?tab=workflows');
+              },
+            },
+            {
+              label: 'Settings',
+              keywords: 'configuration providers models',
+              run: () => {
+                overlay.close();
+                navigate('/settings/providers');
+              },
+            },
+            ...settingsLeaves.map((leaf) => ({
+              label: `Open ${leaf.label} settings`,
+              keywords: leaf.category,
+              run: () => {
+                overlay.close();
+                navigate(leaf.href);
+              },
+            })),
             ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
               ? samplePanels
               : []
@@ -373,20 +406,6 @@ export default function Workspace() {
                 showPanel(panel, opener);
               },
             })),
-            {
-              label: 'Preferences',
-              keywords: 'appearance theme settings',
-              run: () =>
-                overlay.open({
-                  title: 'Preferences',
-                  description: 'Make this workspace your own.',
-                  content: (
-                    <Suspense fallback={<Skeleton />}>
-                      <Preferences onReset={() => update(resetLayout)} />
-                    </Suspense>
-                  ),
-                }),
-            },
             {
               label: 'Reset layout',
               run: () =>
@@ -703,7 +722,6 @@ export default function Workspace() {
     <Navigation
       onNewChat={() => void creation.newChat()}
       creatingChat={creation.creatingChat}
-      onPreferences={desktop ? preferences : undefined}
       onOpenConversation={() =>
         update((previous) =>
           previous.widthClass !== 'desktop' && previous.activePanelId !== null
@@ -714,7 +732,10 @@ export default function Workspace() {
     />
   );
   return (
-    <div className="workspace" ref={workspaceRef}>
+    <div
+      className={`workspace ${layout.navigation.collapsed ? 'navigation-collapsed' : ''} ${layout.panels.length > 0 ? 'has-resource-panels' : ''}`}
+      ref={workspaceRef}
+    >
       <a className="skip-link" href="#conversation">
         Skip to conversation
       </a>
@@ -782,8 +803,7 @@ export default function Workspace() {
             onClick={() =>
               overlay.open({
                 title: 'New or open resource',
-                description:
-                  'Create a Deck or register an existing coding folder.',
+                description: 'Create or open a design or coding workspace.',
                 content: (
                   <ResourceSetup conversationId={null} onPanel={showPanel} />
                 ),
@@ -794,22 +814,12 @@ export default function Workspace() {
             <span className="wide-label">New resource</span>
           </Button>
           {!desktop && (
-            <Hint label="Preferences">
+            <Hint label="Settings">
               <Button
                 iconOnly
-                aria-label="Preferences"
+                aria-label="Settings"
                 variant="ghost"
-                onClick={() =>
-                  overlay.open({
-                    title: 'Preferences',
-                    description: 'Make this workspace your own.',
-                    content: (
-                      <Suspense fallback={<Skeleton />}>
-                        <Preferences onReset={() => update(resetLayout)} />
-                      </Suspense>
-                    ),
-                  })
-                }
+                onClick={() => navigate('/settings/providers')}
               >
                 <Settings size={20} aria-hidden />
               </Button>
@@ -972,6 +982,11 @@ export default function Workspace() {
                       }
                     >
                       {state.error.message}
+                      {state.status === 'reconnecting'
+                        ? ' Row-Bot is trying to reconnect. Sending and live updates are unavailable in the meantime.'
+                        : state.status === 'disconnected'
+                          ? ' Sending and live updates are unavailable until you reconnect.'
+                          : ''}
                     </ErrorState>
                   ) : null}
                   <Conversation
@@ -1013,24 +1028,7 @@ export default function Workspace() {
                         </aside>
                       ))}
                 </section>
-                {homeOpen && (
-                  <Home
-                    onNewChat={() => void creation.newChat()}
-                    creatingChat={creation.creatingChat}
-                    onSetup={setup}
-                    onOpenConversation={(id) => {
-                      void controller.selectConversation(id);
-                      navigate(`/conversations/${id}`);
-                    }}
-                    onSearch={() =>
-                      overlay.open({
-                        title: 'Search conversations',
-                        description: 'Search your conversation history.',
-                        content: <SearchConversations />,
-                      })
-                    }
-                  />
-                )}
+                {homeOpen && <Home />}
                 {compact && !routeOpen && (
                   <section className="compact-tab" aria-label="Compact panel">
                     <Button
@@ -1057,13 +1055,21 @@ export default function Workspace() {
                   </section>
                 )}
                 {routeOpen && (
-                  <div className="routed-view">
-                    <Link className="button ghost" to="/">
-                      <ChevronLeft size={18} aria-hidden />
-                      Home
-                    </Link>
+                  <div
+                    className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
+                  >
+                    {!settingsOpen && (
+                      <Link className="button ghost" to="/">
+                        <ChevronLeft size={18} aria-hidden />
+                        Home
+                      </Link>
+                    )}
                     <Suspense fallback={<Skeleton label="Opening view" />}>
-                      <Outlet />
+                      <WorkspaceActionsContext.Provider
+                        value={{ resetLayout: () => update(resetLayout) }}
+                      >
+                        <Outlet />
+                      </WorkspaceActionsContext.Provider>
                     </Suspense>
                   </div>
                 )}

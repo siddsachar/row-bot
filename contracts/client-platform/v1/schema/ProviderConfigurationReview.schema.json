@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "provider.endpoint.create",
+        "provider.endpoint.save",
+        "provider.endpoint.delete",
+        "provider.endpoint.probe",
+        "provider.endpoint.refresh",
+        "provider.model.pin",
+        "provider.model.unpin"
+      ],
+      "title": "Operation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation",
+    "configuration_revision",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "ProviderConfigurationReview",
+  "type": "object"
+}

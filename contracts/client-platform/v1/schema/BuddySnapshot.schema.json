@@ -1,0 +1,161 @@
+{
+  "$defs": {
+    "BuddyPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "animation_intensity": {
+          "enum": [
+            "quiet",
+            "normal",
+            "expressive"
+          ],
+          "title": "Animation Intensity",
+          "type": "string"
+        },
+        "bubble_verbosity": {
+          "enum": [
+            "quiet",
+            "normal",
+            "chatty"
+          ],
+          "title": "Bubble Verbosity",
+          "type": "string"
+        },
+        "collapsed": {
+          "title": "Collapsed",
+          "type": "boolean"
+        },
+        "display_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "pack_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Pack Id",
+          "type": "string"
+        },
+        "personality": {
+          "enum": [
+            "warm_mystical",
+            "calm_focus",
+            "playful_helper",
+            "quiet_guardian",
+            "curious_scholar"
+          ],
+          "title": "Personality",
+          "type": "string"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "visible",
+        "collapsed",
+        "display_name",
+        "personality",
+        "bubble_verbosity",
+        "animation_intensity",
+        "pack_id"
+      ],
+      "title": "BuddyPreferences",
+      "type": "object"
+    },
+    "BuddyStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "alert": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Alert",
+          "type": "integer"
+        },
+        "animation": {
+          "maxLength": 80,
+          "title": "Animation",
+          "type": "string"
+        },
+        "energy": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Energy",
+          "type": "integer"
+        },
+        "event_id": {
+          "minimum": 0,
+          "title": "Event Id",
+          "type": "integer"
+        },
+        "focus": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Focus",
+          "type": "integer"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "mood": {
+          "maxLength": 80,
+          "title": "Mood",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mood",
+        "animation",
+        "energy",
+        "focus",
+        "alert",
+        "event_id",
+        "label"
+      ],
+      "title": "BuddyStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "native_placement_retained": {
+      "title": "Native Placement Retained",
+      "type": "boolean"
+    },
+    "placement": {
+      "const": "docked",
+      "title": "Placement",
+      "type": "string"
+    },
+    "preferences": {
+      "$ref": "#/$defs/BuddyPreferences"
+    },
+    "revision": {
+      "maxLength": 128,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/BuddyStatus"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "preferences",
+    "status",
+    "placement",
+    "native_placement_retained"
+  ],
+  "title": "BuddySnapshot",
+  "type": "object"
+}

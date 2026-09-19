@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -18,14 +19,20 @@ const ThemeContext = createContext<{
 } | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreference] = useState(() => bootstrapTheme(TOKENS));
+  const preferenceRef = useRef(preference);
+  preferenceRef.current = preference;
   useEffect(() => {
     const scheme = matchMedia('(prefers-color-scheme: dark)');
     const transparency = matchMedia('(prefers-reduced-transparency: reduce)');
     const apply = () => {
-      bootstrapTheme(TOKENS, preference);
+      bootstrapTheme(TOKENS, preferenceRef.current);
     };
     const storage = (event: StorageEvent) => {
-      if (event.key === THEME_KEY) setPreference(bootstrapTheme(TOKENS));
+      if (event.key === THEME_KEY) {
+        const next = bootstrapTheme(TOKENS);
+        preferenceRef.current = next;
+        setPreference(next);
+      }
     };
     scheme.addEventListener('change', apply);
     transparency.addEventListener('change', apply);
@@ -35,13 +42,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       transparency.removeEventListener('change', apply);
       window.removeEventListener('storage', storage);
     };
-  }, [preference]);
+  }, []);
   function update(patch: Partial<ThemePreference>) {
     const next = bootstrapTheme(TOKENS, {
       ...preference,
       ...patch,
       version: 1,
     });
+    preferenceRef.current = next;
     try {
       localStorage.setItem(THEME_KEY, JSON.stringify(next));
     } catch {

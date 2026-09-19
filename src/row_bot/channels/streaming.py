@@ -3,17 +3,207 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import logging
 import queue
+import threading
 import time
+from collections import deque
 from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+from functools import wraps
 from typing import Any, Protocol
 
 from row_bot.channels.agent_output import assemble_agent_answer
 
 log = logging.getLogger(__name__)
+
+
+async def iter_channel_events(
+    events_factory: Callable[[], Iterable[tuple[str, Any]]],
+    *,
+    _producer: Callable[[Any], Any] | None = None,
+    _result: asyncio.Future[Any] | None = None,
+) -> AsyncIterable[tuple[str, Any]]:
+    """Bridge one owned synchronous producer with bounded, lossless backpressure.
+
+    Adjacent token chunks are coalesced up to 16,384 characters; at most 64 events
+    wait for the consumer. Control/final/approval events retain their order.
+    Closing the consumer cancels the producer's scope and waits for its actual
+    return. An uncooperative provider therefore remains draining, never silently
+    detached while it can still perform work.
+    """
+    from row_bot.cancellation import (
+        CancellationScope,
+        current_cancellation_scope,
+        use_cancellation_scope,
+    )
+
+    loop = asyncio.get_running_loop()
+    ready = asyncio.Event()
+    finished = asyncio.Event()
+    condition = threading.Condition()
+    pending: deque[tuple[str, Any]] = deque()
+    scope = CancellationScope()
+    parent = current_cancellation_scope()
+    context = contextvars.copy_context()
+    complete = False
+    producer_error: Exception | None = None
+
+    def wake() -> None:
+        with condition:
+            condition.notify_all()
+        loop.call_soon_threadsafe(ready.set)
+
+    scope.register(wake, "channel producer buffer")
+    unregister = parent.register(scope.cancel, "channel producer") if parent else lambda: None
+
+    def put(item: tuple[str, Any]) -> bool:
+        with condition:
+            while not scope.is_cancelled():
+                if (
+                    pending and item[0] == "token" and pending[-1][0] == "token"
+                    and isinstance(item[1], str) and isinstance(pending[-1][1], str)
+                    and len(pending[-1][1]) + len(item[1]) <= 16_384
+                ):
+                    pending[-1] = ("token", pending[-1][1] + item[1])
+                    return True
+                if len(pending) < 64:
+                    notify = not pending
+                    pending.append(item)
+                    if notify:
+                        loop.call_soon_threadsafe(ready.set)
+                    return True
+                condition.wait()
+            return False
+
+    def produce() -> None:
+        nonlocal complete, producer_error
+        iterator = None
+        try:
+            with use_cancellation_scope(scope):
+                if scope.is_cancelled():
+                    return
+                if _producer is not None:
+                    def emit(item):
+                        if item is not None and not put(item):
+                            raise asyncio.CancelledError()
+
+                    result = _producer(_ChannelEventSink(emit))
+                    if _result is not None:
+                        loop.call_soon_threadsafe(_settle_producer_result, _result, result, None)
+                else:
+                    iterator = iter(events_factory())
+                    while not scope.is_cancelled():
+                        try:
+                            item = next(iterator)
+                        except StopIteration:
+                            break
+                        if not put(item):
+                            break
+        except asyncio.CancelledError:
+            scope.cancel("channel producer cancelled")
+        except Exception as exc:
+            if _result is not None:
+                producer_error = exc
+                loop.call_soon_threadsafe(_settle_producer_result, _result, None, exc)
+            else:
+                put(("error", str(exc)))
+        finally:
+            try:
+                close = getattr(iterator, "close", None)
+                if callable(close):
+                    with use_cancellation_scope(scope):
+                        close()
+            except Exception:
+                log.debug("Channel producer cleanup failed", exc_info=True)
+            finally:
+                with condition:
+                    complete = True
+                    condition.notify_all()
+                loop.call_soon_threadsafe(ready.set)
+                loop.call_soon_threadsafe(finished.set)
+
+    worker = threading.Thread(
+        target=context.run, args=(produce,), name="channel-event-producer", daemon=True,
+    )
+    try:
+        worker.start()
+    except BaseException:
+        unregister()
+        raise
+    try:
+        while True:
+            with condition:
+                if scope.is_cancelled():
+                    raise asyncio.CancelledError()
+                if pending:
+                    item = pending.popleft()
+                    condition.notify_all()
+                elif complete:
+                    if producer_error is not None:
+                        raise producer_error
+                    break
+                else:
+                    ready.clear()
+                    item = None
+            if item is None:
+                await ready.wait()
+            else:
+                yield item
+    finally:
+        scope.cancel("channel consumer closed")
+        # Repeated cancellation must not release ownership of a live producer.
+        waiter = asyncio.create_task(finished.wait())
+        interrupted = False
+        while not waiter.done():
+            try:
+                await asyncio.shield(waiter)
+            except asyncio.CancelledError:
+                interrupted = True
+        unregister()
+        if interrupted:
+            raise asyncio.CancelledError()
+
+
+class _ChannelEventSink:
+    """The existing synchronous adapters need only queue.put, not a second queue."""
+
+    def __init__(self, emit: Callable[[Any], None]) -> None:
+        self._emit = emit
+
+    def put(self, item: tuple[str, Any] | None) -> None:
+        self._emit(item)
+
+
+def _settle_producer_result(future: asyncio.Future, result: Any, error: Exception | None) -> None:
+    if future.done():
+        return
+    if error is not None:
+        future.set_exception(error)
+    else:
+        future.set_result(result)
+
+
+async def consume_channel_producer(
+    consumer: ChannelStreamConsumer,
+    producer: Callable[[Any], Any],
+) -> tuple[Any, ChannelDeliveryResult]:
+    """Own a retained adapter's push producer through final/media result capture."""
+    result = asyncio.get_running_loop().create_future()
+    events = iter_channel_events(lambda: (), _producer=producer, _result=result)
+    try:
+        delivery = await consumer.consume_events(events, final_text_source=result)
+        if delivery.error == "cancelled":
+            raise asyncio.CancelledError()
+        return result.result(), delivery
+    finally:
+        await events.aclose()
+        if not result.done():
+            result.cancel()
+        elif not result.cancelled():
+            result.exception()  # Preserve a propagated producer error without an orphan Future.
 
 ORCHESTRATION_SUSPENDED_FINAL = "__ROW_BOT_ORCHESTRATION_SUSPENDED__"
 
@@ -44,6 +234,29 @@ class ChannelDeliveryResult:
     final_text: str
     error: str | None = None
     platform_message_refs: list[str] = field(default_factory=list)
+    uncertain: bool = False
+
+
+class ChannelDeliveryUncertain(RuntimeError):
+    """A transport effect may have happened; another send is not a safe retry."""
+
+
+class ChannelDeliveryRejected(RuntimeError):
+    """The adapter positively rejected the operation before any remote effect."""
+
+
+def confirmed_channel_effect(method: Callable) -> Callable:
+    """Classify unknown adapter failures at the existing side-effect boundary."""
+    @wraps(method)
+    async def invoke(*args, **kwargs):
+        try:
+            return await method(*args, **kwargs)
+        except (ChannelDeliveryUncertain, ChannelDeliveryRejected, ChannelRateLimitError):
+            raise
+        except Exception as exc:
+            raise ChannelDeliveryUncertain("Channel delivery outcome unconfirmed") from exc
+
+    return invoke
 
 
 class ChannelStreamTransport(Protocol):
@@ -196,6 +409,7 @@ class ChannelStreamConsumer:
         self._last_update_len = 0
         self._last_sent_display = ""
         self._stream_started = False
+        self._delivery_uncertain = False
         self._stream_disabled = str(config.transport_mode or "").lower() == "off"
         self._overflow_preview_active = False
         self._last_overflow_preview = ""
@@ -248,6 +462,10 @@ class ChannelStreamConsumer:
                 final_text=self._current_final_text(final_text),
                 error="cancelled",
             )
+        finally:
+            close = getattr(events, "aclose", None)
+            if callable(close):
+                await close()
 
     async def consume_queue(
         self,
@@ -445,8 +663,12 @@ class ChannelStreamConsumer:
             self._handle = await self._call_with_retry(self.transport.start, text)
             self._stream_started = True
             return self._handle is not None
-        except Exception:
+        except (ChannelDeliveryRejected, ChannelRateLimitError):
             log.debug("Channel stream start failed; falling back to final send", exc_info=True)
+            self._stream_disabled = True
+            return False
+        except Exception:
+            self._delivery_uncertain = True
             self._stream_disabled = True
             return False
 
@@ -483,8 +705,11 @@ class ChannelStreamConsumer:
             self._last_sent_display = partial
             self._last_update_at = now
             self._last_update_len = len(display)
-        except Exception:
+        except (ChannelDeliveryRejected, ChannelRateLimitError):
             log.debug("Channel stream update failed; final send fallback will be used", exc_info=True)
+            self._stream_disabled = True
+        except Exception:
+            self._delivery_uncertain = True
             self._stream_disabled = True
 
     def _partial_text(self, display: str) -> str:
@@ -543,6 +768,11 @@ class ChannelStreamConsumer:
 
     async def _finalize(self, final_text: str) -> ChannelDeliveryResult:
         final_text = str(final_text or "").strip()
+        if self._delivery_uncertain:
+            return self._result(
+                delivered=False, streamed=self._stream_started, finalized=False,
+                fallback_sent=False, final_text=final_text, error="delivery_unconfirmed",
+            )
         if final_text == ORCHESTRATION_SUSPENDED_FINAL:
             await self._cleanup_preview()
             return self._result(
@@ -580,9 +810,15 @@ class ChannelStreamConsumer:
                 fallback_sent=False,
                 final_text=final_text,
             )
-        except Exception as exc:
-            log.debug("Channel final stream update failed; trying final send", exc_info=True)
+        except (ChannelDeliveryRejected, ChannelRateLimitError) as exc:
+            log.debug("Channel final update rejected; trying final send", exc_info=True)
             return await self._send_final_and_cleanup(final_text, previous_error=exc)
+        except Exception:
+            self._delivery_uncertain = True
+            return self._result(
+                delivered=False, streamed=self._stream_started, finalized=False,
+                fallback_sent=False, final_text=final_text, error="delivery_unconfirmed",
+            )
 
     async def _send_final_and_cleanup(
         self,
@@ -611,7 +847,7 @@ class ChannelStreamConsumer:
                 final_text=final_text,
                 refs=[str(ref) for ref in refs or []],
             )
-        except Exception as exc:
+        except (ChannelDeliveryRejected, ChannelRateLimitError) as exc:
             await self._cleanup_preview()
             error = str(exc) or str(previous_error or "")
             return self._result(
@@ -621,6 +857,12 @@ class ChannelStreamConsumer:
                 fallback_sent=previous_error is not None,
                 final_text=final_text,
                 error=error,
+            )
+        except Exception:
+            self._delivery_uncertain = True
+            return self._result(
+                delivered=False, streamed=self._stream_started, finalized=False,
+                fallback_sent=False, final_text=final_text, error="delivery_unconfirmed",
             )
 
     async def _cleanup_preview(self) -> None:
@@ -668,12 +910,15 @@ class ChannelStreamConsumer:
         if self._final_source_done_at is None:
             self._final_source_done_at = self._monotonic()
 
-    @staticmethod
-    def _drain_queue(event_queue: queue.Queue[Any]) -> int:
+    def _drain_queue(self, event_queue: queue.Queue[Any]) -> int:
         drained = 0
         while True:
             try:
-                event_queue.get_nowait()
+                item = event_queue.get_nowait()
+                if item is not None:
+                    # The authoritative final makes preview updates redundant,
+                    # not approval requests or durable context notice events.
+                    self._record_event(*item)
                 drained += 1
             except queue.Empty:
                 return drained
@@ -695,15 +940,8 @@ class ChannelStreamConsumer:
         return await _maybe_await(func(*args, **kwargs))
 
     def _retry_delay(self, exc: Exception, attempt: int) -> float | None:
-        retry_after = getattr(exc, "retry_after", None)
-        if retry_after is not None:
-            try:
-                return max(0.0, float(retry_after))
-            except Exception:
-                pass
-        text = str(exc).lower()
-        if "rate" in text or "retry" in text or "flood" in text:
-            return float(self.config.retry_backoff_s) * (2 ** attempt)
+        if isinstance(exc, ChannelRateLimitError):
+            return exc.retry_after
         return None
 
     def _result(
@@ -726,4 +964,5 @@ class ChannelStreamConsumer:
             final_text=final_text,
             error=error,
             platform_message_refs=list(refs or []),
+            uncertain=self._delivery_uncertain,
         )

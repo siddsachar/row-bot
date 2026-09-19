@@ -10,20 +10,18 @@ import type {
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import {
-  Button,
-  EmptyState,
-  Field,
-  Input,
-  Menu,
-  Skeleton,
-} from '../../ui/primitives';
+import { Button, EmptyState, Menu, Skeleton } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
+import { MediaPreview as Media } from './MediaPreview';
+export { MediaPreview as Media } from './MediaPreview';
 import ComposerControls from './ComposerControls';
+import VoiceControls from './VoiceControls';
+import ConversationVoice from './ConversationVoice';
 import ResourceTargets from './ResourceTargets';
 import { Paperclip, ArrowUp } from 'lucide-react';
 import SearchConversations from './SearchConversations';
 import SteeringQueue from './SteeringQueue';
+import ConversationActions from '../settings/ConversationActions';
 import DraftConflict from './DraftConflict';
 import QueueControls from './QueueControls';
 import ContextUsage from './ContextUsage';
@@ -67,6 +65,12 @@ const Message = memo(function Message({
   const [error, setError] = useState('');
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
+  const author =
+    row.role === 'user'
+      ? 'You'
+      : row.role === 'assistant'
+        ? 'Row-Bot'
+        : 'Tool result';
   async function more() {
     const identity = conversationId;
     if (!identity || !row.content_ref) return;
@@ -97,45 +101,47 @@ const Message = memo(function Message({
   return (
     <article
       className={`message message-${row.role}`}
+      aria-label={`${author} message`}
       data-message-id={row.message_id ?? row.id}
       data-row-id={row.id}
       tabIndex={-1}
     >
-      <strong className="message-role">
-        {row.role === 'user'
-          ? 'You'
-          : row.role === 'assistant'
-            ? 'Row-Bot'
-            : 'Tool result'}
-      </strong>
+      <header className="message-meta">
+        <strong className="message-role">{author}</strong>
+        {!!row.tool_call_ids?.length && (
+          <small className="message-tool-count">
+            {row.tool_call_ids.length} tool{' '}
+            {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
+          </small>
+        )}
+      </header>
       <div className="message-text">
         <FormattedText
           text={expanded || row.blocks.map((block) => block.text).join('\n')}
         />
       </div>
-      {!!row.tool_call_ids?.length && (
-        <small>
-          {row.tool_call_ids.length} tool{' '}
-          {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
-        </small>
-      )}
-      {row.content_status === 'lazy' && (!expanded || cursor) && (
-        <Button onClick={() => void more()} disabled={busy}>
-          {cursor ? 'Load next content page' : 'Load message content'}
-        </Button>
-      )}
-      {!!previous.length && (
-        <Button
-          onClick={() => {
-            const start = previous.at(-1);
-            setPrevious((pages) => pages.slice(0, -1));
-            setExpanded('');
-            setCursor(start);
-          }}
-        >
-          Previous message portion
-        </Button>
-      )}
+      {(row.content_status === 'lazy' && (!expanded || cursor)) ||
+      previous.length ? (
+        <div className="message-actions">
+          {row.content_status === 'lazy' && (!expanded || cursor) && (
+            <Button onClick={() => void more()} disabled={busy}>
+              {cursor ? 'Load next content page' : 'Load message content'}
+            </Button>
+          )}
+          {!!previous.length && (
+            <Button
+              onClick={() => {
+                const start = previous.at(-1);
+                setPrevious((pages) => pages.slice(0, -1));
+                setExpanded('');
+                setCursor(start);
+              }}
+            >
+              Previous message portion
+            </Button>
+          )}
+        </div>
+      ) : null}
       {error && <p role="alert">{error}</p>}
     </article>
   );
@@ -208,57 +214,6 @@ function Approval({ id }: { id: string }) {
   );
 }
 
-export function Media({
-  reference,
-  mime,
-}: {
-  reference: string;
-  mime: string;
-}) {
-  const { controller } = useRuntime();
-  const [url, setUrl] = useState('');
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    const abort = new AbortController();
-    let owned = '';
-    setUrl('');
-    setError('');
-    void controller
-      .download(reference, abort.signal)
-      .then((blob) => {
-        if (abort.signal.aborted) return;
-        owned = URL.createObjectURL(blob);
-        setUrl(owned);
-      })
-      .catch((cause) => {
-        if (!abort.signal.aborted) setError(clientError(cause).message);
-      });
-    return () => {
-      abort.abort();
-      if (owned) URL.revokeObjectURL(owned);
-    };
-  }, [controller, reference, attempt]);
-  return url ? (
-    mime.startsWith('image/') ? (
-      <img className="message-media" src={url} alt="Generated result" />
-    ) : (
-      <a href={url} download="result">
-        Download generated result
-      </a>
-    )
-  ) : error ? (
-    <div role="alert">
-      {error}{' '}
-      <Button onClick={() => setAttempt((value) => value + 1)}>
-        Retry generated result
-      </Button>
-    </div>
-  ) : (
-    <p>Loading generated result…</p>
-  );
-}
-
 export default function Conversation({
   onPanel,
   focusConversationId,
@@ -269,13 +224,38 @@ export default function Conversation({
   onComposerFocused?: () => void;
 }) {
   const state = useClientState();
-  const { controller, platform } = useRuntime();
+  const { controller, platform, conversationActionsOwner } = useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const id = state.selectedConversationId;
   const historyReady =
     Boolean(id) && !state.loadingConversation && state.conversation?.id === id;
   const draft = controller.getDraft(id ?? 'new');
+  const voiceScope = controller.dictationScope();
+  const [talkBusy, setTalkBusy] = useState(false);
+  const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
+  const [voiceExposure, setVoiceExposure] = useState({
+    key: '',
+    available: false,
+  });
+  useEffect(() => {
+    if (!state.handshake) return;
+    const abort = new AbortController();
+    void controller
+      .dictationCapability(abort.signal)
+      .then((value) => {
+        if (!abort.signal.aborted)
+          setVoiceExposure({
+            key: voiceHostKey,
+            available: value.browser_dictation_available,
+          });
+      })
+      .catch(() => {
+        if (!abort.signal.aborted)
+          setVoiceExposure({ key: voiceHostKey, available: false });
+      });
+    return () => abort.abort();
+  }, [controller, voiceHostKey, state.handshake]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState<{
@@ -379,6 +359,7 @@ export default function Conversation({
   const pendingSteering =
     steeringClaim?.key === steeringKey ? steeringClaim.claim : null;
   const [steeringOpen, setSteeringOpen] = useState(false);
+  const chatContentRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptContentRef = useRef<HTMLDivElement>(null);
   const followingLatest = useRef(true);
@@ -390,14 +371,43 @@ export default function Conversation({
   const running = generation && !generation.quiesced;
   const controls = state.workspace?.controls;
   const resources = state.workspace?.resources ?? [];
+  const sendActionReady = Boolean(
+    state.workspace?.actions.find((action) => action.action === 'send')?.ready,
+  );
+  const composerStateReason = pendingSteering
+    ? 'Checking the queued message receipt before another message can be sent.'
+    : pendingSubmit
+      ? 'Checking the message receipt before another message can be sent.'
+      : pendingResume
+        ? 'Checking the resume receipt before another action can start.'
+        : talkBusy
+          ? 'Voice controls are finishing before another message can be sent.'
+          : busy
+            ? 'Finishing the current conversation action.'
+            : running
+              ? 'A response is in progress. Add text to queue guidance, or stop the run.'
+              : state.status !== 'ready'
+                ? 'Reconnect to send. Your draft remains on this device.'
+                : !sendActionReady
+                  ? 'Choose a configured model to send. You can still create or open resources.'
+                  : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   function scrollToLatest() {
     const transcript = transcriptRef.current;
-    if (transcript)
-      transcript.scrollTop = Math.max(
-        0,
-        transcript.scrollHeight - transcript.clientHeight,
-      );
+    if (!transcript) return;
+    const chatContent = chatContentRef.current;
+    if (chatContent) {
+      const contentBounds = chatContent.getBoundingClientRect();
+      const transcriptBounds = transcript.getBoundingClientRect();
+      if (transcriptBounds.top < contentBounds.top)
+        chatContent.scrollTop -= contentBounds.top - transcriptBounds.top;
+      else if (transcriptBounds.bottom > contentBounds.bottom)
+        chatContent.scrollTop += transcriptBounds.bottom - contentBounds.bottom;
+    }
+    transcript.scrollTop = Math.max(
+      0,
+      transcript.scrollHeight - transcript.clientHeight,
+    );
   }
   useLayoutEffect(() => {
     if (scrollOwner.current !== id || (wasHistory.current && !state.history)) {
@@ -590,7 +600,9 @@ export default function Conversation({
       !draft.text.trim() ||
       pendingSteering ||
       pendingSubmit ||
-      pendingResume
+      pendingResume ||
+      state.status !== 'ready' ||
+      !sendActionReady
     )
       return;
     try {
@@ -930,8 +942,50 @@ export default function Conversation({
     overlay.open({
       title: 'Add resource',
       description:
-        'Add a Deck or an existing coding folder to this conversation.',
+        'Create or add a design or coding workspace to this conversation.',
       content: <ResourceSetup conversationId={id} onPanel={onPanel} />,
+    });
+  }
+  function manageConversation() {
+    if (!id) return;
+    const session = conversationActionsOwner?.get()?.get(id);
+    if (!session) {
+      setError(
+        'Conversation actions are unavailable while other reviewed actions need attention.',
+      );
+      return;
+    }
+    overlay.open({
+      title: 'Conversation actions',
+      description:
+        'Review changes to this saved conversation and keep its resources in place.',
+      content: (
+        <ConversationActions
+          conversationId={id}
+          session={session}
+          load={controller.conversationActions}
+          review={controller.reviewConversationAction}
+          execute={controller.executeConversationAction}
+          download={async (reference, fileName) => {
+            const result = await platform.save(reference, fileName);
+            if (result.status !== 'ok') throw Error(result.status);
+          }}
+          onChanged={() => {
+            void Promise.all([
+              controller.selectConversation(id),
+              controller.loadMoreConversations(true),
+            ]);
+          }}
+        />
+      ),
+    });
+  }
+  function manageBrowser() {
+    if (!id) return;
+    onPanel({
+      panel_kind: 'browser.live',
+      title: 'Managed browser',
+      required_capabilities: ['browser_navigate'],
     });
   }
   async function recover() {
@@ -939,382 +993,399 @@ export default function Conversation({
   }
   return (
     <div className="chat-workspace">
-      <header className="conversation-heading">
-        <div>
-          <span className="eyebrow">Conversation</span>
-          <h1>{state.conversation?.title || 'Start a conversation'}</h1>
-        </div>
-        <div className="button-row">
-          {missingReceipt &&
-            (missingReceipt.key === steeringKey ||
-              missingReceipt.key === submitKey ||
-              missingReceipt.key === resumeKey) && (
-              <Button disabled={busy} onClick={reviewMissingReceipt}>
-                Review pending receipt
+      <div
+        className="chat-content"
+        ref={chatContentRef}
+        role="region"
+        tabIndex={0}
+        aria-label="Conversation details"
+      >
+        <header className="conversation-heading">
+          <div className="conversation-title-block">
+            <span className="eyebrow">Conversation</span>
+            <h1 title={state.conversation?.title || 'Start a conversation'}>
+              {state.conversation?.title || 'Start a conversation'}
+            </h1>
+          </div>
+          <div
+            className="button-row conversation-actions"
+            role="group"
+            aria-label="Conversation actions"
+          >
+            {missingReceipt &&
+              (missingReceipt.key === steeringKey ||
+                missingReceipt.key === submitKey ||
+                missingReceipt.key === resumeKey) && (
+                <Button disabled={busy} onClick={reviewMissingReceipt}>
+                  Review pending receipt
+                </Button>
+              )}
+            {id && <Button onClick={setup}>Add resource</Button>}
+            {id && (
+              <Button
+                onClick={() =>
+                  overlay.open({
+                    title: 'Find in conversation',
+                    description: 'Search the complete conversation history.',
+                    content: <SearchConversations conversationId={id} />,
+                  })
+                }
+              >
+                Find
               </Button>
             )}
-          {id && <Button onClick={setup}>Add resource</Button>}
-          {id && (
-            <Button
-              onClick={() =>
-                overlay.open({
-                  title: 'Find in conversation',
-                  description: 'Search the complete conversation history.',
-                  content: <SearchConversations conversationId={id} />,
-                })
-              }
-            >
-              Find
-            </Button>
-          )}
-          {id && (
-            <Menu
-              label="Conversation actions"
-              actions={[
-                {
-                  label: state.conversation?.pinned ? 'Unpin' : 'Pin',
-                  onSelect: () => {
-                    void controller
-                      .intent(
-                        id,
-                        'conversation.pin',
-                        { pinned: !state.conversation?.pinned },
-                        state.conversation!.revision,
-                      )
-                      .catch((e) => setError(clientError(e).message));
-                  },
-                },
-                {
-                  label: 'Rename',
-                  onSelect: () =>
-                    overlay.open({
-                      title: 'Rename conversation',
-                      description: 'Give this conversation a name.',
-                      content: (
-                        <Rename
-                          id={id}
-                          title={state.conversation?.title ?? ''}
-                          revision={state.conversation!.revision}
-                        />
-                      ),
-                    }),
-                },
-                {
-                  label: 'Delete conversation',
-                  onSelect: () =>
-                    overlay.open({
-                      kind: 'alert',
-                      title: 'Delete conversation?',
-                      description:
-                        'This removes its history. Bound resources are retained. Running work must stop before deletion completes.',
-                      confirmLabel: 'Delete conversation',
-                      onConfirm: () => {
-                        overlay.close();
-                        void controller
-                          .intent(
-                            id,
-                            'conversation.delete',
-                            {},
-                            state.conversation!.revision,
-                          )
-                          .then((r) => {
-                            if (r.status === 'DeleteCompleted') navigate('/');
-                            else
-                              setError(
-                                'Deletion is waiting for running work to stop. Review and try again.',
-                              );
-                          })
-                          .catch((e) => setError(clientError(e).message));
-                      },
-                    }),
-                },
-              ]}
-            />
-          )}
-        </div>
-      </header>
-      {!!resources.length && (
-        <div
-          className="resource-chips"
-          role="group"
-          aria-label="Bound resources"
-        >
-          {resources.map((resource) => (
-            <div key={resource.binding.binding_id} className="resource-chip">
-              <Button onClick={() => resourcePanel(resource)}>
-                {resource.title}
-              </Button>
+            {id && (
               <Menu
-                label={`Actions for ${resource.title}`}
+                label="Conversation actions"
                 actions={[
                   {
-                    label: 'Unbind resource',
+                    label: 'Manage conversation',
+                    onSelect: manageConversation,
+                  },
+                  {
+                    label: 'Manage browser',
+                    onSelect: manageBrowser,
+                  },
+                  {
+                    label: 'Delete conversation',
                     onSelect: () =>
                       overlay.open({
                         kind: 'alert',
-                        title: 'Unbind resource?',
+                        title: 'Delete conversation?',
                         description:
-                          'Remove this relationship. The resource and its original conversation remain saved.',
-                        confirmLabel: 'Unbind',
+                          'This removes its history. Bound resources are retained. Running work must stop before deletion completes.',
+                        confirmLabel: 'Delete conversation',
                         onConfirm: () => {
                           overlay.close();
                           void controller
                             .intent(
-                              id!,
-                              'conversation.unbind',
-                              { binding_id: resource.binding.binding_id },
+                              id,
+                              'conversation.delete',
+                              {},
                               state.conversation!.revision,
                             )
+                            .then((r) => {
+                              if (r.status === 'DeleteCompleted') navigate('/');
+                              else
+                                setError(
+                                  'Deletion is waiting for running work to stop. Review and try again.',
+                                );
+                            })
                             .catch((e) => setError(clientError(e).message));
                         },
                       }),
                   },
                 ]}
               />
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="history-controls">
-        <Button
-          disabled={!historyReady}
-          onClick={() =>
-            void controller
-              .showHistory()
-              .catch((e) => setError(clientError(e).message))
-          }
+            )}
+          </div>
+        </header>
+        {!!resources.length && (
+          <div
+            className="resource-chips"
+            role="group"
+            aria-label="Bound resources"
+          >
+            {resources.map((resource) => (
+              <div key={resource.binding.binding_id} className="resource-chip">
+                <Button onClick={() => resourcePanel(resource)}>
+                  {resource.title}
+                </Button>
+                <Menu
+                  label={`Actions for ${resource.title}`}
+                  actions={[
+                    {
+                      label: 'Unbind resource',
+                      onSelect: () =>
+                        overlay.open({
+                          kind: 'alert',
+                          title: 'Unbind resource?',
+                          description:
+                            'Remove this relationship. The resource and its original conversation remain saved.',
+                          confirmLabel: 'Unbind',
+                          onConfirm: () => {
+                            overlay.close();
+                            void controller
+                              .intent(
+                                id!,
+                                'conversation.unbind',
+                                { binding_id: resource.binding.binding_id },
+                                state.conversation!.revision,
+                              )
+                              .catch((e) => setError(clientError(e).message));
+                          },
+                        }),
+                    },
+                  ]}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <div
+          className="history-controls"
+          role="group"
+          aria-label="Conversation history"
         >
-          Browse history
-        </Button>
-        {state.history?.previous_cursor && (
           <Button
             disabled={!historyReady}
             onClick={() =>
               void controller
-                .showHistory(undefined, state.history!.previous_cursor!)
+                .showHistory()
                 .catch((e) => setError(clientError(e).message))
             }
           >
-            Earlier messages
+            Browse history
           </Button>
-        )}
-        {state.history?.next_cursor && (
-          <Button
-            disabled={!historyReady}
-            onClick={() =>
-              void controller
-                .showHistory(undefined, state.history!.next_cursor!)
-                .catch((e) => setError(clientError(e).message))
-            }
-          >
-            Later messages
-          </Button>
-        )}
-        {(state.history || showLatest) && (
-          <Button
-            onClick={() => {
-              followingLatest.current = true;
-              setShowLatest(false);
-              if (state.history) controller.showLatest();
-              else scrollToLatest();
-            }}
-          >
-            Latest messages
-          </Button>
-        )}
-      </div>
-      <div
-        role="log"
-        aria-label="Conversation"
-        aria-live="polite"
-        aria-relevant="additions"
-        className="transcript"
-        ref={transcriptRef}
-        tabIndex={0}
-        onScroll={(event) => {
-          if (state.history || state.loadingConversation) return;
-          const transcript = event.currentTarget;
-          const following =
-            transcript.scrollHeight -
-              transcript.clientHeight -
-              transcript.scrollTop <=
-            24;
-          followingLatest.current = following;
-          setShowLatest(!following);
-        }}
-      >
-        <div ref={transcriptContentRef} style={{ display: 'flow-root' }}>
-          {state.loadingConversation ? (
-            <Skeleton label="Opening conversation" />
-          ) : rows.length ? (
-            rows.map((row) => (
-              <Message key={`${id}:${row.id}`} row={row} conversationId={id} />
-            ))
-          ) : (
-            <EmptyState
-              title={
-                id
-                  ? 'What would you like to work on?'
-                  : 'A place for your ideas'
+          {state.history?.previous_cursor && (
+            <Button
+              disabled={!historyReady}
+              onClick={() =>
+                void controller
+                  .showHistory(undefined, state.history!.previous_cursor!)
+                  .catch((e) => setError(clientError(e).message))
               }
             >
-              Start with a message. Resources can be added whenever you need
-              them.
-            </EmptyState>
+              Earlier messages
+            </Button>
           )}
-          {pending?.conversation === id &&
-            !rows.some((row) => row.message_id === pending.id) && (
-              <article
-                className="message message-user"
-                data-message-id={pending.id}
-              >
-                <strong>You</strong>
-                <div className="message-text">{pending.text}</div>
-                <small>Awaiting confirmation</small>
-              </article>
-            )}
-        </div>
-      </div>
-      {id && (
-        <DelegatedActivity
-          conversationId={id}
-          ready={Boolean(state.handshake) && state.status === 'ready'}
-          refreshKey={
-            state.activity
-              .filter((record) => record.event.type === 'agent.activity')
-              .at(-1)?.event.event_id ?? ''
-          }
-          loadPage={(cursor, signal) =>
-            controller.delegatedActivity(id, cursor, signal)
-          }
-          loadRun={(run, signal) => controller.delegatedRun(id, run, signal)}
-          openConversation={async (target) => {
-            if (controller.getSnapshot().selectedConversationId !== id) return;
-            await controller.selectConversation(target);
-            if (
-              controller.getSnapshot().selectedConversationId === target &&
-              controller.getSnapshot().conversation?.id === target
-            )
-              navigate(`/conversations/${target}`);
-          }}
-        />
-      )}
-      {id && (
-        <details
-          className="activity"
-          onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
-        >
-          <summary>Steering queue</summary>
-          {steeringOpen && (
-            <QueueControls
-              conversationId={id}
-              generationId={generation?.generation_id ?? ''}
-              refreshKey={
-                state.activity
-                  .filter((record) => record.event.type === 'queue.changed')
-                  .at(-1)?.event.event_id ?? ''
+          {state.history?.next_cursor && (
+            <Button
+              disabled={!historyReady}
+              onClick={() =>
+                void controller
+                  .showHistory(undefined, state.history!.next_cursor!)
+                  .catch((e) => setError(clientError(e).message))
               }
-              loadPage={(run, cursor, signal) =>
-                controller.queue(id, run, cursor ?? undefined, signal)
-              }
-              onAction={async (type, submission, revision, text) => {
-                const current = await controller.workspaceFor(id);
-                await controller.intent(
-                  id,
-                  `conversation.queue.${type}`,
-                  {
-                    submission_id: submission,
-                    expected_queue_revision: revision,
-                    ...(type === 'edit' ? { text } : {}),
-                  },
-                  current.revision,
-                );
+            >
+              Later messages
+            </Button>
+          )}
+          {(state.history || showLatest) && (
+            <Button
+              onClick={() => {
+                followingLatest.current = true;
+                setShowLatest(false);
+                if (state.history) controller.showLatest();
+                else scrollToLatest();
               }}
-            />
+            >
+              Latest messages
+            </Button>
           )}
-          {steeringOpen && (
-            <SteeringQueue
-              conversationId={id}
-              generationId={generation?.generation_id ?? ''}
-              refreshKey={
-                state.activity
-                  .filter((record) => record.event.type.startsWith('steering.'))
-                  .at(-1)?.event.event_id ?? ''
-              }
-              loadPage={(run, cursor, signal) =>
-                controller.steering(id, run, cursor ?? undefined, signal)
-              }
-            />
-          )}
-        </details>
-      )}
-      {!!state.activity.length && (
-        <details className="activity">
-          <summary>Activity ({state.activity.length})</summary>
-          <ol>
-            {state.activity.map((record) => (
-              <li key={record.event.event_id}>
-                {record.event.type === 'tool.activity' ? (
-                  `${record.event.payload.state === 'tool_call' ? 'Using' : 'Completed'} ${record.event.payload.tool_name || 'tool'}`
-                ) : record.event.type === 'media.available' ? (
-                  <Media
-                    reference={record.event.payload.media_ref}
-                    mime={record.event.payload.mime_type}
-                  />
-                ) : record.event.type === 'agent.activity' ? (
-                  <details>
-                    <summary>
-                      Delegated task: {record.event.payload.status}
-                    </summary>
-                    <p>Task reference: {record.event.payload.run_id}</p>
-                  </details>
-                ) : record.event.type === 'generation.error' ? (
-                  'The response was interrupted.'
-                ) : record.event.type === 'queue.updated' ? (
-                  `${record.event.payload.submission_ids.length} queued submissions`
-                ) : (
-                  record.event.type.replaceAll('.', ' ')
-                )}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-      {generation && (
-        <p role="status" className="run-status">
-          {generation.status === 'stopping'
-            ? 'Stopping — waiting for the worker to finish.'
-            : generation.quiesced
-              ? `Work ${generation.status}.`
-              : generation.status.replaceAll('_', ' ')}
-          {generation.external_outcome === 'uncertain'
-            ? ' An external action may have completed; review before retrying.'
-            : ''}
-        </p>
-      )}
-      {generation?.approval_id && generation.status === 'waiting_approval' && (
-        <Button
-          variant="primary"
-          onClick={() =>
-            overlay.open({
-              title: 'Approval required',
-              description:
-                'Review the current server request and its consequences.',
-              content: <Approval id={generation.approval_id!} />,
-            })
-          }
-        >
-          Review approval
-        </Button>
-      )}
-      {error && (
-        <div role="alert" className="chat-error">
-          {error}
         </div>
-      )}
+        <div
+          role="log"
+          aria-label="Conversation"
+          aria-live="polite"
+          aria-relevant="additions"
+          className="transcript"
+          ref={transcriptRef}
+          tabIndex={0}
+          onScroll={(event) => {
+            if (state.history || state.loadingConversation) return;
+            const transcript = event.currentTarget;
+            const following =
+              transcript.scrollHeight -
+                transcript.clientHeight -
+                transcript.scrollTop <=
+              24;
+            followingLatest.current = following;
+            setShowLatest(!following);
+          }}
+        >
+          <div
+            className="transcript-content"
+            ref={transcriptContentRef}
+            style={{ display: 'flow-root' }}
+          >
+            {state.loadingConversation ? (
+              <Skeleton label="Opening conversation" />
+            ) : rows.length ? (
+              rows.map((row) => (
+                <Message
+                  key={`${id}:${row.id}`}
+                  row={row}
+                  conversationId={id}
+                />
+              ))
+            ) : (
+              <EmptyState
+                title={
+                  id
+                    ? 'What would you like to work on?'
+                    : 'A place for your ideas'
+                }
+              >
+                Start with a message. Resources can be added whenever you need
+                them.
+              </EmptyState>
+            )}
+            {pending?.conversation === id &&
+              !rows.some((row) => row.message_id === pending.id) && (
+                <article
+                  className="message message-user"
+                  aria-label="You message awaiting confirmation"
+                  data-message-id={pending.id}
+                >
+                  <header className="message-meta">
+                    <strong className="message-role">You</strong>
+                    <small className="message-delivery-state">
+                      Awaiting confirmation
+                    </small>
+                  </header>
+                  <div className="message-text">{pending.text}</div>
+                </article>
+              )}
+          </div>
+        </div>
+        {id && (
+          <DelegatedActivity
+            conversationId={id}
+            ready={Boolean(state.handshake) && state.status === 'ready'}
+            refreshKey={
+              state.activity
+                .filter((record) => record.event.type === 'agent.activity')
+                .at(-1)?.event.event_id ?? ''
+            }
+            loadPage={(cursor, signal) =>
+              controller.delegatedActivity(id, cursor, signal)
+            }
+            loadRun={(run, signal) => controller.delegatedRun(id, run, signal)}
+            openConversation={async (target) => {
+              if (controller.getSnapshot().selectedConversationId !== id)
+                return;
+              await controller.selectConversation(target);
+              if (
+                controller.getSnapshot().selectedConversationId === target &&
+                controller.getSnapshot().conversation?.id === target
+              )
+                navigate(`/conversations/${target}`);
+            }}
+          />
+        )}
+        {id && (
+          <details
+            className="activity steering-activity"
+            onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
+          >
+            <summary>Steering queue</summary>
+            {steeringOpen && (
+              <QueueControls
+                conversationId={id}
+                generationId={generation?.generation_id ?? ''}
+                refreshKey={
+                  state.activity
+                    .filter((record) => record.event.type === 'queue.changed')
+                    .at(-1)?.event.event_id ?? ''
+                }
+                loadPage={(run, cursor, signal) =>
+                  controller.queue(id, run, cursor ?? undefined, signal)
+                }
+                onAction={async (type, submission, revision, text) => {
+                  const current = await controller.workspaceFor(id);
+                  await controller.intent(
+                    id,
+                    `conversation.queue.${type}`,
+                    {
+                      submission_id: submission,
+                      expected_queue_revision: revision,
+                      ...(type === 'edit' ? { text } : {}),
+                    },
+                    current.revision,
+                  );
+                }}
+              />
+            )}
+            {steeringOpen && (
+              <SteeringQueue
+                conversationId={id}
+                generationId={generation?.generation_id ?? ''}
+                refreshKey={
+                  state.activity
+                    .filter((record) =>
+                      record.event.type.startsWith('steering.'),
+                    )
+                    .at(-1)?.event.event_id ?? ''
+                }
+                loadPage={(run, cursor, signal) =>
+                  controller.steering(id, run, cursor ?? undefined, signal)
+                }
+              />
+            )}
+          </details>
+        )}
+        {!!state.activity.length && (
+          <details className="activity activity-feed">
+            <summary>Activity ({state.activity.length})</summary>
+            <ol className="activity-list">
+              {state.activity.map((record) => (
+                <li className="activity-item" key={record.event.event_id}>
+                  {record.event.type === 'tool.activity' ? (
+                    `${record.event.payload.state === 'tool_call' ? 'Using' : 'Completed'} ${record.event.payload.tool_name || 'tool'}`
+                  ) : record.event.type === 'media.available' ? (
+                    <Media
+                      reference={record.event.payload.media_ref}
+                      mime={record.event.payload.mime_type}
+                    />
+                  ) : record.event.type === 'agent.activity' ? (
+                    <details>
+                      <summary>
+                        Delegated task: {record.event.payload.status}
+                      </summary>
+                      <p>Task reference: {record.event.payload.run_id}</p>
+                    </details>
+                  ) : record.event.type === 'generation.error' ? (
+                    'The response was interrupted.'
+                  ) : record.event.type === 'queue.updated' ? (
+                    `${record.event.payload.submission_ids.length} queued submissions`
+                  ) : (
+                    record.event.type.replaceAll('.', ' ')
+                  )}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+        {generation && (
+          <p role="status" className="run-status">
+            {generation.status === 'stopping'
+              ? 'Stopping — waiting for the worker to finish.'
+              : generation.quiesced
+                ? `Work ${generation.status}.`
+                : generation.status.replaceAll('_', ' ')}
+            {generation.external_outcome === 'uncertain'
+              ? ' An external action may have completed; review before retrying.'
+              : ''}
+          </p>
+        )}
+        {generation?.approval_id &&
+          generation.status === 'waiting_approval' && (
+            <Button
+              variant="primary"
+              onClick={() =>
+                overlay.open({
+                  title: 'Approval required',
+                  description:
+                    'Review the current server request and its consequences.',
+                  content: <Approval id={generation.approval_id!} />,
+                })
+              }
+            >
+              Review approval
+            </Button>
+          )}
+        {error && (
+          <div role="alert" className="chat-error">
+            {error}
+          </div>
+        )}
+      </div>
       {id && (
         <form
           className="composer"
+          aria-label="Message composer"
+          aria-busy={busy || talkBusy}
           onSubmit={(e) => {
             e.preventDefault();
             send();
@@ -1342,24 +1413,28 @@ export default function Conversation({
               }
             />
           )}
-          {draft.attachments.map((a) => (
-            <div key={a.attachment_ref} className="attachment-chip">
-              {a.name}
-              <Button
-                aria-label={`Remove ${a.name}`}
-                onClick={() =>
-                  controller.setDraft(id, {
-                    ...draft,
-                    attachments: draft.attachments.filter(
-                      (item) => item.attachment_ref !== a.attachment_ref,
-                    ),
-                  })
-                }
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
+          {!!draft.attachments.length && (
+            <ul className="composer-attachments" aria-label="Attachments">
+              {draft.attachments.map((a) => (
+                <li key={a.attachment_ref} className="attachment-chip">
+                  <span>{a.name}</span>
+                  <Button
+                    aria-label={`Remove ${a.name}`}
+                    onClick={() =>
+                      controller.setDraft(id, {
+                        ...draft,
+                        attachments: draft.attachments.filter(
+                          (item) => item.attachment_ref !== a.attachment_ref,
+                        ),
+                      })
+                    }
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
           <label className="sr-only" htmlFor="message-composer">
             Message
           </label>
@@ -1370,6 +1445,9 @@ export default function Conversation({
             value={draft.text}
             maxLength={200000}
             placeholder="Message Row-Bot…"
+            aria-describedby={
+              composerStateReason ? 'message-composer-state' : undefined
+            }
             onChange={(e) =>
               controller.setDraft(id, { ...draft, text: e.target.value })
             }
@@ -1388,10 +1466,38 @@ export default function Conversation({
           <div className="composer-toolbar">
             <ComposerControls
               key={id}
-              disabled={Boolean(running) || busy}
+              disabled={Boolean(running) || busy || talkBusy}
               onError={setError}
             />
             <div className="composer-actions">
+              {voiceScope && (
+                <VoiceControls
+                  scope={voiceScope}
+                  available={
+                    voiceExposure.key === voiceHostKey &&
+                    voiceExposure.available
+                  }
+                  disabled={busy || talkBusy}
+                  start={(request, signal) =>
+                    controller.startDictation(voiceScope, request, signal)
+                  }
+                  transcribe={(handle, utterance, audio, signal) =>
+                    controller.transcribeDictation(
+                      voiceScope,
+                      handle,
+                      utterance,
+                      audio,
+                      signal,
+                    )
+                  }
+                  stop={(handle, signal) =>
+                    controller.stopDictation(voiceScope, handle, signal)
+                  }
+                  applyTranscript={(scope, result) =>
+                    controller.applyDictation(scope, result)
+                  }
+                />
+              )}
               <Button
                 variant="ghost"
                 iconOnly
@@ -1446,12 +1552,16 @@ export default function Conversation({
                     variant="primary"
                     iconOnly
                     aria-label="Send"
+                    aria-describedby={
+                      composerStateReason ? 'message-composer-state' : undefined
+                    }
                     disabled={
                       busy ||
                       Boolean(pendingSteering) ||
                       Boolean(pendingSubmit) ||
                       Boolean(pendingResume) ||
                       !draft.text.trim() ||
+                      state.status !== 'ready' ||
                       !state.workspace?.actions.find((a) => a.action === 'send')
                         ?.ready
                     }
@@ -1475,84 +1585,90 @@ export default function Conversation({
               )}
             </div>
           </div>
-          <small role="status">
-            {state.draftStatus === 'saving'
-              ? 'Saving draft…'
-              : state.draftStatus === 'conflict'
-                ? 'Draft changed in another client. Your local text is preserved.'
-                : state.draftStatus === 'failed'
-                  ? 'Draft could not be saved. Keep this page open and reconnect.'
-                  : 'Draft saved'}
-          </small>
-          {state.draftStatus === 'conflict' && (
-            <Button
-              onClick={() =>
-                overlay.open({
-                  title: 'Review draft conflict',
-                  description:
-                    'Choose which draft to keep. Messages are unchanged.',
-                  content: <DraftConflict id={id} />,
-                })
-              }
+          {composerStateReason && (
+            <p
+              id="message-composer-state"
+              className="composer-state-reason"
+              role="status"
             >
-              Review draft conflict
-            </Button>
+              {composerStateReason}
+            </p>
           )}
-          {state.draftStatus === 'failed' && (
-            <Button onClick={() => void controller.retryDraft(id)}>
-              Retry saving draft
-            </Button>
+          <div className="composer-status-row">
+            <small role="status" className="draft-status">
+              {state.draftStatus === 'saving'
+                ? 'Saving draft…'
+                : state.draftStatus === 'conflict'
+                  ? 'Draft changed in another client. Your local text is preserved.'
+                  : state.draftStatus === 'failed'
+                    ? 'Draft could not be saved. Keep this page open and reconnect.'
+                    : 'Draft saved'}
+            </small>
+            {state.draftStatus === 'conflict' && (
+              <Button
+                onClick={() =>
+                  overlay.open({
+                    title: 'Review draft conflict',
+                    description:
+                      'Choose which draft to keep. Messages are unchanged.',
+                    content: <DraftConflict id={id} />,
+                  })
+                }
+              >
+                Review draft conflict
+              </Button>
+            )}
+            {state.draftStatus === 'failed' && (
+              <Button onClick={() => void controller.retryDraft(id)}>
+                Retry saving draft
+              </Button>
+            )}
+          </div>
+          {voiceScope && (
+            <ConversationVoice
+              key={`${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
+              controller={controller}
+              scope={voiceScope}
+              available={
+                voiceExposure.key === voiceHostKey && voiceExposure.available
+              }
+              disabled={busy}
+              running={Boolean(running)}
+              onBusy={setTalkBusy}
+              context={
+                controls?.model_selection && state.conversation
+                  ? {
+                      conversation_revision: state.conversation.revision,
+                      model_selection: controls.model_selection,
+                      write_targets: resources
+                        .filter((resource) =>
+                          (targetSelection[id ?? ''] ?? []).includes(
+                            resource.binding.binding_id,
+                          ),
+                        )
+                        .map((resource) => ({
+                          kind: resource.binding.kind as
+                            'artifact' | 'workspace',
+                          binding_id: resource.binding.binding_id,
+                          resource_id: resource.binding.resource_id,
+                          binding_revision: resource.binding.revision,
+                          resource_revision: resource.resource_revision,
+                        })),
+                    }
+                  : null
+              }
+              targets={resources
+                .filter((resource) =>
+                  (targetSelection[id ?? ''] ?? []).includes(
+                    resource.binding.binding_id,
+                  ),
+                )
+                .map((resource) => resource.title)}
+            />
           )}
           <ContextUsage usage={state.workspace?.context_usage} />
-          {!state.workspace?.actions.find((a) => a.action === 'send')
-            ?.ready && (
-            <small>
-              Choose a configured model to send. You can still create or open
-              resources.
-            </small>
-          )}
         </form>
       )}
     </div>
-  );
-}
-
-function Rename({
-  id,
-  title,
-  revision,
-}: {
-  id: string;
-  title: string;
-  revision: string;
-}) {
-  const { controller } = useRuntime();
-  const overlay = useOverlay();
-  const [name, setName] = useState(title);
-  const [error, setError] = useState('');
-  return (
-    <form
-      className="stack"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void controller
-          .intent(id, 'conversation.rename', { title: name }, revision)
-          .then(() => overlay.close())
-          .catch((e) => setError(clientError(e).message));
-      }}
-    >
-      <Field label="Conversation name">
-        <Input
-          value={name}
-          maxLength={120}
-          onChange={(e) => setName(e.target.value)}
-          data-initial-focus
-        />
-      </Field>
-      <Button type="submit" disabled={!name.trim()}>
-        Save name
-      </Button>
-      {error && <p role="alert">{error}</p>}
-    </form>
   );
 }

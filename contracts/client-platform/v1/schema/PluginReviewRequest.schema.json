@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "plugin.enable",
+        "plugin.disable",
+        "plugin.configure",
+        "plugin.install",
+        "plugin.update",
+        "plugin.remove"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "action",
+    "payload"
+  ],
+  "title": "PluginReviewRequest",
+  "type": "object"
+}

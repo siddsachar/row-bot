@@ -2,6 +2,20 @@ import { beforeEach, expect, it } from 'vitest';
 import { SetupSessions } from './setup-state';
 
 beforeEach(() => sessionStorage.clear());
+it('migrates saved Deck drafts without losing pending setup identity', () => {
+  const first = new SetupSessions(() => sessionStorage);
+  const key = first.scope('instance', 'conversation');
+  first.update(key, { name: 'Saved Deck' });
+  first.reserve(key, 'pending');
+  const raw = JSON.parse(sessionStorage.getItem(key)!);
+  delete raw.artifactMode;
+  sessionStorage.setItem(key, JSON.stringify(raw));
+  expect(new SetupSessions(() => sessionStorage).read(key)).toMatchObject({
+    artifactMode: 'deck',
+    name: 'Saved Deck',
+    commandId: 'pending',
+  });
+});
 it('discards corrupt receipt fields while retaining the identity needed for recovery', () => {
   const owner = new SetupSessions(() => sessionStorage);
   const key = owner.scope('instance', 'conversation');

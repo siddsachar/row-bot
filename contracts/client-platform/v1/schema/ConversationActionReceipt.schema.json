@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "ConversationActionConversation": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "pinned": {
+          "title": "Pinned",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "revision",
+        "title",
+        "pinned"
+      ],
+      "title": "ConversationActionConversation",
+      "type": "object"
+    },
+    "ConversationActionExport": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Attachment Ref",
+          "type": "string"
+        },
+        "checkpoint_revision": {
+          "maxLength": 128,
+          "title": "Checkpoint Revision",
+          "type": "string"
+        },
+        "file_name": {
+          "const": "conversation-export.md",
+          "title": "File Name",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 8388608,
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attachment_ref",
+        "file_name",
+        "size_bytes",
+        "checkpoint_revision"
+      ],
+      "title": "ConversationActionExport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "conversation.rename",
+        "conversation.pin",
+        "conversation.export"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConversationActionConversation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "export": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConversationActionExport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "action"
+  ],
+  "title": "ConversationActionReceipt",
+  "type": "object"
+}

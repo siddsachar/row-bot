@@ -16,6 +16,8 @@ def _install_codex_secret_fixture(monkeypatch, *, access: str = "", refresh: str
     }
 
     monkeypatch.setattr(auth_store, "get_provider_secret", lambda provider_id, name="api_key": secrets.get(name, ""))
+    monkeypatch.setattr(auth_store, "read_provider_oauth_bundle_snapshot", lambda provider_id: (
+        {**secrets, "user_id": ""}, {"source": AuthMethod.OAUTH_DEVICE.value, "auth_method": AuthMethod.OAUTH_DEVICE.value, "expires_at": expires_at}, "captured-revision"))
     monkeypatch.setattr(provider_config, "load_provider_config", lambda: {
         "providers": {
             "codex": {
@@ -58,7 +60,7 @@ def test_codex_token_health_refreshes_expired_token(monkeypatch):
         )
 
     monkeypatch.setattr(codex, "refresh_codex_token", _refresh)
-    monkeypatch.setattr(codex, "save_codex_oauth_tokens", lambda token_set: saved.append(token_set) or {"expires_at": future})
+    monkeypatch.setattr(codex, "save_codex_oauth_tokens", lambda token_set, *, expected_revision: saved.append(token_set) or {"expires_at": future})
 
     health = codex.check_codex_token_health()
 
@@ -84,7 +86,7 @@ def test_codex_credentials_refresh_when_access_token_missing(monkeypatch):
             account_id="acct",
         ),
     )
-    monkeypatch.setattr(codex, "save_codex_oauth_tokens", lambda token_set: {"expires_at": future})
+    monkeypatch.setattr(codex, "save_codex_oauth_tokens", lambda token_set, *, expected_revision: {"expires_at": future})
 
     credentials = codex.codex_runtime_credentials(refresh_if_needed=True)
 

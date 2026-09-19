@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
+import math
 import os
 import pathlib
+import pickletools
+import re
 import shutil
 import threading
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.documents import Document
 
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.document_jobs import INDEX_SEGMENT_CHUNKS, DocumentCancelled
+from row_bot.document_jobs import INDEX_SEGMENT_CHUNKS
+from row_bot.flat_vector_storage import MAX_VECTOR_BYTES, decode_flat_vectors
 from row_bot.embedding_config import (
     active_embedding_metadata,
+    get_embedding_config,
     index_metadata_matches,
 )
 
@@ -31,6 +39,264 @@ CORPUS_MANIFEST_NAME = "manifest.json"
 DOCUMENTS_DIR_NAME = "documents"
 MANIFEST_VERSION = 1
 _manifest_lock = threading.RLock()
+_METADATA_LIMIT = 32 * 1024 * 1024
+_VECTOR_LIMIT = MAX_VECTOR_BYTES
+_VALUE_LIMIT = 1_000_000
+
+
+def _bounded_file(directory: pathlib.Path, name: str, limit: int) -> bytes:
+    path = directory / name
+    resolved = path.resolve(strict=True)
+    if resolved.parent != directory.resolve():
+        raise ValueError("Index file escapes its managed directory")
+    with resolved.open("rb") as handle:
+        value = handle.read(limit + 1)
+    if len(value) > limit:
+        raise ValueError("Index file exceeds the safe read budget; rebuild required")
+    return value
+
+
+def _plain_metadata(value: Any) -> Any:
+    """Copy only bounded JSON values, rejecting cycles and expansion bombs."""
+    remaining = _VALUE_LIMIT
+
+    def visit(item: Any, depth: int) -> Any:
+        nonlocal remaining
+        remaining -= 1
+        if remaining < 0 or depth > 32:
+            raise ValueError("Index metadata exceeds the safe structure budget")
+        if item is None or type(item) in (str, bool, int):
+            return item
+        if type(item) is float and math.isfinite(item):
+            return item
+        if type(item) in (list, tuple):
+            return [visit(child, depth + 1) for child in item]
+        if type(item) is dict and all(type(key) is str for key in item):
+            return {key: visit(child, depth + 1) for key, child in item.items()}
+        raise ValueError("Unsupported document metadata; rebuild required")
+
+    return visit(value, 0)
+
+
+@dataclass
+class _LegacyType:
+    name: str
+
+
+@dataclass
+class _LegacyRecord:
+    """Inert historical record; never instantiate the class named by a pickle."""
+
+    name: str
+    state: dict[str, Any] | None = None
+
+
+def _legacy_metadata(data: bytes) -> tuple[dict[str, Any], dict[int, str]]:
+    """Decode only the historical FAISS docstore data grammar, without unpickling.
+
+    GLOBAL names are checked literals and NEWOBJ/BUILD become inert records.
+    No import, callable, reducer, extension, persistent ID or state hook runs.
+    Unsupported historical objects stay on disk for an explicit source rebuild.
+    """
+    stack: list[Any] = []
+    memo: dict[int, Any] = {}
+    marker = object()
+    allowed_types = {
+        ("langchain_community.docstore.in_memory", "InMemoryDocstore"),
+        ("langchain.docstore.in_memory", "InMemoryDocstore"),
+        ("langchain_core.documents.base", "Document"),
+        ("langchain.schema.document", "Document"),
+    }
+
+    def marked() -> list[Any]:
+        position = next(i for i in range(len(stack) - 1, -1, -1) if stack[i] is marker)
+        values = stack[position + 1:]
+        del stack[position:]
+        return values
+
+    for count, (opcode, argument, position) in enumerate(pickletools.genops(data)):
+        if count > _VALUE_LIMIT or len(stack) > _VALUE_LIMIT or len(memo) > _VALUE_LIMIT:
+            raise ValueError("Legacy metadata exceeds safe decode budget")
+        name = opcode.name
+        if name in {"PROTO", "FRAME"}:
+            continue
+        if name == "MARK":
+            stack.append(marker)
+        elif name in {"NONE", "NEWTRUE", "NEWFALSE"}:
+            stack.append({"NONE": None, "NEWTRUE": True, "NEWFALSE": False}[name])
+        elif name in {"SHORT_BINUNICODE", "BINUNICODE", "BINUNICODE8", "UNICODE",
+                      "BININT", "BININT1", "BININT2", "LONG1", "LONG4", "BINFLOAT"}:
+            stack.append(argument)
+        elif name in {"EMPTY_DICT", "EMPTY_LIST", "EMPTY_TUPLE", "EMPTY_SET"}:
+            stack.append({"EMPTY_DICT": dict, "EMPTY_LIST": list,
+                          "EMPTY_TUPLE": tuple, "EMPTY_SET": set}[name]())
+        elif name in {"MEMOIZE", "BINPUT", "LONG_BINPUT"}:
+            memo[len(memo) if name == "MEMOIZE" else argument] = stack[-1]
+        elif name in {"BINGET", "LONG_BINGET"}:
+            stack.append(memo[argument])
+        elif name in {"STACK_GLOBAL", "GLOBAL"}:
+            if name == "STACK_GLOBAL":
+                class_name = stack.pop()
+                module = stack.pop()
+            else:
+                module, class_name = argument.split(" ")
+            if type(module) is not str or type(class_name) is not str or (module, class_name) not in allowed_types:
+                raise ValueError("Unsupported legacy metadata type; rebuild required")
+            stack.append(_LegacyType(class_name))
+        elif name == "NEWOBJ":
+            arguments, kind = stack.pop(), stack.pop()
+            if type(kind) is not _LegacyType or arguments != ():
+                raise ValueError("Invalid legacy metadata construction")
+            stack.append(_LegacyRecord(kind.name))
+        elif name == "BUILD":
+            state = stack.pop()
+            record = stack[-1]
+            if type(record) is not _LegacyRecord or record.state is not None or type(state) is not dict:
+                raise ValueError("Invalid legacy metadata state")
+            record.state = state
+        elif name in {"TUPLE", "TUPLE1", "TUPLE2", "TUPLE3"}:
+            if name == "TUPLE":
+                values = marked()
+            else:
+                length = int(name[-1])
+                values = stack[-length:]
+                del stack[-length:]
+            stack.append(tuple(values))
+        elif name in {"SETITEM", "SETITEMS"}:
+            values = marked() if name == "SETITEMS" else [stack.pop(), stack.pop()][::-1]
+            if type(stack[-1]) is not dict or len(values) % 2 or any(type(key) not in (str, int) for key in values[::2]):
+                raise ValueError("Invalid legacy metadata mapping")
+            if any(type(key) is int and not 0 <= key < _VALUE_LIMIT for key in values[::2]):
+                raise ValueError("Legacy vector index key exceeds safe decode budget")
+            stack[-1].update(zip(values[::2], values[1::2]))
+        elif name in {"APPEND", "APPENDS", "ADDITEMS"}:
+            values = marked() if name != "APPEND" else [stack.pop()]
+            if name == "ADDITEMS" and type(stack[-1]) is set:
+                if any(type(value) is not str for value in values):
+                    raise ValueError("Invalid legacy document field names")
+                stack[-1].update(values)
+            elif name != "ADDITEMS" and type(stack[-1]) is list:
+                stack[-1].extend(values)
+            else:
+                raise ValueError("Invalid legacy metadata collection")
+        elif name == "STOP":
+            if len(stack) != 1 or position != len(data) - 1:
+                raise ValueError("Invalid legacy metadata termination")
+            break
+        else:
+            raise ValueError(f"Unsupported legacy metadata opcode {name}; rebuild required")
+    value = stack[0]
+    if type(value) is not tuple or len(value) != 2:
+        raise ValueError("Invalid legacy FAISS metadata")
+    docstore, mapping = value
+    if type(docstore) is not _LegacyRecord or docstore.name != "InMemoryDocstore":
+        raise ValueError("Invalid legacy docstore")
+    if type(docstore.state) is not dict or set(docstore.state) != {"_dict"}:
+        raise ValueError("Invalid legacy docstore state")
+    rows = docstore.state["_dict"]
+    if type(rows) is not dict or type(mapping) is not dict:
+        raise ValueError("Invalid legacy document mapping")
+    documents = {}
+    for identifier, record in rows.items():
+        if type(record) is not _LegacyRecord or record.name != "Document" or not record.state:
+            raise ValueError("Invalid legacy document")
+        document = record.state.get("__dict__")
+        if type(document) is not dict:
+            raise ValueError("Invalid legacy document state")
+        documents[identifier] = {
+            "id": document.get("id"),
+            "page_content": document.get("page_content"),
+            "metadata": document.get("metadata", {}),
+        }
+    return _plain_metadata(documents), mapping
+
+
+def _load_safe_segment(
+    directory: pathlib.Path,
+    embedding: Any,
+    *,
+    expected_dimension: int | None = None,
+    expected_count: int | None = None,
+) -> Any:
+    """Load validated flat numeric vectors and JSON or inert legacy metadata."""
+    from langchain_community.docstore.in_memory import InMemoryDocstore
+    from langchain_community.vectorstores import FAISS
+    from langchain_community.vectorstores.faiss import dependable_faiss_import
+
+    if (directory / "index.json").exists():
+        payload = json.loads(_bounded_file(directory, "index.json", _METADATA_LIMIT))
+        if type(payload) is not dict or payload.get("version") != 1:
+            raise ValueError("Unsupported index metadata version; rebuild required")
+        documents = payload.get("documents")
+        identifiers = payload.get("index_to_docstore_id")
+        if type(identifiers) is not list:
+            raise ValueError("Invalid index document mapping")
+        mapping = dict(enumerate(identifiers))
+        vector_digest = payload.get("vector_sha256")
+        if type(vector_digest) is not str or len(vector_digest) != 64:
+            raise ValueError("Missing vector publication digest; rebuild required")
+    else:
+        documents, mapping = _legacy_metadata(_bounded_file(directory, "index.pkl", _METADATA_LIMIT))
+        vector_digest = None
+
+    data = _bounded_file(directory, "index.faiss", _VECTOR_LIMIT)
+    if vector_digest is not None and hashlib.sha256(data).hexdigest() != vector_digest:
+        raise ValueError("Vector file and metadata generation disagree; rebuild required")
+    decoded = decode_flat_vectors(data, expected_dimension=expected_dimension,
+                                  expected_count=expected_count)
+    dimension, total = decoded.dimension, decoded.count
+    if type(documents) is not dict or len(documents) != total or len(mapping) != total:
+        raise ValueError("Vector and document counts disagree; rebuild required")
+    if any(type(key) is not int or key < 0 or key >= total for key in mapping):
+        raise ValueError("Invalid vector to document mapping")
+    if any(type(identifier) is not str for identifier in mapping.values()) or set(mapping.values()) != set(documents):
+        raise ValueError("Vector and document identities disagree; rebuild required")
+    rows = {}
+    for identifier, document in documents.items():
+        if type(document) is not dict or type(document.get("page_content")) is not str:
+            raise ValueError("Invalid indexed document text")
+        metadata = _plain_metadata(document.get("metadata", {}))
+        if type(metadata) is not dict or document.get("id") is not None and type(document["id"]) is not str:
+            raise ValueError("Invalid indexed document metadata")
+        rows[identifier] = Document(page_content=document["page_content"], metadata=metadata, id=document.get("id"))
+    faiss = dependable_faiss_import()
+    native = faiss.IndexFlatL2(dimension) if decoded.metric == "l2" else faiss.IndexFlatIP(dimension)
+    native.add(decoded.vectors)
+    return FAISS(embedding, native, InMemoryDocstore(rows), mapping)
+
+
+def _save_safe_segment(store: Any, directory: pathlib.Path) -> None:
+    """Write only JSON document metadata alongside the existing flat vector file."""
+    from langchain_community.vectorstores.faiss import dependable_faiss_import
+
+    identifiers = [store.index_to_docstore_id[i] for i in range(store.index.ntotal)]
+    rows = {}
+    for identifier in identifiers:
+        document = store.docstore.search(identifier)
+        rows[identifier] = {
+            "id": document.id,
+            "page_content": document.page_content,
+            "metadata": _plain_metadata(document.metadata),
+        }
+    directory.mkdir(parents=True, exist_ok=False)
+    faiss = dependable_faiss_import()
+    faiss.write_index(store.index, str(directory / "index.faiss"))
+    vector_data = _bounded_file(directory, "index.faiss", _VECTOR_LIMIT)
+    payload = {
+        "version": 1,
+        "documents": rows,
+        "index_to_docstore_id": identifiers,
+        "vector_sha256": hashlib.sha256(vector_data).hexdigest(),
+    }
+    if len(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")) + 1 > _METADATA_LIMIT:
+        raise ValueError("Index metadata exceeds safe publication budget")
+    _atomic_write_json(directory / "index.json", payload)
+    _load_safe_segment(
+        directory,
+        store.embedding_function,
+        expected_dimension=store.index.d,
+        expected_count=store.index.ntotal,
+    )
 
 
 def _empty_manifest() -> dict[str, Any]:
@@ -50,6 +316,7 @@ def _atomic_write_json(
     value: Any,
     *,
     replace: Callable[[str | os.PathLike[str], str | os.PathLike[str]], None] = os.replace,
+    validate: Callable[[], None] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.name}.tmp")
@@ -58,6 +325,8 @@ def _atomic_write_json(
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
+    if validate is not None:
+        validate()
     try:
         replace(temp, path)
     except Exception:
@@ -78,6 +347,28 @@ def initialize_index(index_root: pathlib.Path = DOCUMENT_INDEX_DIR) -> None:
     manifest_path = index_root / CORPUS_MANIFEST_NAME
     if not manifest_path.exists():
         _atomic_write_json(manifest_path, _empty_manifest())
+
+
+def _document_directory(index_root: pathlib.Path, entry: dict[str, Any]) -> pathlib.Path:
+    """Resolve one immutable corpus snapshot, including pre-generation indexes."""
+    if not isinstance(entry, dict):
+        raise ValueError("Invalid document index entry")
+    document_id = str(entry.get("document_id") or "")
+    generation = entry.get("generation")
+    components = [document_id] if generation is None else [document_id, generation]
+    if any(
+        not isinstance(part, str)
+        or not part
+        or part in {".", ".."}
+        or any(character in part for character in '/\\:')
+        for part in components
+    ):
+        raise ValueError("Invalid document index identity")
+    owner = index_root / DOCUMENTS_DIR_NAME
+    directory = owner.joinpath(*components)
+    if owner.resolve() not in directory.resolve().parents:
+        raise ValueError("Document index directory escapes its owner")
+    return directory
 
 
 def _safe_remove_tree(path: pathlib.Path, owner: pathlib.Path) -> None:
@@ -145,7 +436,7 @@ def build_unpublished_document(
             check_cancelled()
         name = f"segment-{segment_number:04d}"
         segment_path = work_document_dir / name
-        segment_store.save_local(str(segment_path))
+        _save_safe_segment(segment_store, segment_path)
         segments.append({"name": name, "chunk_count": segment_count})
         segment_number += 1
         segment_count = 0
@@ -197,20 +488,27 @@ def publish_document(
     *,
     index_root: pathlib.Path = DOCUMENT_INDEX_DIR,
     replace: Callable[[str | os.PathLike[str], str | os.PathLike[str]], None] = os.replace,
+    validate: Callable[[], None] | None = None,
 ) -> None:
-    """Publish one complete document, then atomically expose it in the corpus."""
+    """Expose a complete immutable generation with one corpus manifest commit.
+
+    Previously published generations stay in place for readers holding an older
+    corpus snapshot and for recovery. Their eventual retirement belongs to the
+    document deletion/reset owner, not the publication critical section.
+    """
     with _manifest_lock:
+        if validate is not None:
+            validate()
         initialize_index(index_root)
         document_id = str(document_manifest["document_id"])
-        live_documents = index_root / DOCUMENTS_DIR_NAME
-        live_dir = live_documents / document_id
-        if live_dir.exists():
-            retired = index_root / "retired" / (
-                f"{document_id}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}"
-            )
-            retired.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(live_dir, retired)
-        os.replace(work_document_dir, live_dir)
+        generation = f"generation-{uuid4().hex}"
+        generation_dir = _document_directory(
+            index_root, {"document_id": document_id, "generation": generation}
+        )
+        generation_dir.parent.mkdir(parents=True, exist_ok=True)
+        if validate is not None:
+            validate()
+        os.replace(work_document_dir, generation_dir)
 
         manifest_path = index_root / CORPUS_MANIFEST_NAME
         corpus = read_corpus_manifest(index_root)
@@ -222,6 +520,7 @@ def publish_document(
         entries.append(
             {
                 "document_id": document_id,
+                "generation": generation,
                 "original_name": document_manifest["original_name"],
                 "stored_name": document_manifest["stored_name"],
                 "content_sha256": document_manifest["content_sha256"],
@@ -233,6 +532,7 @@ def publish_document(
             manifest_path,
             {"version": MANIFEST_VERSION, "documents": entries},
             replace=replace,
+            **({"validate": validate} if validate is not None else {}),
         )
 
 
@@ -250,11 +550,19 @@ def _candidate_key(
     ordinal: int,
 ) -> tuple[float, str, str, int, int]:
     metadata = document.metadata or {}
+    chunk_index = metadata.get("chunk_index")
+    if type(chunk_index) is str and len(chunk_index) <= 20:
+        try:
+            chunk_index = int(chunk_index)
+        except ValueError:
+            chunk_index = ordinal
+    if type(chunk_index) is not int or not 0 <= chunk_index < _VALUE_LIMIT:
+        chunk_index = ordinal
     return (
         float(score),
         str(metadata.get("source") or ""),
         str(metadata.get("document_id") or ""),
-        int(metadata.get("chunk_index") or ordinal),
+        chunk_index,
         ordinal,
     )
 
@@ -304,16 +612,16 @@ class DocumentVectorStoreFacade:
         query: str,
         k: int,
     ) -> list[tuple[float, tuple[float, str, str, int, int], Document]]:
-        from langchain_community.vectorstores import FAISS
         from row_bot.documents import get_embedding_model_for_recall
 
         k = max(1, int(k))
+        config = get_embedding_config()
         embedding = (
             self.embedding_factory()
             if self.embedding_factory is not None
-            else get_embedding_model_for_recall()
+            else get_embedding_model_for_recall(config)
         )
-        active = active_embedding_metadata()
+        active = active_embedding_metadata() if self.embedding_factory is not None else active_embedding_metadata(config)
         corpus = read_corpus_manifest(self.index_root)
         visible_entries: list[dict[str, Any]] = []
         for entry in corpus["documents"]:
@@ -325,6 +633,34 @@ class DocumentVectorStoreFacade:
             name_counts[name] = name_counts.get(name, 0) + 1
 
         candidates: list[tuple[float, tuple[float, str, str, int, int], Document]] = []
+        query_vector: list[float] | None = None
+        query_failed = False
+
+        def search_store(store: Any) -> list[tuple[Document, float]]:
+            nonlocal query_vector, query_failed
+            if not store.index.ntotal:
+                return []
+            if query_failed:
+                return []
+            if query_vector is None:
+                try:
+                    # Use FAISS's existing Embeddings/callable compatibility,
+                    # once per request after a readable store is admitted.
+                    raw = store._embed_query(query)
+                    if not 0 < len(raw) <= 65536:
+                        raise ValueError("Invalid query vector shape")
+                    vector = [float(value) for value in raw]
+                    if any(not math.isfinite(value) or abs(value) > 3.4028234663852886e38 for value in vector):
+                        raise ValueError("Query vector exceeds finite float32 bounds")
+                    query_vector = vector
+                except Exception:
+                    # A failed embedding belongs to this request, not each
+                    # segment. Keep the existing graceful failure behavior.
+                    query_failed = True
+                    raise
+            if len(query_vector) != store.index.d:
+                raise ValueError("Query vector and document index dimension disagree")
+            return store.similarity_search_with_score_by_vector(query_vector, k=k)
 
         def retain_candidate(
             candidate: tuple[float, tuple[float, str, str, int, int], Document],
@@ -336,7 +672,11 @@ class DocumentVectorStoreFacade:
         ordinal = 0
         for entry in visible_entries:
             document_id = str(entry["document_id"])
-            document_dir = self.index_root / DOCUMENTS_DIR_NAME / document_id
+            try:
+                document_dir = _document_directory(self.index_root, entry)
+            except ValueError:
+                logger.warning("Skipping invalid document index identity")
+                continue
             document_manifest = _read_json(document_dir / "manifest.json", {})
             if (
                 not isinstance(document_manifest, dict)
@@ -354,17 +694,26 @@ class DocumentVectorStoreFacade:
                     else document_id[:8]
                 )
                 source = f"{original_name} ({disambiguator})"
-            for segment_number, segment in enumerate(document_manifest.get("segments") or []):
+            segments = document_manifest.get("segments")
+            if not isinstance(segments, list):
+                continue
+            for segment_number, segment in enumerate(segments):
+                if not isinstance(segment, dict):
+                    continue
                 segment_name = str(segment.get("name") or "")
-                if not segment_name:
+                if not segment_name or segment_name in {".", ".."} or any(c in segment_name for c in '/\\:'):
                     continue
                 try:
-                    store = FAISS.load_local(
-                        str(document_dir / segment_name),
-                        embeddings=embedding,
-                        allow_dangerous_deserialization=True,
+                    segment_dir = document_dir / segment_name
+                    if segment_dir.resolve().parent != document_dir.resolve():
+                        raise ValueError("Segment escapes its managed document generation")
+                    store = _load_safe_segment(
+                        segment_dir,
+                        embedding,
+                        expected_dimension=active.get("dimension"),
+                        expected_count=segment.get("chunk_count"),
                     )
-                    hits = store.similarity_search_with_score(query, k=k)
+                    hits = search_store(store)
                 except Exception:
                     logger.warning(
                         "Skipping unreadable document segment %s/%s",
@@ -372,6 +721,8 @@ class DocumentVectorStoreFacade:
                         segment_name,
                         exc_info=True,
                     )
+                    if query_failed:
+                        return []
                     continue
                 for chunk_number, (document, raw_score) in enumerate(hits):
                     metadata = dict(document.metadata or {})
@@ -399,12 +750,12 @@ class DocumentVectorStoreFacade:
                     for item in tombstones_value
                     if isinstance(tombstones_value, list)
                 }
-                legacy = FAISS.load_local(
-                    str(self.legacy_root),
-                    embeddings=embedding,
-                    allow_dangerous_deserialization=True,
+                legacy = _load_safe_segment(
+                    self.legacy_root,
+                    embedding,
+                    expected_dimension=active.get("dimension"),
                 )
-                for document, raw_score in legacy.similarity_search_with_score(query, k=k):
+                for document, raw_score in search_store(legacy):
                     metadata = dict(document.metadata or {})
                     if str(metadata.get("source") or "") in tombstones:
                         continue
@@ -428,25 +779,45 @@ def remove_document_shard(
     document_id: str,
     *,
     index_root: pathlib.Path = DOCUMENT_INDEX_DIR,
+    retirement_id: str | None = None,
+    expected_entry: dict | None = None,
+    validate: Callable[[], None] | None = None,
 ) -> bool:
     with _manifest_lock:
+        if validate is not None:
+            validate()
+        live = _document_directory(index_root, {"document_id": document_id})
+        retirement_id = retirement_id or uuid4().hex
+        if not re.fullmatch(r"[a-f0-9]{32}", retirement_id):
+            raise ValueError("Invalid document retirement ID")
+        retired = index_root / "retired" / f"{document_id}-{retirement_id}"
+        if index_root.resolve() not in retired.resolve().parents:
+            raise ValueError("Document retirement path is outside its index owner")
         manifest = read_corpus_manifest(index_root)
         entries = manifest["documents"]
+        if any(not isinstance(entry, dict) for entry in entries):
+            raise ValueError("Invalid corpus document entry")
+        current_entry = next((entry for entry in entries if str(entry.get("document_id")) == document_id), None)
+        if expected_entry is not None and current_entry is not None and current_entry != expected_entry:
+            raise ValueError("Document generation changed since removal was requested")
         kept = [entry for entry in entries if str(entry.get("document_id")) != document_id]
-        if len(kept) == len(entries):
-            return False
-        _atomic_write_json(
-            index_root / CORPUS_MANIFEST_NAME,
-            {"version": MANIFEST_VERSION, "documents": kept},
-        )
-        live = index_root / DOCUMENTS_DIR_NAME / document_id
-        if live.exists():
-            retired = index_root / "retired" / (
-                f"{document_id}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}"
+        removed = len(kept) != len(entries)
+        if removed:
+            if validate is not None:
+                validate()
+            _atomic_write_json(
+                index_root / CORPUS_MANIFEST_NAME,
+                {"version": MANIFEST_VERSION, "documents": kept},
+                **({"validate": validate} if validate is not None else {}),
             )
+        if live.exists():
+            if retired.exists():
+                raise ValueError("Both live and retired document generations exist; preserve for review")
             retired.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(live, retired)
-        return True
+            if validate is not None:
+                validate()
+            os.rename(live, retired)
+        return removed or retired.exists()
 
 
 def reset_sharded_index(
@@ -476,9 +847,13 @@ def index_health(
     readable = 0
     partial = 0
     for entry in corpus["documents"]:
-        document_dir = index_root / DOCUMENTS_DIR_NAME / str(entry.get("document_id") or "")
+        try:
+            document_dir = _document_directory(index_root, entry)
+        except ValueError:
+            partial += 1
+            continue
         manifest = _read_json(document_dir / "manifest.json", {})
-        if not manifest or not manifest.get("complete"):
+        if not isinstance(manifest, dict) or not manifest.get("complete"):
             partial += 1
         elif not _embedding_matches(manifest.get("embedding"), active):
             stale += 1

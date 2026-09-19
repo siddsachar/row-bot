@@ -440,10 +440,12 @@ def _handle_realtime_fatal_error(
     message = _friendly_realtime_error(detail)
     fallback = bool(getattr(state.voice_runtime_settings, "realtime_fallback_to_local", False))
     if fallback:
+        from row_bot.ui.voice_lifecycle import start_voice_for_ui
+        if start_voice_for_ui(state.voice_coordinator.start_talk) is None:
+            return
         run_realtime_client_js(p, stop_realtime_client_js(), context="realtime_fatal_fallback_stop")
         state.voice_enabled = True
         state.voice_input_mode = "talk"
-        state.voice_coordinator.start_talk()
         if p.voice_switch:
             p.voice_switch.value = True
             p.voice_switch.props("color=primary icon=graphic_eq unelevated")

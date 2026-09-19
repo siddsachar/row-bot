@@ -10,7 +10,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type {
   CommandReceipt,
   ConversationWorkspace,
-  DeckSetupOptions,
+  ArtifactSetupOptions,
   PanelDescriptor,
   ResourceChoice,
   ResourceChoicePage,
@@ -20,7 +20,20 @@ import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
 import { setupSessions, type SetupDraft } from './setup-state';
-import type { HomeSetupEntry } from './Home';
+
+export type ResourceSetupEntry = {
+  kind: 'artifact' | 'workspace';
+  mode: 'create' | 'existing';
+  resource?: ResourceChoice;
+};
+
+const artifactLabels = {
+  deck: 'Deck',
+  document: 'Document',
+  landing: 'Landing page',
+  app_mockup: 'App mockup',
+  storyboard: 'Storyboard',
+} as const;
 
 /** The target is captured by the opener. Domain setup never reads panel focus. */
 export default function ResourceSetup({
@@ -30,7 +43,7 @@ export default function ResourceSetup({
 }: {
   conversationId: string | null;
   onPanel: (panel: PanelDescriptor) => void;
-  initialEntry?: HomeSetupEntry;
+  initialEntry?: ResourceSetupEntry;
 }) {
   const { controller } = useRuntime();
   const client = useClientState();
@@ -64,6 +77,8 @@ export default function ResourceSetup({
   const {
     kind,
     mode,
+    artifactMode,
+    workspaceMode,
     selected,
     template,
     canvas,
@@ -74,7 +89,9 @@ export default function ResourceSetup({
     generationId,
     generationReceipt,
   } = record;
-  const [options, setOptions] = useState<DeckSetupOptions | null>(null);
+  const [options, setOptions] = useState<ArtifactSetupOptions | null>(null);
+  const artifactLabel = artifactLabels[artifactMode];
+  const currentOptions = options?.mode === artifactMode ? options : null;
   const [library, setLibrary] = useState<ResourceChoicePage | null>(null);
   const [folder, setFolder] = useState<{ grant: string; name: string } | null>(
     null,
@@ -191,9 +208,34 @@ export default function ResourceSetup({
     const load = async () => {
       try {
         if (kind === 'artifact' && mode === 'create') {
-          const result = await controller.deckSetup(abort.signal);
-          if (!abort.signal.aborted && ticket === queryNumber.current)
+          const result =
+            artifactMode === 'deck'
+              ? await controller.deckSetup(abort.signal)
+              : await controller.artifactSetup(artifactMode, abort.signal);
+          if (!abort.signal.aborted && ticket === queryNumber.current) {
+            if (result.mode !== artifactMode)
+              throw new Error(
+                'The design defaults do not match the selected type.',
+              );
             setOptions(result);
+            const saved = setupSessions.read(scope);
+            if (
+              !saved.commandId &&
+              !saved.generationId &&
+              saved.artifactMode === artifactMode
+            ) {
+              setupSessions.update(scope, {
+                template: result.templates.some(
+                  (item) => item.id === saved.template,
+                )
+                  ? saved.template
+                  : result.default_template,
+                canvas: result.canvases.some((item) => item.id === saved.canvas)
+                  ? saved.canvas
+                  : result.default_canvas,
+              });
+            }
+          }
         } else if (mode === 'existing') {
           const result = await controller.library(
             kind,
@@ -240,7 +282,7 @@ export default function ResourceSetup({
       continuation.current?.abort();
       continuation.current = null;
     };
-  }, [controller, kind, mode, initialEntry, scope]);
+  }, [controller, kind, mode, artifactMode, initialEntry, scope]);
   async function moreResources() {
     if (!library?.next_cursor || mode !== 'existing') return;
     continuation.current?.abort();
@@ -276,6 +318,30 @@ export default function ResourceSetup({
       selection: controller.getSnapshot().selectedConversationId,
       version: controller.getSelectionVersion(),
     };
+  }
+  async function pickFolder() {
+    const initiating = capturePresentation();
+    setFolder(null);
+    try {
+      const result = await controller.pickFolder();
+      if (
+        !alive.current ||
+        initiating.session !== presentationContext.current.session ||
+        initiating.instance !== presentationContext.current.instance ||
+        initiating.route !== presentationContext.current.route ||
+        initiating.version !== controller.getSelectionVersion()
+      )
+        return;
+      if (result.status === 'selected' && result.grant_id)
+        setFolder({
+          grant: result.grant_id,
+          name: result.name ?? 'Selected folder',
+        });
+      else if (result.status === 'unavailable')
+        setError('Folder selection requires the local desktop window.');
+    } catch (cause) {
+      if (alive.current) setError(clientError(cause).message);
+    }
   }
   function present(
     result: CommandReceipt,
@@ -315,7 +381,7 @@ export default function ResourceSetup({
         name ||
         selected?.name ||
         folder?.name ||
-        (kind === 'artifact' ? 'Deck' : 'Coding workspace')
+        (kind === 'artifact' ? artifactLabel : 'Coding workspace')
       ).slice(0, 160),
     });
   }
@@ -418,14 +484,22 @@ export default function ResourceSetup({
               intent: 'create',
               ...(kind === 'artifact'
                 ? {
-                    deck: {
+                    [artifactMode === 'deck' ? 'deck' : 'artifact']: {
+                      ...(artifactMode === 'deck'
+                        ? {}
+                        : { mode: artifactMode }),
                       template_id: template,
                       aspect_ratio: canvas,
                       name,
                       brief,
                     },
                   }
-                : { folder_grant: folder?.grant }),
+                : {
+                    folder_grant: folder?.grant,
+                    ...(workspaceMode === 'empty_folder'
+                      ? { empty_workspace: { folder_name: name.trim() } }
+                      : {}),
+                  }),
             }
           : {
               kind,
@@ -463,6 +537,7 @@ export default function ResourceSetup({
   }
   async function continueSetup() {
     if (!receipt?.resource_id || !confirmed || operation.current) return;
+    if (receipt.folder_reselection_required && !folder) return;
     operation.current = true;
     setBusy(true);
     setError('');
@@ -483,8 +558,13 @@ export default function ResourceSetup({
         previous.conversation_id ?? null,
         'resource.continue',
         {
-          setup_command_id: previous.setup_command_id,
-          expected_resource_revision: previous.resource_revision,
+          setup_command_id: previous.command_id,
+          ...(previous.resource_revision
+            ? { expected_resource_revision: previous.resource_revision }
+            : {}),
+          ...(previous.folder_reselection_required
+            ? { folder_grant: folder?.grant }
+            : {}),
           ...(previous.setup_intent === 'repair' &&
           selected?.origin_conversation_id
             ? { expected_origin_id: selected.origin_conversation_id }
@@ -557,9 +637,36 @@ export default function ResourceSetup({
             ))}
           </ul>
           <small>Resource {receipt.resource_id}</small>
-          {receipt.status === 'partial' && (
+          {receipt.status === 'partial' &&
+            receipt.folder_reselection_required && (
+              <div className="stack">
+                <p>
+                  The folder was created. Select the same parent folder to
+                  verify it and continue registration.
+                </p>
+                <Button
+                  disabled={busy || !confirmed}
+                  onClick={() => void pickFolder()}
+                >
+                  Choose parent folder again
+                </Button>
+                {folder && <p>Selected parent: {folder.name}</p>}
+              </div>
+            )}
+          {receipt.status === 'partial' && !receipt.resource_id && (
+            <p>
+              Folder creation could not be confirmed. Check the chosen parent
+              folder before opening an existing folder or choosing another name.
+              This request will not create another folder automatically.
+            </p>
+          )}
+          {receipt.status === 'partial' && receipt.resource_id && (
             <Button
-              disabled={busy || !confirmed}
+              disabled={
+                busy ||
+                !confirmed ||
+                (receipt.folder_reselection_required && !folder)
+              }
               onClick={() => void continueSetup()}
             >
               Continue setup
@@ -593,7 +700,7 @@ export default function ResourceSetup({
             receipt.resource_kind === 'artifact' && (
               <section className="stack" aria-label="First draft generation">
                 <p>
-                  The Deck is saved. Review the current controls before
+                  The design is saved. Review the current controls before
                   submitting the first draft.
                 </p>
                 {!generationId && (
@@ -714,7 +821,7 @@ export default function ResourceSetup({
                   setLibrary(null);
                 }}
               >
-                <option value="artifact">Deck</option>
+                <option value="artifact">Design</option>
                 <option value="workspace">Coding workspace</option>
               </Select>
             </Field>
@@ -729,15 +836,15 @@ export default function ResourceSetup({
               >
                 <option value="create">
                   {kind === 'artifact'
-                    ? 'Create a Deck'
-                    : 'Register an existing folder'}
+                    ? `Create a ${artifactLabel}`
+                    : 'Set up a folder'}
                 </option>
                 <option value="existing">Open saved resource</option>
               </Select>
             </Field>
           </div>
           {mode === 'existing' ? (
-            <div className="stack" aria-label="Saved resources">
+            <div className="stack" role="group" aria-label="Saved resources">
               {library ? (
                 <>
                   {library.items.map((item) => (
@@ -771,7 +878,30 @@ export default function ResourceSetup({
             </div>
           ) : kind === 'artifact' ? (
             <>
-              {options ? (
+              <Field label="Design type">
+                <Select
+                  disabled={busy}
+                  value={artifactMode}
+                  onChange={(event) => {
+                    if (event.target.value === artifactMode) return;
+                    update({
+                      artifactMode: event.target
+                        .value as SetupDraft['artifactMode'],
+                      template: '',
+                      canvas: '',
+                    });
+                    setOptions(null);
+                    setError('');
+                  }}
+                >
+                  {Object.entries(artifactLabels).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {currentOptions ? (
                 <>
                   <div className="setup-grid">
                     <Field label="Template">
@@ -780,7 +910,7 @@ export default function ResourceSetup({
                         value={template}
                         onChange={(e) => setTemplate(e.target.value)}
                       >
-                        {options.templates.map((t) => (
+                        {currentOptions.templates.map((t) => (
                           <option key={t.id} value={t.id}>
                             {t.label}
                           </option>
@@ -793,7 +923,7 @@ export default function ResourceSetup({
                         value={canvas}
                         onChange={(e) => setCanvas(e.target.value)}
                       >
-                        {options.canvases.map((c) => (
+                        {currentOptions.canvases.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.label}
                           </option>
@@ -802,12 +932,12 @@ export default function ResourceSetup({
                     </Field>
                   </div>
                   <p className="muted">
-                    {options.default_brand}. A blank Deck does not require a
-                    model or brief.
+                    {currentOptions.default_brand}. A blank design does not
+                    require a model or brief.
                   </p>
                 </>
               ) : (
-                <Skeleton label="Loading Deck defaults" />
+                <Skeleton label={`Loading ${artifactLabel} defaults`} />
               )}
               <Field label="Name (optional)">
                 <Input
@@ -815,7 +945,9 @@ export default function ResourceSetup({
                   value={name}
                   maxLength={120}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Untitled Deck"
+                  placeholder={
+                    currentOptions?.default_name ?? `Untitled ${artifactLabel}`
+                  }
                 />
               </Field>
               <Field label="Brief (optional)">
@@ -834,42 +966,55 @@ export default function ResourceSetup({
                   disabled={busy || !brief.trim()}
                   onChange={(e) => setGenerate(e.target.checked)}
                 />
-                Review first draft generation after creation, using this Deck as
-                the write target
+                Review first draft generation after creation, using this design
+                as the write target
               </label>
             </>
           ) : (
             <div className="stack">
+              <Field label="Folder setup">
+                <Select
+                  value={workspaceMode}
+                  disabled={busy}
+                  onChange={(event) => {
+                    update({
+                      workspaceMode: event.target
+                        .value as SetupDraft['workspaceMode'],
+                    });
+                    setFolder(null);
+                  }}
+                >
+                  <option value="existing_folder">
+                    Register an existing folder
+                  </option>
+                  <option value="empty_folder">
+                    Create a new empty folder
+                  </option>
+                </Select>
+              </Field>
+              {workspaceMode === 'empty_folder' && (
+                <Field label="New folder name">
+                  <Input
+                    value={name}
+                    maxLength={120}
+                    disabled={busy}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+              )}
               <p>
-                Choose an existing folder on this computer. Registration saves
-                its name and location. Source files and Git state remain
-                unchanged.
+                {workspaceMode === 'empty_folder'
+                  ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
+                  : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
               </p>
               <p className="muted">
                 Tools follow the conversation’s approval policy. The Inspector
                 is read-only.
               </p>
-              <Button
-                disabled={busy}
-                onClick={() => {
-                  void controller
-                    .pickFolder()
-                    .then((result) => {
-                      if (!alive.current) return;
-                      if (result.status === 'selected' && result.grant_id)
-                        setFolder({
-                          grant: result.grant_id,
-                          name: result.name ?? 'Selected folder',
-                        });
-                      else if (result.status === 'unavailable')
-                        setError(
-                          'Folder selection requires the local desktop window.',
-                        );
-                    })
-                    .catch((e) => setError(clientError(e).message));
-                }}
-              >
-                Choose existing folder
+              <Button disabled={busy} onClick={() => void pickFolder()}>
+                {workspaceMode === 'empty_folder'
+                  ? 'Choose parent folder'
+                  : 'Choose existing folder'}
               </Button>
               {folder && <p>Selected: {folder.name}</p>}
             </div>
@@ -901,8 +1046,9 @@ export default function ResourceSetup({
                 (mode === 'existing'
                   ? !selected
                   : kind === 'artifact'
-                    ? !options
-                    : !folder)
+                    ? !currentOptions
+                    : !folder ||
+                      (workspaceMode === 'empty_folder' && !name.trim()))
               }
               className="setup-submit"
               onClick={() => void perform()}
@@ -916,8 +1062,10 @@ export default function ResourceSetup({
                   : kind === 'artifact'
                     ? generate
                       ? 'Create and review first draft'
-                      : 'Create Deck'
-                    : 'Register folder'}
+                      : `Create ${artifactLabel}`
+                    : workspaceMode === 'empty_folder'
+                      ? 'Create empty workspace'
+                      : 'Register folder'}
             </Button>
           )}
           {!conversationId && kind === 'workspace' && mode === 'existing' && (

@@ -1,0 +1,108 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "knowledge_changed",
+            "knowledge_outcome_uncertain"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "entity_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entity Id"
+    },
+    "projection_state": {
+      "anyOf": [
+        {
+          "enum": [
+            "pending",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Projection State"
+    },
+    "reused": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reused"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "saved_state": {
+      "anyOf": [
+        {
+          "const": "saved",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Saved State"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "KnowledgeReceipt",
+  "type": "object"
+}

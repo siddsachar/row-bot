@@ -33,19 +33,31 @@ export default function DraftConflict({ id }: { id: string }) {
     }
   }
   return (
-    <div className="stack">
+    <div className="stack draft-conflict" aria-busy={busy}>
       {saved ? (
         <>
-          <strong>Saved in another client</strong>
-          <pre className="draft-comparison">
-            {saved.text || '(Empty draft)'}
-          </pre>
-          <p>{saved.attachments.length} saved attachments</p>
-          <strong>Your draft on this page</strong>
-          <pre className="draft-comparison">
-            {controller.getDraft(id).text || '(Empty draft)'}
-          </pre>
-          <div className="button-row">
+          <div className="draft-comparison-grid">
+            <section aria-labelledby="saved-draft-heading">
+              <h3 id="saved-draft-heading">Saved in another client</h3>
+              <pre className="draft-comparison">
+                {saved.text || '(Empty draft)'}
+              </pre>
+              <p className="muted">
+                {saved.attachments.length} saved attachments
+              </p>
+            </section>
+            <section aria-labelledby="local-draft-heading">
+              <h3 id="local-draft-heading">Your draft on this page</h3>
+              <pre className="draft-comparison">
+                {controller.getDraft(id).text || '(Empty draft)'}
+              </pre>
+            </section>
+          </div>
+          <div
+            className="button-row draft-conflict-actions"
+            role="group"
+            aria-label="Choose a draft"
+          >
             <Button disabled={busy} onClick={() => void choose(false)}>
               Use saved draft
             </Button>

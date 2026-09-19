@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cap": {
+      "anyOf": [
+        {
+          "maximum": 10000000,
+          "minimum": 16384,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cap"
+    },
+    "policy_kind": {
+      "enum": [
+        "local",
+        "provider"
+      ],
+      "title": "Policy Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_kind"
+  ],
+  "title": "ModelContextMutation",
+  "type": "object"
+}

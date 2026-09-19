@@ -3,12 +3,19 @@ from __future__ import annotations
 import logging
 import json
 import re
+import hashlib
+import time
+import asyncio
+import uuid
+from contextlib import contextmanager
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
-from row_bot.providers.auth_store import delete_provider_secret, get_provider_secret, set_provider_secret
+from row_bot.providers.auth_store import delete_provider_secret, get_provider_secret
 from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-from row_bot.providers.config import load_provider_config, save_provider_config
+from row_bot.providers.config import (load_provider_config, save_provider_config,
+    provider_config_transaction, provider_config_revision, ProviderConfigError)
 from row_bot.providers.models import AuthMethod, ModelInfo, ProviderDefinition, TransportMode
 
 CUSTOM_OPENAI_PREFIX = "custom_openai_"
@@ -258,6 +265,9 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
     extra_body = endpoint.get("extra_body")
     if isinstance(extra_body, dict):
         normalized["extra_body"] = dict(extra_body)
+    scope = endpoint.get("credential_scope")
+    if isinstance(scope, str) and re.fullmatch(r"[a-f0-9]{32}", scope):
+        normalized["credential_scope"] = scope
     return normalized
 
 
@@ -296,23 +306,177 @@ def list_custom_provider_definitions() -> list[ProviderDefinition]:
     return definitions
 
 
-def save_custom_endpoint(endpoint: dict) -> None:
+def save_custom_endpoint(endpoint: dict, *, expected_revision: str | None = None,
+                         validate: Callable[[], None] = lambda: None,
+                         record_commit: Callable[[dict], None] | None = None,
+                         manage_secret: bool = True) -> None:
     extra_body = endpoint.get("extra_body")
     if isinstance(extra_body, dict) and _extra_body_contains_credentials(extra_body):
         raise ValueError("Custom endpoint extra_body must not contain credentials or secrets.")
-    cfg = load_provider_config()
-    endpoints = [item for item in cfg.get("custom_endpoints", []) if isinstance(item, dict)]
-    secret = str(endpoint.get("api_key") or "")
-    normalized = normalize_custom_endpoint(endpoint)
-    endpoint_id = normalized.get("id")
-    endpoints = [item for item in endpoints if item.get("id") != endpoint_id]
-    endpoints.append(normalized)
-    cfg["custom_endpoints"] = endpoints
-    save_provider_config(cfg)
-    if secret:
-        set_provider_secret(str(normalized["provider_id"]), "api_key", secret)
-    elif not normalized.get("auth_required"):
-        delete_provider_secret(str(normalized["provider_id"]), "api_key")
+    with provider_config_transaction():
+        validate()
+        cfg = load_provider_config(strict=True)
+        revision = provider_config_revision(cfg)
+        if expected_revision is not None and revision != expected_revision:
+            raise ProviderConfigError("revision_conflict")
+        endpoints = cfg.get("custom_endpoints", [])
+        secret = str(endpoint.get("api_key") or "")
+        if not manage_secret and secret:
+            raise ValueError("credential_action_required")
+        normalized = normalize_custom_endpoint(endpoint)
+        endpoint_id = normalized["id"]
+        old = next((item for item in endpoints if isinstance(item, dict) and item.get("id") == endpoint_id), {})
+        # Keep unknown canonical metadata; never copy renderer-owned private fields.
+        replacement = {**old, **normalized}
+        if not old:
+            replacement["credential_scope"] = uuid.uuid4().hex
+        elif "credential_scope" in old:
+            replacement["credential_scope"] = old["credential_scope"]
+        else:
+            replacement.pop("credential_scope", None)
+        if "thinking_budget" in endpoint and "thinking_budget" not in normalized:
+            replacement.pop("thinking_budget", None)
+        if old and endpoint_configuration_revision(old) != endpoint_configuration_revision(replacement):
+            replacement.pop("last_probe", None)
+            replacement.pop("models", None)
+        cfg["custom_endpoints"] = [item for item in endpoints if not isinstance(item, dict) or item.get("id") != endpoint_id] + [replacement]
+        validate()
+        if record_commit is not None:
+            record_commit(cfg)
+        if manage_secret and (secret or not normalized.get("auth_required")):
+            from row_bot.providers.auth_store import replace_provider_api_key
+            def prepare(staged):
+                staged["custom_endpoints"] = cfg["custom_endpoints"]
+                if record_commit is not None:
+                    record_commit(staged)
+            replace_provider_api_key(str(normalized["provider_id"]), secret or None, validate=validate, prepare_config=prepare)
+            return
+        save_provider_config(cfg, expected_revision=revision)
+
+
+def endpoint_configuration_revision(endpoint: dict) -> str:
+    """Bind saved probe work to connection/configuration, excluding its outputs."""
+    value = normalize_custom_endpoint(endpoint)
+    value.pop("models", None)
+    value.pop("last_probe", None)
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+class EndpointAuthorityError(ProviderConfigError):
+    """A probe lost its reviewed target or caller authority; stop all requests."""
+
+
+def _endpoint_probe_authority(endpoint: dict, headers: dict, validate: Callable[[], None]) -> Callable[[], None]:
+    revision = endpoint_configuration_revision(endpoint)
+    deadline = time.monotonic() + 120
+    checks = 0
+    def guard():
+        nonlocal checks
+        checks += 1
+        if checks > 512 or time.monotonic() >= deadline:
+            raise EndpointAuthorityError("provider_probe_limit")
+        try:
+            validate()
+            current = get_custom_endpoint(endpoint["id"])
+            if current is None or endpoint_configuration_revision(current) != revision or _custom_endpoint_headers(current) != headers:
+                raise EndpointAuthorityError("revision_conflict")
+        except EndpointAuthorityError:
+            raise
+        except Exception as exc:
+            raise EndpointAuthorityError(getattr(exc, "code", "action_denied")) from None
+    guard.remaining_seconds = lambda: max(0.0, min(deadline - time.monotonic(), getattr(validate, "remaining_seconds", lambda: 120.0)()))
+    return guard
+
+
+def _endpoint_timeout(validate: Callable[[], None], maximum: float) -> float:
+    validate()
+    remaining = getattr(validate, "remaining_seconds", lambda: maximum)()
+    if remaining <= 0:
+        raise EndpointAuthorityError("provider_probe_limit")
+    return min(maximum, remaining)
+
+
+def _checked_probe_lines(lines, validate: Callable[[], None]):
+    count = 0
+    size = 0
+    for line in lines:
+        validate()
+        count += 1
+        size += len(line if isinstance(line, bytes) else str(line).encode("utf-8"))
+        if count > 4096 or size > 1024 * 1024:
+            raise EndpointAuthorityError("provider_probe_limit")
+        yield line
+
+
+def _probe_request(method: str, url: str, *, headers: dict, timeout: float,
+                   validate: Callable[[], None], strict: bool = False,
+                   json_body: dict | None = None, maximum_bytes: int = 8 * 1024 * 1024):
+    """Strict client operations bound the complete body and cancel stalled reads."""
+    import httpx
+    if not strict:
+        if method == "GET":
+            return httpx.get(url, headers=headers, timeout=timeout)
+        return httpx.post(url, headers=headers, json=json_body, timeout=timeout)
+    async def receive():
+        duration = _endpoint_timeout(validate, timeout)
+        try:
+            async with asyncio.timeout(duration):
+                async with httpx.AsyncClient(follow_redirects=False) as client:
+                    # Bound decoded content by requesting identity and rejecting
+                    # encoded replies rather than expanding untrusted compressed data.
+                    async with client.stream(method, url, headers={**headers, "Accept-Encoding": "identity"}, json=json_body,
+                                             timeout=duration) as response:
+                        response.raise_for_status()
+                        if response.headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
+                            raise EndpointAuthorityError("provider_response_encoding_unsupported")
+                        content = bytearray()
+                        async for chunk in response.aiter_raw():
+                            validate()
+                            if len(content) + len(chunk) > maximum_bytes:
+                                raise EndpointAuthorityError("provider_response_too_large")
+                            content.extend(chunk)
+                        validate()
+                        return httpx.Response(response.status_code, content=bytes(content), request=response.request)
+        except TimeoutError:
+            raise EndpointAuthorityError("provider_probe_limit") from None
+    return asyncio.run(receive())
+
+
+@contextmanager
+def _probe_stream(url: str, *, headers: dict, json_body: dict, timeout: float,
+                  validate: Callable[[], None], strict: bool = False):
+    import httpx
+    if strict:
+        response = _probe_request("POST", url, headers=headers, json_body=json_body, timeout=timeout,
+                                  validate=validate, strict=True, maximum_bytes=1024 * 1024)
+        try:
+            yield response
+        finally:
+            response.close()
+    else:
+        with httpx.stream("POST", url, headers=headers, json=json_body, timeout=timeout) as response:
+            yield response
+
+
+def delete_custom_endpoint_configuration(endpoint_id: str, *, expected_revision: str,
+                                         validate: Callable[[], None], record_commit: Callable[[dict], None]) -> int:
+    """Reviewed config-only removal; retain credentials and global selections."""
+    with provider_config_transaction():
+        validate()
+        cfg = load_provider_config(strict=True)
+        if provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
+        endpoints = cfg["custom_endpoints"]
+        if not any(isinstance(item, dict) and item.get("id") == endpoint_id for item in endpoints):
+            raise ProviderConfigError("not_found")
+        cfg["custom_endpoints"] = [item for item in endpoints if not isinstance(item, dict) or item.get("id") != endpoint_id]
+        provider_id = custom_provider_id(endpoint_id)
+        before = cfg["quick_choices"]
+        cfg["quick_choices"] = [item for item in before if not isinstance(item, dict) or item.get("provider_id") != provider_id]
+        validate()
+        record_commit(cfg)
+        save_provider_config(cfg, expected_revision=expected_revision)
+        return len(before) - len(cfg["quick_choices"])
 
 
 def _extra_body_contains_credentials(value: Any) -> bool:
@@ -441,27 +605,35 @@ def custom_model_cache_entries() -> dict[str, dict[str, Any]]:
     return entries
 
 
-def refresh_custom_endpoint_models(endpoint_or_provider_id: str) -> list[ModelInfo]:
+def refresh_custom_endpoint_models(endpoint_or_provider_id: str, *, validate: Callable[[], None] = lambda: None,
+                                   record_commit: Callable[[dict], None] | None = None, strict: bool = False) -> list[ModelInfo]:
     endpoint = get_custom_endpoint(endpoint_or_provider_id)
     if not endpoint:
         raise ValueError("Custom endpoint not found.")
     if not endpoint.get("base_url"):
         raise ValueError("Custom endpoint is missing a base URL.")
 
-    import httpx
-
+    validate()
     headers = _custom_endpoint_headers(endpoint)
+    guard = _endpoint_probe_authority(endpoint, headers, validate)
     url = f"{str(endpoint['base_url']).rstrip('/')}/models"
-    response = httpx.get(url, headers=headers, timeout=15)
+    guard()
+    response = _probe_request("GET", url, headers=headers, timeout=_endpoint_timeout(guard, 15), validate=guard, strict=strict)
     response.raise_for_status()
     payload = response.json()
+    guard()
     native_metadata = _fetch_custom_endpoint_native_model_metadata(
         endpoint,
         headers=headers,
         model_ids=_catalog_model_ids(payload),
+        validate=guard, strict=strict,
     )
     infos = model_infos_from_openai_compatible_catalog(endpoint, payload, native_metadata_by_model=native_metadata)
-    _store_custom_endpoint_models(endpoint["id"], infos)
+    _store_custom_endpoint_models(endpoint["id"], infos, validate=guard, record_commit=record_commit)
+    guard()
+    if strict:
+        # A reviewed catalog refresh does not authorize changing saved selections.
+        return CustomEndpointModelRefreshResult(infos)
     valid_model_ids = {info.model_id for info in infos}
     stale_pin_count = 0
     default_reset = False
@@ -504,16 +676,18 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str) -> list[ModelIn
     )
 
 
-def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = None) -> dict[str, Any]:
+def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = None, *,
+                          validate: Callable[[], None] = lambda: None,
+                          record_commit: Callable[[dict], None] | None = None, strict: bool = False) -> dict[str, Any]:
     endpoint = get_custom_endpoint(endpoint_or_provider_id)
     if not endpoint:
         raise ValueError("Custom endpoint not found.")
     if not endpoint.get("base_url"):
         raise ValueError("Custom endpoint is missing a base URL.")
 
-    import httpx
-
+    validate()
     headers = _custom_endpoint_headers(endpoint)
+    guard = _endpoint_probe_authority(endpoint, headers, validate)
     result: dict[str, Any] = {
         "ok": False,
         "agent_ok": False,
@@ -539,8 +713,10 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         "errors": [],
     }
     try:
-        infos = refresh_custom_endpoint_models(endpoint_or_provider_id)
+        infos = refresh_custom_endpoint_models(endpoint_or_provider_id, validate=guard, strict=strict)
         result["models_ok"] = True
+    except EndpointAuthorityError:
+        raise
     except Exception as exc:
         infos = []
         result["errors"].append(f"models: {exc}")
@@ -551,7 +727,12 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
     if not target_model:
         result["errors"].append("chat: no model available to probe")
         _classify_probe_result(result)
-        _store_custom_endpoint_probe(endpoint["id"], result)
+        if strict:
+            _redact_probe_diagnostics(result)
+        _store_custom_endpoint_probe(endpoint["id"], result, validate=guard, record_commit=record_commit)
+        if strict:
+            logger.info("Reviewed endpoint probe completed: unavailable")
+            return result
         logger.warning(
             "Custom endpoint probe failed: id=%s base_url=%s profile=%s errors=%s",
             endpoint["id"],
@@ -576,9 +757,12 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         "stream": False,
     }
     try:
-        response = httpx.post(chat_url, headers=headers, json=body, timeout=20)
+        guard()
+        response = _probe_request("POST", chat_url, headers=headers, json_body=body, timeout=_endpoint_timeout(guard, 20), validate=guard, strict=strict)
         response.raise_for_status()
         result["chat_ok"] = True
+    except EndpointAuthorityError:
+        raise
     except Exception as exc:
         result["errors"].append(f"chat: {exc}")
 
@@ -595,13 +779,16 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
     }
     tool_call_payload: dict[str, Any] | None = None
     try:
-        response = httpx.post(chat_url, headers=headers, json=tool_body, timeout=30)
+        guard()
+        response = _probe_request("POST", chat_url, headers=headers, json_body=tool_body, timeout=_endpoint_timeout(guard, 30), validate=guard, strict=strict)
         response.raise_for_status()
         payload = response.json()
         tool_call_payload = _extract_structured_tool_call(payload, "row_bot_probe_echo")
         result["tool_calling"] = tool_call_payload is not None
         if tool_call_payload is None:
             result["errors"].append("tools: no structured tool call returned")
+    except EndpointAuthorityError:
+        raise
     except Exception as exc:
         result["tool_calling"] = False
         result["errors"].append(f"tools: {exc}")
@@ -627,9 +814,12 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
             "stream": False,
         }
         try:
-            response = httpx.post(chat_url, headers=headers, json=round_trip_body, timeout=30)
+            guard()
+            response = _probe_request("POST", chat_url, headers=headers, json_body=round_trip_body, timeout=_endpoint_timeout(guard, 30), validate=guard, strict=strict)
             response.raise_for_status()
             result["tool_round_trip"] = True
+        except EndpointAuthorityError:
+            raise
         except Exception as exc:
             result["tool_round_trip"] = False
             result["errors"].append(f"tool_round_trip: {exc}")
@@ -638,9 +828,10 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
     stream_body["max_tokens"] = STREAMING_PROBE_MAX_TOKENS
     try:
         saw_stream_event = False
-        with httpx.stream("POST", chat_url, headers=headers, json=stream_body, timeout=20) as response:
+        guard()
+        with _probe_stream(chat_url, headers=headers, json_body=stream_body, timeout=_endpoint_timeout(guard, 20), validate=guard, strict=strict) as response:
             response.raise_for_status()
-            for line in response.iter_lines():
+            for line in _checked_probe_lines(response.iter_lines(), guard):
                 text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line or "")
                 if _stream_line_has_usable_delta(text):
                     saw_stream_event = True
@@ -648,6 +839,8 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         result["streaming_ok"] = saw_stream_event
         if not saw_stream_event:
             result["errors"].append("streaming: no usable stream delta returned")
+    except EndpointAuthorityError:
+        raise
     except Exception as exc:
         result["streaming_ok"] = False
         result["errors"].append(f"streaming: {exc}")
@@ -656,13 +849,16 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
     stream_tool_body["stream"] = True
     stream_tool_body["max_tokens"] = TOOL_PROBE_MAX_TOKENS
     try:
-        with httpx.stream("POST", chat_url, headers=headers, json=stream_tool_body, timeout=30) as response:
+        guard()
+        with _probe_stream(chat_url, headers=headers, json_body=stream_tool_body, timeout=_endpoint_timeout(guard, 30), validate=guard, strict=strict) as response:
             response.raise_for_status()
-            tool_call_payload = _extract_streamed_structured_tool_call(response.iter_lines(), "row_bot_probe_echo")
+            tool_call_payload = _extract_streamed_structured_tool_call(_checked_probe_lines(response.iter_lines(), guard), "row_bot_probe_echo")
         result["streaming_tool_calling"] = tool_call_payload is not None
         if tool_call_payload is None:
             result["streaming_tool_error"] = "no streamed structured tool call returned"
             result["errors"].append("streaming_tools: no streamed structured tool call returned")
+    except EndpointAuthorityError:
+        raise
     except Exception as exc:
         result["streaming_tool_calling"] = False
         result["streaming_tool_error"] = str(exc)
@@ -674,7 +870,8 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         result["vision_content_format"] = "openai_image_url"
         vision_body = _vision_probe_body(target_model)
         try:
-            response = httpx.post(chat_url, headers=headers, json=vision_body, timeout=30)
+            guard()
+            response = _probe_request("POST", chat_url, headers=headers, json_body=vision_body, timeout=_endpoint_timeout(guard, 30), validate=guard, strict=strict)
             response.raise_for_status()
             text = _extract_probe_text(response.json()).strip().lower()
             result["vision_probe_response"] = text[:200]
@@ -687,6 +884,8 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
             else:
                 result["vision_ok"] = None
                 result["vision_error"] = f"probe inconclusive: unexpected response: {text or '<empty>'}"
+        except EndpointAuthorityError:
+            raise
         except Exception as exc:
             result["vision_ok"] = False
             result["vision_error"] = str(exc)
@@ -695,7 +894,12 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         result["vision_probe_skip_reason"] = vision_skip_reason
 
     _classify_probe_result(result)
-    _store_custom_endpoint_probe(endpoint["id"], result)
+    if strict:
+        _redact_probe_diagnostics(result)
+    _store_custom_endpoint_probe(endpoint["id"], result, validate=guard, record_commit=record_commit)
+    if strict:
+        logger.info("Reviewed endpoint probe completed: %s", result["classification"])
+        return result
     summary = custom_probe_summary(result)
     if result["ok"]:
         logger.info(
@@ -730,6 +934,15 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
             "; ".join(str(error) for error in result.get("errors", [])) or "unknown error",
         )
     return result
+
+
+def _redact_probe_diagnostics(result: dict) -> None:
+    """Keep strict probe evidence useful without persisting remote text or URLs."""
+    result["errors"] = ["Probe stage did not complete successfully."] if result.get("errors") else []
+    for key in ("vision_error", "streaming_tool_error"):
+        if result.get(key):
+            result[key] = "Probe stage did not complete successfully."
+    result["vision_probe_response"] = ""
 
 
 def _component_status(value: Any, *, probed: bool = True, missing: str = "unknown") -> str:
@@ -1090,9 +1303,19 @@ def _custom_endpoint_headers(endpoint: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
-def _store_custom_endpoint_models(endpoint_or_provider_id: str, infos: list[ModelInfo]) -> None:
+def _store_custom_endpoint_models(endpoint_or_provider_id: str, infos: list[ModelInfo], *,
+                                  validate: Callable[[], None] = lambda: None,
+                                  record_commit: Callable[[dict], None] | None = None) -> None:
     endpoint_id = endpoint_id_from_provider_id(endpoint_or_provider_id)
-    cfg = load_provider_config()
+    with provider_config_transaction():
+        return _publish_custom_endpoint_models(endpoint_id, infos, validate, record_commit)
+
+
+def _publish_custom_endpoint_models(endpoint_id: str, infos: list[ModelInfo], validate: Callable[[], None],
+                                    record_commit: Callable[[dict], None] | None) -> None:
+    validate()
+    cfg = load_provider_config(strict=True)
+    revision = provider_config_revision(cfg)
     endpoints = [item for item in cfg.get("custom_endpoints", []) if isinstance(item, dict)]
     stored_models = []
     for info in infos:
@@ -1109,19 +1332,30 @@ def _store_custom_endpoint_models(endpoint_or_provider_id: str, infos: list[Mode
             item["models"] = stored_models
             break
     cfg["custom_endpoints"] = endpoints
-    save_provider_config(cfg)
+    validate()
+    if record_commit is not None:
+        record_commit(cfg)
+    save_provider_config(cfg, expected_revision=revision)
 
 
-def _store_custom_endpoint_probe(endpoint_or_provider_id: str, probe: dict[str, Any]) -> None:
+@provider_config_transaction()
+def _store_custom_endpoint_probe(endpoint_or_provider_id: str, probe: dict[str, Any], *,
+                                 validate: Callable[[], None] = lambda: None,
+                                 record_commit: Callable[[dict], None] | None = None) -> None:
     endpoint_id = endpoint_id_from_provider_id(endpoint_or_provider_id)
-    cfg = load_provider_config()
+    validate()
+    cfg = load_provider_config(strict=True)
+    revision = provider_config_revision(cfg)
     endpoints = [item for item in cfg.get("custom_endpoints", []) if isinstance(item, dict)]
     for item in endpoints:
         if normalize_custom_endpoint(item).get("id") == endpoint_id:
             item["last_probe"] = dict(probe)
             break
     cfg["custom_endpoints"] = endpoints
-    save_provider_config(cfg)
+    validate()
+    if record_commit is not None:
+        record_commit(cfg)
+    save_provider_config(cfg, expected_revision=revision)
 
 
 def model_infos_from_openai_compatible_catalog(
@@ -1315,71 +1549,92 @@ def _fetch_custom_endpoint_native_model_metadata(
     *,
     headers: dict[str, str] | None = None,
     model_ids: list[str] | None = None,
+    validate: Callable[[], None] = lambda: None,
+    strict: bool = False,
 ) -> dict[str, dict[str, Any]]:
     profile = str(endpoint.get("profile") or "").lower()
-    import httpx
 
     root_url = _native_root_url(str(endpoint.get("base_url") or ""))
     if not root_url:
         return {}
     if profile == "llama_cpp":
         try:
-            response = httpx.get(f"{root_url}/props", headers=headers or {}, timeout=10)
+            validate()
+            response = _probe_request("GET", f"{root_url}/props", headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
             response.raise_for_status()
             metadata = _llamacpp_props_metadata_by_id(response.json())
             if metadata:
                 return metadata
+        except EndpointAuthorityError:
+            raise
         except Exception:
-            logger.debug("llama.cpp props metadata fetch failed for %s/props", root_url, exc_info=True)
+            if not strict:
+                logger.debug("llama.cpp props metadata fetch failed for %s/props", root_url, exc_info=True)
         return {}
     if profile == "litellm":
         for root in _metadata_roots(root_url, str(endpoint.get("base_url") or "")):
             for path in ("/model_group/info", "/model/info"):
                 try:
-                    response = httpx.get(f"{root}{path}", headers=headers or {}, timeout=10)
+                    validate()
+                    response = _probe_request("GET", f"{root}{path}", headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
                     response.raise_for_status()
                     metadata = _litellm_native_models_by_id(response.json())
                     if metadata:
                         return metadata
+                except EndpointAuthorityError:
+                    raise
                 except Exception:
-                    logger.debug("LiteLLM native metadata fetch failed for %s%s", root, path, exc_info=True)
+                    if not strict:
+                        logger.debug("LiteLLM native metadata fetch failed for %s%s", root, path, exc_info=True)
         return {}
     if profile == "sglang":
         try:
-            response = httpx.get(f"{root_url}/get_model_info", headers=headers or {}, timeout=10)
+            validate()
+            response = _probe_request("GET", f"{root_url}/get_model_info", headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
             response.raise_for_status()
             metadata = _sglang_model_info_metadata_by_id(response.json(), model_ids=model_ids or [])
             if metadata:
                 return metadata
+        except EndpointAuthorityError:
+            raise
         except Exception:
-            logger.debug("SGLang model metadata fetch failed for %s/get_model_info", root_url, exc_info=True)
+            if not strict:
+                logger.debug("SGLang model metadata fetch failed for %s/get_model_info", root_url, exc_info=True)
         return {}
     if profile == "localai":
         metadata: dict[str, dict[str, Any]] = {}
         for model_id in model_ids or []:
             try:
                 encoded = quote(model_id, safe="")
-                response = httpx.get(f"{root_url}/api/models/config-json/{encoded}", headers=headers or {}, timeout=10)
+                validate()
+                response = _probe_request("GET", f"{root_url}/api/models/config-json/{encoded}", headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
                 response.raise_for_status()
                 item = response.json()
                 if isinstance(item, dict):
                     model_metadata = dict(item)
                     _apply_native_capability_fields(model_metadata)
                     metadata[model_id] = model_metadata
+            except EndpointAuthorityError:
+                raise
             except Exception:
-                logger.debug("LocalAI model config metadata fetch failed for %s", model_id, exc_info=True)
+                if not strict:
+                    logger.debug("LocalAI model config metadata fetch failed for %s", model_id, exc_info=True)
         return metadata
     if profile != "lmstudio":
         return {}
     for path in ("/api/v1/models", "/api/v0/models"):
         try:
-            response = httpx.get(f"{root_url}{path}", headers=headers or {}, timeout=10)
+            validate()
+            response = _probe_request("GET", f"{root_url}{path}", headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
             response.raise_for_status()
             metadata = _lmstudio_native_models_by_id(response.json())
             if metadata:
                 return metadata
+        except EndpointAuthorityError:
+            raise
         except Exception:
-            logger.debug("LM Studio native metadata fetch failed for %s%s", root_url, path, exc_info=True)
+            if not strict:
+                logger.debug("LM Studio native metadata fetch failed for %s%s", root_url, path, exc_info=True)
     return {}
 
 

@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import base64
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -134,6 +136,29 @@ def _map_google_params(size: str, quality: str) -> tuple[str, str | None]:
 # The streaming layer reads and clears this after generate/edit calls,
 # same pattern as filesystem_tool._last_displayed_image.
 _last_generated_image: str | None = None  # base64-encoded image data
+_strict_output: ContextVar[tuple[str, Callable[[], None], Callable[[bytes], str]] | None] = ContextVar(
+    "strict_image_generation_output", default=None)
+
+
+@contextmanager
+def strict_generation_output(*, selection: str, validate: Callable[[], None],
+                             sink: Callable[[bytes], str], auth=None) -> Iterator[None]:
+    """Bind one explicit generation selection and owned bounded output sink."""
+    if not isinstance(selection, str) or not 1 <= len(selection) <= 256 or "/" not in selection:
+        raise ValueError("invalid_media_selection")
+    token = _strict_output.set((selection, validate, sink))
+    try:
+        from row_bot.providers.media_auth import media_auth_scope
+        with media_auth_scope(auth, selection=selection, validate=validate):
+            yield
+    finally:
+        _strict_output.reset(token)
+
+
+def _validate_generation() -> None:
+    scope = _strict_output.get()
+    if scope is not None:
+        scope[1]()
 
 # ── Attachment cache for pasted/attached images ──────────────────────────
 # Populated by ui/streaming.py before agent invocation.
@@ -149,6 +174,10 @@ def _execution_image_cache() -> dict[str, bytes]:
 def _set_pending_image(value: str) -> None:
     from row_bot.application.attachment_context import current_caches
     global _last_generated_image
+    if _strict_output.get() is not None:
+        _validate_generation()
+        if not isinstance(value, str) or len(value) > 4 * ((16 * 1024 * 1024 + 2) // 3):
+            raise ValueError("generated_media_too_large")
     caches = current_caches()
     if caches is None:
         _last_generated_image = value
@@ -178,6 +207,15 @@ def _save_image_to_disk(b64_str: str, prefix: str = "gen") -> str | None:
     ``_next_media_filename``) so images survive reload and can be
     referenced by tools like ``send_telegram_photo``.
     """
+    scope = _strict_output.get()
+    if scope is not None:
+        _validate_generation()
+        if len(b64_str) > 4 * ((16 * 1024 * 1024 + 2) // 3):
+            raise ValueError("generated_media_too_large")
+        data = base64.b64decode(b64_str, validate=True)
+        if not data or len(data) > 16 * 1024 * 1024:
+            raise ValueError("generated_media_too_large")
+        return scope[2](data)
     try:
         from row_bot.application.attachment_context import current_caches
         caches = current_caches()
@@ -249,6 +287,10 @@ def _get_client() -> tuple:
     from row_bot.api_keys import get_key
 
     provider, _ = _parse_model_config(_get_configured_selection())
+    from row_bot.providers.media_auth import current_media_auth, google_client, openai_client
+    captured = current_media_auth(provider)
+    if captured is not None and provider in {"openai", "google"}:
+        return (google_client() if provider == "google" else openai_client()), _PROVIDERS[provider]["label"], provider
     if provider in {"xai", "xai_oauth"}:
         from row_bot.providers.xai_media import xai_media_auth_context
 
@@ -283,6 +325,9 @@ def _get_client() -> tuple:
 
 def _get_configured_selection() -> str:
     """Return the raw 'provider/model' string from tool config."""
+    scope = _strict_output.get()
+    if scope is not None:
+        return scope[0]
     val = registry.get_tool_config("image_gen", "model", None)
     if val:
         return val
@@ -470,13 +515,17 @@ def _generate_image(
 ) -> str:
     """Generate an image from a text prompt."""
     global _last_generated_image
+    _validate_generation()
 
     try:
         client, provider_label, provider_id = _get_client()
     except Exception as e:
+        if _strict_output.get() is not None:
+            raise
         logger.error("Image generation failed: %s", e, exc_info=True)
         return f"Image generation failed: {e}"
     model = _get_configured_model()
+    _validate_generation()
 
     logger.info("generate_image: model=%s, size=%s, quality=%s, provider=%s",
                 model, size, quality, provider_label)
@@ -494,6 +543,7 @@ def _generate_image(
                     number_of_images=1,
                     aspect_ratio=aspect_ratio if aspect_ratio in _IMAGEN_ASPECT_RATIOS else "1:1",
                 )
+                _validate_generation()
                 response = client.models.generate_images(
                     model=model, prompt=prompt, config=cfg,
                 )
@@ -509,6 +559,7 @@ def _generate_image(
                     response_modalities=["IMAGE"],
                     image_config=types.ImageConfig(**img_cfg_kwargs),
                 )
+                _validate_generation()
                 response = client.models.generate_content(
                     model=model, contents=[prompt], config=cfg,
                 )
@@ -521,6 +572,8 @@ def _generate_image(
                 if not img_bytes:
                     return "Image generation returned no image data."
         except Exception as e:
+            if _strict_output.get() is not None:
+                raise
             logger.error("Image generation failed: %s", e, exc_info=True)
             return f"Image generation failed: {e}"
 
@@ -563,6 +616,7 @@ def _generate_image(
             body["resolution"] = plan.resolution
 
         try:
+            _validate_generation()
             data = xai_media_json_request(
                 provider_id,
                 "POST",
@@ -571,6 +625,8 @@ def _generate_image(
                 timeout=XAI_IMAGE_GENERATION_READ_TIMEOUT,
             )
         except Exception as e:
+            if _strict_output.get() is not None:
+                raise
             logger.error("Image generation failed: %s", e, exc_info=True)
             return f"Image generation failed: {e}"
 
@@ -582,6 +638,7 @@ def _generate_image(
             b64_str = str(image_data["b64_json"])
         elif image_data.get("url"):
             try:
+                _validate_generation()
                 resp = xai_media_get(
                     provider_id,
                     str(image_data["url"]),
@@ -590,6 +647,8 @@ def _generate_image(
                 )
                 b64_str = base64.b64encode(resp.content).decode("ascii")
             except Exception as e:
+                if _strict_output.get() is not None:
+                    raise
                 logger.error("Image download failed: %s", e, exc_info=True)
                 return f"Image generated but download failed: {e}"
         else:
@@ -620,8 +679,11 @@ def _generate_image(
         kwargs["quality"] = quality
 
     try:
+        _validate_generation()
         response = client.images.generate(**kwargs)
     except Exception as e:
+        if _strict_output.get() is not None:
+            raise
         logger.error("Image generation failed: %s", e, exc_info=True)
         return f"Image generation failed: {e}"
 
@@ -632,8 +694,12 @@ def _generate_image(
     elif hasattr(image_data, "url") and image_data.url:
         # Download the URL and convert to base64
         import urllib.request
+        _validate_generation()
         with urllib.request.urlopen(image_data.url) as resp:
-            b64_str = base64.b64encode(resp.read()).decode("ascii")
+            data = resp.read(16 * 1024 * 1024 + 1) if _strict_output.get() is not None else resp.read()
+            if _strict_output.get() is not None and len(data) > 16 * 1024 * 1024:
+                raise ValueError("generated_media_too_large")
+            b64_str = base64.b64encode(data).decode("ascii")
     else:
         return "Image generation returned no image data."
 

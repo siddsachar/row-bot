@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "WikiConfigureInput": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "enabled"
+      ],
+      "title": "WikiConfigureInput",
+      "type": "object"
+    },
+    "WikiImportInput": {
+      "additionalProperties": false,
+      "properties": {
+        "article_ids": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Article Ids",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "article_ids"
+      ],
+      "title": "WikiImportInput",
+      "type": "object"
+    },
+    "WikiPublishInput": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "entity_id"
+      ],
+      "title": "WikiPublishInput",
+      "type": "object"
+    },
+    "WikiRebuildInput": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "WikiRebuildInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "wiki.configure",
+        "wiki.publish",
+        "wiki.rebuild",
+        "wiki.import",
+        "wiki.sync"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "folder_grant": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Folder Grant",
+      "type": "string"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WikiConfigureInput"
+        },
+        {
+          "$ref": "#/$defs/WikiPublishInput"
+        },
+        {
+          "$ref": "#/$defs/WikiRebuildInput"
+        },
+        {
+          "$ref": "#/$defs/WikiImportInput"
+        }
+      ],
+      "title": "Payload"
+    }
+  },
+  "required": [
+    "action",
+    "folder_grant",
+    "payload"
+  ],
+  "title": "WikiReviewRequest",
+  "type": "object"
+}

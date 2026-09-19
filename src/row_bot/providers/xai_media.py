@@ -48,6 +48,12 @@ def xai_media_label(provider_id: str) -> str:
 
 def xai_media_auth_context(provider_id: str, *, refresh_if_needed: bool = True) -> XAIAuthContext:
     provider = _canonical_provider_id(provider_id)
+    from row_bot.providers.media_auth import current_media_auth
+    captured = current_media_auth(provider)
+    if captured is not None:
+        return XAIAuthContext(provider, xai_media_label(provider), captured.base_url,
+            {"Authorization": f"Bearer {captured.credential}", "Accept": "application/json", "Content-Type": "application/json"},
+            oauth=provider == "xai_oauth")
     if provider == "xai":
         from row_bot.api_keys import get_key
 
@@ -182,12 +188,22 @@ def _xai_media_raw_request(
             kind="unknown_provider",
         )
 
+    from row_bot.providers.media_auth import current_media_auth
+    captured = current_media_auth(provider)
     ctx = xai_media_auth_context(provider, refresh_if_needed=True) if authenticated else None
     url = _request_url(ctx.base_url if ctx else XAI_API_BASE_URL, path_or_url)
+    if captured is not None:
+        parsed = urlparse(url)
+        if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in {None, 443}
+                or not (parsed.hostname == "x.ai" or (parsed.hostname or "").endswith(".x.ai"))):
+            raise XAIMediaError("Strict media URL is outside its provider.", kind="unsafe_endpoint")
+        follow_redirects = False
     owns_client = http_client is None
-    client = http_client or _new_http_client(timeout)
+    client = http_client or (httpx.Client(timeout=_httpx_timeout(timeout), trust_env=False) if captured is not None else _new_http_client(timeout))
     try:
         try:
+            if captured is not None:
+                current_media_auth(provider)
             response = _send_request(
                 client,
                 method,
@@ -197,7 +213,7 @@ def _xai_media_raw_request(
                 timeout=_httpx_timeout(timeout),
                 follow_redirects=follow_redirects,
             )
-            if authenticated and ctx and ctx.oauth and _status_code(response) == 401:
+            if captured is None and authenticated and ctx and ctx.oauth and _status_code(response) == 401:
                 ctx = _refresh_oauth_context_once(ctx)
                 response = _send_request(
                     client,
@@ -293,8 +309,9 @@ def _send_request(
     }
     if json is not None:
         kwargs["json"] = json
-    if follow_redirects:
-        kwargs["follow_redirects"] = True
+    from row_bot.providers.media_auth import current_media_auth
+    if follow_redirects or current_media_auth() is not None:
+        kwargs["follow_redirects"] = follow_redirects
     request_method = str(method or "GET").upper()
     if hasattr(client, "request"):
         return client.request(request_method, url, **kwargs)

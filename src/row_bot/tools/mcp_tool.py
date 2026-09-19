@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import wraps
 
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -56,10 +57,48 @@ class McpTool(BaseTool):
     def as_langchain_tools(self) -> list:
         try:
             from row_bot.mcp_client.runtime import get_langchain_tools
-            return get_langchain_tools()
+            return self.bind_langchain_tools(get_langchain_tools())
         except Exception as exc:
             logger.warning("MCP dynamic tool injection skipped: %s", exc, exc_info=True)
             return []
+
+    def bind_langchain_tools(self, tools: list) -> list:
+        """Guard an already-collected snapshot without refreshing its owner."""
+        from row_bot.tool_configuration import configuration_path
+        scope = configuration_path()
+
+        def validate():
+            if (configuration_path() != scope or registry._active_config_path != scope
+                    or registry._tools.get("mcp") is not self or registry._enabled.get("mcp") is not True):
+                raise RuntimeError("Native MCP capability was revoked or replaced")
+
+        def sync(function):
+            @wraps(function)
+            def guarded(*args, **kwargs):
+                validate()
+                return function(*args, **kwargs)
+            return guarded
+
+        def asynchronous(function):
+            @wraps(function)
+            async def guarded(*args, **kwargs):
+                validate()
+                return await function(*args, **kwargs)
+            return guarded
+
+        result = []
+        for tool in tools:
+            updates = {}
+            if getattr(tool, "func", None) is not None:
+                updates["func"] = sync(tool.func)
+            else:
+                updates["_run"] = sync(tool._run)
+            if getattr(tool, "coroutine", None) is not None:
+                updates["coroutine"] = asynchronous(tool.coroutine)
+            else:
+                updates["_arun"] = asynchronous(tool._arun)
+            result.append(tool.model_copy(update=updates))
+        return result
 
 
 registry.register(McpTool())

@@ -54,6 +54,10 @@ def crash_dir() -> pathlib.Path:
 def setup_stability_monitoring() -> None:
     """Install process-wide exception hooks and fatal-fault logging."""
     global _INSTALLED, _FATAL_LOG_HANDLE
+    from row_bot.docs_capture import is_docs_real_data_capture
+
+    if is_docs_real_data_capture():
+        return
     if _INSTALLED:
         return
     _INSTALLED = True
@@ -350,6 +354,10 @@ def _write_report(
     stack: str = "",
     extra: dict[str, Any] | None = None,
 ) -> pathlib.Path | None:
+    from row_bot.docs_capture import is_docs_real_data_capture
+
+    if is_docs_real_data_capture():
+        return None
     try:
         _CRASH_DIR.mkdir(parents=True, exist_ok=True)
         now = datetime.now()

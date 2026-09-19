@@ -176,7 +176,8 @@ def test_dedup_save_creates_updates_and_links_with_provenance(tmp_path, monkeypa
     assert updated == 1
     assert "maintains coverage" in refreshed["description"]
     assert "Coverage Ada" in refreshed["aliases"]
-    assert kg._skip_reindex is False
+    # Context-local extraction must preserve the caller's compatibility override.
+    assert kg._skip_reindex is True
 
 
 def test_dedup_save_skips_invalid_low_confidence_vague_and_missing_endpoint_relations(tmp_path, monkeypatch) -> None:

@@ -1,0 +1,408 @@
+{
+  "$defs": {
+    "ChannelActivity": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "last_inbound",
+          "title": "Kind",
+          "type": "string"
+        },
+        "recency": {
+          "enum": [
+            "recent",
+            "within_hour",
+            "within_day",
+            "older",
+            "none",
+            "unknown"
+          ],
+          "title": "Recency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "recency"
+      ],
+      "title": "ChannelActivity",
+      "type": "object"
+    },
+    "ChannelAvailability": {
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "enum": [
+            "available",
+            "limited"
+          ],
+          "title": "Configuration",
+          "type": "string"
+        },
+        "lifecycle": {
+          "enum": [
+            "available",
+            "configuration_required"
+          ],
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "monitor": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Monitor",
+          "type": "string"
+        },
+        "pairing": {
+          "enum": [
+            "available",
+            "unsupported",
+            "unavailable"
+          ],
+          "title": "Pairing",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configuration",
+        "lifecycle",
+        "pairing",
+        "monitor"
+      ],
+      "title": "ChannelAvailability",
+      "type": "object"
+    },
+    "ChannelFieldStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Configured"
+        },
+        "externally_managed": {
+          "title": "Externally Managed",
+          "type": "boolean"
+        },
+        "field_type": {
+          "enum": [
+            "text",
+            "password",
+            "number",
+            "slider"
+          ],
+          "title": "Field Type",
+          "type": "string"
+        },
+        "fingerprint": {
+          "maxLength": 128,
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "help_text": {
+          "maxLength": 512,
+          "title": "Help Text",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 160,
+          "title": "Label",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "title": "Source",
+          "type": "string"
+        },
+        "storage": {
+          "enum": [
+            "env",
+            "config"
+          ],
+          "title": "Storage",
+          "type": "string"
+        },
+        "writable": {
+          "title": "Writable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "field_type",
+        "storage",
+        "help_text",
+        "configured",
+        "source",
+        "fingerprint",
+        "externally_managed",
+        "writable"
+      ],
+      "title": "ChannelFieldStatus",
+      "type": "object"
+    },
+    "ChannelSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "core",
+            "plugin",
+            "unknown"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 160,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "ChannelSource",
+      "type": "object"
+    },
+    "ChannelStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "activity": {
+          "enum": [
+            "recent",
+            "within_hour",
+            "within_day",
+            "older",
+            "none",
+            "unknown"
+          ],
+          "title": "Activity",
+          "type": "string"
+        },
+        "activity_history": {
+          "items": {
+            "$ref": "#/$defs/ChannelActivity"
+          },
+          "maxItems": 1,
+          "title": "Activity History",
+          "type": "array"
+        },
+        "availability": {
+          "$ref": "#/$defs/ChannelAvailability"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "channel_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Channel Id",
+          "type": "string"
+        },
+        "configured": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Configured"
+        },
+        "display_name": {
+          "maxLength": 160,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/ChannelFieldStatus"
+          },
+          "maxItems": 64,
+          "title": "Fields",
+          "type": "array"
+        },
+        "paired_identities": {
+          "items": {
+            "$ref": "#/$defs/PairedChannelIdentity"
+          },
+          "maxItems": 128,
+          "title": "Paired Identities",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "running": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Running"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/ChannelSource"
+        }
+      },
+      "required": [
+        "schema_version",
+        "channel_id",
+        "display_name",
+        "source",
+        "revision",
+        "configured",
+        "running",
+        "activity",
+        "activity_history",
+        "fields",
+        "paired_identities",
+        "capabilities",
+        "availability"
+      ],
+      "title": "ChannelStatus",
+      "type": "object"
+    },
+    "PairedChannelIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 160,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "hint": {
+          "maxLength": 32,
+          "title": "Hint",
+          "type": "string"
+        },
+        "identity_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Identity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_id",
+        "display_name",
+        "hint"
+      ],
+      "title": "PairedChannelIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "channel": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ChannelStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "operation": {
+      "anyOf": [
+        {
+          "enum": [
+            "configure",
+            "start",
+            "stop",
+            "pair",
+            "revoke"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation"
+    },
+    "pairing_code": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pairing Code"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "ChannelReceipt",
+  "type": "object"
+}

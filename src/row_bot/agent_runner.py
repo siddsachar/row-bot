@@ -46,57 +46,101 @@ def _acquire_child_capacity(
     workspace_id: str = "",
 ) -> bool:
     from row_bot.agent_settings import load_agent_runtime_settings
-    from row_bot.agent_runs import update_agent_status, get_agent_write_lock, acquire_agent_write_lock
+    from row_bot.agent_runs import (
+        acquire_agent_write_lock,
+        get_agent_write_lock,
+        release_agent_write_lock,
+        update_agent_status,
+    )
+    from row_bot.cancellation import current_cancellation_scope
 
     ticket = (str(run_id), str(parent_key or "top-level"))
     with _DISPATCH_CONDITION:
+        if ticket[0] in _DISPATCH_WRITER_KEYS or ticket[0] in _DISPATCH_ACTIVE:
+            raise AgentRunnerError("Agent already has a dispatch reservation")
         _DISPATCH_WRITER_KEYS[ticket[0]] = write_lock_key
-        if ticket not in _DISPATCH_QUEUE:
-            _DISPATCH_QUEUE.append(ticket)
+        _DISPATCH_QUEUE.append(ticket)
         queued_status_published = ""
-        while not stop_event.is_set():
-            settings = load_agent_runtime_settings()
-            parent_active, global_active = _dispatch_counts(ticket[1])
-            # Preserve FIFO within each parent while allowing another parent
-            # to use free global capacity when the queue head's parent is full.
-            eligible_ticket = next(
-                (
-                    queued
-                    for queued in _DISPATCH_QUEUE
-                    if _dispatch_counts(queued[1])[0]
-                    < settings.max_concurrent_children
-                    and (not _DISPATCH_WRITER_KEYS.get(queued[0])
-                         or not get_agent_write_lock(_DISPATCH_WRITER_KEYS[queued[0]]))
-                ),
-                None,
-            )
-            if (
-                eligible_ticket == ticket
-                and parent_active < settings.max_concurrent_children
-                and global_active < settings.max_active_children_global
-            ):
-                if write_lock_key and not acquire_agent_write_lock(
-                    write_lock_key, run_id, thread_id=thread_id, workspace_id=workspace_id,
-                    metadata_json={"runtime_surface": "agent_child"},
+        admitted = False
+        writer_attempted = False
+        unregister = None
+        try:
+            scope = current_cancellation_scope()
+            if scope is not None and scope.stop_event is stop_event:
+                unregister = scope.register(notify_agent_runtime_settings_changed)
+            while not stop_event.is_set():
+                settings = load_agent_runtime_settings()
+                parent_active, global_active = _dispatch_counts(ticket[1])
+                # First eligible FIFO: a blocked writer or saturated parent
+                # must not reserve capacity needed by independent work.
+                eligible_ticket = next(
+                    (
+                        queued
+                        for queued in _DISPATCH_QUEUE
+                        if _dispatch_counts(queued[1])[0]
+                        < settings.max_concurrent_children
+                        and (
+                            not _DISPATCH_WRITER_KEYS.get(queued[0])
+                            or not get_agent_write_lock(_DISPATCH_WRITER_KEYS[queued[0]])
+                        )
+                    ),
+                    None,
+                )
+                if (
+                    eligible_ticket == ticket
+                    and parent_active < settings.max_concurrent_children
+                    and global_active < settings.max_active_children_global
                 ):
-                    _DISPATCH_CONDITION.wait(timeout=0.1)
-                    continue
-                _DISPATCH_QUEUE.remove(ticket)
-                _DISPATCH_ACTIVE[ticket[0]] = ticket[1]
-                return True
-            waiting_for = ("Queued for writer lock" if parent_active < settings.max_concurrent_children
-                           and global_active < settings.max_active_children_global
-                           and write_lock_key and get_agent_write_lock(write_lock_key)
-                           else "Queued for Agent capacity")
-            if waiting_for != queued_status_published:
-                update_agent_status(run_id, "queued", waiting_for)
-                queued_status_published = waiting_for
-            _DISPATCH_CONDITION.wait(timeout=0.1)
-        if ticket in _DISPATCH_QUEUE:
-            _DISPATCH_QUEUE.remove(ticket)
-        _DISPATCH_WRITER_KEYS.pop(ticket[0], None)
-        _DISPATCH_CONDITION.notify_all()
-        return False
+                    if write_lock_key:
+                        # The database owner can commit before event publication
+                        # raises. Cleanup therefore covers an attempted acquire.
+                        writer_attempted = True
+                        if not acquire_agent_write_lock(
+                            write_lock_key,
+                            run_id,
+                            thread_id=thread_id,
+                            workspace_id=workspace_id,
+                            metadata_json={"runtime_surface": "agent_child"},
+                        ):
+                            writer_attempted = False
+                            _DISPATCH_CONDITION.wait(timeout=0.1)
+                            continue
+                    if stop_event.is_set():
+                        return False
+                    _DISPATCH_QUEUE.remove(ticket)
+                    _DISPATCH_ACTIVE[ticket[0]] = ticket[1]
+                    admitted = True
+                    _DISPATCH_CONDITION.notify_all()
+                    return True
+                waiting_for = (
+                    "Queued for writer lock"
+                    if parent_active < settings.max_concurrent_children
+                    and global_active < settings.max_active_children_global
+                    and write_lock_key
+                    and get_agent_write_lock(write_lock_key)
+                    else "Queued for Agent capacity"
+                )
+                if waiting_for != queued_status_published:
+                    update_agent_status(run_id, "queued", waiting_for)
+                    queued_status_published = waiting_for
+                # Plain threading.Event callers still need a bounded fallback;
+                # registry-owned cancellation wakes this condition immediately.
+                _DISPATCH_CONDITION.wait(timeout=0.1)
+            return False
+        finally:
+            if unregister is not None:
+                unregister()
+            if not admitted:
+                try:
+                    if writer_attempted:
+                        # Delete by owner, never by resource: an unsuccessful
+                        # attempt must not release a competing writer's lock.
+                        release_agent_write_lock(run_id=run_id)
+                finally:
+                    if ticket in _DISPATCH_QUEUE:
+                        _DISPATCH_QUEUE.remove(ticket)
+                    _DISPATCH_WRITER_KEYS.pop(ticket[0], None)
+                    _DISPATCH_CONDITION.notify_all()
 
 
 def _release_child_capacity(run_id: str) -> None:
@@ -248,7 +292,7 @@ def _filter_child_tools(
     allow = {str(name) for name in tool_policy.get("allow_tools") or [] if str(name or "").strip()}
     deny: set[str] = set()
     capability = str(tool_policy.get("capability") or "read_only")
-    if capability == "read_only" and not allow:
+    if capability == "read_only":
         deny.update(_READ_ONLY_DEFAULT_DENY_TOOLS)
     if not tool_policy.get("allow_delegation"):
         deny.add("agents")
@@ -874,10 +918,14 @@ def _agent_entry_failed(run_id: str, exc: BaseException) -> None:
         finish_agent_run(run_id, "stopped" if stopped else "failed",
                          status_message="Stop requested before dispatch" if stopped else "Execution resources are unavailable")
     finally:
-        _release_child_capacity(run_id)
-        _notify_child_agent_waiters(run_id)
-        with _ACTIVE_LOCK:
-            _ACTIVE_AGENT_RUNS.pop(run_id, None)
+        try:
+            _release_child_capacity(run_id)
+        finally:
+            try:
+                _notify_child_agent_waiters(run_id)
+            finally:
+                with _ACTIVE_LOCK:
+                    _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
 
 def _run_agent_thread(
@@ -890,7 +938,6 @@ def _run_agent_thread(
     write_lock_key: str = "",
 ) -> None:
     from row_bot.agent_runs import (
-        acquire_agent_write_lock,
         append_agent_event,
         finish_agent_run,
         pending_parent_message_records,
@@ -898,7 +945,6 @@ def _run_agent_thread(
         get_agent_run,
         release_agent_write_lock,
         start_agent_run,
-        update_agent_status,
     )
 
     lock_acquired = False
@@ -933,22 +979,6 @@ def _run_agent_thread(
             finish_agent_run(run_id, "stopped", status_message="Stop requested while queued")
             return
         lock_acquired = bool(capacity_acquired and requires_write_lock)
-        if requires_write_lock and not lock_acquired:
-            update_agent_status(run_id, "queued", "Queued for writer lock")
-            while not stop_event.is_set():
-                if acquire_agent_write_lock(
-                    write_lock_key,
-                    run_id,
-                    thread_id=(config.get("configurable") or {}).get("thread_id", ""),
-                    workspace_id=(config.get("configurable") or {}).get("developer_workspace_id", ""),
-                    metadata_json={"runtime_surface": "agent_child"},
-                ):
-                    lock_acquired = True
-                    break
-                time.sleep(0.05)
-            if stop_event.is_set() and not lock_acquired:
-                finish_agent_run(run_id, "stopped", status_message="Stop requested")
-                return
         start_agent_run(run_id)
         timeout_timer = _arm_child_timeout(run_id, stop_event)
         append_agent_event(
@@ -1071,13 +1101,19 @@ def _run_agent_thread(
     finally:
         if timeout_timer is not None:
             timeout_timer.cancel()
-        if lock_acquired:
-            release_agent_write_lock(run_id=run_id)
-        if capacity_acquired:
-            _release_child_capacity(run_id)
-        _notify_child_agent_waiters(run_id)
-        with _ACTIVE_LOCK:
-            _ACTIVE_AGENT_RUNS.pop(run_id, None)
+        try:
+            if lock_acquired:
+                release_agent_write_lock(run_id=run_id)
+        finally:
+            try:
+                if capacity_acquired:
+                    _release_child_capacity(run_id)
+            finally:
+                try:
+                    _notify_child_agent_waiters(run_id)
+                finally:
+                    with _ACTIVE_LOCK:
+                        _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
 
 def resume_agent_run(
@@ -1206,13 +1242,11 @@ def _resume_agent_thread(
     stop_event: threading.Event,
 ) -> None:
     from row_bot.agent_runs import (
-        acquire_agent_write_lock,
         append_agent_event,
         finish_agent_run,
         get_agent_run,
         release_agent_write_lock,
         start_agent_run,
-        update_agent_status,
     )
 
     lock_acquired = False
@@ -1230,22 +1264,6 @@ def _resume_agent_thread(
             finish_agent_run(run_id, "stopped", status_message="Stop requested while queued")
             return
         lock_acquired = bool(capacity_acquired and write_lock_key)
-        if write_lock_key and not lock_acquired:
-            update_agent_status(run_id, "queued", "Queued for writer lock")
-            while not stop_event.is_set():
-                if acquire_agent_write_lock(
-                    write_lock_key,
-                    run_id,
-                    thread_id=str(run.get("thread_id") or ""),
-                    workspace_id=str(run.get("workspace_id") or ""),
-                    metadata_json={"runtime_surface": "agent_child_resume"},
-                ):
-                    lock_acquired = True
-                    break
-                time.sleep(0.05)
-            if stop_event.is_set() and not lock_acquired:
-                finish_agent_run(run_id, "stopped", status_message="Stop requested")
-                return
         start_agent_run(run_id)
         timeout_timer = _arm_child_timeout(run_id, stop_event)
         result = _resume_invoke_agent(
@@ -1350,13 +1368,19 @@ def _resume_agent_thread(
     finally:
         if timeout_timer is not None:
             timeout_timer.cancel()
-        if lock_acquired:
-            release_agent_write_lock(run_id=run_id)
-        if capacity_acquired:
-            _release_child_capacity(run_id)
-        _notify_child_agent_waiters(run_id)
-        with _ACTIVE_LOCK:
-            _ACTIVE_AGENT_RUNS.pop(run_id, None)
+        try:
+            if lock_acquired:
+                release_agent_write_lock(run_id=run_id)
+        finally:
+            try:
+                if capacity_acquired:
+                    _release_child_capacity(run_id)
+            finally:
+                try:
+                    _notify_child_agent_waiters(run_id)
+                finally:
+                    with _ACTIVE_LOCK:
+                        _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
 
 def wait_for_agent_run(run_id: str, timeout: float | None = None) -> dict[str, Any] | None:

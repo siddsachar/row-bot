@@ -1,0 +1,114 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "developer.repository.branch.create",
+        "developer.repository.branch.switch",
+        "developer.repository.commit",
+        "developer.repository.push",
+        "developer.repository.pull_request",
+        "developer.repository.worktree.create",
+        "developer.repository.worktree.preserve",
+        "developer.repository.sandbox.configure",
+        "developer.repository.sandbox.rebuild",
+        "developer.repository.sandbox.cleanup"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "external_url": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "External Url"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Revision"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "worktree_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Worktree Id"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "action",
+    "resource_id",
+    "conversation_id",
+    "status",
+    "code",
+    "revision",
+    "worktree_id",
+    "external_url"
+  ],
+  "title": "DeveloperRepositoryReceipt",
+  "type": "object"
+}

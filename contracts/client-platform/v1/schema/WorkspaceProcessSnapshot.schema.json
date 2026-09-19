@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "WorkspaceProcessInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "process_id": {
+          "format": "uuid",
+          "title": "Process Id",
+          "type": "string"
+        },
+        "quiesced": {
+          "title": "Quiesced",
+          "type": "boolean"
+        },
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "running",
+            "stopping",
+            "exited",
+            "failed",
+            "cleanup_incomplete"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process_id",
+        "command_id",
+        "run_id",
+        "command",
+        "state",
+        "exit_code",
+        "quiesced"
+      ],
+      "title": "WorkspaceProcessInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "processes": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProcessInfo"
+      },
+      "maxItems": 32,
+      "title": "Processes",
+      "type": "array"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "resource_id",
+    "conversation_id",
+    "resource_revision",
+    "binding_id",
+    "binding_revision",
+    "processes"
+  ],
+  "title": "WorkspaceProcessSnapshot",
+  "type": "object"
+}

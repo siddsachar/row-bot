@@ -1,0 +1,93 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval_mode": {
+      "maxLength": 64,
+      "title": "Approval Mode",
+      "type": "string"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expires At"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 16384,
+      "title": "Message",
+      "type": "string"
+    },
+    "message_truncated": {
+      "title": "Message Truncated",
+      "type": "boolean"
+    },
+    "nonce": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Nonce"
+    },
+    "requested_at": {
+      "maxLength": 80,
+      "title": "Requested At",
+      "type": "string"
+    },
+    "response_available": {
+      "title": "Response Available",
+      "type": "boolean"
+    },
+    "revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "run_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "task_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Task Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "task_id",
+    "run_id",
+    "revision",
+    "message",
+    "requested_at",
+    "expires_at",
+    "approval_mode",
+    "message_truncated",
+    "response_available"
+  ],
+  "title": "TaskApprovalReview",
+  "type": "object"
+}

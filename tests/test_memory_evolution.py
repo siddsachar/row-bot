@@ -214,7 +214,15 @@ def test_document_extraction_hub_and_entities_get_document_context(tmp_path, mon
     monkeypatch.setattr(doc, "_extract_from_summary", lambda title, article: [
         {"category": "concept", "subject": "Atlas Concept", "content": "Atlas Concept is described in the document."}
     ])
-    monkeypatch.setattr(kg, "rebuild_index", lambda: None)
+    monkeypatch.setattr(
+        kg,
+        "repair_projections",
+        lambda **_kwargs: {
+            "failures": [],
+            "pending": {"semantic": 0, "wiki": 0},
+            "wiki_enabled": False,
+        },
+    )
 
     result = doc.extract_from_document(str(file_path), "atlas.pdf")
 

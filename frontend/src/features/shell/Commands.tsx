@@ -17,7 +17,7 @@ export default function Commands({
       .includes(query.trim().toLowerCase()),
   );
   return (
-    <div className="stack">
+    <section className="stack command-palette" aria-label="Command palette">
       <Field label="Find a workspace command">
         <Input
           data-initial-focus
@@ -34,6 +34,11 @@ export default function Commands({
           }}
         />
       </Field>
+      <p className="muted command-count" role="status">
+        {matches.length === 1
+          ? '1 command available'
+          : `${matches.length} commands available`}
+      </p>
       <ul className="command-list" aria-label="Workspace commands">
         {matches.map((command) => (
           <li key={command.label}>
@@ -48,6 +53,6 @@ export default function Commands({
           Try a shorter search.
         </EmptyState>
       )}
-    </div>
+    </section>
   );
 }

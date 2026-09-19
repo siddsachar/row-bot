@@ -9,8 +9,15 @@ sources without changing normal chat binding.
 from __future__ import annotations
 
 from collections import Counter
+import base64
+from dataclasses import asdict, dataclass
+import hashlib
+import inspect
+import json
 import logging
-from typing import Any, Iterable, Mapping, Sequence
+import re
+import sys
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +28,168 @@ GROUP_ORDER = {
     "Custom Tools": 3,
     "Unavailable": 9,
 }
+
+ToolSource = Literal["core", "mcp", "plugin", "custom"]
+_PASSIVE_SOURCES = ("core", "mcp", "plugin", "custom")
+_PASSIVE_LIMIT = 10000
+
+
+@dataclass(frozen=True)
+class ToolCatalogRow:
+    id: str
+    label: str
+    source: ToolSource
+    parent_id: str | None
+    plugin_id: str | None
+    server_name: str | None
+    enabled: bool | None
+    configured: bool | None
+    destructive: bool | None
+    requires_approval: bool | None
+    runtime_state: Literal["unknown"] = "unknown"
+
+
+@dataclass(frozen=True)
+class ToolCatalogSource:
+    source: ToolSource
+    state: Literal["cached", "unavailable"]
+    total: int | None
+
+
+@dataclass(frozen=True)
+class ToolCatalogPage:
+    schema_version: int
+    revision: str
+    generated_at: float | None
+    freshness: Literal["cached", "unavailable"]
+    sources: tuple[ToolCatalogSource, ...]
+    items: tuple[ToolCatalogRow, ...]
+    total: int
+    next_cursor: str | None
+    truncated: bool
+
+
+class ToolCatalogError(ValueError):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+def _passive_tool_fields(name: str, tool: object) -> dict[str, Any]:
+    """Inspect plain registration metadata without executing tool descriptors."""
+    label = inspect.getattr_static(tool, "display_name", None)
+    destructive = inspect.getattr_static(tool, "destructive_tool_names", None)
+    return {"id": name, "label": label if type(label) is str else name,
+            "destructive": bool(destructive) if type(destructive) in (set, frozenset) else None}
+
+
+def _passive_identity(value: object) -> str | None:
+    # Tool identifiers are machine names, not paths, descriptions or arbitrary HTML.
+    return value if type(value) is str and re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value) else None
+
+
+def _passive_bool(value: object) -> bool | None:
+    return value if type(value) is bool else None
+
+
+def _passive_rows() -> tuple[list[ToolCatalogRow], tuple[ToolCatalogSource, ...], bool]:
+    rows: list[ToolCatalogRow] = []
+    available: set[str] = set()
+    seen: set[tuple[str, str]] = set()
+    truncated = False
+    for source, module_name in (("core", "row_bot.tools.registry"),
+                                ("mcp", "row_bot.mcp_client.runtime"),
+                                ("plugin", "row_bot.plugins.registry")):
+        owner = sys.modules.get(module_name)
+        if owner is None:
+            continue
+        try:
+            records = owner.get_passive_tool_records()
+        except Exception:
+            # Exception strings can include secrets or private paths.
+            continue
+        available.add(source)
+        if source == "plugin":
+            available.add("custom")
+        truncated |= len(records) > _PASSIVE_LIMIT
+        for item in records[:_PASSIVE_LIMIT]:
+            identity = _passive_identity(item.get("id"))
+            if identity is None:
+                continue
+            plugin_id = _passive_identity(item.get("plugin_id"))
+            kind = "custom" if source == "plugin" and (item.get("custom") is True or (plugin_id or "").startswith("custom-tool-")) else source
+            if source == "core" and identity == "mcp":
+                kind = "mcp"
+                available.add(kind)
+            if (kind, identity) in seen:
+                continue
+            seen.add((kind, identity))
+            label = item.get("label")
+            label = "".join(c for c in label[:256] if c.isprintable()) if type(label) is str else identity
+            server_name = item.get("server_name")
+            server_name = server_name if (type(server_name) is str and 0 < len(server_name) <= 256
+                                          and all(c.isprintable() for c in server_name)) else None
+            rows.append(ToolCatalogRow(
+                identity, label or identity, kind,
+                "mcp" if source == "mcp" else identity if source == "plugin" else None,
+                plugin_id, server_name,
+                _passive_bool(item.get("enabled")), _passive_bool(item.get("configured")),
+                _passive_bool(item.get("destructive")), _passive_bool(item.get("requires_approval")),
+            ))
+    rows.sort(key=lambda row: (_PASSIVE_SOURCES.index(row.source), row.label.casefold(), row.id))
+    sources = tuple(ToolCatalogSource(source, "cached" if source in available else "unavailable",
+                                     sum(row.source == source for row in rows) if source in available else None)
+                    for source in _PASSIVE_SOURCES)
+    return rows, sources, truncated
+
+
+def list_cached_tools(*, source: ToolSource | None = None, query: str = "",
+                      cursor: str | None = None, limit: int = 50) -> ToolCatalogPage:
+    """Bounded passive registration/discovery view; never authorizes execution.
+
+    Missing owners are not imported. Labels backed by executable properties use
+    registered IDs; plugin child aliases are not enumerated. ``enabled`` reflects
+    only currently provable owner toggles, ``configured`` only a known configuration
+    record (not credentials/readiness); unknown values stay null. No cache timestamp
+    exists, so generated_at is null and freshness never claims fresh verification.
+    Source totals describe retained parent/discovery rows, not runtime aliases.
+    """
+    if (source is not None and source not in _PASSIVE_SOURCES
+            or type(query) is not str or len(query) > 256
+            or type(limit) is not int or not 1 <= limit <= 100
+            or cursor is not None and (type(cursor) is not str or len(cursor) > 2048)):
+        raise ToolCatalogError("invalid_catalog_query")
+    query = query.strip().casefold()
+    rows, sources, truncated = _passive_rows()
+    revision = hashlib.sha256(json.dumps(
+        {"rows": [asdict(row) for row in rows], "sources": [asdict(item) for item in sources],
+         "truncated": truncated}, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode()).hexdigest()
+    selected = [row for row in rows if (source is None or row.source == source)
+                and (not query or query in " ".join((row.id, row.label, row.plugin_id or "", row.server_name or "")).casefold())]
+    offset = 0
+    if cursor is not None:
+        try:
+            data = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
+        except (ValueError, UnicodeError, RecursionError):
+            raise ToolCatalogError("invalid_catalog_query") from None
+        if (type(data) is not dict or set(data) != {"revision", "source", "query", "offset"}
+                or type(data["offset"]) is not int or data["offset"] <= 0):
+            raise ToolCatalogError("invalid_catalog_query")
+        if data["revision"] != revision or data["source"] != source or data["query"] != query:
+            raise ToolCatalogError("cursor_expired")
+        if data["offset"] >= len(selected):
+            raise ToolCatalogError("invalid_catalog_query")
+        offset = data["offset"]
+    page = tuple(selected[offset:offset + limit])
+    next_cursor = None
+    if offset + limit < len(selected):
+        next_cursor = base64.urlsafe_b64encode(json.dumps(
+            {"revision": revision, "source": source, "query": query, "offset": offset + limit},
+            separators=(",", ":"),
+        ).encode()).decode()
+    return ToolCatalogPage(1, revision, None, "cached" if rows or any(s.state == "cached" for s in sources)
+                           else "unavailable", sources, page, len(selected), next_cursor, truncated)
 
 
 def _text(value: Any) -> str:

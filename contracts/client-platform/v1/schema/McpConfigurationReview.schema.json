@@ -1,0 +1,56 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "add",
+        "edit",
+        "rename",
+        "import"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "saved_disabled": {
+      "const": true,
+      "title": "Saved Disabled",
+      "type": "boolean"
+    },
+    "server_ids": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Server Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "configuration_revision",
+    "operation",
+    "action_digest",
+    "server_ids",
+    "saved_disabled",
+    "nonce"
+  ],
+  "title": "McpConfigurationReview",
+  "type": "object"
+}

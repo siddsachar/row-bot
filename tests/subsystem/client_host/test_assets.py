@@ -59,6 +59,8 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     assert "sha256-" in shell.headers["content-security-policy"]
     assert "frame-src 'self'" in shell.headers["content-security-policy"]
     assert "object-src 'none'" in shell.headers["content-security-policy"]
+    directives = dict(part.strip().split(' ', 1) for part in shell.headers["content-security-policy"].split(';') if part.strip())
+    assert directives['media-src'].split() == ["'self'", 'blob:']
     assert host.get("/app-v2/conversations/fixture", headers={"Accept": "text/html"}).content == shell.content
     assert host.head("/app-v2/").content == b""
     assert host.head("/app-v2/").headers["content-length"] == str(len(shell.content))
@@ -85,6 +87,18 @@ def test_missing_build_does_not_break_existing_root(tmp_path: Path) -> None:
     host = client(tmp_path / "absent")
     assert host.get("/").status_code == 200
     assert host.get("/app-v2/").status_code == 503
+
+
+def test_missing_preview_runtime_preserves_nicegui_and_fails_new_client_safely(build: Path, monkeypatch) -> None:
+    from row_bot.designer.runtime import loader
+    def missing():
+        raise OSError("private runtime path")
+    monkeypatch.setattr(loader, "read_runtime_assets", missing)
+    host = client(build)
+    assert host.get("/").status_code == 200
+    response = host.get("/app-v2/")
+    assert response.status_code == 503
+    assert "private runtime path" not in response.text
 
 
 def test_preloaded_bytes_remain_exact_after_disk_swap(build: Path) -> None:

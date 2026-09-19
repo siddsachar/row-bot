@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "BuddyAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "content_type": {
+          "enum": [
+            "image/png",
+            "video/mp4",
+            "application/octet-stream"
+          ],
+          "title": "Content Type",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "content_type"
+      ],
+      "title": "BuddyAsset",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "animation_map": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Animation Map",
+      "type": "object"
+    },
+    "assets": {
+      "items": {
+        "$ref": "#/$defs/BuddyAsset"
+      },
+      "maxItems": 16,
+      "title": "Assets",
+      "type": "array"
+    },
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "generated": {
+      "title": "Generated",
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 128,
+      "title": "Revision",
+      "type": "string"
+    },
+    "runtime": {
+      "maxLength": 80,
+      "title": "Runtime",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "revision",
+    "runtime",
+    "available",
+    "generated",
+    "assets",
+    "animation_map"
+  ],
+  "title": "BuddyPack",
+  "type": "object"
+}

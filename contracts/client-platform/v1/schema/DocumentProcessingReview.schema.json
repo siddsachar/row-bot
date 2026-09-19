@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "DocumentProcessingChat": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_location": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Execution Location",
+          "type": "string"
+        },
+        "model_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "provider_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_ref",
+        "execution_location"
+      ],
+      "title": "DocumentProcessingChat",
+      "type": "object"
+    },
+    "DocumentProcessingEmbedding": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_location": {
+          "enum": [
+            "local",
+            "remote"
+          ],
+          "title": "Execution Location",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "execution_location"
+      ],
+      "title": "DocumentProcessingEmbedding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "const": "document.batch.process",
+      "title": "Action",
+      "type": "string"
+    },
+    "batch_id": {
+      "pattern": "^[A-Za-z0-9_-]{1,128}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "chat": {
+      "$ref": "#/$defs/DocumentProcessingChat"
+    },
+    "conversation_id": {
+      "pattern": "^[A-Za-z0-9_-]{1,128}$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "embedding": {
+      "$ref": "#/$defs/DocumentProcessingEmbedding"
+    },
+    "knowledge_projection_scope": {
+      "const": "saved_knowledge",
+      "title": "Knowledge Projection Scope",
+      "type": "string"
+    },
+    "policy_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Digest",
+      "type": "string"
+    },
+    "provider_work": {
+      "const": true,
+      "title": "Provider Work",
+      "type": "boolean"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "batch_id",
+    "revision",
+    "schema_version",
+    "action",
+    "conversation_id",
+    "policy_digest",
+    "provider_work",
+    "knowledge_projection_scope",
+    "chat",
+    "embedding",
+    "review_id"
+  ],
+  "title": "DocumentProcessingReview",
+  "type": "object"
+}

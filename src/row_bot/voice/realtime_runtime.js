@@ -1,0 +1,579 @@
+/* Sole browser realtime response arbiter for NiceGUI and the unified client.
+ * Network and authenticated event delivery are injected by each transport. */
+export async function startRealtimeRuntime(options) {
+  const sessionId = options.sessionId;
+  const threadId = options.threadId || '';
+  const initialGenerationId = options.generationId || '';
+  const activation = {};
+  window.RowBotRealtimeActivation = activation;
+  const responseIdentities = new Map();
+  let currentGenerationId = initialGenerationId;
+  function isCurrent() { return window.RowBotRealtimeActivation === activation && (!options.current || options.current()); }
+
+  function emit(type, detail) {
+    if (!isCurrent()) return;
+    const responseId = detail && detail.response_id;
+    const identity = responseIdentities.get(responseId) || {thread_id: threadId, generation_id: currentGenerationId};
+    options.emit(Object.assign({type}, detail || {}, threadId ? identity : {}, {session_id: sessionId}));
+  }
+
+  function safeJson(value) {
+    try {
+      if (!value) return {};
+      if (typeof value === 'object') return value;
+      return JSON.parse(String(value));
+    } catch (_) {
+      return {request: String(value || '')};
+    }
+  }
+
+  function responseMetadata(meta, base) {
+    const out = {};
+    const source = Object.assign({}, base || {}, meta || {});
+    Object.keys(source).forEach((key) => {
+      if (key === 'silent') return;
+      const value = source[key];
+      if (value === undefined || value === null) return;
+      out[key] = String(value);
+    });
+    return out;
+  }
+
+  function localControlMeta(meta) {
+    return {
+      silent: Boolean(meta && meta.silent)
+    };
+  }
+
+  async function cleanup(existing) {
+    if (!existing) return;
+    try { existing.dc && existing.dc.close(); } catch (_) {}
+    try { existing.pc && existing.pc.close(); } catch (_) {}
+    try {
+      (existing.stream && existing.stream.getTracks() || []).forEach((track) => track.stop());
+    } catch (_) {}
+    try {
+      if (existing.audio) {
+        if (existing.audio.pause) existing.audio.pause();
+        existing.audio.srcObject = null;
+        existing.audio.remove();
+      }
+    } catch (_) {}
+  }
+
+  const previousRuntime = window.RowBotRealtimeVoice;
+  await cleanup(previousRuntime && previousRuntime.session);
+  if (!isCurrent()) return;
+
+  const runtime = {
+    session: null,
+    activeResponseId: '',
+    activeOutputItemId: '',
+    outputStartedAt: 0,
+    playbackActive: false,
+    responseState: 'idle',
+    pendingResponseCreate: null,
+    responseSettleTimer: null,
+    lastResponseCreate: null,
+    pendingTranscript: '',
+    pendingTranscriptItemId: '',
+    consultStartedForItemId: '',
+    functionArgumentDeltas: Object.create(null),
+    handledCallIds: new Set(),
+    outputQueue: [],
+    emit,
+    setGeneration(expectedSession, expectedThread, expectedGeneration, nextGeneration) {
+      if (!isCurrent() || expectedSession !== sessionId || expectedThread !== threadId ||
+          expectedGeneration !== currentGenerationId || typeof nextGeneration !== 'string' || nextGeneration.length > 128) return false;
+      currentGenerationId = nextGeneration;
+      return true;
+    },
+    failLimit() {
+      emit('fatal_error', {message: 'Realtime session exceeded its event limit.'});
+      void this.stop();
+      return false;
+    },
+    clearGeneration(expectedSession, expectedThread, expectedGeneration) {
+      if (!isCurrent() || expectedSession !== sessionId || expectedThread !== threadId ||
+          expectedGeneration !== currentGenerationId) return false;
+      currentGenerationId = '';
+      return true;
+    },
+    dcState() {
+      const dc = this.session && this.session.dc;
+      return dc ? dc.readyState : 'missing';
+    },
+    sendEvent(event) {
+      if (!isCurrent()) return false;
+      const dc = this.session && this.session.dc;
+      if (!dc || dc.readyState !== 'open') {
+        emit('client_event_failed', {
+          reason: 'data_channel_not_open',
+          data_channel_state: this.dcState(),
+          event_type: event && event.type || ''
+        });
+        return false;
+      }
+      const encoded = JSON.stringify(event);
+      if (encoded.length > 32768) return this.failLimit();
+      dc.send(encoded);
+      return true;
+    },
+    async stop() {
+      if (isCurrent()) window.RowBotRealtimeActivation = null;
+      this.outputQueue = [];
+      this.functionArgumentDeltas = Object.create(null);
+      this.handledCallIds.clear();
+      responseIdentities.clear();
+      this.playbackActive = false;
+      this.responseState = 'idle';
+      this.pendingResponseCreate = null;
+      this.lastResponseCreate = null;
+      if (this.responseSettleTimer) clearTimeout(this.responseSettleTimer);
+      this.responseSettleTimer = null;
+      this.activeResponseId = '';
+      this.activeOutputItemId = '';
+      const closing = this.session;
+      this.session = null;
+      await cleanup(closing);
+      emit('stopped');
+    },
+    queueOrSendOutput(event, label) {
+      if (this.playbackActive) {
+        if (this.outputQueue.length >= 32) return this.failLimit();
+        this.outputQueue.push({event, label});
+        emit('provider_output_queued', {
+          reason: 'playback_active',
+          queue_length: this.outputQueue.length,
+          output_label: label || ''
+        });
+        return true;
+      }
+      return this.sendEvent(event);
+    },
+    createResponse(response, label, priority) {
+      const event = {type: 'response.create', response};
+      const queuedLabel = label || 'response_create';
+      const queuedPriority = priority || 'normal';
+      if (this.responseState !== 'idle' || this.playbackActive) {
+        if (queuedPriority === 'low') {
+          emit('provider_output_dropped', {
+            reason: 'response_active_low_priority',
+            response_state: this.responseState,
+            output_label: queuedLabel
+          });
+          return true;
+        }
+        this.pendingResponseCreate = {event, label: queuedLabel, priority: queuedPriority};
+        emit('provider_response_queued', {
+          reason: 'response_not_idle',
+          response_state: this.responseState,
+          output_label: queuedLabel,
+          queue_length: this.pendingResponseCreate ? 1 : 0
+        });
+        return true;
+      }
+      return this._sendResponseCreate(event, queuedLabel);
+    },
+    _sendResponseCreate(event, label) {
+      this.responseState = 'creating';
+      this.lastResponseCreate = {event, label: label || 'response_create'};
+      const sent = this.sendEvent(event);
+      if (!sent) {
+        this.responseState = 'idle';
+        this.lastResponseCreate = null;
+      } else {
+        emit('provider_response_create_sent', {
+          response_state: this.responseState,
+          output_label: label || ''
+        });
+      }
+      return sent;
+    },
+    settleResponseLifecycle(reason, delayMs) {
+      if (this.responseSettleTimer) clearTimeout(this.responseSettleTimer);
+      this.responseState = 'draining';
+      this.responseSettleTimer = setTimeout(() => {
+        this.responseSettleTimer = null;
+        if (this.responseState === 'draining' || this.responseState === 'cancelling') {
+          this.responseState = 'idle';
+        }
+        this.flushResponseQueue();
+      }, Math.max(0, Number(delayMs || 0)));
+      emit('provider_response_settling', {
+        reason: reason || '',
+        response_state: this.responseState,
+        settle_ms: Math.max(0, Number(delayMs || 0)),
+        queued_response: Boolean(this.pendingResponseCreate)
+      });
+    },
+    flushResponseQueue() {
+      if (this.responseState !== 'idle' || this.playbackActive || !this.pendingResponseCreate) return false;
+      const next = this.pendingResponseCreate;
+      this.pendingResponseCreate = null;
+      return this._sendResponseCreate(next.event, next.label);
+    },
+    handleProviderError(message, payload) {
+      const detail = String(message || '');
+      const activeConflict = detail.toLowerCase().includes('active response');
+      if (activeConflict && this.lastResponseCreate) {
+        this.pendingResponseCreate = this.lastResponseCreate;
+        this.responseState = 'draining';
+        emit('provider_response_requeued', {
+          reason: 'active_response_error',
+          response_state: this.responseState,
+          output_label: this.lastResponseCreate.label || '',
+          raw: payload || {}
+        });
+        this.settleResponseLifecycle('active_response_error', 600);
+        return true;
+      }
+      return false;
+    },
+    flushOutputQueue() {
+      while (!this.playbackActive && this.outputQueue.length) {
+        const next = this.outputQueue.shift();
+        if (next) this.sendEvent(next.event);
+      }
+    },
+    sendFunctionOutput(callId, output, meta) {
+      if (!isCurrent() || (threadId && meta && meta.thread_id !== threadId)) return false;
+      if (meta && typeof meta.generation_id === 'string') currentGenerationId = meta.generation_id;
+      const cleanCallId = String(callId || '').trim();
+      const cleanOutput = typeof output === 'string' ? output : JSON.stringify(output || {});
+      const localMeta = localControlMeta(meta);
+      if (!cleanCallId) return this.sendRunEvent(cleanOutput, Object.assign({}, meta || {}, {origin: 'forced_consult_result'}));
+      const sent = this.queueOrSendOutput({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: cleanCallId,
+          output: cleanOutput
+        }
+      }, 'function_call_output');
+      if (sent && !localMeta.silent) {
+        this.createResponse({
+            output_modalities: ['audio'],
+            metadata: responseMetadata(meta, {row_bot_origin: 'function_call_output', call_id: cleanCallId})
+        }, 'function_call_response', 'normal');
+      }
+      return sent;
+    },
+    sendRunEvent(text, meta) {
+      if (!isCurrent() || (threadId && meta && meta.thread_id !== threadId)) return false;
+      if (meta && typeof meta.generation_id === 'string') currentGenerationId = meta.generation_id;
+      const clean = String(text || '').trim();
+      if (!clean) return false;
+      if (clean.length > 8192) return this.failLimit();
+      const origin = String(meta && meta.origin || '');
+      const answerOrigin = origin === 'final' || origin === 'stream_chunk' || origin.includes('result');
+      const priority = (answerOrigin || origin === 'tool_start' || origin === 'tool_progress' || origin === 'long_running') ? 'normal' : 'low';
+      const instructions = answerOrigin
+        ? 'Speak this Row-Bot response naturally and faithfully. Do not add framing, summarize, or ask follow-up questions: ' + clean
+        : 'Speak exactly this brief Row-Bot status. Do not add details or ask follow-up questions: ' + clean;
+      return this.createResponse({
+          output_modalities: ['audio'],
+          metadata: responseMetadata(meta, {row_bot_origin: 'run_event'}),
+          instructions
+      }, 'run_event', priority);
+    },
+    cancelActiveOutput(reason) {
+      const elapsedMs = this.outputStartedAt ? Math.max(0, Math.round(performance.now() - this.outputStartedAt)) : 0;
+      if (elapsedMs > 0 && elapsedMs < 250) {
+        emit('barge_in_ignored', {
+          reason: 'very_early_input',
+          active_response_id: this.activeResponseId,
+          active_output_item_id: this.activeOutputItemId,
+          output_elapsed_ms: elapsedMs
+        });
+        return false;
+      }
+      let sentCancel = false;
+      if (this.activeResponseId) sentCancel = this.sendEvent({type: 'response.cancel'});
+      this.sendEvent({type: 'output_audio_buffer.clear'});
+      emit('barge_in_cancelled', {
+        reason: reason || 'user_speech_started',
+        response_id: this.activeResponseId,
+        output_item_id: this.activeOutputItemId,
+        output_elapsed_ms: elapsedMs,
+        playback_active: this.playbackActive,
+        provider_cancel_sent: sentCancel
+      });
+      this.playbackActive = false;
+      this.activeResponseId = '';
+      this.activeOutputItemId = '';
+      this.responseState = 'cancelling';
+      if (this.pendingResponseCreate && this.pendingResponseCreate.priority === 'low') {
+        this.pendingResponseCreate = null;
+      }
+      this.settleResponseLifecycle('barge_in_cancelled', 450);
+      return true;
+    },
+    emitFunctionCall(item, sourceType, responseId) {
+      if (!item || item.type !== 'function_call') return false;
+      const callId = String(item.call_id || item.id || '');
+      if (!callId || this.handledCallIds.has(callId)) return false;
+      if (callId.length > 128 || this.handledCallIds.size >= 200) return this.failLimit();
+      this.handledCallIds.add(callId);
+      const argumentsText = String(item.arguments || this.functionArgumentDeltas[callId] || this.functionArgumentDeltas[item.id] || '');
+      delete this.functionArgumentDeltas[callId];
+      if (item.id) delete this.functionArgumentDeltas[item.id];
+      if (argumentsText.length > 8192) return this.failLimit();
+      if (item.name === 'row_bot_agent_consult') {
+        this.consultStartedForItemId = this.pendingTranscriptItemId || 'unknown';
+      }
+      emit('function_call_ready', {
+        name: String(item.name || ''),
+        call_id: callId,
+        arguments: argumentsText,
+        parsed_arguments: safeJson(argumentsText),
+        source_event_type: sourceType || '',
+        response_id: responseId || this.activeResponseId,
+        item_id: String(item.id || '')
+      });
+      return true;
+    },
+    handleResponseOutputItem(item, sourceType, responseId) {
+      if (!item) return;
+      if (item.type === 'function_call') this.emitFunctionCall(item, sourceType, responseId);
+    }
+  };
+  window.RowBotRealtimeVoice = runtime;
+  if (options.onRuntime) options.onRuntime(runtime);
+
+  try {
+    emit('connecting');
+    const tokenData = await options.bootstrap();
+    if (!isCurrent()) return runtime;
+    const ephemeralKey = tokenData.value;
+    if (!ephemeralKey && options.exchangeManaged !== true) throw new Error('Realtime client secret did not include a value.');
+    if (!(options.exchangeManaged === true && ephemeralKey === null) &&
+        (typeof ephemeralKey !== 'string' || ephemeralKey.length > 4096)) throw new Error('Invalid realtime credential.');
+
+    const pc = new RTCPeerConnection();
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+    runtime.session = {pc, audio};
+    pc.ontrack = (event) => {
+      audio.srcObject = event.streams[0];
+      emit('remote_audio_track', {streams: event.streams.length});
+    };
+    pc.onconnectionstatechange = () => emit('connection_state', {state: pc.connectionState});
+
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const permission = await navigator.permissions.query({name: 'microphone'});
+        if (!isCurrent()) return;
+        emit('microphone_permission', {
+          state: permission.state || '',
+          origin: window.location.origin || '',
+          host: window.location.host || ''
+        });
+      } else {
+        emit('microphone_permission', {
+          state: 'unsupported',
+          origin: window.location.origin || '',
+          host: window.location.host || ''
+        });
+      }
+    } catch (error) {
+      emit('microphone_permission', {
+        state: 'query_failed',
+        origin: window.location.origin || '',
+        host: window.location.host || '',
+        message: String(error && error.message || error)
+      });
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    if (!isCurrent()) { await cleanup({pc, audio, stream}); return; }
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+    const dc = pc.createDataChannel('oai-events');
+    runtime.session = {pc, dc, stream, audio};
+
+    dc.addEventListener('open', () => emit('connected'));
+    dc.addEventListener('message', (event) => {
+      if (!isCurrent()) return;
+      if (typeof event.data !== 'string' || event.data.length > 131072) { runtime.failLimit(); return; }
+      let payload = null;
+      try { payload = JSON.parse(event.data); } catch (_) { return; }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const type = String(payload.type || '');
+      const response = payload.response || {};
+      const responseId = String(response.id || payload.response_id || '');
+      if (responseId && !responseIdentities.has(responseId)) {
+        if (responseId.length > 128 || responseIdentities.size >= 200) { runtime.failLimit(); return; }
+        const meta = response.metadata || {};
+        responseIdentities.set(responseId, {
+          thread_id: String(meta.thread_id || threadId),
+          generation_id: String(meta.generation_id ?? currentGenerationId)
+        });
+      }
+      if (type === 'session.created' || type === 'session.updated') {
+        emit('session_lifecycle', {event_type: type, raw: payload});
+      } else if (type === 'input_audio_buffer.speech_started') {
+        runtime.cancelActiveOutput('user_speech_started');
+        emit('speech_started', {raw: payload});
+      } else if (type === 'input_audio_buffer.speech_stopped') {
+        emit('speech_stopped', {raw: payload});
+      } else if (type === 'conversation.item.input_audio_transcription.delta') {
+        emit('transcript_delta', {text: payload.delta || '', item_id: payload.item_id || '', raw: payload});
+      } else if (type === 'conversation.item.input_audio_transcription.completed') {
+        runtime.pendingTranscript = String(payload.transcript || payload.text || '');
+        if (runtime.pendingTranscript.length > 4000) { runtime.failLimit(); return; }
+        runtime.pendingTranscriptItemId = String(payload.item_id || '');
+        runtime.consultStartedForItemId = '';
+        emit('transcript_final', {
+          text: runtime.pendingTranscript,
+          item_id: runtime.pendingTranscriptItemId,
+          raw: payload
+        });
+      } else if (type === 'response.created') {
+        const responseId = String(payload.response && payload.response.id || payload.response_id || '');
+        runtime.activeResponseId = responseId;
+        runtime.playbackActive = true;
+        runtime.responseState = 'active';
+        runtime.outputStartedAt = performance.now();
+        emit('output_started', {
+          response_id: runtime.activeResponseId,
+          response_state: runtime.responseState,
+          raw: payload
+        });
+      } else if (type === 'response.output_item.added' || type === 'response.output_item.created') {
+        const item = payload.item || {};
+        runtime.activeOutputItemId = String(item.id || payload.item_id || runtime.activeOutputItemId || '');
+        emit('output_item_started', {
+          response_id: String(payload.response_id || runtime.activeResponseId || ''),
+          output_item_id: runtime.activeOutputItemId,
+          item_type: String(item.type || ''),
+          raw: payload
+        });
+      } else if (type === 'response.function_call_arguments.delta') {
+        const callId = String(payload.call_id || payload.item_id || '');
+        const nextArguments = String(runtime.functionArgumentDeltas[callId] || '') + String(payload.delta || '');
+        if (callId.length > 128 || nextArguments.length > 8192 ||
+            (!Object.hasOwn(runtime.functionArgumentDeltas, callId) && Object.keys(runtime.functionArgumentDeltas).length >= 200)) {
+          runtime.failLimit(); return;
+        }
+        runtime.functionArgumentDeltas[callId] = nextArguments;
+        emit('function_call_delta', {
+          call_id: callId,
+          delta: String(payload.delta || ''),
+          raw: payload
+        });
+      } else if (type === 'response.output_item.done') {
+        const item = payload.item || {};
+        runtime.handleResponseOutputItem(item, type, responseId);
+        emit('output_item_done', {
+          response_id: String(payload.response_id || runtime.activeResponseId || ''),
+          output_item_id: String(item.id || payload.item_id || runtime.activeOutputItemId || ''),
+          item_type: String(item.type || ''),
+          raw: payload
+        });
+      } else if (type === 'response.output_audio_transcript.delta') {
+        emit('assistant_transcript_delta', {
+          text: payload.delta || '',
+          response_id: String(payload.response_id || runtime.activeResponseId || ''),
+          output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
+          raw: payload
+        });
+      } else if (type === 'response.output_audio_transcript.done') {
+        emit('assistant_transcript_final', {
+          text: payload.transcript || payload.text || '',
+          response_id: String(payload.response_id || runtime.activeResponseId || ''),
+          output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
+          raw: payload
+        });
+      } else if (type === 'response.output_audio.done') {
+        emit('output_audio_done', {
+          response_id: String(payload.response_id || runtime.activeResponseId || ''),
+          output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
+          response_state: runtime.responseState,
+          raw: payload
+        });
+        if (runtime.responseState === 'draining') {
+          runtime.responseState = 'idle';
+          runtime.flushResponseQueue();
+        }
+      } else if (type === 'response.done') {
+        const response = payload.response || {};
+        const outputs = Array.isArray(response.output) ? response.output : [];
+        if (outputs.length > 50) { runtime.failLimit(); return; }
+        let hadFunctionCall = false;
+        outputs.forEach((item) => {
+          if (item && item.type === 'function_call') hadFunctionCall = runtime.emitFunctionCall(item, type, String(response.id || '')) || hadFunctionCall;
+        });
+        const responseId = String(response.id || runtime.activeResponseId || '');
+        const outputItemId = runtime.activeOutputItemId;
+        const elapsedMs = runtime.outputStartedAt ? Math.max(0, Math.round(performance.now() - runtime.outputStartedAt)) : 0;
+        runtime.playbackActive = false;
+        runtime.activeResponseId = '';
+        runtime.activeOutputItemId = '';
+        runtime.outputStartedAt = 0;
+        emit('response_done', {
+          response_id: responseId,
+          output_item_id: outputItemId,
+          output_elapsed_ms: elapsedMs,
+          response_state: runtime.responseState,
+          had_function_call: hadFunctionCall,
+          consult_started: Boolean(runtime.consultStartedForItemId),
+          pending_transcript: runtime.pendingTranscript,
+          pending_transcript_item_id: runtime.pendingTranscriptItemId,
+          raw: payload
+        });
+        if (runtime.pendingTranscript && !runtime.consultStartedForItemId && !hadFunctionCall) {
+          emit('consult_fallback_needed', {
+            text: runtime.pendingTranscript,
+            item_id: runtime.pendingTranscriptItemId,
+            response_id: responseId,
+            raw: payload
+          });
+        }
+        runtime.pendingTranscript = '';
+        runtime.pendingTranscriptItemId = '';
+        runtime.consultStartedForItemId = '';
+        runtime.settleResponseLifecycle('response_done', 180);
+        runtime.flushOutputQueue();
+      } else if (type === 'response.cancelled') {
+        runtime.playbackActive = false;
+        runtime.responseState = 'cancelling';
+        emit('response_cancelled', {
+          response_id: String(payload.response_id || runtime.activeResponseId || ''),
+          output_item_id: runtime.activeOutputItemId,
+          response_state: runtime.responseState,
+          raw: payload
+        });
+        runtime.activeResponseId = '';
+        runtime.activeOutputItemId = '';
+        runtime.settleResponseLifecycle('response_cancelled', 300);
+      } else if (type === 'error') {
+        const message = (payload.error && payload.error.message) || payload.message || 'Realtime error';
+        const requeued = runtime.handleProviderError(message, payload);
+        emit('server_error', {message, requeued, response_state: runtime.responseState, raw: payload});
+      } else {
+        emit('server_event', {event_type: type, raw: payload});
+      }
+    });
+    dc.addEventListener('close', () => emit('disconnected'));
+    dc.addEventListener('error', () => emit('fatal_error', {message: 'Realtime data channel error'}));
+
+    const offer = await pc.createOffer();
+    if (!isCurrent()) return;
+    await pc.setLocalDescription(offer);
+    if (!isCurrent()) return;
+    const answer = await options.exchange(offer.sdp, ephemeralKey);
+    if (!isCurrent()) return runtime;
+    await pc.setRemoteDescription({type: 'answer', sdp: answer});
+    if (!isCurrent()) return;
+    emit('listening');
+  } catch (error) {
+    const closing = runtime.session;
+    runtime.session = null;
+    await cleanup(closing);
+    emit('fatal_error', {message: String(error && error.message || error)});
+  }
+  return runtime;
+}

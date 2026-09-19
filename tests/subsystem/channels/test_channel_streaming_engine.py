@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from row_bot.channels.streaming import (
+    ChannelDeliveryRejected,
     ChannelRateLimitError,
     ChannelStreamConfig,
     ChannelStreamConsumer,
@@ -54,7 +55,7 @@ class FakeTransport:
             self.fail_next_update_rate_limit = None
             raise ChannelRateLimitError("rate limited", retry_after=retry_after)
         if final and self.fail_final_update:
-            raise RuntimeError("final edit failed")
+            raise ChannelDeliveryRejected("final edit rejected before dispatch")
         self.operations.append(("update_final" if final else "update", text))
         return handle
 
@@ -369,7 +370,8 @@ def test_engine_marks_delivery_failed_when_update_and_fallback_fail() -> None:
 
     assert result.delivered is False
     assert result.finalized is False
-    assert "send failed" in (result.error or "")
+    assert result.error == "delivery_unconfirmed"
+    assert result.uncertain is True
 
 
 def test_engine_handles_cancellation_without_false_final_success() -> None:

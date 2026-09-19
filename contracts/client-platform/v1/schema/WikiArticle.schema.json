@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "article_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Article Id",
+      "type": "string"
+    },
+    "database_text": {
+      "anyOf": [
+        {
+          "maxLength": 196608,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Database Text"
+    },
+    "db_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Db Revision"
+    },
+    "entity_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Entity Id"
+    },
+    "title": {
+      "maxLength": 256,
+      "title": "Title",
+      "type": "string"
+    },
+    "vault_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Vault Hash",
+      "type": "string"
+    },
+    "vault_text": {
+      "maxLength": 196608,
+      "title": "Vault Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "article_id",
+    "entity_id",
+    "title",
+    "vault_text",
+    "vault_hash",
+    "database_text",
+    "db_revision"
+  ],
+  "title": "WikiArticle",
+  "type": "object"
+}

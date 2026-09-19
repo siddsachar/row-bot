@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "KnowledgeDraftInput": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entity Id"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KnowledgeFields"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "revision": {
+          "pattern": "^([0-9a-f]{64})?$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id",
+        "revision"
+      ],
+      "title": "KnowledgeDraftInput",
+      "type": "object"
+    },
+    "KnowledgeFields": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "maxLength": 4096,
+          "title": "Aliases",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 32768,
+          "title": "Description",
+          "type": "string"
+        },
+        "entity_type": {
+          "enum": [
+            "concept",
+            "event",
+            "fact",
+            "media",
+            "organisation",
+            "person",
+            "place",
+            "preference",
+            "project",
+            "self_knowledge",
+            "skill"
+          ],
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        },
+        "tags": {
+          "maxLength": 4096,
+          "title": "Tags",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_type",
+        "subject",
+        "description",
+        "aliases",
+        "tags"
+      ],
+      "title": "KnowledgeFields",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "knowledge.create",
+        "knowledge.edit",
+        "knowledge.archive",
+        "knowledge.restore",
+        "knowledge.resolve"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/KnowledgeDraftInput"
+    }
+  },
+  "required": [
+    "action",
+    "payload"
+  ],
+  "title": "KnowledgeReviewRequest",
+  "type": "object"
+}

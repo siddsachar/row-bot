@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "ArtifactShareChannel": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "available"
+      ],
+      "title": "ArtifactShareChannel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ArtifactShareChannel"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "revision",
+    "next_cursor"
+  ],
+  "title": "ArtifactShareChannels",
+  "type": "object"
+}

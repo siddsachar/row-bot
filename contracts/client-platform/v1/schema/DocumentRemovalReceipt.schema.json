@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "DocumentRemovalOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "derived_entities_removed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Derived Entities Removed",
+          "type": "integer"
+        },
+        "document_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document Id"
+        },
+        "failure_codes": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Failure Codes",
+          "type": "array"
+        },
+        "removal_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Removal Id",
+          "type": "string"
+        },
+        "removed": {
+          "title": "Removed",
+          "type": "boolean"
+        },
+        "retained_copy_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Retained Copy Count",
+          "type": "integer"
+        },
+        "retained_kinds": {
+          "items": {
+            "enum": [
+              "raw_copy",
+              "document_source",
+              "document_index",
+              "legacy_index",
+              "externally_edited_raw",
+              "wiki_external_and_recovery_copies",
+              "interrupted_source_copies",
+              "legacy_index_created_after_request"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Retained Kinds",
+          "type": "array"
+        },
+        "stage_counts": {
+          "$ref": "#/$defs/DocumentRemovalStageCounts"
+        },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/DocumentRemovalStage"
+          },
+          "maxItems": 10,
+          "title": "Stages",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "pending",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "removal_id",
+        "document_id",
+        "status",
+        "removed",
+        "derived_entities_removed",
+        "retained_copy_count",
+        "retained_kinds",
+        "stages",
+        "stage_counts",
+        "failure_codes"
+      ],
+      "title": "DocumentRemovalOutcome",
+      "type": "object"
+    },
+    "DocumentRemovalStage": {
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "enum": [
+            "worker",
+            "derived_snapshot",
+            "index",
+            "source",
+            "raw_copy",
+            "derived_knowledge",
+            "markers",
+            "record",
+            "legacy_index",
+            "bulk_removal"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "pending",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "status"
+      ],
+      "title": "DocumentRemovalStage",
+      "type": "object"
+    },
+    "DocumentRemovalStageCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Complete",
+          "type": "integer"
+        },
+        "partial": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Partial",
+          "type": "integer"
+        },
+        "pending": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "complete",
+        "pending",
+        "partial"
+      ],
+      "title": "DocumentRemovalStageCounts",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "document_outcome_uncertain",
+            "document_action_rejected"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "removal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DocumentRemovalOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "DocumentRemovalReceipt",
+  "type": "object"
+}

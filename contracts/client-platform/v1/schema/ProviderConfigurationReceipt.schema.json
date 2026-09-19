@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "rejected",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "configuration_revision"
+  ],
+  "title": "ProviderConfigurationReceipt",
+  "type": "object"
+}

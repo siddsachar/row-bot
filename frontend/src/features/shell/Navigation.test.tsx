@@ -27,7 +27,6 @@ async function setup(count = 55, route = '/') {
   const onOpenConversation = vi.fn();
   const onOpenHome = vi.fn();
   const onNewChat = vi.fn();
-  const onPreferences = vi.fn();
   const transport = new FixtureTransport({ conversationCount: count });
   const list = vi.spyOn(transport, 'listConversations');
   const controller = new ClientController(transport, () => 1);
@@ -44,7 +43,6 @@ async function setup(count = 55, route = '/') {
             onOpenConversation={onOpenConversation}
             onOpenHome={onOpenHome}
             onNewChat={onNewChat}
-            onPreferences={onPreferences}
           />
         </OverlayProvider>
       </RuntimeContext.Provider>
@@ -57,7 +55,6 @@ async function setup(count = 55, route = '/') {
     onOpenConversation,
     onOpenHome,
     onNewChat,
-    onPreferences,
   };
 }
 
@@ -230,13 +227,26 @@ it('opens Home without a creation, Stop, selection change or draft mutation', as
   expect(onNewChat).not.toHaveBeenCalled();
 });
 
-it('delegates sidebar New chat and Preferences to the persistent owners', async () => {
-  const { transport, onNewChat, onPreferences } = await setup();
+it('delegates sidebar New chat and navigates Settings to the persistent shell', async () => {
+  const { transport, onNewChat } = await setup();
   fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Preferences' }));
+  fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   expect(onNewChat).toHaveBeenCalledTimes(1);
-  expect(onPreferences).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/settings/providers',
+  );
   expect(transport.counters.commands).toBe(0);
+});
+
+it('groups primary actions, conversations and secondary destinations for compact navigation', async () => {
+  await setup(2);
+  expect(
+    screen.getByRole('group', { name: 'Primary workspace actions' }),
+  ).toBeVisible();
+  expect(screen.getByRole('region', { name: 'Conversations' })).toBeVisible();
+  expect(
+    screen.getByRole('group', { name: 'Additional destinations' }),
+  ).toBeVisible();
 });
 
 it('supports an empty collapsible section without introducing commands or controls for nonexistent pages', async () => {

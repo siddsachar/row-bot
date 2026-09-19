@@ -58,7 +58,13 @@
       "title": "Html"
     },
     "mode": {
-      "const": "deck",
+      "enum": [
+        "deck",
+        "document",
+        "landing",
+        "app_mockup",
+        "storyboard"
+      ],
       "title": "Mode",
       "type": "string"
     },
@@ -108,6 +114,11 @@
       "maxLength": 128,
       "title": "Resource Revision",
       "type": "string"
+    },
+    "scripts_allowed": {
+      "default": false,
+      "title": "Scripts Allowed",
+      "type": "boolean"
     },
     "unchanged": {
       "title": "Unchanged",

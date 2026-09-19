@@ -1,9 +1,15 @@
-import type { CommandReceipt, ResourceChoice } from '../../api/types';
+import type {
+  ArtifactSetupOptions,
+  CommandReceipt,
+  ResourceChoice,
+} from '../../api/types';
 import { isCommandReceipt } from '../../api/types';
 
 export type SetupDraft = {
   kind: 'artifact' | 'workspace';
   mode: 'create' | 'existing';
+  artifactMode: NonNullable<ArtifactSetupOptions['mode']>;
+  workspaceMode: 'existing_folder' | 'empty_folder';
   selected: ResourceChoice | null;
   template: string;
   canvas: string;
@@ -18,6 +24,8 @@ export type SetupDraft = {
 const initial = (): SetupDraft => ({
   kind: 'artifact',
   mode: 'create',
+  artifactMode: 'deck',
+  workspaceMode: 'existing_folder',
   selected: null,
   template: 'blank_deck',
   canvas: '16:9',
@@ -37,10 +45,18 @@ function parse(raw: string | null): SetupDraft {
   if (!raw || raw.length > maximum) return initial();
   try {
     const value = JSON.parse(raw) as SetupDraft;
+    // Existing Deck drafts/receipt identities keep their original meaning.
+    if (value && value.artifactMode === undefined) value.artifactMode = 'deck';
+    if (value && value.workspaceMode === undefined)
+      value.workspaceMode = 'existing_folder';
     if (
       !value ||
       !['artifact', 'workspace'].includes(value.kind) ||
       !['create', 'existing'].includes(value.mode) ||
+      !['existing_folder', 'empty_folder'].includes(value.workspaceMode) ||
+      !['deck', 'document', 'landing', 'app_mockup', 'storyboard'].includes(
+        value.artifactMode,
+      ) ||
       typeof value.name !== 'string' ||
       value.name.length > 120 ||
       typeof value.brief !== 'string' ||

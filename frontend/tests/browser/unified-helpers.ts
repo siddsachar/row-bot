@@ -208,10 +208,34 @@ export function composer(page: Page) {
   });
 }
 
+/** Retire authenticated observers before an intentional cross-document test navigation. */
+export async function retireDocument(page: Page): Promise<void> {
+  let current: URL;
+  try {
+    current = new URL(page.url());
+  } catch {
+    return;
+  }
+  if (!['http:', 'https:'].includes(current.protocol)) return;
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new PageTransitionEvent('pagehide', { persisted: false }),
+    );
+  });
+  // The lifecycle binding disposes synchronously. Firefox may retain the
+  // closing event stream long enough that networkidle is not a valid signal.
+}
+
+export async function reloadDocument(page: Page): Promise<void> {
+  await retireDocument(page);
+  await page.reload();
+}
+
 export async function openConversation(
   page: Page,
   id = 'p1-browser-a',
 ): Promise<void> {
+  await retireDocument(page);
   const opened = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === `/api/v1/conversations/${id}/open` &&
@@ -233,6 +257,7 @@ export async function openConversation(
 }
 
 export async function newConversation(page: Page): Promise<string> {
+  await retireDocument(page);
   await page.goto('/app-v2/');
   await expect(
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
@@ -242,6 +267,9 @@ export async function newConversation(page: Page): Promise<string> {
     .getByRole('button', { name: 'New chat', exact: true })
     .click();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
+  await expect(
+    page.getByLabel('Opening conversation', { exact: true }),
+  ).toHaveCount(0);
   await expect(composer(page)).toBeVisible();
   await expect(composer(page)).toHaveCount(1);
   const id = new URL(page.url()).pathname.split('/').at(-1);
@@ -274,6 +302,11 @@ export async function assertWorkspaceIdentity(page: Page): Promise<void> {
 export async function assertControlTextUnclipped(
   control: Locator,
 ): Promise<void> {
+  // Playwright's helper can miscalculate a scroll container at CSS zoom in
+  // Firefox. Exercise the browser's native nearest-edge scroll first.
+  await control.evaluate((element) =>
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
+  );
   await control.scrollIntoViewIfNeeded();
   // The visual-alignment contract intentionally compacts fine-pointer actions.
   // Touch and comfortable/compact-viewport controls retain the literal 44px
@@ -295,8 +328,8 @@ export async function assertControlTextUnclipped(
     .toBeGreaterThanOrEqual(minimumHeight);
   await expect
     .poll(
-      () =>
-        control.evaluate((element) => {
+      async () => {
+        const geometry = await control.evaluate((element) => {
           const range = document.createRange();
           range.selectNodeContents(element);
           const text = range.getBoundingClientRect();
@@ -304,6 +337,20 @@ export async function assertControlTextUnclipped(
             left = 0,
             bottom = innerHeight,
             right = innerWidth;
+          const clipping: {
+            tag: string;
+            id: string;
+            classes: string;
+            top: number;
+            right: number;
+            bottom: number;
+            left: number;
+            overflowX: string;
+            overflowY: string;
+            clientHeight: number;
+            scrollHeight: number;
+            scrollTop: number;
+          }[] = [];
           for (
             let parent = element.parentElement;
             parent;
@@ -315,6 +362,24 @@ export async function assertControlTextUnclipped(
               scaleY = parent.offsetHeight
                 ? box.height / parent.offsetHeight
                 : 1;
+            if (
+              /(auto|scroll|hidden|clip)/.test(style.overflowX) ||
+              /(auto|scroll|hidden|clip)/.test(style.overflowY)
+            )
+              clipping.push({
+                tag: parent.tagName,
+                id: parent.id,
+                classes: parent.className,
+                top: box.top,
+                right: box.right,
+                bottom: box.bottom,
+                left: box.left,
+                overflowX: style.overflowX,
+                overflowY: style.overflowY,
+                clientHeight: parent.clientHeight,
+                scrollHeight: parent.scrollHeight,
+                scrollTop: parent.scrollTop,
+              });
             if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
               top = Math.max(top, box.top + parent.clientTop * scaleY);
               bottom = Math.min(
@@ -330,14 +395,29 @@ export async function assertControlTextUnclipped(
               );
             }
           }
-          return (
-            text.height > 0 &&
-            text.top >= top - 1 &&
-            text.bottom <= bottom + 1 &&
-            text.left >= left - 1 &&
-            text.right <= right + 1
-          );
-        }),
+          return {
+            fits:
+              text.height > 0 &&
+              text.top >= top - 1 &&
+              text.bottom <= bottom + 1 &&
+              text.left >= left - 1 &&
+              text.right <= right + 1,
+            text: {
+              top: text.top,
+              right: text.right,
+              bottom: text.bottom,
+              left: text.left,
+              width: text.width,
+              height: text.height,
+            },
+            clip: { top, right, bottom, left },
+            clipping,
+          };
+        });
+        if (!geometry.fits)
+          throw new Error(`Control text geometry: ${JSON.stringify(geometry)}`);
+        return true;
+      },
       { message: 'Control text must fit its clipping ancestors and viewport' },
     )
     .toBe(true);
@@ -346,7 +426,7 @@ export async function assertControlTextUnclipped(
 export async function assertConversationSummaries(page: Page): Promise<void> {
   for (const label of [/^Steering queue$/, /^Activity \(/]) {
     const summary = page
-      .locator('.chat-workspace > details.activity > summary')
+      .locator('.chat-content > details.activity > summary')
       .filter({ hasText: label });
     if (await summary.count()) await assertControlTextUnclipped(summary);
   }

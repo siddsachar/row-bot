@@ -1,0 +1,269 @@
+{
+  "$defs": {
+    "McpConfigurationFields": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              "maxItems": 128,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Args"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "connect_timeout": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "ge": 1,
+              "le": 3600
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connect Timeout"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cwd"
+        },
+        "env": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              "maxProperties": 128,
+              "propertyNames": {
+                "maxLength": 256,
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Env"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              "maxProperties": 128,
+              "propertyNames": {
+                "maxLength": 256,
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Headers"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "output_limit": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Limit"
+        },
+        "tool_timeout": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "ge": 1,
+              "le": 3600
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Timeout"
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "enum": [
+                "stdio",
+                "streamable_http",
+                "sse"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transport"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "title": "McpConfigurationFields",
+      "type": "object"
+    },
+    "McpConfigurationIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpConfigurationFields"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "import_json": {
+          "anyOf": [
+            {
+              "maxLength": 131072,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Import Json"
+        },
+        "operation": {
+          "enum": [
+            "add",
+            "edit",
+            "rename",
+            "import"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "server_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Id"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "McpConfigurationIntent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "intent": {
+      "$ref": "#/$defs/McpConfigurationIntent"
+    }
+  },
+  "required": [
+    "configuration_revision",
+    "intent"
+  ],
+  "title": "McpConfigurationReviewRequest",
+  "type": "object"
+}

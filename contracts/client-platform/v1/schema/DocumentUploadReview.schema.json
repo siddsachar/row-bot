@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "DocumentUploadFile": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 268435456,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "size_bytes"
+      ],
+      "title": "DocumentUploadFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "const": "document.upload",
+      "title": "Action",
+      "type": "string"
+    },
+    "file_count": {
+      "maximum": 50,
+      "minimum": 1,
+      "title": "File Count",
+      "type": "integer"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/DocumentUploadFile"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Files",
+      "type": "array"
+    },
+    "intent_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Intent Digest",
+      "type": "string"
+    },
+    "processing": {
+      "const": "paused",
+      "title": "Processing",
+      "type": "string"
+    },
+    "provider_work": {
+      "const": false,
+      "title": "Provider Work",
+      "type": "boolean"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total_bytes": {
+      "maximum": 13421772800,
+      "minimum": 1,
+      "title": "Total Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "files",
+    "review_id",
+    "schema_version",
+    "action",
+    "file_count",
+    "total_bytes",
+    "intent_digest",
+    "processing",
+    "provider_work"
+  ],
+  "title": "DocumentUploadReview",
+  "type": "object"
+}

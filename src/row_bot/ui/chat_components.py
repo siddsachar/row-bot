@@ -1362,10 +1362,12 @@ def build_chat_input_bar(
             )
 
             def _start_local_talk() -> None:
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
+                if start_voice_for_ui(state.voice_coordinator.start_talk) is None:
+                    return
                 _register_active_voice_binding()
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
-                state.voice_coordinator.start_talk()
                 if p.dictate_btn:
                     _set_dictate_button_active(p, False)
 
@@ -1385,10 +1387,13 @@ def build_chat_input_bar(
                         if p.voice_switch:
                             _set_talk_button_active(p, False)
                     return
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
+                session_id = start_voice_for_ui(state.voice_coordinator.start_realtime_talk)
+                if session_id is None:
+                    return
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
                 _register_active_voice_binding()
-                session_id = state.voice_coordinator.start_realtime_talk()
                 if p.dictate_btn:
                     _set_dictate_button_active(p, False)
                 delivered = run_realtime_client_js(
@@ -1442,10 +1447,12 @@ def build_chat_input_bar(
                     if p.dictate_btn:
                         _set_dictate_button_active(p, False)
                     return
+                from row_bot.ui.voice_lifecycle import start_voice_for_ui
+                if start_voice_for_ui(state.voice_coordinator.start_dictation) is None:
+                    return
                 state.voice_input_mode = "dictate"
                 state.voice_enabled = True
                 _register_active_voice_binding()
-                state.voice_coordinator.start_dictation()
                 if p.voice_switch:
                     _set_talk_button_active(p, False)
                 if p.dictate_btn:

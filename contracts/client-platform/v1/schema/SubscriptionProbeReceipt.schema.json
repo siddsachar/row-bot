@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "provider_id": {
+      "enum": [
+        "codex",
+        "claude_subscription",
+        "xai_oauth"
+      ],
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "published": {
+      "title": "Published",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "rejected",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "provider_id",
+    "status",
+    "published"
+  ],
+  "title": "SubscriptionProbeReceipt",
+  "type": "object"
+}

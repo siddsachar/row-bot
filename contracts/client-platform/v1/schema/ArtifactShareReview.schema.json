@@ -1,0 +1,106 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "publish",
+        "channel",
+        "x"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "channel_name": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Channel Name"
+    },
+    "delivery": {
+      "enum": [
+        "link",
+        "slides",
+        "pdf",
+        "pptx",
+        "html"
+      ],
+      "title": "Delivery",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 256,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "page_count": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "pages": {
+      "maxLength": 256,
+      "title": "Pages",
+      "type": "string"
+    },
+    "recipient": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Recipient"
+    },
+    "remote": {
+      "title": "Remote",
+      "type": "boolean"
+    },
+    "requires_pairing": {
+      "title": "Requires Pairing",
+      "type": "boolean"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "review_id": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Review Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "resource_id",
+    "resource_revision",
+    "action",
+    "channel_name",
+    "recipient",
+    "delivery",
+    "pages",
+    "page_count",
+    "remote",
+    "requires_pairing",
+    "nonce"
+  ],
+  "title": "ArtifactShareReview",
+  "type": "object"
+}

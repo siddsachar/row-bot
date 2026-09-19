@@ -1,10 +1,11 @@
 import type { Browser, Page } from '@playwright/test';
 import {
+  accessibility,
+  assertNoOverflow,
   expect,
   screenshot,
   test,
   writeEvidence,
-  assertNoOverflow,
 } from './evidence';
 import {
   assertWorkspaceIdentity,
@@ -16,6 +17,7 @@ import {
   markWorkspaceIdentity,
   newConversation,
   openConversation,
+  reloadDocument,
   releaseProducer,
 } from './unified-helpers';
 
@@ -108,7 +110,7 @@ async function independentPeer(browser: Browser, page: Page) {
   };
 }
 
-test('Home is a real bounded library and New chat creates exactly once without setup', async ({
+test('Home is workflow-focused and New chat creates exactly once without setup', async ({
   page,
 }, info) => {
   const creates: string[] = [];
@@ -126,20 +128,33 @@ test('Home is a real bounded library and New chat creates exactly once without s
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
-  for (const name of [
-    'Recent conversations',
-    'Designer library',
-    'Developer library',
-  ])
-    await expect(page.getByRole('region', { name, exact: true })).toBeVisible();
+  await expect(page.locator('.home-connection-status')).toContainText(
+    'Connected · local workspace',
+  );
   await expect(
-    page.getByRole('button', { name: 'Create Deck', exact: true }),
-  ).toBeEnabled();
+    page.getByRole('tab', { name: 'Workflows', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
   await expect(
-    page.getByRole('button', { name: 'Open folder', exact: true }),
-  ).toBeEnabled();
+    page.getByRole('heading', { name: 'Workflows', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Recent conversations', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Knowledge', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Monitor', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
   expect(creates).toEqual([]);
-  await screenshot(page, info, 'home-real-libraries');
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'home-workflows');
+  await accessibility(page, info, 'home-workflows');
   // The top sidebar action is also present in the compact navigation drawer.
   if (
     !(await page
@@ -159,7 +174,7 @@ test('Home is a real bounded library and New chat creates exactly once without s
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(creates).toHaveLength(1);
   await home(page);
-  await page.reload();
+  await reloadDocument(page);
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
@@ -239,7 +254,7 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
   await page.goBack();
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
-  await page.reload();
+  await reloadDocument(page);
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
   await page
@@ -425,7 +440,7 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
   await expect(
     page.getByRole('button', { name: 'Thinking', exact: true }),
   ).toContainText('High');
-  await page.reload();
+  await reloadDocument(page);
   await expect(
     page.getByRole('button', { name: 'Thinking', exact: true }),
   ).toContainText('High');

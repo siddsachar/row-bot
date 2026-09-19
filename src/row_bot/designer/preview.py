@@ -183,7 +183,7 @@ def render_page_html(
 
 
 def isolate_preview_html(html: str, *, scripts: bool = False,
-                         brand: BrandConfig | None = None) -> str:
+                         brand: BrandConfig | None = None, strict_fonts: bool = False) -> str:
     """Apply a network-free document policy inside an opaque sandboxed frame.
 
     Call after trusted bridge injection. This is an extra restriction, never a
@@ -213,7 +213,9 @@ def isolate_preview_html(html: str, *, scripts: bool = False,
 
         fonts = []
         for family in dict.fromkeys([brand.heading_font, brand.body_font]):
-            if family and re.fullmatch(r"[A-Za-z0-9 _-]{1,100}", family) and is_font_available_offline(family):
+            if strict_fonts:
+                fonts.append(get_font_css_embedded(family, strict=True))
+            elif family and re.fullmatch(r"[A-Za-z0-9 _-]{1,100}", family) and is_font_available_offline(family):
                 fonts.append(get_font_css_embedded(family))
         if fonts:
             style = soup.new_tag("style")

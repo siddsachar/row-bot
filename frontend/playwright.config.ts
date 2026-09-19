@@ -55,7 +55,12 @@ export default defineConfig({
   use: {
     baseURL,
     headless: true,
-    serviceWorkers: 'block',
+    // Playwright's built-in blocker probes navigator.serviceWorker in every
+    // frame. That probe raises a page exception in the intentionally opaque
+    // Designer preview sandbox. Browser suites that need registration blocked
+    // install the sandbox-safe fixture blocker from unified-helpers instead;
+    // tests of Playwright's native blocking behavior opt into it explicitly.
+    serviceWorkers: 'allow',
     locale: 'en-GB',
     timezoneId: 'UTC',
     colorScheme: 'light',

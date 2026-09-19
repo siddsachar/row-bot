@@ -143,6 +143,10 @@ def _check_google_token(token_path: str) -> tuple[str, str]:
             return ("valid", "Token is valid")
         if not existing.refresh_token:
             return ("expired", "Token expired and no refresh token available")
+        from row_bot.docs_capture import is_docs_real_data_capture
+
+        if is_docs_real_data_capture():
+            return ("expired", "Token refresh suppressed during authorized capture")
         _load_google_credentials(token_path)
         return ("refreshed", "Token refreshed successfully")
     except Exception as exc:

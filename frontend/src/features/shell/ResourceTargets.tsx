@@ -16,6 +16,7 @@ export default function ResourceTargets({
       className="write-targets"
       role="group"
       aria-label="Resource write targets"
+      data-empty={!selected.length || undefined}
     >
       {(['artifact', 'workspace'] as const).map((kind) => {
         const choices = resources.filter(
@@ -25,7 +26,7 @@ export default function ResourceTargets({
         const current = choices.find((resource) =>
           selected.includes(resource.binding.binding_id),
         );
-        const label = kind === 'artifact' ? 'Deck' : 'Folder';
+        const label = kind === 'artifact' ? 'Design' : 'Folder';
         const currentName = current
           ? `${current.title}${choices.filter((other) => other.title === current.title).length > 1 ? ` · ${current.binding.resource_id}` : ''}${current.available ? '' : ' (unavailable)'}`
           : 'None';
@@ -51,7 +52,7 @@ export default function ResourceTargets({
               })),
             ]}
           >
-            <span>
+            <span title={`${label} · ${currentName}`}>
               {label} · {currentName}
             </span>
           </Menu>

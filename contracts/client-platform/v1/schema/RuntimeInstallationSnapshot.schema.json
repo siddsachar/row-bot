@@ -1,0 +1,85 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "active_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Active Command Id"
+    },
+    "availability": {
+      "enum": [
+        "available",
+        "unavailable",
+        "missing",
+        "recovery_required"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "installed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Installed"
+    },
+    "quiesced": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Quiesced"
+    },
+    "resource_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Resource Revision"
+    },
+    "runtime_id": {
+      "enum": [
+        "node",
+        "uv"
+      ],
+      "title": "Runtime Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "runtime_id",
+    "resource_revision",
+    "availability",
+    "installed",
+    "active_command_id",
+    "quiesced"
+  ],
+  "title": "RuntimeInstallationSnapshot",
+  "type": "object"
+}

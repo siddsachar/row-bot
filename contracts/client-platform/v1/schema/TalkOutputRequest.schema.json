@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "output_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Output Id",
+      "type": "string"
+    },
+    "run_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "server_epoch": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Server Epoch",
+      "type": "string"
+    },
+    "voice_session_id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Voice Session Id",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "voice_session_id",
+    "server_epoch",
+    "run_id",
+    "output_id"
+  ],
+  "title": "TalkOutputRequest",
+  "type": "object"
+}

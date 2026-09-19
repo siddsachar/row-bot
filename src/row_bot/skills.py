@@ -18,6 +18,10 @@ import logging
 import os
 import pathlib
 import re
+import hashlib
+import itertools
+import threading
+from functools import wraps
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Optional
@@ -29,13 +33,21 @@ from row_bot.runtime_paths import bundled_skills_dir, tool_guides_dir
 
 logger = logging.getLogger(__name__)
 
+_skills_lock = threading.RLock()
+
+
+def _serialized(function):
+    @wraps(function)
+    def call(*args, **kwargs):
+        with _skills_lock:
+            return function(*args, **kwargs)
+    return call
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 
-DATA_DIR = get_row_bot_data_dir()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = get_row_bot_data_dir(create=False)
 
 USER_SKILLS_DIR = DATA_DIR / "skills"
-USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 BUNDLED_SKILLS_DIR = bundled_skills_dir()
 TOOL_GUIDES_DIR = tool_guides_dir()
@@ -79,6 +91,12 @@ def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Sk
     except OSError:
         logger.warning("Cannot read skill file %s", filepath, exc_info=True)
         return None
+
+    return _parse_skill_text(text, filepath, source)
+
+
+def _parse_skill_text(text: str, filepath: pathlib.Path, source: str = "user") -> Optional[Skill]:
+    """Parse already captured bytes with the canonical Skill semantics."""
 
     match = _FRONTMATTER_RE.match(text)
     if not match:
@@ -199,6 +217,7 @@ def _load_config() -> dict:
     return {}
 
 
+@_serialized
 def _save_config(metadata: dict | None = None):
     """Persist the current enabled state to disk."""
     data = _load_config()
@@ -206,6 +225,7 @@ def _save_config(metadata: dict | None = None):
     data["pinned"] = _pinned
     if metadata:
         data.update(metadata)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
@@ -264,9 +284,15 @@ def _ordered_unique(names: Iterable[str]) -> list[str]:
     return result
 
 
+@_serialized
 def load_skills():
     """Discover all skills, apply persisted enable/disable state, populate cache."""
     global _skills_cache, _enabled, _pinned
+
+    from row_bot.docs_capture import is_docs_real_data_capture
+
+    if not is_docs_real_data_capture():
+        USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
     _skills_cache = _discover_skills()
 
@@ -315,10 +341,11 @@ def load_skills():
         if name in manual_names and _enabled.get(name, False)
     ]
 
-    _save_config({
-        BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
-        SKILL_PINS_CONFIG_KEY: True,
-    })
+    if not is_docs_real_data_capture():
+        _save_config({
+            BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
+            SKILL_PINS_CONFIG_KEY: True,
+        })
 
     manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
     manual_enabled = sum(
@@ -383,6 +410,7 @@ def is_enabled(name: str) -> bool:
     return _enabled.get(name, False)
 
 
+@_serialized
 def set_enabled(name: str, value: bool):
     """Enable or disable a skill and persist."""
     global _pinned
@@ -399,6 +427,7 @@ def is_pinned(name: str) -> bool:
     return str(name or "") in _pinned
 
 
+@_serialized
 def set_pinned(name: str, value: bool) -> None:
     """Pin or unpin a manual skill for new chats and tasks.
 
@@ -636,6 +665,7 @@ def _build_ordered_frontmatter(meta: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+@_serialized
 def create_skill(
     name: str,
     display_name: str,
@@ -703,6 +733,7 @@ def create_skill(
     return skill
 
 
+@_serialized
 def update_skill(
     name: str,
     display_name: Optional[str] = None,
@@ -767,6 +798,7 @@ def update_skill(
     return updated
 
 
+@_serialized
 def delete_skill(name: str) -> bool:
     """Delete a user skill from disk and cache.  Returns True on success."""
     global _pinned
@@ -791,6 +823,7 @@ def delete_skill(name: str) -> bool:
     return True
 
 
+@_serialized
 def duplicate_skill(name: str, new_name: Optional[str] = None) -> Optional[Skill]:
     """Duplicate a skill (typically bundled) into the user skills folder."""
     original = _skills_cache.get(name)
@@ -810,3 +843,124 @@ def duplicate_skill(name: str, new_name: Optional[str] = None) -> Optional[Skill
         activation=dict(original.activation),
         enabled=True,
     )
+
+
+def _client_file(path: pathlib.Path, *, maximum: int = 65536):
+    from row_bot.file_ownership import guard_directory, directory_identity
+    from row_bot.file_publication import read_bytes
+    if not path.parent.exists():
+        return None, 'missing', '', 0, ''
+    with guard_directory(path.parent.absolute(), directory_identity(path.parent, parent=True)) as directory:
+        return read_bytes(directory, path.parent, path.name, max_bytes=maximum,
+                          unavailable_code='skill_unavailable')
+
+
+@_serialized
+def read_client_skills() -> dict:
+    """Bounded passive snapshot of the canonical library/config; no migrations."""
+    config_file = _client_file(CONFIG_PATH, maximum=1024 * 1024)
+    config = json.loads(config_file[0]) if config_file[0] is not None else {}
+    if (not isinstance(config, dict) or not isinstance(config.get('skills', {}), dict)
+            or not isinstance(config.get('pinned', []), list)
+            or any(type(value) is not bool for value in config.get('skills', {}).values())
+            or any(not isinstance(value, str) for value in config.get('pinned', []))):
+        raise ValueError('skill_configuration_unavailable')
+    found, proofs, total = {}, [], 0
+    for base, source in ((BUNDLED_SKILLS_DIR, 'bundled'), (TOOL_GUIDES_DIR, 'bundled'), (USER_SKILLS_DIR, 'user')):
+        if not base.exists():
+            continue
+        from row_bot.file_ownership import guard_directory, directory_identity
+        with guard_directory(base.absolute(), directory_identity(base, parent=True)) as directory:
+            with os.scandir(directory if directory is not None else base) as stream:
+                children = list(itertools.islice(stream, 4097))
+            if len(children) > 4096:
+                raise ValueError('skill_library_too_large')
+            for child in sorted(children, key=lambda item: item.name):
+                if child.name.startswith('.'):
+                    continue
+                if child.is_symlink() or not child.is_dir(follow_symlinks=False):
+                    raise ValueError('skill_path_denied')
+                path = base / child.name / 'SKILL.md'
+                raw, digest, identity, _mode, metadata = _client_file(path)
+                if raw is None:
+                    continue
+                total += len(raw)
+                if total > 8 * 1024 * 1024:
+                    raise ValueError('skill_library_too_large')
+                text = raw.decode('utf-8-sig')
+                match = _FRONTMATTER_RE.match(text)
+                if not match:
+                    raise ValueError('skill_unavailable')
+                # Reject alias graphs before safe_load can allocate nested
+                # structures; the canonical parser still owns field semantics.
+                for index, token in enumerate(yaml.scan(match.group(1))):
+                    if index > 10000 or isinstance(token, (yaml.tokens.AliasToken, yaml.tokens.AnchorToken)):
+                        raise ValueError('skill_metadata_unavailable')
+                skill = _parse_skill_text(text, path, source)
+                if (skill is None or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', skill.name)
+                        or any(not isinstance(value, str) for value in skill.tags + skill.tools)
+                        or len(skill.display_name) > 128 or len(skill.description) > 1024
+                        or len(skill.icon) > 32 or len(skill.version) > 32
+                        or any(len(value) > 128 for value in skill.tags)):
+                    raise ValueError('skill_metadata_unavailable')
+                found[skill.name] = {'skill': skill, 'revision': digest, 'identity': identity, 'metadata': metadata}
+                proofs.append((str(path), digest, identity, metadata))
+    enabled = {}
+    saved = config.get('skills', {})
+    for name, item in found.items():
+        skill = item['skill']
+        enabled[name] = False if is_tool_guide(skill) else (
+            True if not config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY) and _is_bundled_manual_skill(skill)
+            else saved.get(name, skill.enabled_by_default))
+    pinned = [name for name in _ordered_unique(config.get('pinned', [])) if name in found and not is_tool_guide(found[name]['skill'])]
+    if not config.get(SKILL_PINS_CONFIG_KEY):
+        pinned = _ordered_unique([*pinned, *(name for name in DEFAULT_PINNED_SKILL_NAMES if name in found)])
+    for name in pinned:
+        enabled[name] = True
+    revision = hashlib.sha256(json.dumps([config_file[1:3], proofs], sort_keys=True).encode()).hexdigest()
+    return {'revision': revision, 'items': found, 'config': config, 'config_revision': config_file[1],
+            'enabled': enabled, 'pinned': pinned}
+
+
+@_serialized
+def update_client_skill_preference(name: str, action: str, value: bool, *, expected_revision: str,
+                                   command_id: str, validate, checkpoint) -> str:
+    """Publish reviewed global availability/pins through the canonical config."""
+    global _skills_cache, _enabled, _pinned
+    from row_bot.file_publication import publish_bytes
+    validate()
+    snapshot = read_client_skills()
+    if snapshot['revision'] != expected_revision:
+        raise ValueError('skill_revision_conflict')
+    item = snapshot['items'].get(name)
+    if not item or is_tool_guide(item['skill']) or action not in {'availability', 'pin_defaults'} or type(value) is not bool:
+        raise ValueError('invalid_skill_action')
+    enabled, pinned = dict(snapshot['enabled']), list(snapshot['pinned'])
+    if action == 'availability':
+        enabled[name] = value
+        if not value:
+            pinned = [item for item in pinned if item != name]
+    elif value:
+        enabled[name] = True
+        pinned = _ordered_unique([*pinned, name])
+    else:
+        pinned = [item for item in pinned if item != name]
+    config = {**snapshot['config'], 'skills': enabled, 'pinned': pinned,
+              BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True, SKILL_PINS_CONFIG_KEY: True}
+    data = json.dumps(config, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
+    def authority():
+        validate()
+        # File publication owns the config CAS; skill source identity must
+        # remain current before retiring that config name.
+        current = read_client_skills()
+        def sources(value):
+            return {name: (item['revision'], item['identity'], item['metadata'], str(item['skill'].path))
+                    for name, item in value['items'].items()}
+        if sources(current) != sources(snapshot):
+            raise ValueError('skill_revision_conflict')
+    revision = publish_bytes(CONFIG_PATH.parent.absolute(), CONFIG_PATH.name, data,
+        expected_revision=snapshot['config_revision'], command_id=command_id, validate=authority,
+        checkpoint=checkpoint, max_bytes=1024 * 1024, unavailable_code='skill_configuration_unavailable')
+    _skills_cache = {name: value['skill'] for name, value in snapshot['items'].items()}
+    _enabled, _pinned = enabled, pinned
+    return revision

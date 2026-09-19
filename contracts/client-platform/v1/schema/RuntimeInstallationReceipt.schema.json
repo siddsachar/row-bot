@@ -1,0 +1,173 @@
+{
+  "$defs": {
+    "RuntimeArchive": {
+      "additionalProperties": false,
+      "properties": {
+        "arch": {
+          "maxLength": 32,
+          "title": "Arch",
+          "type": "string"
+        },
+        "asset_name": {
+          "maxLength": 256,
+          "title": "Asset Name",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 2147483648,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "system": {
+          "maxLength": 32,
+          "title": "System",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "url",
+        "sha256",
+        "size_bytes",
+        "system",
+        "arch",
+        "asset_name"
+      ],
+      "title": "RuntimeArchive",
+      "type": "object"
+    },
+    "RuntimeInstallationOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "cancel_requested": {
+          "title": "Cancel Requested",
+          "type": "boolean"
+        },
+        "installed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Installed"
+        },
+        "operation": {
+          "enum": [
+            "resolve",
+            "install"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeArchive"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quiesced": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Quiesced"
+        },
+        "runtime_id": {
+          "enum": [
+            "node",
+            "uv"
+          ],
+          "title": "Runtime Id",
+          "type": "string"
+        },
+        "stage": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime_id",
+        "operation",
+        "stage",
+        "cancel_requested",
+        "quiesced",
+        "installed",
+        "plan"
+      ],
+      "title": "RuntimeInstallationOutcome",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "installation": {
+      "$ref": "#/$defs/RuntimeInstallationOutcome"
+    },
+    "status": {
+      "enum": [
+        "accepted",
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "installation"
+  ],
+  "title": "RuntimeInstallationReceipt",
+  "type": "object"
+}

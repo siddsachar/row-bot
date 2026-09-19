@@ -44,11 +44,18 @@ from row_bot.channels import commands as ch_commands
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 from row_bot.channels.auth_store import get_channel_secret
+from row_bot.channels.media_capture import grab_vision_capture as _grab_vision_capture
+from row_bot.channels.media_capture import grab_generated_image as _grab_generated_image
+from row_bot.channels.media_capture import grab_generated_video as _grab_generated_video
+from row_bot.channels.thread_repair import is_corrupt_thread_error as _is_corrupt_thread_error
 from row_bot.channels.streaming import (
     ChannelDeliveryResult,
+    ChannelDeliveryUncertain,
+    confirmed_channel_effect,
     ChannelRateLimitError,
     ChannelStreamConfig,
     ChannelStreamConsumer,
+    consume_channel_producer,
 )
 from row_bot.threads import _save_thread_meta, _list_threads, _thread_exists
 
@@ -268,9 +275,6 @@ def _refresh_thread_model_override(config: dict | None) -> dict:
     return {**config, "configurable": configurable}
 
 
-from row_bot.channels.media_capture import grab_vision_capture as _grab_vision_capture
-from row_bot.channels.media_capture import grab_generated_image as _grab_generated_image
-from row_bot.channels.media_capture import grab_generated_video as _grab_generated_video
 
 
 def build_channel_runtime_config(config: dict, purpose: str) -> dict:
@@ -643,6 +647,7 @@ class TelegramStreamTransport:
             pass
         await self.chat.send_chat_action(action="typing")
 
+    @confirmed_channel_effect
     async def start(self, text: str):
         mode = self._select_mode()
         self._selected_mode = mode
@@ -652,7 +657,7 @@ class TelegramStreamTransport:
             try:
                 await self._send_draft(text)
                 return {"mode": "draft"}
-            except Exception:
+            except (AttributeError, NotImplementedError):
                 log.info(
                     "Telegram draft streaming failed; falling back to edit",
                     exc_info=True,
@@ -662,6 +667,7 @@ class TelegramStreamTransport:
                 self.freeze_overflow_preview = True
         return await self._send_message(text)
 
+    @confirmed_channel_effect
     async def update(self, handle, text: str, *, final: bool = False):
         if self._selected_mode == "draft":
             await self._send_draft(text)
@@ -675,6 +681,8 @@ class TelegramStreamTransport:
             retry_after = _retry_after_from_exception(exc)
             if retry_after is not None:
                 raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
+            if not _is_parse_rejection(exc):
+                raise ChannelDeliveryUncertain("Telegram edit outcome unconfirmed") from exc
             try:
                 result = await self._edit_message(handle, str(text or ""))
             except Exception as plain_exc:
@@ -694,10 +702,16 @@ class TelegramStreamTransport:
                 pass
         return result or handle
 
+    @confirmed_channel_effect
     async def send_final(self, text: str) -> list[Any]:
         refs: list[Any] = []
         for chunk in self.split_text(str(text or "")):
-            sent = await self._send_message_with_retry(chunk)
+            try:
+                sent = await self._send_message_with_retry(chunk)
+            except Exception as exc:
+                if refs:
+                    raise ChannelDeliveryUncertain("Telegram multipart delivery incomplete") from exc
+                raise
             refs.append(getattr(sent, "message_id", sent))
         return refs
 
@@ -768,6 +782,8 @@ class TelegramStreamTransport:
             retry_after = _retry_after_from_exception(exc)
             if retry_after is not None:
                 raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
+            if not _is_parse_rejection(exc):
+                raise
             plain = re.sub(r"<[^>]+>", "", html).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
             return await self.chat.send_message(plain, **kwargs)
 
@@ -1293,12 +1309,24 @@ async def _cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await _reply_skill_result(update.message, result, thread_id=thread_id, action=action)
 
 
+def _is_parse_rejection(error: Exception) -> bool:
+    from telegram.error import BadRequest
+
+    return isinstance(error, BadRequest) and any(
+        marker in str(error).lower() for marker in (
+            "can't parse entities", "can't find end tag", "unsupported start tag",
+        )
+    )
+
+
 async def _send_html(target, text: str, **kwargs) -> None:
     """Send a message as HTML, falling back to plain text on parse errors."""
     for chunk in _split_message(text):
         try:
             await target.reply_text(chunk, parse_mode="HTML", **kwargs)
-        except Exception:
+        except Exception as exc:
+            if not _is_parse_rejection(exc):
+                raise
             # Strip HTML tags and send as plain text.
             plain = re.sub(r"<[^>]+>", "", chunk).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
             for plain_chunk in _split_message(plain):
@@ -1310,13 +1338,14 @@ async def _send_html_msg(chat, text: str, **kwargs) -> None:
     for chunk in _split_message(text):
         try:
             await chat.send_message(chunk, parse_mode="HTML", **kwargs)
-        except Exception:
+        except Exception as exc:
+            if not _is_parse_rejection(exc):
+                raise
             plain = re.sub(r"<[^>]+>", "", chunk).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
             for plain_chunk in _split_message(plain):
                 await chat.send_message(plain_chunk, **kwargs)
 
 
-from row_bot.channels.thread_repair import is_corrupt_thread_error as _is_corrupt_thread_error
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1425,8 +1454,6 @@ async def _stream_agent_turn_to_telegram(
     message_thread_id: int | None = None,
     draft_id_seed: Any | None = None,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _telegram_stream_config()
     transport = TelegramStreamTransport(
         chat,
@@ -1436,29 +1463,14 @@ async def _stream_agent_turn_to_telegram(
         cursor=stream_config.cursor,
     )
     consumer = ChannelStreamConsumer(transport, stream_config)
-    agent_future = loop.run_in_executor(None, _run_agent_sync, user_text, config, event_queue)
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _run_agent_sync(user_text, config, sink),
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="telegram",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="telegram", delivery=delivery,
+    )
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _stream_agent_resume_to_telegram(
@@ -1470,8 +1482,6 @@ async def _stream_agent_resume_to_telegram(
     message_thread_id: int | None = None,
     draft_id_seed: Any | None = None,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _telegram_stream_config()
     transport = TelegramStreamTransport(
         chat,
@@ -1481,37 +1491,16 @@ async def _stream_agent_resume_to_telegram(
         cursor=stream_config.cursor,
     )
     consumer = ChannelStreamConsumer(transport, stream_config)
-    agent_future = loop.run_in_executor(
-        None,
-        lambda: _resume_agent_sync(
-            config,
-            approved,
-            interrupt_ids=interrupt_ids,
-            event_queue=event_queue,
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _resume_agent_sync(
+            config, approved, interrupt_ids=interrupt_ids, event_queue=sink,
         ),
     )
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="telegram", delivery=delivery,
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="telegram",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _send_telegram_safe_text(
@@ -1618,7 +1607,7 @@ def _telegram_goal_callbacks(
         delivery = state.get("delivery")
         if (
             delivery
-            and delivery.delivered
+            and (delivery.delivered or delivery.uncertain)
             and str(delivery.final_text or "").strip() == str(message or "").strip()
         ):
             state["delivery"] = None
@@ -1744,7 +1733,7 @@ async def _run_agent_for_message(
         # Streaming was unavailable or final delivery failed; send normally.
         await _send_agent_response(
             update.effective_chat, msg, chat_id, config,
-            clean_answer, interrupt_data, captured_images,
+            "" if delivery.uncertain else clean_answer, interrupt_data, captured_images,
             captured_video_paths,
             message_thread_id=_telegram_message_thread_id(msg),
         )
@@ -1901,7 +1890,7 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             message_thread_id=_telegram_message_thread_id(query.message),
         )
     else:
-        if not delivery.delivered:
+        if not delivery.delivered and not delivery.uncertain:
             await _send_telegram_safe_text(
                 update.effective_chat,
                 answer,
@@ -2281,7 +2270,9 @@ def send_outbound(chat_id: int, text: str) -> None:
         for chunk in _split_message(html):
             try:
                 await _app.bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
-            except Exception:
+            except Exception as exc:
+                if not _is_parse_rejection(exc):
+                    raise
                 plain = re.sub(r"<[^>]+>", "", chunk).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
                 await _app.bot.send_message(chat_id=chat_id, text=plain)
 

@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "operation": {
+      "enum": [
+        "resolve",
+        "install"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "resource_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "runtime_id": {
+      "enum": [
+        "node",
+        "uv"
+      ],
+      "title": "Runtime Id",
+      "type": "string"
+    },
+    "source_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Command Id"
+    }
+  },
+  "required": [
+    "runtime_id",
+    "operation",
+    "resource_revision",
+    "source_command_id"
+  ],
+  "title": "RuntimeInstallationReviewRequest",
+  "type": "object"
+}

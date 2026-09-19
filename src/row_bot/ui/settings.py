@@ -462,8 +462,6 @@ def open_settings(
         load_processed_files,
         rebuild_vector_store_from_vault,
         release_document_embedding_resources,
-        remove_document,
-        reset_vector_store,
     )
     from row_bot.embedding_config import (
         CLOUD_MODELS,
@@ -1077,7 +1075,10 @@ def open_settings(
         )
 
         document_job_service = DocumentJobService()
-        ensure_document_supervisor(document_job_service)
+        from row_bot.docs_capture import is_docs_real_data_capture
+
+        if not is_docs_real_data_capture():
+            ensure_document_supervisor(document_job_service)
         durable_records = document_job_service.list_document_records()
         with ui.row().classes("items-center gap-2 q-mb-sm"):
             _metric_chip("indexed", len(processed), icon="library_books")
@@ -1487,25 +1488,10 @@ def open_settings(
                         def _make_delete(
                             doc_id=identifier,
                             name=display_name,
-                            legacy=is_legacy,
                         ):
-                            async def _do_delete():
-                                import row_bot.knowledge_graph as kg
-                                n = ui.notification(f"Removing {name}...", type="ongoing", spinner=True, timeout=None)
-                                try:
-                                    await run.io_bound(remove_document, doc_id)
-                                    source = (
-                                        f"document:{name}"
-                                        if legacy
-                                        else f"document:{doc_id}"
-                                    )
-                                    await run.io_bound(kg.delete_entities_by_source, source)
-                                    n.dismiss()
-                                    ui.notify(f"Removed {name}", type="info")
-                                    _reopen("Documents")
-                                except Exception as exc:
-                                    n.dismiss()
-                                    ui.notify(f"Delete failed: {exc}", type="negative")
+                            def _do_delete():
+                                from row_bot.ui.document_removal import open_document_removal
+                                open_document_removal(doc_id, name, lambda: _reopen("Documents"))
                             return _do_delete
 
                         ui.button(icon="delete", on_click=_make_delete()).props(
@@ -1529,16 +1515,12 @@ def open_settings(
                 _clearing_docs = True
                 try:
                     confirm = await ui.run_javascript(
-                        "confirm('Clear ALL documents? This will remove all indexed files and their extracted knowledge. This cannot be undone.')",
+                        "confirm('Remove ALL documents from search and delete their extracted knowledge? Local recovery copies will be retained.')",
                         timeout=30,
                     )
                     if confirm:
-                        import row_bot.knowledge_graph as kg
-                        reset_vector_store()
-                        document_job_service.clear_document_records()
-                        kg.delete_entities_by_source_prefix("document:")
-                        ui.notify("All documents and extracted knowledge cleared.", type="info")
-                        _reopen("Documents")
+                        from row_bot.ui.document_removal import open_document_removal
+                        open_document_removal(None, "all documents", lambda: _reopen("Documents"))
                 finally:
                     _clearing_docs = False
 
@@ -2787,6 +2769,7 @@ def open_settings(
 
     def _collect_models_tab_data() -> dict:
         from row_bot.providers.selection import list_model_choice_options, list_quick_choices
+        from row_bot.docs_capture import docs_capture_disable_network
 
         started = time.perf_counter()
         quick_started = time.perf_counter()
@@ -2796,15 +2779,25 @@ def open_settings(
             logger.debug("Could not collect model picker quick choices", exc_info=True)
             quick_choices = []
         quick_elapsed = time.perf_counter() - quick_started
-        try:
-            ollama_up = _ollama_reachable()
-        except Exception:
-            logger.debug("Could not check Ollama status for model settings", exc_info=True)
-            ollama_up = False
+        ollama_up = False
+        if not docs_capture_disable_network():
+            try:
+                ollama_up = _ollama_reachable()
+            except Exception:
+                logger.debug("Could not check Ollama status for model settings", exc_info=True)
         ollama_elapsed = time.perf_counter() - started
         local_started = time.perf_counter()
         try:
-            local_models = list_local_models()
+            if docs_capture_disable_network():
+                from row_bot.providers.model_catalog_cache import read_model_catalog_cache
+
+                local_models = [
+                    str(row.get("model_id"))
+                    for row in read_model_catalog_cache(allow_runtime_bootstrap=False).ollama_rows
+                    if row.get("model_id")
+                ]
+            else:
+                local_models = list_local_models()
         except Exception:
             logger.debug("Could not collect local models for model settings", exc_info=True)
             local_models = []
@@ -4231,11 +4224,16 @@ def open_settings(
 
             async def _load_github_status(token: int, *, force: bool = False) -> None:
                 try:
-                    if force:
+                    from row_bot.docs_capture import is_docs_real_data_capture
+
+                    if force and not is_docs_real_data_capture():
                         github_account.clear_github_caches()
-                    status = await run.io_bound(
-                        lambda: github_account.get_verified_github_account_status(use_cache=not force)
+                    loader = (
+                        github_account.get_passive_github_account_status
+                        if is_docs_real_data_capture()
+                        else lambda: github_account.get_verified_github_account_status(use_cache=not force)
                     )
+                    status = await run.io_bound(loader)
                     if not github_generation.is_current(token):
                         return
                     _render_github_status(status)
@@ -4769,7 +4767,6 @@ def open_settings(
                         _metric_chip("conversations", conv_count, icon="forum")
 
             # ── Vault sync detection ──────────────────────────────
-            edited = []
             sync_container = ui.column().classes("w-full")
 
             def _check_vault_sync() -> None:
@@ -4787,13 +4784,27 @@ def open_settings(
                     ui.label(
                         f"{len(edited_now)} file{'s' if len(edited_now) != 1 else ''} edited in vault."
                     ).classes("text-warning text-sm")
+                    from row_bot.ui.wiki_review import open_wiki_import_review
+                    for item in edited_now:
+                        with ui.row().classes("w-full items-center gap-2"):
+                            ui.label(item.get("subject") or "Untitled article").classes("flex-1")
+                            ui.label(
+                                "Review required" if item.get("status") in {"conflict", "legacy_review"}
+                                else "Vault edit"
+                            ).classes("text-sm text-grey-6")
+                            ui.button(
+                                "Review versions", icon="compare_arrows",
+                                on_click=lambda _event=None, value=item: open_wiki_import_review(
+                                    value, on_saved=lambda: _reopen("Knowledge")),
+                            ).props("flat dense no-caps")
 
                     def _sync_vault_now():
                         try:
                             result = wiki_vault.sync_all_from_vault()
                             ui.notify(
-                                f"Synced {result['synced']} file(s) from vault",
-                                type="positive",
+                                f"Synced {result['synced']} file(s) from vault. "
+                                f"{result['failed']} file(s) need review or could not be imported.",
+                                type="warning" if result["failed"] else "positive",
                             )
                             _reopen("Knowledge")
                         except Exception as exc:
@@ -4809,33 +4820,6 @@ def open_settings(
                     icon="sync",
                     on_click=_check_vault_sync,
                 ).props("flat dense no-caps")
-            if edited:
-                with ui.card().classes("w-full bg-amber-1 border-l-4").style("border-color: #ff9800"):
-                    with ui.row().classes("items-center gap-2"):
-                        ui.icon("sync_problem", color="amber-8").classes("text-lg")
-                        ui.label(
-                            f"{len(edited)} file{'s' if len(edited) != 1 else ''} edited in vault"
-                        ).classes("font-bold text-amber-10")
-                    ui.label(
-                        f"These files were modified outside {APP_DISPLAY_NAME}. "
-                        "Sync to import changes into the knowledge graph."
-                    ).classes("text-xs text-grey-7")
-
-                    def _sync_vault():
-                        try:
-                            result = wiki_vault.sync_all_from_vault()
-                            ui.notify(
-                                f"✅ Synced {result['synced']} file(s) from vault",
-                                type="positive",
-                            )
-                            _reopen("Knowledge")
-                        except Exception as exc:
-                            ui.notify(f"Sync failed: {exc}", type="negative")
-
-                    ui.button("🔄 Sync from Vault", on_click=_sync_vault).props(
-                        "flat color=amber-8"
-                    )
-
             with ui.row().classes("gap-2"):
                 def _rebuild():
                     try:
@@ -5889,9 +5873,13 @@ def open_settings(
             "forum",
         )
 
-        from row_bot.docs_capture import is_docs_capture, load_docs_capture_demo_state
+        from row_bot.docs_capture import (
+            is_docs_capture,
+            is_docs_real_data_capture,
+            load_docs_capture_demo_state,
+        )
 
-        if is_docs_capture():
+        if is_docs_capture() and not is_docs_real_data_capture():
             demo_channels = load_docs_capture_demo_state().get("channels") or []
             configured = sum(
                 1 for item in demo_channels if "configured" in str(item.get("status") or "").lower()
@@ -5912,6 +5900,25 @@ def open_settings(
             return
 
         channels = _ch_registry.all_channels()
+        if is_docs_real_data_capture() and not channels:
+            # The guarded capture host deliberately skips application
+            # autostart. Import the bundled descriptors so this passive page
+            # still reflects the same configured channel owners; importing
+            # does not start adapters or send provider traffic.
+            import importlib
+
+            for module_name in (
+                "row_bot.channels.telegram",
+                "row_bot.channels.slack",
+                "row_bot.channels.sms",
+                "row_bot.channels.discord_channel",
+                "row_bot.channels.whatsapp",
+            ):
+                try:
+                    importlib.import_module(module_name)
+                except ImportError:
+                    continue
+            channels = _ch_registry.all_channels()
         if not channels:
             ui.label("No channels registered.").classes("text-grey-6 text-sm")
             return

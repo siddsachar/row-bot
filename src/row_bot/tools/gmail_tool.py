@@ -62,6 +62,10 @@ def _check_google_token(token_path: str) -> tuple[str, str]:
             return ("valid", "Token is valid")
         # Access token expired — try silent refresh
         if creds.expired and creds.refresh_token:
+            from row_bot.docs_capture import is_docs_real_data_capture
+
+            if is_docs_real_data_capture():
+                return ("expired", "Token refresh suppressed during authorized capture")
             try:
                 creds.refresh(Request())
                 # Persist the refreshed token

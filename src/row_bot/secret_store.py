@@ -392,8 +392,10 @@ def _is_unavailable_error(exc: BaseException) -> bool:
 
 def _raise_secret_error(action: str, name: str, exc: BaseException) -> None:
     if not _is_unavailable_error(exc):
-        logger.warning("Failed to %s secret %s from keyring", action, name, exc_info=True)
-    raise SecretStoreError(str(exc)) from exc
+        logger.warning("Secure credential storage %s failed", action)
+    # Backends may echo attempted credentials in their exception text. Never
+    # publish that text, credential names, or the chained backend traceback.
+    raise SecretStoreError(f"secure_storage_{action}_failed") from None
 
 
 def _backend() -> Any:

@@ -1,0 +1,236 @@
+{
+  "$defs": {
+    "ConversationActionExportPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "checkpoint_revision": {
+          "maxLength": 128,
+          "title": "Checkpoint Revision",
+          "type": "string"
+        },
+        "export_title": {
+          "maxLength": 256,
+          "title": "Export Title",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_revision",
+        "action_digest",
+        "review_id",
+        "export_title"
+      ],
+      "title": "ConversationActionExportPayload",
+      "type": "object"
+    },
+    "ConversationActionPinPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "checkpoint_revision": {
+          "maxLength": 128,
+          "title": "Checkpoint Revision",
+          "type": "string"
+        },
+        "pinned": {
+          "title": "Pinned",
+          "type": "boolean"
+        },
+        "review_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_revision",
+        "action_digest",
+        "review_id",
+        "pinned"
+      ],
+      "title": "ConversationActionPinPayload",
+      "type": "object"
+    },
+    "ConversationActionRenamePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "checkpoint_revision": {
+          "maxLength": 128,
+          "title": "Checkpoint Revision",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_revision",
+        "action_digest",
+        "review_id",
+        "title"
+      ],
+      "title": "ConversationActionRenamePayload",
+      "type": "object"
+    },
+    "ConversationExportConversationActionCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationActionExportPayload"
+        },
+        "type": {
+          "const": "conversation.export",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationExportConversationActionCommand",
+      "type": "object"
+    },
+    "ConversationPinConversationActionCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationActionPinPayload"
+        },
+        "type": {
+          "const": "conversation.pin",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationPinConversationActionCommand",
+      "type": "object"
+    },
+    "ConversationRenameConversationActionCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationActionRenamePayload"
+        },
+        "type": {
+          "const": "conversation.rename",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationRenameConversationActionCommand",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "conversation.export": "#/$defs/ConversationExportConversationActionCommand",
+      "conversation.pin": "#/$defs/ConversationPinConversationActionCommand",
+      "conversation.rename": "#/$defs/ConversationRenameConversationActionCommand"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ConversationRenameConversationActionCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationPinConversationActionCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationExportConversationActionCommand"
+    }
+  ]
+}

@@ -25,7 +25,7 @@ from .config import get_buddy_config, save_buddy_config
 _DATA_DIR = get_row_bot_data_dir() / "buddy_hatches"
 _JOB_LOCK = threading.Lock()
 _CURRENT_JOB: dict[str, Any] = {}
-_RUNNING_JOB_STATES = {"queued", "running"}
+_RUNNING_JOB_STATES = {"queued", "running", "cancelling"}
 _MOTION_SOURCE_BACKGROUND = (10, 18, 20, 255)
 
 
@@ -134,7 +134,7 @@ def create_hatch_draft(prompt: str, *, pack_id: str = "glyph") -> HatchDraft:
 
 
 def _job_snapshot_unlocked() -> dict[str, Any]:
-    return dict(_CURRENT_JOB)
+    return {key: value for key, value in _CURRENT_JOB.items() if not key.startswith("_")}
 
 
 def get_hatch_generation_status() -> dict[str, Any]:
@@ -289,20 +289,31 @@ def start_hatch_generation_job(
     preview_path: str | pathlib.Path = "",
     display_prompt: str = "",
     reuse_existing: bool = False,
+    _client_runner: Callable[[str, threading.Event], None] | None = None,
+    _command_id: str | None = None,
+    _validate: Callable[[], None] | None = None,
+    _checkpoint: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Start Buddy Hatch still/motion generation in a background thread."""
 
     safe_prompt = (prompt or "A cute tiny app companion named Buddy").strip()
     safe_display_prompt = (display_prompt or safe_prompt).strip()
-    safe_mode = mode if mode in {"full", "motion"} else "full"
-    safe_preview = str(pathlib.Path(preview_path).expanduser().resolve()) if preview_path else ""
-    if safe_mode == "motion" and not safe_preview:
+    safe_mode = mode if mode in ({"full", "motion", "still"} if _client_runner is not None else {"full", "motion"}) else "full"
+    safe_preview = str(pathlib.Path(preview_path).expanduser().resolve()) if preview_path and _client_runner is None else ""
+    if safe_mode == "motion" and not safe_preview and _client_runner is None:
         raise ValueError("Buddy art preview is required before regenerating motion")
 
     with _JOB_LOCK:
+        if _validate is not None:
+            _validate()
         if _CURRENT_JOB.get("status") in _RUNNING_JOB_STATES:
             raise RuntimeError("Buddy generation is already running")
-        job_id = f"buddy-hatch-{uuid.uuid4().hex[:10]}"
+        job_id = f"buddy-hatch-{_command_id}" if _client_runner is not None else f"buddy-hatch-{uuid.uuid4().hex[:10]}"
+        if _client_runner is not None:
+            if str(uuid.UUID(_command_id)) != _command_id or _checkpoint is None:
+                raise ValueError("invalid_hatch_admission")
+            _checkpoint(job_id)
+        cancellation = threading.Event()
         _CURRENT_JOB.clear()
         _CURRENT_JOB.update(
             {
@@ -319,19 +330,37 @@ def start_hatch_generation_job(
                 "updated_at": time.time(),
                 "finished_at": 0.0,
                 "error": "",
+                **({"_client_cancel": cancellation} if _client_runner is not None else {}),
             }
         )
         snapshot = _job_snapshot_unlocked()
 
     thread = threading.Thread(
-        target=_run_hatch_generation_job,
-        args=(job_id, safe_prompt, pack_id, safe_mode, safe_preview, reuse_existing, safe_display_prompt),
+        target=_client_runner or _run_hatch_generation_job,
+        args=((job_id, cancellation) if _client_runner is not None else
+              (job_id, safe_prompt, pack_id, safe_mode, safe_preview, reuse_existing, safe_display_prompt)),
         daemon=True,
         name=f"buddy-hatch-{safe_mode}",
     )
-    thread.start()
     _update_hatch_job(job_id, status="running", phase="starting", message="Starting Buddy generation")
+    try:
+        thread.start()
+    except Exception:
+        _update_hatch_job(job_id, status="failed", phase="failed", message="Buddy worker could not start", error="worker_unavailable")
+        raise
     return snapshot
+
+
+def cancel_client_hatch(job_id: str, *, validate: Callable[[], None]) -> dict[str, Any]:
+    """Request exact owned worker cancellation; active provider work must drain."""
+    with _JOB_LOCK:
+        validate()
+        if _CURRENT_JOB.get("id") != job_id or "_client_cancel" not in _CURRENT_JOB:
+            raise ValueError("hatch_job_unavailable")
+        _CURRENT_JOB["_client_cancel"].set()
+        if _CURRENT_JOB.get("status") in _RUNNING_JOB_STATES:
+            _CURRENT_JOB.update(status="cancelling", message="Stopping Buddy generation")
+        return _job_snapshot_unlocked()
 
 
 def _buddy_image_prompt(prompt: str) -> str:

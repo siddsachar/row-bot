@@ -1,0 +1,118 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "developer.repository.branch.create",
+        "developer.repository.branch.switch",
+        "developer.repository.commit",
+        "developer.repository.push",
+        "developer.repository.pull_request",
+        "developer.repository.worktree.create",
+        "developer.repository.worktree.preserve",
+        "developer.repository.sandbox.configure",
+        "developer.repository.sandbox.rebuild",
+        "developer.repository.sandbox.cleanup"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "approval_required": {
+      "title": "Approval Required",
+      "type": "boolean"
+    },
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "policy_action": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Policy Action",
+      "type": "string"
+    },
+    "policy_decision": {
+      "enum": [
+        "allow",
+        "ask",
+        "block"
+      ],
+      "title": "Policy Decision",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "resource_id",
+    "conversation_id",
+    "binding_id",
+    "binding_revision",
+    "resource_revision",
+    "revision",
+    "policy_action",
+    "policy_decision",
+    "approval_required",
+    "disclosures",
+    "action_digest",
+    "review_id"
+  ],
+  "title": "DeveloperRepositoryReview",
+  "type": "object"
+}

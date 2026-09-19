@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expected_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "finding_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "page_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Page Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expected_revision",
+    "page_id",
+    "finding_id"
+  ],
+  "title": "ArtifactReviewDraftRequest",
+  "type": "object"
+}

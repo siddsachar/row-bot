@@ -1,0 +1,98 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "approval_required": {
+      "title": "Approval Required",
+      "type": "boolean"
+    },
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "command": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Command",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "conversation_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Conversation Revision",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "policy_decision": {
+      "enum": [
+        "allow",
+        "ask",
+        "block"
+      ],
+      "title": "Policy Decision",
+      "type": "string"
+    },
+    "policy_revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "command",
+    "resource_id",
+    "conversation_id",
+    "resource_revision",
+    "binding_id",
+    "binding_revision",
+    "conversation_revision",
+    "policy_revision",
+    "policy_decision",
+    "approval_required",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "WorkspaceProcessReview",
+  "type": "object"
+}

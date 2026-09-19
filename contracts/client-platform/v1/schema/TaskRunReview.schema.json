@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agent_profile_id": {
+      "maxLength": 128,
+      "title": "Agent Profile Id",
+      "type": "string"
+    },
+    "approval_mode": {
+      "maxLength": 64,
+      "title": "Approval Mode",
+      "type": "string"
+    },
+    "conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Conversation Id"
+    },
+    "notify_only": {
+      "title": "Notify Only",
+      "type": "boolean"
+    },
+    "policy_revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "steps_total": {
+      "minimum": 0,
+      "title": "Steps Total",
+      "type": "integer"
+    },
+    "task_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "task_revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Task Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "task_revision",
+    "policy_revision",
+    "agent_profile_id",
+    "approval_mode",
+    "notify_only",
+    "steps_total",
+    "conversation_id"
+  ],
+  "title": "TaskRunReview",
+  "type": "object"
+}

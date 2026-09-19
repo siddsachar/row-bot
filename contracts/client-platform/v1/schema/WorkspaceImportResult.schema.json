@@ -1,0 +1,90 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "change_set_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Change Set Id"
+    },
+    "code": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Code",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "files_applied": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Files Applied",
+      "type": "array"
+    },
+    "imported": {
+      "title": "Imported",
+      "type": "boolean"
+    },
+    "ledger_saved": {
+      "title": "Ledger Saved",
+      "type": "boolean"
+    },
+    "pending_change_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Pending Change Id",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "imported",
+        "partial",
+        "conflict",
+        "denied"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "resource_id",
+    "conversation_id",
+    "pending_change_id",
+    "status",
+    "files_applied",
+    "change_set_id",
+    "ledger_saved",
+    "imported"
+  ],
+  "title": "WorkspaceImportResult",
+  "type": "object"
+}

@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "DesignReviewFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_fixable": {
+          "title": "Auto Fixable",
+          "type": "boolean"
+        },
+        "category": {
+          "maxLength": 128,
+          "title": "Category",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "title": "Id",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2048,
+          "title": "Message",
+          "type": "string"
+        },
+        "page_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Page Id",
+          "type": "string"
+        },
+        "severity": {
+          "maxLength": 128,
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 128,
+          "title": "Source",
+          "type": "string"
+        },
+        "suggested_fix": {
+          "maxLength": 2048,
+          "title": "Suggested Fix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "category",
+        "severity",
+        "message",
+        "suggested_fix",
+        "page_id",
+        "auto_fixable"
+      ],
+      "title": "DesignReviewFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "finding_count": {
+      "minimum": 0,
+      "title": "Finding Count",
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/DesignReviewFinding"
+      },
+      "maxItems": 50,
+      "title": "Findings",
+      "type": "array"
+    },
+    "heuristic": {
+      "title": "Heuristic",
+      "type": "boolean"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "page_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Page Id",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "scope": {
+      "enum": [
+        "page",
+        "project"
+      ],
+      "title": "Scope",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Score",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "page_id",
+    "scope",
+    "heuristic",
+    "score",
+    "findings",
+    "finding_count",
+    "next_cursor"
+  ],
+  "title": "DesignReviewState",
+  "type": "object"
+}

@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
-import pathlib
-import os
 import threading
 import time
 from datetime import datetime
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.prompts import EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +147,6 @@ def get_extraction_journal(limit: int = 10) -> list[dict]:
     """Return the most recent extraction journal entries."""
     journal = _load_extraction_journal()
     return journal[-limit:] if limit else journal
-
-
-from row_bot.prompts import EXTRACTION_PROMPT
 
 
 # ── Core extraction logic ────────────────────────────────────────────────────
@@ -340,6 +336,7 @@ def _dedup_and_save(
     extracted: list[dict],
     source: str = "extraction",
     source_context: dict | None = None,
+    *, validate=None, invoke=None,
 ) -> int:
     """Save extracted memories and relations, deduplicating against existing ones.
 
@@ -365,11 +362,12 @@ def _dedup_and_save(
     from row_bot.memory import save_memory, find_by_subject, update_memory, VALID_CATEGORIES
     import row_bot.knowledge_graph as kg
 
-    # Suppress per-entity rebuild_index() — we do one rebuild at the end.
-    kg._skip_reindex = True
-
     saved_count = 0
-    try:
+    strict = {"validate":validate} if validate is not None else {}
+    if validate is not None:
+        validate()
+    # Only this extraction context defers projections; source work is durable.
+    with kg.projection_batch(drain_on_exit=False):
 
         # ── Pass 1: save/update entities and build a subject→id map ──────
         subject_to_id: dict[str, str] = {}
@@ -380,6 +378,8 @@ def _dedup_and_save(
             subject_to_id[kg._normalize_subject("User")] = user_entity["id"]
 
         for entry in extracted:
+            if validate is not None:
+                validate()
             category = entry.get("category", "").lower().strip()
             if category not in VALID_CATEGORIES:
                 continue
@@ -424,6 +424,8 @@ def _dedup_and_save(
                         if hit:
                             existing = hit
                 except Exception:
+                    if validate is not None:
+                        raise
                     pass
 
             if existing:
@@ -460,7 +462,8 @@ def _dedup_and_save(
                     # memory tool uses to prevent conflicting facts.
                     try:
                         from row_bot.tools.memory_tool import _check_contradiction
-                        conflict = _check_contradiction(old_content, content, subject)
+                        conflict = _check_contradiction(old_content, content, subject,
+                            **strict, **({"invoke":invoke} if invoke is not None else {}))
                         if conflict:
                             try:
                                 import row_bot.memory_evolution as memory_evo
@@ -475,8 +478,11 @@ def _dedup_and_save(
                                         "content": content,
                                         "source": source,
                                     },
+                                    **strict,
                                 )
                             except Exception:
+                                if validate is not None:
+                                    raise
                                 logger.debug("Failed to mark extraction conflict for review", exc_info=True)
                             logger.warning(
                                 "Extraction contradiction for '%s': %s — skipping merge",
@@ -488,6 +494,8 @@ def _dedup_and_save(
                             merged_content = f"{old_content}. {content}".replace(". . ", ". ")
                             content_changed = True
                     except Exception as exc:
+                        if validate is not None:
+                            raise
                         logger.warning(
                             "Extraction contradiction check failed for '%s': %s — keeping existing content",
                             subject, exc,
@@ -502,6 +510,7 @@ def _dedup_and_save(
                             existing["id"],
                             merged_content,
                             **update_kwargs,
+                            **strict,
                         )
                         saved_count += 1
                         logger.info(
@@ -509,6 +518,8 @@ def _dedup_and_save(
                             existing["id"], subject,
                         )
                     except Exception as exc:
+                        if validate is not None:
+                            raise
                         logger.debug("Failed to update memory: %s", exc)
                 # else: existing content is already richer and no alias update needed
             else:
@@ -517,6 +528,7 @@ def _dedup_and_save(
                     result = save_memory(
                         category, subject, content,
                         tags="", source=source, properties=properties,
+                        **strict,
                     )
                     subject_to_id[kg._normalize_subject(subject)] = result["id"]
 
@@ -529,17 +541,22 @@ def _dedup_and_save(
                                 aliases=new_aliases,
                                 source=source,
                                 properties=properties,
+                                **strict,
                             )
                             for alias in new_aliases.split(","):
                                 alias = alias.strip()
                                 if alias:
                                     subject_to_id[kg._normalize_subject(alias)] = result["id"]
                         except Exception:
+                            if validate is not None:
+                                raise
                             pass
 
                     saved_count += 1
                     logger.info("Auto-saved memory: [%s] %s", category, subject)
                 except Exception as exc:
+                    if validate is not None:
+                        raise
                     logger.debug("Failed to save memory: %s", exc)
 
         # ── Pass 2: save extracted relations ─────────────────────────────
@@ -550,6 +567,8 @@ def _dedup_and_save(
         }
 
         for rel in relations:
+            if validate is not None:
+                validate()
             src_subj = kg._normalize_subject(rel.get("source_subject", "").strip())
             tgt_subj = kg._normalize_subject(rel.get("target_subject", "").strip())
             rel_type = rel.get("relation_type", "").strip()
@@ -604,6 +623,8 @@ def _dedup_and_save(
                     if _hits:
                         src_id = _hits[0]["id"]
                 except Exception:
+                    if validate is not None:
+                        raise
                     pass
             if not tgt_id:
                 try:
@@ -614,6 +635,8 @@ def _dedup_and_save(
                     if _hits:
                         tgt_id = _hits[0]["id"]
                 except Exception:
+                    if validate is not None:
+                        raise
                     pass
 
             if src_id and tgt_id:
@@ -629,6 +652,7 @@ def _dedup_and_save(
                         source=source,
                         confidence=rel_confidence if isinstance(rel_confidence, (int, float)) else 0.8,
                         properties=rel_props or None,
+                        **strict,
                     )
                     if result:
                         saved_count += 1
@@ -638,10 +662,9 @@ def _dedup_and_save(
                             rel.get("target_subject", "?"),
                         )
                 except Exception as exc:
+                    if validate is not None:
+                        raise
                     logger.debug("Failed to save relation: %s", exc)
-
-    finally:
-        kg._skip_reindex = False
 
     return saved_count
 
@@ -751,16 +774,19 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
                 "saved": 0,
             })
 
-    # Single FAISS rebuild after ALL threads processed (not per-thread).
-    # Always reset _skip_reindex — _dedup_and_save's try/finally handles
-    # its own reset, but ensure the flag is clean even if no threads matched.
+    # One bounded canonical projection drain after all conversation writes.
+    projection_pending = False
     try:
         import row_bot.knowledge_graph as kg
-        kg._skip_reindex = False
         if total_saved:
-            kg.rebuild_index()
+            projection = kg.repair_projections(max_entities=1000, cancelled=_timer_stop.is_set)
+            projection_pending = not projection["complete"]
+            if projection_pending:
+                journal_entry["errors"].append("Saved memory has pending projection repair")
     except Exception as exc:
-        logger.debug("Post-extraction rebuild_index failed: %s", exc)
+        projection_pending = True
+        journal_entry["errors"].append("Saved memory projection repair failed")
+        logger.warning("Post-extraction projection repair failed: %s", exc)
     finally:
         if total_saved:
             try:
@@ -772,19 +798,10 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
             except Exception:
                 logger.debug("Memory embedding resource release failed", exc_info=True)
 
-    # Single wiki vault rebuild after ALL threads processed (not per-entity)
-    if total_saved:
-        try:
-            import row_bot.wiki_vault as wiki_vault
-            if wiki_vault.is_enabled():
-                wiki_vault.rebuild_vault()
-                logger.info("Post-extraction wiki vault rebuild complete")
-        except Exception as exc:
-            logger.debug("Post-extraction wiki rebuild skipped: %s", exc)
-
     state["last_extraction"] = datetime.now().isoformat()
     state["threads_scanned"] = len(new_threads)
     state["entities_saved"] = total_saved
+    state["projection_pending"] = projection_pending
     _save_state(state)
 
     # Append journal entry
@@ -799,7 +816,8 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
 
     if on_status:
         if total_saved:
-            on_status(f"Extracted {total_saved} new memory(s)")
+            suffix = "; projection repair pending" if projection_pending else ""
+            on_status(f"Extracted {total_saved} new memory(s){suffix}")
         else:
             on_status("No new memories found")
 

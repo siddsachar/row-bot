@@ -141,9 +141,11 @@ If YES, reply with a single short sentence describing the conflict.
 If NO (they are compatible or additive), reply with exactly: NO"""
 
 
-def _check_contradiction(old_content: str, new_content: str, subject: str) -> str | None:
+def _check_contradiction(old_content: str, new_content: str, subject: str, *, invoke=None, validate=None) -> str | None:
     """Return a conflict description if old and new content contradict, else None."""
     try:
+        if validate is not None:
+            validate()
         from row_bot.models import get_current_model, get_llm_for
         from langchain_core.messages import HumanMessage
 
@@ -152,9 +154,14 @@ def _check_contradiction(old_content: str, new_content: str, subject: str) -> st
             old_content=old_content,
             new_content=new_content,
         )
-        llm = get_llm_for(get_current_model())
-        resp = llm.invoke([HumanMessage(content=prompt)])
-        raw = resp.content or ""
+        if invoke is not None:
+            raw = invoke(prompt) or ""
+        else:
+            llm = get_llm_for(get_current_model())
+            resp = llm.invoke([HumanMessage(content=prompt)])
+            raw = resp.content or ""
+        if validate is not None:
+            validate()
         if isinstance(raw, list):
             raw = " ".join(
                 b.get("text", "") if isinstance(b, dict) else str(b)
@@ -165,6 +172,8 @@ def _check_contradiction(old_content: str, new_content: str, subject: str) -> st
             return None
         return raw
     except Exception:
+        if validate is not None or invoke is not None:
+            raise
         # On failure, allow the merge to proceed (no false blocks)
         return None
 
@@ -452,7 +461,6 @@ def _explore_connections(entity_id: str, hops: int = 1) -> str:
                 )
 
         if neighbors:
-            graph_only = [n for n in neighbors if n not in [{"id": r["peer_id"]} for r in relations]]
             if len(neighbors) > len(relations):
                 parts.append(f"\nNearby entities within {hops} hop(s): {len(neighbors)}")
                 for n in neighbors[:15]:  # cap display

@@ -565,6 +565,39 @@ class _RevertInput(BaseModel):
 
 def _revert_change_set(change_set_id: str) -> str:
     workspace, _root = _active_workspace()
+    saved, _ = change_ledger.read_change_set(change_set_id)
+    if change_ledger.requires_guarded_undo(saved):
+        from row_bot import agent, conversation_resources
+        from row_bot.developer import client_undo
+        from row_bot.runtime import admissions, executions
+        thread_id = get_thread_id()
+        context = conversation_resources.current_execution_context()
+        captured = context.resolve("workspace") if context else None
+        def validate():
+            current = conversation_resources.current_execution_context()
+            execution = executions.current_execution()
+            if (not current or current != context or current.conversation_id != thread_id
+                    or not captured or captured.resource_id != workspace.id or current.resolve("workspace") != captured
+                    or get_thread_id() != thread_id or get_workspace_id() != workspace.id
+                    or execution is not None and execution.cancel_scope.is_cancelled()):
+                raise ValueError("resource_binding_revoked")
+        review, command_id = client_undo.prepare_retained_undo(workspace.id, thread_id, change_set_id, validate=validate)
+        if review.policy_decision == "block":
+            return "Undo is blocked by the current workspace policy."
+        client_undo.reserve_retained_undo_review(review, command_id, validate=validate)
+        if review.approval_required:
+            approved = interrupt({"tool": "developer_revert_change_set", "label": "Undo imported workspace changes",
+                "description": "Restore the exact retained original files. Created directories will remain.",
+                "args": {"change_set_id": change_set_id, "files": list(review.files),
+                    "directories_retained": list(review.directories_retained), "action_digest": review.action_digest}})
+            if not approved:
+                admissions.reject_command("developer-undo:" + thread_id, command_id, "action_denied")
+                return "Workspace Undo cancelled by user."
+        result = client_undo.execute_retained_undo(review, command_id, confirmed=True, validate=validate,
+            borrowed_run_id=agent.get_active_runtime_context().get("agent_run_id") or None)
+        if result.status != "undone":
+            return f"Workspace Undo {result.status}: {result.code}. Retry this same change set to recover its original operation."
+        return f"Reverted {len(result.files_restored)} file(s) from change set {change_set_id}. Created directories were retained."
     return developer_edits.revert_change_set(workspace.id, change_set_id)
 
 

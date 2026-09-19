@@ -1,4 +1,4 @@
-/** Navigation metadata only. Each future domain form retains its typed capability API. */
+/** Search metadata only. Settings navigation follows the NiceGUI owner order. */
 export const settingsGroups = [
   {
     id: 'models',
@@ -8,7 +8,7 @@ export const settingsGroups = [
   {
     id: 'knowledge',
     label: 'Knowledge and documents',
-    leaves: ['Knowledge', 'Documents'],
+    leaves: ['Knowledge', 'Documents', 'Wiki'],
   },
   {
     id: 'integrations',
@@ -18,18 +18,43 @@ export const settingsGroups = [
   {
     id: 'personal',
     label: 'Personal workspace',
-    leaves: ['Buddy', 'Tracker', 'Utilities', 'Preferences'],
+    leaves: ['Buddy', 'Goals', 'Tracker', 'Utilities', 'Preferences'],
   },
   { id: 'system', label: 'System and access', leaves: ['System'] },
 ] as const;
-export const settingsLeaves = settingsGroups.flatMap((group) =>
-  group.leaves.map((label) => ({
-    id: label.toLowerCase(),
+const settingsOrder = [
+  'Providers',
+  'Models',
+  'Knowledge',
+  'Wiki',
+  'Buddy',
+  'Goals',
+  'Voice',
+  'System',
+  'Tracker',
+  'Documents',
+  'Tools',
+  'Skills',
+  'Accounts',
+  'Channels',
+  'Utilities',
+  'MCP',
+  'Plugins',
+  'Preferences',
+] as const;
+
+export const settingsLeaves = settingsOrder.map((label) => {
+  const group = settingsGroups.find((candidate) =>
+    candidate.leaves.some((leaf) => leaf === label),
+  );
+  const id = label.toLowerCase();
+  return {
+    id,
     label,
-    category: group.label,
-    href: `/settings/${label.toLowerCase()}`,
-  })),
-);
+    category: group?.label ?? 'Settings',
+    href: `/settings/${id}`,
+  };
+});
 const aliases: Record<string, string> = {
   cloud: 'providers',
   google: 'accounts',
@@ -37,6 +62,8 @@ const aliases: Record<string, string> = {
   calendar: 'accounts',
   migration: 'preferences',
   search: 'tools',
+  profiles: 'goals',
+  'agent-profiles': 'goals',
 };
 export function resolveSetting(value: string) {
   const key = value.toLowerCase();

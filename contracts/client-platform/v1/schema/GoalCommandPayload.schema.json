@@ -1,0 +1,87 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "goal_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Goal Id"
+    },
+    "max_turns": {
+      "anyOf": [
+        {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Max Turns"
+    },
+    "objective": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Objective"
+    },
+    "operation": {
+      "enum": [
+        "start",
+        "pause",
+        "resume",
+        "complete",
+        "clear"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "revision": {
+      "maxLength": 20,
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "goal_id",
+    "revision",
+    "operation",
+    "objective",
+    "max_turns",
+    "reason"
+  ],
+  "title": "GoalCommandPayload",
+  "type": "object"
+}

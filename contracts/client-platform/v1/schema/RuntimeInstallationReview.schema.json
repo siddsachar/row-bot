@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "RuntimeArchive": {
+      "additionalProperties": false,
+      "properties": {
+        "arch": {
+          "maxLength": 32,
+          "title": "Arch",
+          "type": "string"
+        },
+        "asset_name": {
+          "maxLength": 256,
+          "title": "Asset Name",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 2147483648,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "system": {
+          "maxLength": 32,
+          "title": "System",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "url",
+        "sha256",
+        "size_bytes",
+        "system",
+        "arch",
+        "asset_name"
+      ],
+      "title": "RuntimeArchive",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "executes_runtime": {
+      "const": false,
+      "title": "Executes Runtime",
+      "type": "boolean"
+    },
+    "network_required": {
+      "const": true,
+      "title": "Network Required",
+      "type": "boolean"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "resolve",
+        "install"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RuntimeArchive"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resource_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "runtime_id": {
+      "enum": [
+        "node",
+        "uv"
+      ],
+      "title": "Runtime Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Command Id"
+    }
+  },
+  "required": [
+    "runtime_id",
+    "operation",
+    "resource_revision",
+    "source_command_id",
+    "schema_version",
+    "action_digest",
+    "plan",
+    "disclosures",
+    "network_required",
+    "executes_runtime",
+    "nonce"
+  ],
+  "title": "RuntimeInstallationReview",
+  "type": "object"
+}

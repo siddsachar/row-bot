@@ -299,7 +299,7 @@ def test_encrypted_server_store_is_not_an_implicit_plaintext_fallback(
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     secret_store._set_backend_for_tests(_UnavailableKeyring())
     try:
-        with pytest.raises(secret_store.SecretStoreError, match="No recommended backend"):
+        with pytest.raises(secret_store.SecretStoreError, match="secure_storage_write_failed"):
             secret_store.set_secret("access_token", "fake-session-only-token")
         assert list(data_dir.rglob("*")) == []
     finally:

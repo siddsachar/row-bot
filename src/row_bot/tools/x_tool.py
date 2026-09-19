@@ -709,6 +709,10 @@ class XTool(BaseTool):
             return ("missing", "No token file found")
 
         if _token_expired(token):
+            from row_bot.docs_capture import is_docs_real_data_capture
+
+            if is_docs_real_data_capture():
+                return ("expired", "Token refresh suppressed during authorized capture")
             # Try silent refresh
             new_token = _refresh_token(
                 token, self._get_client_id(), self._get_client_secret()
@@ -718,6 +722,10 @@ class XTool(BaseTool):
             return ("expired", "Token expired — re-authenticate in Settings")
 
         # Token not expired — verify it actually works
+        from row_bot.docs_capture import is_docs_real_data_capture
+
+        if is_docs_real_data_capture():
+            return ("valid", "Saved token present; live verification suppressed during capture")
         try:
             import httpx
             resp = httpx.get(
@@ -1062,7 +1070,7 @@ class XTool(BaseTool):
 
     def _x_post(self, action: str, text: str | None = None,
                 tweet_id: str | None = None,
-                media_paths: list[str] | None = None) -> str:
+                media_paths: list[str] | None = None, *, require_all_media: bool = False) -> str:
         """Execute a post/write operation on X."""
         token = self._get_valid_token()
         if not token:
@@ -1077,6 +1085,8 @@ class XTool(BaseTool):
             body: dict = {"text": text}
             if media_paths:
                 media_ids = self._upload_media_files(media_paths, token)
+                if require_all_media and len(media_ids) != len(media_paths):
+                    return "Media upload incomplete; no tweet was posted. Uploaded media may remain."
                 if media_ids:
                     body["media"] = {"media_ids": media_ids}
 

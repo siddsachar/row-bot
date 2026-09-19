@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
   CommandReceipt,
@@ -42,6 +43,10 @@ const mock = vi.hoisted(() => ({
   showHistory: vi.fn(),
   showLatest: vi.fn(),
   selectConversation: vi.fn(),
+  loadMoreConversations: vi.fn(),
+  conversationActions: vi.fn(),
+  reviewConversationAction: vi.fn(),
+  executeConversationAction: vi.fn(),
   searchLibrary: vi.fn(),
   close: vi.fn(),
   open: vi.fn(),
@@ -58,6 +63,13 @@ vi.mock('../../runtime', () => {
     controller: {
       getSnapshot: () => mock.state,
       getSelectionVersion: () => mock.version,
+      dictationScope: () => null,
+      dictationCapability: async () => ({
+        schema_version: 1,
+        browser_dictation_available: false,
+        native_capture_available: false,
+        reason: 'host_unavailable',
+      }),
       getDraft: (id: string) =>
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
@@ -66,6 +78,10 @@ vi.mock('../../runtime', () => {
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,
       selectConversation: mock.selectConversation,
+      loadMoreConversations: mock.loadMoreConversations,
+      conversationActions: mock.conversationActions,
+      reviewConversationAction: mock.reviewConversationAction,
+      executeConversationAction: mock.executeConversationAction,
       searchLibrary: mock.searchLibrary,
       download: mock.download,
       delegatedActivity: async (conversationId: string) => ({
@@ -79,7 +95,10 @@ vi.mock('../../runtime', () => {
         throw new Error('No delegated run in this fixture');
       },
     },
-    platform: {},
+    platform: { save: vi.fn() },
+    conversationActionsOwner: {
+      get: () => ({ get: () => ({}) }),
+    },
   };
   return {
     useClientState: () => mock.state,
@@ -247,6 +266,32 @@ function activeConversation(id = 'conversation-a') {
   return commandReceipts.scope(mock.state.handshake.instance_id, id);
 }
 
+it('opens reviewed conversation management from the existing action menu', async () => {
+  activeConversation();
+  const user = userEvent.setup();
+  await act(async () => {
+    conversation();
+  });
+  await user.click(
+    screen.getByRole('button', { name: 'Conversation actions' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Manage conversation' }),
+  );
+  const options = mock.open.mock.lastCall?.[0];
+  expect(options).toMatchObject({
+    title: 'Conversation actions',
+    description:
+      'Review changes to this saved conversation and keep its resources in place.',
+  });
+  expect(options.content.props).toMatchObject({
+    conversationId: 'conversation-a',
+    load: mock.conversationActions,
+    review: mock.reviewConversationAction,
+    execute: mock.executeConversationAction,
+  });
+});
+
 function transcriptGeometry(initialHeight = 900) {
   let height = initialHeight;
   vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(
@@ -407,6 +452,23 @@ function interruptedConversation() {
     'resume',
   );
 }
+
+it('names the composer and explains why sending is unavailable', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.drafts.set('conversation-a', {
+    text: 'Keep this draft',
+    attachments: [],
+  });
+  await act(async () => conversation());
+  const composer = screen.getByRole('form', { name: 'Message composer' });
+  const reason = screen.getByText(/choose a configured model to send/i);
+  expect(composer).toContainElement(reason);
+  expect(
+    screen.getByRole('textbox', { name: 'Message' }),
+  ).toHaveAccessibleDescription(reason.textContent ?? '');
+  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+});
 
 it('changes the model through the compact composer menu and preserves the current draft', async () => {
   idleConversation();
@@ -1077,6 +1139,9 @@ it('offers media retry after a failed download and releases its object URL on un
     'src',
     'blob:synthetic-result',
   );
+  expect(
+    screen.getByRole('group', { name: 'Generated result' }),
+  ).toBeInTheDocument();
   expect(mock.download).toHaveBeenCalledTimes(2);
   rendered.unmount();
   expect(revoke).toHaveBeenCalledWith('blob:synthetic-result');
@@ -1311,6 +1376,9 @@ it('fences a search hit when A history resolves after selection has moved throug
   await act(async () => {
     render(<SearchConversations />);
   });
+  expect(
+    screen.getByRole('list', { name: 'Conversation search results' }),
+  ).toBeVisible();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: 'A hit Needle' }));
   });

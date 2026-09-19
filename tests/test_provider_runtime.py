@@ -1925,10 +1925,14 @@ def test_agent_graph_installs_custom_tool_validation_repair(tmp_path, monkeypatc
     from langgraph.prebuilt import ToolNode
 
     assert isinstance(graph.tools, ToolNode)
-    assert graph.tools.tools_by_name == {"duckduckgo": tool}
+    assert set(graph.tools.tools_by_name) == {"duckduckgo"}
     bound_tool = graph.tools.tools_by_name["duckduckgo"]
+    # Profile enforcement copies the tool; the bound schema and validation
+    # repair must survive that wrapper and still dispatch valid arguments.
+    assert bound_tool.args_schema is tool.args_schema
     assert "Invalid tool call for duckduckgo" in bound_tool.invoke({})
     assert "ROW_BOT_TOOL_VALIDATION_RETRY_REQUIRED" in bound_tool.invoke({})
+    assert bound_tool.invoke({"query": "validation repair"}) == "ok:validation repair"
 
     agent.clear_agent_cache()
 

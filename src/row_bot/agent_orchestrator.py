@@ -14,6 +14,7 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -126,7 +127,7 @@ _PERMANENT_MARKERS = (
     "explicit stop",
 )
 _SERVICE_LOCK = threading.RLock()
-_DELIVERY_LOCK = threading.RLock()
+_DELIVERY_RECONCILE_ADMISSION = threading.BoundedSemaphore(1)
 _SYNTHESIS_THREADS: dict[str, threading.Thread] = {}
 _PARENT_THREADS: dict[str, threading.Thread] = {}
 _SYNTHESIS_EXECUTOR: Callable[[dict[str, Any], str], str] | None = None
@@ -3253,43 +3254,82 @@ def _deliver_once(
     text: str,
     message_key: str = "",
 ) -> bool:
-    with _DELIVERY_LOCK:
-        key = str(message_key or f"orchestration:{orchestration['id']}:{kind}")
-        existing = record_message(
-            str(orchestration["id"]),
-            kind=f"parent_{kind}" if message_key else kind,
-            content=text,
-            message_id=key,
-        )
-        if str(existing.get("delivery_status") or "") == "delivered":
-            return True
-        executor = _DELIVERY_EXECUTOR or _default_delivery_executor
-        delivered = False
-        delivery_error = ""
-        try:
-            delivered = bool(executor(orchestration, kind, text, key))
-            if not delivered:
-                delivery_error = "Delivery executor returned false."
-        except Exception as exc:
-            delivery_error = str(exc)
-            logger.exception("Orchestration %s delivery failed", key)
-        conn = _conn()
-        try:
-            conn.execute(
-                "UPDATE agent_orchestration_messages SET delivery_status = ?, "
-                "delivered_at = ?, attempt_count = attempt_count + 1, "
-                "last_error = ? WHERE id = ?",
-                (
-                    "delivered" if delivered else "failed",
-                    _now() if delivered else "",
-                    "" if delivered else delivery_error[:1000],
-                    key,
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-        return delivered
+    key = str(message_key or f"orchestration:{orchestration['id']}:{kind}")
+    existing = record_message(
+        str(orchestration["id"]), kind=f"parent_{kind}" if message_key else kind,
+        content=text, message_id=key,
+    )
+    if (existing.get("content") != text
+            or existing.get("orchestration_id") != str(orchestration["id"])
+            or existing.get("kind") != (f"parent_{kind}" if message_key else kind)):
+        return False
+    if existing.get("delivery_status") == "delivered":
+        return True
+    executor = _DELIVERY_EXECUTOR or _default_delivery_executor
+    if existing.get("delivery_status") == "uncertain":
+        # A downstream durable receipt can repair our failed publication without
+        # sending again. Absence of a receipt is never permission to replay.
+        if executor is _default_delivery_executor:
+            from row_bot.tasks import get_channel_thread_notification
+
+            receipt = get_channel_thread_notification(key)
+            if receipt and receipt["status"] == "delivered":
+                return _complete_delivery_attempt(
+                    key, int(existing["attempt_count"]), "delivered", "",
+                )
+        return False
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        changed = conn.execute(
+            "UPDATE agent_orchestration_messages SET delivery_status = 'uncertain', "
+            "attempt_count = attempt_count + 1, last_error = 'Delivery outcome unconfirmed.' "
+            "WHERE id = ? AND (delivery_status = 'pending' OR "
+            "(delivery_status = 'failed' AND last_error = 'Delivery executor returned false.'))",
+            (key,),
+        ).rowcount
+        row = conn.execute(
+            "SELECT attempt_count, delivery_status FROM agent_orchestration_messages WHERE id = ?",
+            (key,),
+        ).fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    if not changed:
+        return bool(row and row["delivery_status"] == "delivered")
+    attempt = int(row["attempt_count"])
+    try:
+        delivered = bool(executor(orchestration, kind, text, key))
+        status = "delivered" if delivered else "failed"
+        error = "" if delivered else "Delivery executor returned false."
+        if not delivered and executor is _default_delivery_executor:
+            from row_bot.tasks import get_channel_thread_notification
+
+            receipt = get_channel_thread_notification(key)
+            if receipt and (receipt["status"] == "uncertain" or (
+                receipt["status"] == "failed"
+                and not str(receipt["last_error"]).startswith("not_sent: ")
+            )):
+                status, error = "uncertain", "Downstream delivery outcome unconfirmed."
+        return _complete_delivery_attempt(key, attempt, status, error) and delivered
+    except Exception as exc:
+        logger.warning("Orchestration delivery remains unconfirmed: %s", type(exc).__name__)
+        return False
+
+
+def _complete_delivery_attempt(key: str, attempt: int, status: str, error: str) -> bool:
+    conn = _conn()
+    try:
+        changed = conn.execute(
+            "UPDATE agent_orchestration_messages SET delivery_status = ?, "
+            "delivered_at = ?, last_error = ? WHERE id = ? "
+            "AND delivery_status = 'uncertain' AND attempt_count = ?",
+            (status, _now() if status == "delivered" else "", error, key, attempt),
+        ).rowcount
+        conn.commit()
+        return bool(changed)
+    finally:
+        conn.close()
 
 
 def ensure_acknowledgement(orchestration_id: str) -> bool:
@@ -4176,20 +4216,51 @@ def resume_orchestration(orchestration_id: str) -> dict[str, Any]:
 
 
 def retry_pending_deliveries(limit: int = 50) -> int:
+    if not _DELIVERY_RECONCILE_ADMISSION.acquire(blocking=False):
+        return 0
+    try:
+        return _retry_pending_deliveries(limit)
+    finally:
+        _DELIVERY_RECONCILE_ADMISSION.release()
+
+
+def _retry_pending_deliveries(limit: int) -> int:
     _ensure_schema()
     conn = _conn()
     try:
         rows = conn.execute(
             "SELECT * FROM agent_orchestration_messages "
             "WHERE kind IN ('acknowledgement', 'final', 'parent_progress', 'parent_final') "
-            "AND delivery_status != 'delivered' ORDER BY created_at LIMIT ?",
-            (max(1, int(limit or 50)),),
+            "AND (delivery_status = 'pending' OR "
+            "(delivery_status = 'failed' AND last_error = 'Delivery executor returned false.') "
+            "OR (delivery_status = 'uncertain' AND EXISTS (SELECT 1 FROM "
+            "channel_thread_notifications n WHERE n.key = agent_orchestration_messages.id "
+            "AND n.status = 'delivered'))) ORDER BY created_at LIMIT ?",
+            (max(1, min(500, int(limit or 50))),),
         ).fetchall()
     finally:
         conn.close()
-    delivered = 0
+    from row_bot.tasks import get_thread_channel_ref
+
+    destinations: dict[tuple[str, str], list[tuple[dict, dict]]] = {}
     for row in rows:
         orchestration = get_orchestration(str(row["orchestration_id"]))
+        if not orchestration:
+            continue
+        thread_id = str(orchestration["parent_thread_id"])
+        ref = get_thread_channel_ref(thread_id)
+        destination = (str(ref["channel"]), str(ref["target"])) if ref else ("local", thread_id)
+        destinations.setdefault(destination, []).append((orchestration, dict(row)))
+    if not destinations:
+        return 0
+    with ThreadPoolExecutor(max_workers=min(8, len(destinations)),
+                            thread_name_prefix="orchestration-delivery") as workers:
+        return sum(workers.map(_retry_destination_deliveries, destinations.values()))
+
+
+def _retry_destination_deliveries(records: list[tuple[dict, dict]]) -> int:
+    delivered = 0
+    for orchestration, row in records:
         kind = str(row["kind"])
         if orchestration and _deliver_once(
             orchestration,

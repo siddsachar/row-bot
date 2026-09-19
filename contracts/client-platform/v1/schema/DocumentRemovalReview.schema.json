@@ -1,0 +1,99 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "document_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Document Id"
+    },
+    "removal_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Removal Id"
+    },
+    "retains_copies": {
+      "const": true,
+      "title": "Retains Copies",
+      "type": "boolean"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Command Id"
+    },
+    "source_count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Source Count",
+      "type": "integer"
+    },
+    "source_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Revision",
+      "type": "string"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "enum": [
+            "complete",
+            "pending",
+            "partial"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Status"
+    }
+  },
+  "required": [
+    "schema_version",
+    "document_id",
+    "source_revision",
+    "source_count",
+    "retains_copies",
+    "review_id"
+  ],
+  "title": "DocumentRemovalReview",
+  "type": "object"
+}

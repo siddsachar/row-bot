@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 import pathlib
+from html import escape
+from collections.abc import Callable
 
 from row_bot.designer.export import build_html_export
 from row_bot.designer.preview import (
@@ -45,7 +47,7 @@ def delete_published_project(project_id: str) -> bool:
     return True
 
 
-def resolve_publish_base_url(ensure_public: bool = True) -> tuple[str, bool]:
+def resolve_publish_base_url(ensure_public: bool = True, *, strict: bool = False) -> tuple[str, bool]:
     """Return the base URL for published links and whether it is public."""
     app_port = get_app_port()
     public_url = tunnel_manager.get_url(app_port)
@@ -53,13 +55,15 @@ def resolve_publish_base_url(ensure_public: bool = True) -> tuple[str, bool]:
         try:
             public_url = tunnel_manager.start_tunnel(app_port, label="designer publish")
         except Exception:
+            if strict:
+                raise
             logger.warning("Could not open a public tunnel for designer publishing", exc_info=True)
     if public_url:
         return public_url.rstrip("/"), True
     return f"http://127.0.0.1:{app_port}", False
 
 
-def build_publish_bytes(project: DesignerProject, pages: str | None = None) -> bytes:
+def build_publish_bytes(project: DesignerProject, pages: str | None = None, *, isolated: bool = False) -> bytes:
     """Render the publishable HTML bytes for a project.
 
     Interactive modes (landing / app_mockup / storyboard) use the
@@ -70,6 +74,9 @@ def build_publish_bytes(project: DesignerProject, pages: str | None = None) -> b
     mode = getattr(project, "mode", "deck")
     if mode in INTERACTIVE_MODES:
         html = render_multi_route_html(project)
+        if isolated:
+            from row_bot.designer.preview import isolate_preview_html
+            html = isolate_preview_html(html, scripts=True, brand=project.brand)
         # Guarantee the published document declares UTF-8 at the top of
         # <head> — the static file server does not attach a charset to
         # the Content-Type, so browsers fall back to Windows-1252 and
@@ -86,12 +93,12 @@ def build_publish_bytes(project: DesignerProject, pages: str | None = None) -> b
         # page.
         chrome = get_preview_chrome(project)
         if chrome.get("kind") == "phone":
-            html = _wrap_in_phone_bezel(html, chrome, project)
+            html = _wrap_in_phone_bezel(html, chrome, project, isolated=isolated)
         return html.encode("utf-8")
     return build_html_export(project, pages)
 
 
-def _wrap_in_phone_bezel(html: str, chrome: dict, project: DesignerProject) -> str:
+def _wrap_in_phone_bezel(html: str, chrome: dict, project: DesignerProject, *, isolated: bool = False) -> str:
     """Wrap a published app_mockup document in a phone bezel shell.
 
     The original document stays unchanged inside an iframe; we layer a
@@ -119,7 +126,7 @@ def _wrap_in_phone_bezel(html: str, chrome: dict, project: DesignerProject) -> s
     return (
         "<!DOCTYPE html><html><head>"
         "<meta charset=\"utf-8\">"
-        f"<title>{project.name}</title>"
+        f"<title>{escape(project.name)}</title>"
         "<style>"
         "html,body{margin:0;padding:0;background:#0B1220;color:#F8FAFC;"
         "font-family:Inter,system-ui,sans-serif;min-height:100vh;}"
@@ -135,6 +142,7 @@ def _wrap_in_phone_bezel(html: str, chrome: dict, project: DesignerProject) -> s
         f"<div style=\"{notch_style}\"></div>"
         f"<div class=\"row-bot-screen\" style=\"{screen_style}\">"
         f"<iframe src=\"data:text/html;charset=utf-8;base64,{b64}\" "
+        + ('sandbox="allow-scripts" ' if isolated else '') +
         "allow=\"fullscreen\"></iframe>"
         "</div></div></div>"
         "</body></html>"
@@ -146,18 +154,50 @@ def publish_project(
     pages: str | None = None,
     *,
     ensure_public: bool = True,
+    validate: Callable[[], None] | None = None,
+    checkpoint: Callable[[str, int, int], None] | None = None,
+    publish_bytes: Callable[[pathlib.Path, bytes], None] | None = None,
+    isolated: bool = False,
+    local_only: bool = False,
 ) -> dict:
     """Render a self-contained HTML deck and expose it through the app's static route."""
-    html_bytes = build_publish_bytes(project, pages)
-    publish_path = resolve_publish_path(project)
-    publish_path.write_bytes(html_bytes)
+    html_bytes = build_publish_bytes(project, pages, isolated=isolated)
+    if validate:
+        validate()
+    # The strict adapter owns contained directory creation as well as bytes.
+    publish_path = PUBLISHED_DIR / f'{project.id}.html' if isolated and publish_bytes else resolve_publish_path(project)
+    if checkpoint:
+        checkpoint('publish_file_started', 0, 1)
+    if validate:
+        validate()
+    if publish_bytes:
+        publish_bytes(publish_path, html_bytes)
+    else:
+        publish_path.write_bytes(html_bytes)
+    if checkpoint:
+        checkpoint('publish_file_completed', 0, 1)
 
-    base_url, is_public = resolve_publish_base_url(ensure_public=ensure_public)
+    if validate:
+        validate()
+    if checkpoint and ensure_public:
+        checkpoint('tunnel_started', 0, 1)
+    base_url, is_public = (f'http://127.0.0.1:{get_app_port()}', False) if local_only else resolve_publish_base_url(ensure_public=ensure_public, strict=isolated)
+    if isolated:
+        from urllib.parse import urlsplit
+        parsed = urlsplit(base_url)
+        if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError('publish_url_unavailable')
+    if checkpoint and ensure_public:
+        checkpoint('tunnel_completed' if is_public else 'tunnel_unavailable', 0, 1)
     url = f"{base_url}/published/{publish_path.name}"
 
+    if validate:
+        validate()
     project.publish_url = url
     project.published_at = datetime.now(timezone.utc).isoformat()
     save_project(project)
+    if checkpoint:
+        checkpoint('publish_metadata_completed', 0, 1)
 
     return {
         "url": url,

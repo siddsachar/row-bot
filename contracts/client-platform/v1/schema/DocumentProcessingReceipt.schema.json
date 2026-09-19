@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Batch Id"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "const": "document_processing_uncertain",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "processing": {
+      "anyOf": [
+        {
+          "const": "admitted",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Processing"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "DocumentProcessingReceipt",
+  "type": "object"
+}

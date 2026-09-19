@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -259,6 +260,47 @@ def test_forty_observer_switches_keep_stop_available_through_public_routes():
         assert not security._subscriptions
 
 
+def test_idle_event_stream_flushes_acceptance_before_replay_or_heartbeat():
+    security = ClientSecurity("fixture", clock=lambda: 10.0)
+    service = Service()
+    service.snapshot = lambda conversation: {"conversation_id": conversation, "server_epoch": service.server_epoch,
+        "projection_revision": "0", "cursor": "0", "checkpoint_revision": "", "rows": [], "generation": None}
+    service.events_since = lambda *_: {"server_epoch": service.server_epoch, "snapshot_required": False, "events": []}
+    app = create_client_platform_app(service, security=security, choices=lambda: {"models": [], "capabilities": []})
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 1234)) as client:
+        _, headers = bootstrap(client)
+        response = client.post("/api/v1/conversations/idle/subscriptions", headers=headers)
+        assert response.status_code == 200
+        sub = response.json()
+
+        async def read_first_frame():
+            from urllib.parse import urlencode
+            disconnected = asyncio.Event()
+            sent = []
+
+            async def receive():
+                await disconnected.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                sent.append(message)
+                if message["type"] == "http.response.body" and message.get("body"):
+                    disconnected.set()
+
+            scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1", "method": "GET", "scheme": "http", "path": "/api/v1/events",
+                "raw_path": b"/api/v1/events", "root_path": "",
+                "query_string": urlencode({"subscription_id": sub["subscription_id"], "cursor": sub["cursor"]}).encode(),
+                "headers": [(b"host", b"localhost"), *((key.lower().encode(), value.encode()) for key, value in headers.items())],
+                "client": ("127.0.0.1", 1234), "server": ("localhost", 80)}
+            await asyncio.wait_for(app(scope, receive, send), timeout=2)
+            assert sent[0]["status"] == 200
+            assert next(item["body"] for item in sent if item["type"] == "http.response.body") == b": connected\n\n"
+
+        asyncio.run(read_first_frame())
+        assert not security._subscriptions[sub["subscription_id"]].streaming
+
+
 def test_approval_response_uses_control_reserve_after_mutation_saturation():
     service = Service()
     service.get_approval = lambda _: {"id": "fixture-approval", "status": "pending", "revision": "0",
@@ -306,10 +348,10 @@ def test_policy_snapshot_observes_real_owner_enablement_and_registration_epochs(
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry
     from row_bot.mcp_client import runtime
-    monkeypatch.setattr(tool_registry, "get_all_tools", lambda: [SimpleNamespace(name="fixture", destructive_tool_names={"delete"})])
-    enabled = [True]
-    monkeypatch.setattr(tool_registry, "is_enabled", lambda _: enabled[0])
-    monkeypatch.setattr(tool_registry, "_load_global_config", lambda: None)
+    from row_bot import tool_configuration
+    monkeypatch.setattr(tool_registry, "_tools", {'fixture': SimpleNamespace(name="fixture", destructive_tool_names={"delete"})})
+    monkeypatch.setattr(tool_registry, "_active_config_path", tool_configuration.configuration_path())
+    monkeypatch.setattr(tool_registry, "_enabled", {'fixture': True})
     monkeypatch.setattr(tool_registry, "_global_config", {"fixture_policy": True})
     monkeypatch.setattr(plugin_registry, "get_loaded_manifests", lambda: [])
     monkeypatch.setattr(runtime, "_get_effective_config", lambda: {"enabled": True, "servers": {}})
@@ -317,7 +359,7 @@ def test_policy_snapshot_observes_real_owner_enablement_and_registration_epochs(
     monkeypatch.setattr(runtime, "_catalog", {})
     security = ClientSecurity("fixture", policy=current_policy_snapshot)
     before = security.policy_revision
-    enabled[0] = False
+    tool_registry._enabled['fixture'] = False
     after = security.policy_revision
     assert before != after
     runtime._servers["fixture"] = object()

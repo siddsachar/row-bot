@@ -1,0 +1,115 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "goal_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Goal Id"
+    },
+    "max_turns": {
+      "anyOf": [
+        {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Max Turns"
+    },
+    "objective": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Objective"
+    },
+    "operation": {
+      "enum": [
+        "start",
+        "pause",
+        "resume",
+        "complete",
+        "clear"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "review_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 20,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "goal_id",
+    "revision",
+    "operation",
+    "objective",
+    "max_turns",
+    "reason",
+    "schema_version",
+    "action_digest",
+    "disclosures",
+    "review_id"
+  ],
+  "title": "GoalReview",
+  "type": "object"
+}

@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "PluginReceiptItem": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "plugin.enable",
+            "plugin.disable",
+            "plugin.configure",
+            "plugin.install",
+            "plugin.update",
+            "plugin.remove"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "plugin_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        }
+      },
+      "required": [
+        "plugin_id",
+        "action"
+      ],
+      "title": "PluginReceiptItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "plugin": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PluginReceiptItem"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "accepted",
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status"
+  ],
+  "title": "PluginReceipt",
+  "type": "object"
+}

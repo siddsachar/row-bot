@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Code"
+    },
+    "link_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "local",
+            "remote_access"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Link Kind"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "published",
+        "submitted",
+        "partial",
+        "uncertain",
+        "denied"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "submitted_count": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Submitted Count",
+      "type": "integer"
+    },
+    "total_count": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Total Count",
+      "type": "integer"
+    },
+    "url": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Url"
+    }
+  },
+  "required": [
+    "status",
+    "code",
+    "resource_id",
+    "resource_revision",
+    "url",
+    "link_kind",
+    "submitted_count",
+    "total_count"
+  ],
+  "title": "ArtifactShareOutcome",
+  "type": "object"
+}

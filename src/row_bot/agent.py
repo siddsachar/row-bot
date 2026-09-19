@@ -3562,95 +3562,62 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
 
 
 def _wrap_with_interrupt_gate(tool) -> None:
-    """Mutate a LangChain tool in-place so that calling it triggers a
-    LangGraph ``interrupt()`` before the real function runs.  The graph
-    pauses, the UI shows a confirmation prompt, and the tool only executes
-    if the user approves."""
+    """Keep sync and async targets behind the same current approval decision."""
+    from functools import wraps
+
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
+    # BaseTool's default async implementation delegates to its own _run. Keep
+    # that delegate on an unwrapped copy so async calls ask exactly once.
+    original = tool.model_copy()
 
-    if hasattr(tool, "func") and tool.func is not None:
-        _orig = tool.func
+    def refusal(args, kwargs):
+        decision = decision_for_action(get_approval_mode())
+        if decision == "block":
+            return (f"BLOCKED: '{label}' is unavailable while this "
+                    "thread is in Block approval mode. Do NOT retry this "
+                    "tool. Inform the user that this action was skipped "
+                    "and move on.")
+        if decision == "allow":
+            return None
+        args_str = ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+        if args:
+            args_str = repr(args[0]) if len(args) == 1 else repr(args)
+            if kwargs:
+                args_str += ", " + ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+        description = _enrich_description(tool.name, label, args_str, kwargs)
+        try:
+            from row_bot.tools.discovery import is_external_discovery_invocation
+            external_discovery_active = is_external_discovery_invocation()
+        except Exception:
+            external_discovery_active = False
+        approval = interrupt({
+            "tool": tool.name, "label": label, "description": description,
+            "args": kwargs or (args[0] if args else {}),
+            "external_discovery_active": external_discovery_active,
+        })
+        return None if approval else "Action cancelled by user."
 
-        def _gated(*args, _fn=_orig, _label=label, _tname=tool.name, **kwargs):
-            args_str = ", ".join(
-                f"{k}={v!r}" for k, v in kwargs.items()
-            )
-            if args:
-                args_str = repr(args[0]) if len(args) == 1 else repr(args)
-                if kwargs:
-                    args_str += ", " + ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
-            decision = decision_for_action(get_approval_mode())
-            if decision == "block":
-                return (f"BLOCKED: '{_label}' is unavailable while this "
-                        "thread is in Block approval mode. Do NOT retry this "
-                        "tool. Inform the user that this action was skipped "
-                        "and move on.")
-            if decision == "allow":
-                return _fn(*args, **kwargs)
-            # In background workflows with block mode, refuse outright.
-            # approve mode: fall through to interrupt() so the pipeline
-            # can pause and let the user decide.
-            if False:
-                return (f"⚠️ BLOCKED: '{_label}' requires user confirmation "
-                        "and cannot run in a background workflow. "
-                        "Do NOT retry this tool. Inform the user that this "
-                        "action was skipped and move on.")
-            desc = _enrich_description(_tname, _label, args_str, kwargs)
-            try:
-                from row_bot.tools.discovery import is_external_discovery_invocation
+    sync_target = getattr(original, "func", None) or original._run
+    async_target = getattr(original, "coroutine", None) or original._arun
 
-                external_discovery_active = is_external_discovery_invocation()
-            except Exception:
-                external_discovery_active = False
-            approval = interrupt({
-                "tool": _tname,
-                "label": _label,
-                "description": desc,
-                "args": kwargs or (args[0] if args else {}),
-                "external_discovery_active": external_discovery_active,
-            })
-            if not approval:
-                return "Action cancelled by user."
-            return _fn(*args, **kwargs)
+    @wraps(sync_target)
+    def gated(*args, **kwargs):
+        blocked = refusal(args, kwargs)
+        return blocked if blocked is not None else sync_target(*args, **kwargs)
 
-        tool.func = _gated
+    @wraps(async_target)
+    async def gated_async(*args, **kwargs):
+        blocked = refusal(args, kwargs)
+        return blocked if blocked is not None else await async_target(*args, **kwargs)
+
+    if getattr(tool, "func", None) is not None:
+        tool.func = gated
     else:
-        _orig = tool._run
-
-        def _gated_run(*args, _fn=_orig, _label=label, _tname=tool.name, **kwargs):
-            args_str = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
-            decision = decision_for_action(get_approval_mode())
-            if decision == "block":
-                return (f"BLOCKED: '{_label}' is unavailable while this "
-                        "thread is in Block approval mode. Do NOT retry this "
-                        "tool. Inform the user that this action was skipped "
-                        "and move on.")
-            if decision == "allow":
-                return _fn(*args, **kwargs)
-            if False:
-                return (f"⚠️ BLOCKED: '{_label}' requires user confirmation "
-                        "and cannot run in a background workflow. "
-                        "Do NOT retry this tool. Inform the user that this "
-                        "action was skipped and move on.")
-            desc = _enrich_description(_tname, _label, args_str, kwargs)
-            try:
-                from row_bot.tools.discovery import is_external_discovery_invocation
-
-                external_discovery_active = is_external_discovery_invocation()
-            except Exception:
-                external_discovery_active = False
-            approval = interrupt({
-                "tool": _tname,
-                "label": _label,
-                "description": desc,
-                "args": kwargs or (args[0] if args else {}),
-                "external_discovery_active": external_discovery_active,
-            })
-            if not approval:
-                return "Action cancelled by user."
-            return _fn(*args, **kwargs)
-
-        tool._run = _gated_run
+        tool._run = gated
+    if getattr(tool, "coroutine", None) is not None:
+        tool.coroutine = gated_async
+    else:
+        tool._arun = gated_async
 
 
 def clear_agent_cache():
@@ -3855,6 +3822,11 @@ def _collect_agent_tool_candidates(
                     allow_names=allow_set,
                     refresh=False,
                 )
+                # The native owner also guards directly collected snapshots;
+                # otherwise cached chat tools would survive native revocation.
+                binder = getattr(tool_obj, "bind_langchain_tools", None)
+                if callable(binder):
+                    mcp_tools = binder(mcp_tools)
                 destructive_names.update(
                     mcp_runtime.get_destructive_tool_names(allow_names=allow_set)
                 )
@@ -4055,6 +4027,67 @@ def _build_runtime_skill_snapshot() -> tuple[tuple, tuple[str, ...], bool, str]:
     return authorized, active_ids, discoverable, fingerprint
 
 
+def _dispatch_profile_snapshot() -> dict:
+    """Use frozen authority, with the retained legacy thread profile fallback."""
+    snapshot = _current_agent_profile_snapshot_var.get({})
+    if snapshot:
+        return snapshot
+    reference = _current_agent_profile_id_var.get('')
+    if not reference and _current_agent_profile_frozen_var.get(False):
+        return {}
+    if not reference and _current_thread_id_var.get(''):
+        from row_bot.threads import _get_thread_agent_profile
+        selected = _get_thread_agent_profile(_current_thread_id_var.get(''))
+        reference = selected.get('id') or selected.get('slug')
+    if not reference:
+        return {}
+    from row_bot.agent_profiles import get_agent_profile
+    return get_agent_profile(reference, enabled_only=False) or {'enabled': False}
+
+
+def _bind_profile_tool(tool: Any, *, source: str, parent: str,
+                       argument_function: Any = None) -> Any:
+    """Copy a bound tool and guard its sync/async target before any approval."""
+    from functools import wraps
+    from row_bot.tools.profile_policy import call_arguments, dispatch_refusal
+
+    def refusal(function, args, kwargs):
+        try:
+            profile = _dispatch_profile_snapshot()
+            allowlist = (_current_tool_allowlist_var.get(())
+                         if _current_tool_allowlist_active_var.get(False) else None)
+            return dispatch_refusal(profile, tool.name,
+                                    call_arguments(argument_function or function, args, kwargs),
+                                    source=source, parent=parent, allowlist=allowlist)
+        except Exception:
+            return 'BLOCKED: The selected Agent Profile policy is unavailable.'
+
+    def sync(function):
+        @wraps(function)
+        def guarded(*args, **kwargs):
+            blocked = refusal(function, args, kwargs)
+            return blocked if blocked is not None else function(*args, **kwargs)
+        return guarded
+
+    def asynchronous(function):
+        @wraps(function)
+        async def guarded(*args, **kwargs):
+            blocked = refusal(function, args, kwargs)
+            return blocked if blocked is not None else await function(*args, **kwargs)
+        return guarded
+
+    updates = {}
+    if getattr(tool, 'func', None) is not None:
+        updates['func'] = sync(tool.func)
+    else:
+        updates['_run'] = sync(tool._run)
+    if getattr(tool, 'coroutine', None) is not None:
+        updates['coroutine'] = asynchronous(tool.coroutine)
+    else:
+        updates['_arun'] = asynchronous(tool._arun)
+    return tool.model_copy(update=updates)
+
+
 def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     model_override: str | None = None,
                     tool_allowlist: list[str] | tuple[str, ...] | set[str] | None = None):
@@ -4103,6 +4136,12 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         enabled_tool_names,
         allow_set,
     )
+    for entry in eager_core_entries + external_entries:
+        # Graph-local copies keep approval/error wrappers off shared registrations.
+        entry['tool'] = entry['tool'].model_copy()
+        entry['argument_function'] = (getattr(entry['tool'], 'func', None)
+                                      or getattr(entry['tool'], 'coroutine', None)
+                                      or entry['tool']._run)
     combined_entries = eager_core_entries + external_entries
     if approval_mode == "block":
         combined_entries = [
@@ -4234,12 +4273,27 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             )
             _install_custom_tool_validation_repair(lc_tools, readiness.provider_id)
 
+            # Enforce profile authority outside the existing approval wrappers,
+            # including targets later invoked through progressive discovery.
+            admitted = {id(tool) for tool in lc_tools}
+            eager_core_entries = [entry for entry in eager_core_entries if id(entry['tool']) in admitted]
+            external_entries = [entry for entry in external_entries if id(entry['tool']) in admitted]
+            for entry in eager_core_entries + external_entries:
+                entry['tool'] = _bind_profile_tool(
+                    entry['tool'], source=entry['source'], parent=entry['parent'],
+                    argument_function=entry['argument_function'],
+                )
+            eager_core_tools = [entry['tool'] for entry in eager_core_entries]
+            external_tools = [entry['tool'] for entry in external_entries]
+            lc_tools = eager_core_tools + external_tools
+
             # Wrap every tool so exceptions are returned to the LLM as error
             # messages instead of crashing the stream.  LangChain's built-in
             # handle_tool_error only catches ToolException; external toolkit
             # tools (e.g. Calendar) may raise plain Exception.
             # NOTE: GraphInterrupt must NOT be caught — it's used by LangGraph
             # to implement the interrupt/resume flow.
+            from functools import wraps
             from langgraph.errors import GraphInterrupt
 
             def _guarded_tool_call(tool_name: str, args: tuple, kwargs: dict) -> str | None:
@@ -4256,6 +4310,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     # StructuredTool / Tool created via from_function
                     _orig_func = t.func
                     _tool_name = str(t.name or getattr(_orig_func, "__name__", "tool"))
+                    @wraps(_orig_func)
                     def _safe_func(*args, _fn=_orig_func, _name=_tool_name, **kwargs):
                         try:
                             blocked = _guarded_tool_call(_name, args, kwargs)
@@ -4272,6 +4327,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     # Toolkit tools that override _run directly
                     _orig_run = t._run
                     _tool_name = str(t.name or type(t).__name__)
+                    @wraps(_orig_run)
                     def _safe_run(*args, _fn=_orig_run, _name=_tool_name, **kwargs):
                         try:
                             blocked = _guarded_tool_call(_name, args, kwargs)
@@ -4284,6 +4340,24 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                             logger.error("Tool _run raised an error: %s", exc, exc_info=True)
                             return f"Tool error: {exc}"
                     t._run = _safe_run
+
+                _orig_async = getattr(t, "coroutine", None) or t._arun
+                @wraps(_orig_async)
+                async def _safe_async(*args, _fn=_orig_async, _name=str(t.name), **kwargs):
+                    try:
+                        blocked = _guarded_tool_call(_name, args, kwargs)
+                        if blocked is not None:
+                            return blocked
+                        return await _fn(*args, **kwargs)
+                    except (GraphInterrupt, ExecutionBudgetExhausted, AgentNoProgress, InvalidExecutionBudget):
+                        raise
+                    except Exception as exc:
+                        logger.error("Async tool %s raised an error: %s", _name, exc, exc_info=True)
+                        return f"Tool error: {exc}"
+                if getattr(t, "coroutine", None) is not None:
+                    t.coroutine = _safe_async
+                else:
+                    t._arun = _safe_async
 
             if effective_loading_mode == "auto" and (external_tools or force_external_discovery):
                 try:

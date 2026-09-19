@@ -255,10 +255,10 @@ def test_normal_chat_registers_active_voice_surface_binding():
         re.S,
     )
     assert re.search(
-        r"def _toggle_dictate\(\):.*?binding = getattr\(p, \"active_voice_binding\", None\).*?"
-        r"binding\.clear\(\).*?p\.active_voice_binding = None.*?"
-        r"state\.voice_input_mode = \"dictate\".*?_register_active_voice_binding\(\).*?"
-        r"state\.voice_coordinator\.start_dictation\(\)",
+            r"def _toggle_dictate\(\):.*?binding = getattr\(p, \"active_voice_binding\", None\).*?"
+            r"binding\.clear\(\).*?p\.active_voice_binding = None.*?"
+            r"if start_voice_for_ui\(state\.voice_coordinator\.start_dictation\) is None:\s+return.*?"
+            r"state\.voice_input_mode = \"dictate\".*?_register_active_voice_binding\(\)",
         chat_src,
         re.S,
     )
@@ -277,7 +277,7 @@ def test_normal_chat_voice_bridge_falls_back_when_binding_is_missing():
 def test_realtime_voice_uses_guarded_progress_cues_during_row_bot_stream():
     streaming_src = _source("src/row_bot/ui/streaming.py")
     presenter_src = _source("src/row_bot/voice/realtime_presenter.py")
-    client_src = _source("src/row_bot/voice/realtime_client.py")
+    client_src = _source("src/row_bot/voice/realtime_runtime.js")
 
     assert "realtime_silence_watchdog_tick" in streaming_src
     assert "realtime_cue_spoken" in streaming_src

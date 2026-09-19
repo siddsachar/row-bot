@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import pathlib
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -119,3 +119,53 @@ def get_buddy_placement_state() -> BuddyPlacementState:
 
 def reset_buddy_config() -> dict[str, Any]:
     return save_buddy_config(dict(_DEFAULT_CONFIG))
+
+
+def _strict_read(directory: int | None, path: pathlib.Path, name: str):
+    from row_bot.file_publication import read_bytes
+    return read_bytes(directory, path, name, unavailable_code="buddy_config_unavailable")
+
+
+def read_buddy_config_revision() -> tuple[dict[str, Any], str]:
+    """Private full configuration snapshot; callers must project public fields."""
+    from row_bot.developer.client_workspace import _empty_parent_guard, _directory_identity
+    from row_bot.developer.edits import FileEditError
+    with _lock, _empty_parent_guard(_DATA_DIR, _directory_identity(_DATA_DIR, parent=True)) as directory:
+        raw, revision, *_ = _strict_read(directory, _DATA_DIR, _BUDDY_CONFIG_PATH.name)
+        try:
+            saved = json.loads(raw.decode("utf-8-sig")) if raw is not None else {}
+            if not isinstance(saved, dict):
+                raise ValueError
+            return _normalize_config(saved), revision
+        except (ValueError, UnicodeError, RecursionError):
+            raise FileEditError("buddy_config_unavailable") from None
+
+
+def publish_buddy_config(config: dict[str, Any], *, expected_revision: str, command_id: str,
+                         validate: Callable[[], None], checkpoint: Callable[[Any], None]) -> str:
+    """Publish under the existing owner lock after private recovery checkpoint."""
+    data = json.dumps(_normalize_config(config), indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    return _publish_json_revision(_DATA_DIR, _BUDDY_CONFIG_PATH.name, data,
+        expected_revision=expected_revision, command_id=command_id, validate=validate, checkpoint=checkpoint)
+
+
+def _publish_json_revision(root_path: pathlib.Path, filename: str, data: bytes, *, expected_revision: str,
+                           command_id: str, validate: Callable[[], None], checkpoint: Callable[[Any], None]) -> str:
+    from row_bot.file_publication import publish_bytes
+    if not filename or pathlib.Path(filename).name != filename or filename in {'.', '..'} or '/' in filename or '\\' in filename:
+        raise ValueError('invalid_buddy_json_target')
+    with _lock:
+        return publish_bytes(root_path, filename, data, expected_revision=expected_revision,
+            command_id=command_id, validate=validate, checkpoint=checkpoint,
+            unavailable_code="buddy_config_unavailable")
+
+
+def read_buddy_config_recovery(proof: Any) -> str:
+    """Inspect an application-held private proof; never republish on a read."""
+    return _read_json_recovery(_DATA_DIR, _BUDDY_CONFIG_PATH.name, proof)
+
+
+def _read_json_recovery(root_path: pathlib.Path, filename: str, proof: Any) -> str:
+    from row_bot.file_publication import read_recovery
+    with _lock:
+        return read_recovery(root_path, filename, proof, unavailable_code="buddy_config_unavailable")

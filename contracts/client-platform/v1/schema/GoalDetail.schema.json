@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "GoalSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "active_profile_id": {
+          "maxLength": 256,
+          "title": "Active Profile Id",
+          "type": "string"
+        },
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Blockers",
+          "type": "array"
+        },
+        "conversation_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "last_progress": {
+          "maxLength": 2049,
+          "title": "Last Progress",
+          "type": "string"
+        },
+        "last_reason": {
+          "maxLength": 2049,
+          "title": "Last Reason",
+          "type": "string"
+        },
+        "max_turns": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Max Turns",
+          "type": "integer"
+        },
+        "objective": {
+          "maxLength": 4096,
+          "title": "Objective",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "scope": {
+          "const": "conversation",
+          "title": "Scope",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "paused",
+            "waiting_approval",
+            "blocked",
+            "completed",
+            "cleared"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "token_budget": {
+          "minimum": 0,
+          "title": "Token Budget",
+          "type": "integer"
+        },
+        "tokens_used": {
+          "minimum": 0,
+          "title": "Tokens Used",
+          "type": "integer"
+        },
+        "turns_used": {
+          "minimum": 0,
+          "title": "Turns Used",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "conversation_id",
+        "objective",
+        "status",
+        "revision",
+        "turns_used",
+        "max_turns",
+        "token_budget",
+        "tokens_used",
+        "last_progress",
+        "last_reason",
+        "evidence",
+        "blockers",
+        "active_profile_id"
+      ],
+      "title": "GoalSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "goal": {
+      "$ref": "#/$defs/GoalSummary"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "goal"
+  ],
+  "title": "GoalDetail",
+  "type": "object"
+}

@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "McpCatalogTool": {
+      "additionalProperties": false,
+      "properties": {
+        "destructive": {
+          "title": "Destructive",
+          "type": "boolean"
+        },
+        "enabled_after_accept": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled After Accept"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "requires_approval": {
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "tool_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_id",
+        "name",
+        "enabled_after_accept",
+        "requires_approval",
+        "destructive"
+      ],
+      "title": "McpCatalogTool",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "recovery_required",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Configuration Revision"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/McpCatalogTool"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "manual_selection_required": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Manual Selection Required"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "server_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Server Id",
+      "type": "string"
+    },
+    "test_command_id": {
+      "format": "uuid",
+      "title": "Test Command Id",
+      "type": "string"
+    },
+    "total": {
+      "anyOf": [
+        {
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Total"
+    }
+  },
+  "required": [
+    "schema_version",
+    "configuration_revision",
+    "server_id",
+    "test_command_id",
+    "availability",
+    "manual_selection_required",
+    "items",
+    "total",
+    "next_cursor"
+  ],
+  "title": "McpTestedCatalogPage",
+  "type": "object"
+}

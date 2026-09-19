@@ -7,12 +7,18 @@ import hashlib
 import json
 import sqlite3
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from contextlib import closing
 from datetime import datetime, timezone
 from dataclasses import asdict
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from row_bot.voice.coordinator import VoiceSessionCoordinator
+    from row_bot.voice.browser_local import BrowserLocalVoiceService
+    from row_bot.voice.client_transport import ClientDictationTransport
 
 from row_bot.runtime import admissions
 from row_bot.runtime.executions import generation_registry
@@ -38,6 +44,48 @@ class ClientPlatformService:
         self.readiness_factory = readiness_factory
         self.registry = generation_registry
         self.projection = conversation_projection
+        self.dictation: ClientDictationTransport | None = None
+        self.talk = None
+        self.realtime = None
+        self.voice_admission = None
+        self._voice_binding: tuple[Any, ...] | None = None
+        self._voice_binding_lock = threading.Lock()
+        from row_bot.application.subscription_controls import SubscriptionFlows
+        self.subscription_flows = SubscriptionFlows()
+
+    def close_settings(self) -> bool:
+        """Cancel account handshakes and retain ownership until actual completion."""
+        return self.subscription_flows.dispose()
+
+    def bind_voice(self, coordinator: VoiceSessionCoordinator, *,
+                   browser_service: Callable[[], BrowserLocalVoiceService],
+                   clock: Callable[[], float] = time.monotonic,
+                   realtime_provider_factory: Callable[[], Any] | None = None) -> None:
+        """Expose the host's existing voice owner without starting a service."""
+        binding = (coordinator, browser_service, clock, realtime_provider_factory)
+        with self._voice_binding_lock:
+            if self._voice_binding is not None:
+                if all(old is new for old, new in zip(self._voice_binding, binding)):
+                    return
+                raise ValueError("voice_owner_already_bound")
+            from row_bot.voice.client_transport import ClientDictationTransport
+            self.dictation = ClientDictationTransport(coordinator=coordinator,
+                                                      browser_service=browser_service, clock=clock)
+            from row_bot.application.client_voice import ClientVoiceAdmission, realtime_provider
+            from row_bot.voice.client_talk import ClientTalkTransport
+            from row_bot.voice.client_realtime import ClientRealtimeTransport
+            self.voice_admission = ClientVoiceAdmission(self)
+            self.talk = ClientTalkTransport(dictation=self.dictation,
+                submit=self.voice_admission.submit, resolve_output=self.voice_admission.output)
+            self.realtime = ClientRealtimeTransport(dictation=self.dictation,
+                provider_factory=realtime_provider_factory or realtime_provider,
+                submit=self.voice_admission.submit, active_generation=self.voice_admission.active,
+                control_generation=self.voice_admission.control)
+            self._voice_binding = binding
+
+    def close_voice(self) -> bool:
+        """Invalidate voice delivery and report actual admitted-work quiescence."""
+        return self.dictation.close() if self.dictation is not None else True
 
     @property
     def instance_id(self) -> str:
@@ -311,27 +359,65 @@ class ClientPlatformService:
         return self.projection.events_since(conversation_id, cursor)
 
     def receipt(self, owner_id: str, command_id: str) -> dict:
-        result = admissions.receipt(owner_id, command_id)
+        result = admissions.receipt(owner_id, command_id, include_type=True)
         if result is None:
             raise ClientPlatformError("not_found")
-        if result.get("status") == "admitting" and result.get("conversation_id") and not result.get("setup_command_id"):
+        command_type = result.pop("_command_type", None)
+        if command_type == "conversation.create" and result.get("status") == "admitting" and result.get("conversation_id"):
             from row_bot import threads
             conversation = result["conversation_id"]
             if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
                 return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
         from row_bot.application.workspace_setup import reconcile_setup_receipt
-        return reconcile_setup_receipt(result)
+        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
-                validate: Callable[[], None] | None = None, authorized_folder: Any = None) -> dict:
+                validate: Callable[[], None] | None = None, authorized_folder: Any = None,
+                validate_approval: Callable[..., None] | None = None,
+                resolve_upload: Callable[[str], bytes] | None = None,
+                frozen_context: dict | None = None) -> dict:
+        if frozen_context is not None and command["type"] != "conversation.submit":
+            raise ClientPlatformError("invalid_command")
+        if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate"}:
+            from row_bot.application.artifact_design_commands import execute_artifact_design_command
+            return execute_artifact_design_command(self, command, target, owner_id=owner_id, key=idempotency_key,
+                validate=validate or (lambda: None), resolve_upload=resolve_upload, validate_confirmation=validate_approval)
+        if command["type"] in {"task.run", "task.stop", "task.approval"}:
+            if target != "tasks":
+                raise ClientPlatformError("invalid_command")
+            from row_bot.application.task_run_commands import execute_task_run_command
+            return execute_task_run_command(owner_id=owner_id, key=idempotency_key, command=command,
+                                            validate=validate or (lambda: None), validate_approval=validate_approval)
+        if command["type"] == "artifact.export":
+            from row_bot.application.artifact_exports import execute_export
+            return execute_export(self, command, target, owner_id=owner_id, key=idempotency_key,
+                                  validate=validate or (lambda: None))
+        if command["type"] == "artifact.share":
+            from row_bot.application.artifact_sharing import execute_sharing
+            return execute_sharing(self, command, target, owner_id=owner_id, key=idempotency_key,
+                                   validate=validate or (lambda: None))
+        if command["type"] in {"workspace.process.start", "workspace.process.stop", "workspace.process.recover"}:
+            from row_bot.application.workspace_process_commands import execute_workspace_process_command
+            return execute_workspace_process_command(self, command, target, owner_id=owner_id,
+                key=idempotency_key, validate=validate or (lambda: None), validate_approval=validate_approval)
         with _COMMAND_LOCK:
+            if command["type"] == "workspace.edit":
+                from row_bot.application.workspace_edit_commands import execute_workspace_edit
+                return execute_workspace_edit(self, command, target, owner_id=owner_id, key=idempotency_key,
+                                              validate=validate or (lambda: None))
+            if command["type"] in {"task.create", "task.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
+                if target != "tasks":
+                    raise ClientPlatformError("invalid_command")
+                from row_bot.application.task_commands import execute_task_command
+                return execute_task_command(owner_id=owner_id, key=idempotency_key,
+                                            command=command, validate=validate or (lambda: None))
             claimed = False
             try:
                 if validate:
                     validate()
                 replay = admissions.claim_command(owner_id, idempotency_key, command, target)
                 if replay is not None:
-                    return replay
+                    return {key: value for key, value in replay.items() if key != "_empty_workspace"}
                 claimed = True
                 if validate:
                     validate()
@@ -339,15 +425,19 @@ class ClientPlatformService:
                     from row_bot.application.workspace_setup import setup
                     result = setup(self, command, target, owner_id=owner_id, key=idempotency_key,
                                    authorized_folder=authorized_folder, validate=validate)
+                elif command["type"] == "artifact.edit":
+                    from row_bot.application.artifact_controls import edit_artifact
+                    result = edit_artifact(self, command, target, validate=validate)
                 else:
                     if command["type"] == "conversation.create":
                         conversation = str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "conversation"))
                         admissions.command_progress(owner_id, idempotency_key, {
                             "command_id": command["command_id"], "conversation_id": conversation, "status": "admitting",
                         })
-                    result = self._execute(command, target)
+                    result = self._execute(command, target, **({"frozen_context": frozen_context} if frozen_context is not None else {}))
                 result["command_id"] = command["command_id"]
-                return admissions.complete_command(owner_id, idempotency_key, result)
+                admissions.complete_command(owner_id, idempotency_key, result)
+                return {key: value for key, value in result.items() if key != "_empty_workspace"}
             except admissions.AdmissionError as exc:
                 if str(exc) == "operation_uncertain" and command["type"] == "conversation.create":
                     recovered = self.receipt(owner_id, command["command_id"])
@@ -361,7 +451,7 @@ class ClientPlatformService:
                     admissions.reject_command(owner_id, idempotency_key, exc.code, exc.current_revision)
                 raise
 
-    def _execute(self, command: dict, target: str) -> dict:
+    def _execute(self, command: dict, target: str, *, frozen_context: dict | None = None) -> dict:
         from row_bot import threads
         payload = command.get("payload") or {}
         kind = command["type"]
@@ -445,11 +535,21 @@ class ClientPlatformService:
                     pending = conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'", (target,)).fetchone()
                 if pending:
                     raise ClientPlatformError("approval_required")
-            return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]))
+            return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
+                               **({"frozen_context": frozen_context} if frozen_context is not None else {}))
         if kind == "conversation.stop":
-            self.registry.stop(target)
-            from row_bot.application.client_queue import pause_pending
-            pause_pending(self, target)
+            generation_id = payload.get("generation_id")
+            if generation_id:
+                # A Buddy click owns the displayed run even if a replacement
+                # has started before dispatch. Never stop that replacement or
+                # pause its queue through an old generation's control.
+                handle = self.registry.conversation_generation(target, str(generation_id))
+                if handle is not None:
+                    self.registry.cancel(handle)
+            else:
+                self.registry.stop(target)
+                from row_bot.application.client_queue import pause_pending
+                pause_pending(self, target)
             for handle in self.registry.active(target):
                 self.projection.publish(target, "generation.state", handle.view())
             return {"conversation_id": target, "status": "cancel_requested"}

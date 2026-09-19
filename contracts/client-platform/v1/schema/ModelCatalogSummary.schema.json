@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "ModelCatalogProviderSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "pinned": {
+          "minimum": 0,
+          "title": "Pinned",
+          "type": "integer"
+        },
+        "provider_id": {
+          "maxLength": 160,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "ready": {
+          "minimum": 0,
+          "title": "Ready",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "provider_id",
+        "display_name",
+        "total",
+        "ready",
+        "pinned"
+      ],
+      "title": "ModelCatalogProviderSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "providers": {
+      "items": {
+        "$ref": "#/$defs/ModelCatalogProviderSummary"
+      },
+      "maxItems": 256,
+      "title": "Providers",
+      "type": "array"
+    },
+    "revision": {
+      "maxLength": 128,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "surface": {
+      "enum": [
+        "chat",
+        "vision",
+        "image",
+        "video",
+        "voice"
+      ],
+      "title": "Surface",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revision",
+    "surface",
+    "providers"
+  ],
+  "title": "ModelCatalogSummary",
+  "type": "object"
+}

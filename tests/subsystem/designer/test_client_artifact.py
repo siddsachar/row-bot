@@ -182,7 +182,7 @@ def test_complete_library_continues_and_keeps_other_modes_visible(isolated):
             break
         cursor = result.next_cursor
     assert len({item.id for item in seen}) == 107
-    assert not next(item for item in seen if item.id == "project-100").available
+    assert next(item for item in seen if item.id == "project-100").available
 
 
 def test_late_render_cannot_publish_after_newer_save(isolated, monkeypatch):

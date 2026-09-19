@@ -1,0 +1,223 @@
+{
+  "$defs": {
+    "BrowserBackBrowserReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "browser.navigate",
+            "browser.take_over",
+            "browser.check",
+            "browser.back",
+            "browser.end"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BrowserRevisionInput"
+        },
+        "type": {
+          "const": "browser.back",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "payload"
+      ],
+      "title": "BrowserBackBrowserReviewRequest",
+      "type": "object"
+    },
+    "BrowserCheckBrowserReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "browser.navigate",
+            "browser.take_over",
+            "browser.check",
+            "browser.back",
+            "browser.end"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BrowserRevisionInput"
+        },
+        "type": {
+          "const": "browser.check",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "payload"
+      ],
+      "title": "BrowserCheckBrowserReviewRequest",
+      "type": "object"
+    },
+    "BrowserEndBrowserReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "browser.navigate",
+            "browser.take_over",
+            "browser.check",
+            "browser.back",
+            "browser.end"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BrowserRevisionInput"
+        },
+        "type": {
+          "const": "browser.end",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "payload"
+      ],
+      "title": "BrowserEndBrowserReviewRequest",
+      "type": "object"
+    },
+    "BrowserNavigateBrowserReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "browser.navigate",
+            "browser.take_over",
+            "browser.check",
+            "browser.back",
+            "browser.end"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BrowserNavigateInput"
+        },
+        "type": {
+          "const": "browser.navigate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "payload"
+      ],
+      "title": "BrowserNavigateBrowserReviewRequest",
+      "type": "object"
+    },
+    "BrowserNavigateInput": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "url"
+      ],
+      "title": "BrowserNavigateInput",
+      "type": "object"
+    },
+    "BrowserRevisionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "BrowserRevisionInput",
+      "type": "object"
+    },
+    "BrowserTakeOverBrowserReviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "browser.navigate",
+            "browser.take_over",
+            "browser.check",
+            "browser.back",
+            "browser.end"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BrowserRevisionInput"
+        },
+        "type": {
+          "const": "browser.take_over",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "payload"
+      ],
+      "title": "BrowserTakeOverBrowserReviewRequest",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "browser.back": "#/$defs/BrowserBackBrowserReviewRequest",
+      "browser.check": "#/$defs/BrowserCheckBrowserReviewRequest",
+      "browser.end": "#/$defs/BrowserEndBrowserReviewRequest",
+      "browser.navigate": "#/$defs/BrowserNavigateBrowserReviewRequest",
+      "browser.take_over": "#/$defs/BrowserTakeOverBrowserReviewRequest"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/BrowserNavigateBrowserReviewRequest"
+    },
+    {
+      "$ref": "#/$defs/BrowserTakeOverBrowserReviewRequest"
+    },
+    {
+      "$ref": "#/$defs/BrowserCheckBrowserReviewRequest"
+    },
+    {
+      "$ref": "#/$defs/BrowserBackBrowserReviewRequest"
+    },
+    {
+      "$ref": "#/$defs/BrowserEndBrowserReviewRequest"
+    }
+  ]
+}

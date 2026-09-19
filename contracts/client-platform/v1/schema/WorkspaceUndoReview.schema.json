@@ -1,0 +1,122 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "approval_required": {
+      "title": "Approval Required",
+      "type": "boolean"
+    },
+    "binding_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Binding Id",
+      "type": "string"
+    },
+    "binding_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Binding Revision",
+      "type": "string"
+    },
+    "change_set_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Change Set Id",
+      "type": "string"
+    },
+    "change_set_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Change Set Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "directories_retained": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Directories Retained",
+      "type": "array"
+    },
+    "files": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Files",
+      "type": "array"
+    },
+    "host_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Host Revision",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "policy_decision": {
+      "enum": [
+        "allow",
+        "ask",
+        "block"
+      ],
+      "title": "Policy Decision",
+      "type": "string"
+    },
+    "policy_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "conversation_id",
+    "resource_revision",
+    "binding_id",
+    "binding_revision",
+    "change_set_id",
+    "change_set_revision",
+    "host_revision",
+    "policy_revision",
+    "policy_decision",
+    "approval_required",
+    "files",
+    "directories_retained",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "WorkspaceUndoReview",
+  "type": "object"
+}

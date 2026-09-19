@@ -235,6 +235,9 @@ def test_recovery_restarts_index_resumes_extraction_and_fails_missing(tmp_path, 
     result = service.recover_unfinished()
 
     assert result == {
+        "finalization_recovered": 0,
+        "finalization_incomplete": 0,
+        "cancellations_acknowledged": 0,
         "indexing_restarted": 1,
         "extraction_resumed": 1,
         "missing_sources_failed": 1,

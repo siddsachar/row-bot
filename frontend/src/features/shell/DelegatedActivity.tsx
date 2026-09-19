@@ -79,9 +79,14 @@ function RunDetail({
       )}
       {!run && !error && <Skeleton label="Loading delegated task" />}
       {run && (
-        <>
-          <p role="status">{run.status.replaceAll('_', ' ')}</p>
-          <p>{run.summary || 'No public summary is available yet.'}</p>
+        <div className="delegated-run-detail">
+          <p role="status" className="delegated-run-status">
+            <span className="eyebrow">Status</span>{' '}
+            {run.status.replaceAll('_', ' ')}
+          </p>
+          <p className="delegated-run-summary">
+            {run.summary || 'No public summary is available yet.'}
+          </p>
           {run.child_conversation_id ? (
             <Button
               disabled={opening || error}
@@ -92,9 +97,11 @@ function RunDetail({
           ) : (
             <p>Child conversation history is unavailable.</p>
           )}
-        </>
+        </div>
       )}
-      <Button onClick={close}>Back to parent</Button>
+      <Button variant="ghost" onClick={close}>
+        Back to parent
+      </Button>
     </>
   );
 }
@@ -180,7 +187,11 @@ export default function DelegatedActivity(props: Props) {
     }
   }
   return (
-    <section aria-label="Delegated tasks" className="activity">
+    <section
+      aria-label="Delegated tasks"
+      className="activity delegated-activity"
+      aria-busy={loading}
+    >
       {page?.parent_conversation_id && (
         <Button
           onClick={() =>
@@ -203,11 +214,16 @@ export default function DelegatedActivity(props: Props) {
       {loading && !page && <Skeleton label="Loading delegated tasks" />}
       {!!page?.items.length && (
         <>
-          <h2>Delegated tasks</h2>
-          <ul>
+          <header className="activity-heading">
+            <h2>Delegated tasks</h2>
+            <span className="muted">{page.items.length} on this page</span>
+          </header>
+          <ul className="delegated-run-list">
             {page.items.map((run) => (
-              <li key={run.run_id}>
+              <li className="delegated-run-item" key={run.run_id}>
                 <Button
+                  variant="ghost"
+                  aria-label={run.name}
                   onClick={() =>
                     overlay.open({
                       key,
@@ -224,9 +240,11 @@ export default function DelegatedActivity(props: Props) {
                     })
                   }
                 >
-                  {run.name}
-                </Button>{' '}
-                — {run.status.replaceAll('_', ' ')}
+                  <span className="delegated-run-name">{run.name}</span>
+                  <span className="delegated-run-state">
+                    {run.status.replaceAll('_', ' ')}
+                  </span>
+                </Button>
               </li>
             ))}
           </ul>

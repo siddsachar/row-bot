@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import errno
+import json
+import pathlib
+
 import pytest
 
 from row_bot.designer.state import DesignerPage, DesignerProject
@@ -42,6 +46,79 @@ def test_stale_designer_copy_cannot_overwrite_newer_project(tmp_path, monkeypatc
     persisted = storage.load_project(original.id)
     assert persisted is not None
     assert persisted.pages[0].html == "<h1>Newer edit</h1>"
+
+
+def test_project_metadata_recovers_from_transient_access_denial(tmp_path, monkeypatch):
+    storage = _isolate_storage(tmp_path, monkeypatch)
+    project = DesignerProject(id="project-a", name="Transient read")
+    storage.save_project(project)
+    path = storage.PROJECTS_DIR / f"{project.id}.json"
+    real_open = pathlib.Path.open
+    attempts = 0
+    delays: list[float] = []
+
+    def transient_open(candidate, *args, **kwargs):
+        nonlocal attempts
+        if candidate == path:
+            attempts += 1
+            if attempts <= 2:
+                raise PermissionError(errno.EACCES, "synthetic sharing violation")
+        return real_open(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "open", transient_open)
+    monkeypatch.setattr(storage.time, "sleep", delays.append)
+
+    metadata = storage.get_project_metadata(project.id)
+
+    assert metadata == {
+        "id": project.id,
+        "name": project.name,
+        "updated_at": project.updated_at,
+    }
+    assert attempts == 3
+    assert delays == [0.05, 0.1]
+
+
+def test_project_metadata_does_not_retry_corrupt_json(tmp_path, monkeypatch):
+    storage = _isolate_storage(tmp_path, monkeypatch)
+    storage.PROJECTS_DIR.mkdir(parents=True)
+    (storage.PROJECTS_DIR / "project-a.json").write_text("{", encoding="utf-8")
+    delays: list[float] = []
+    monkeypatch.setattr(storage.time, "sleep", delays.append)
+
+    with pytest.raises(json.JSONDecodeError):
+        storage.get_project_metadata("project-a")
+
+    assert delays == []
+
+
+def test_project_metadata_rethrows_persistent_access_denial_after_bound(
+    tmp_path,
+    monkeypatch,
+):
+    storage = _isolate_storage(tmp_path, monkeypatch)
+    project = DesignerProject(id="project-a", name="Persistently denied")
+    storage.save_project(project)
+    path = storage.PROJECTS_DIR / f"{project.id}.json"
+    real_open = pathlib.Path.open
+    attempts = 0
+    delays: list[float] = []
+
+    def denied_open(candidate, *args, **kwargs):
+        nonlocal attempts
+        if candidate == path:
+            attempts += 1
+            raise PermissionError(errno.EACCES, "synthetic persistent denial")
+        return real_open(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "open", denied_open)
+    monkeypatch.setattr(storage.time, "sleep", delays.append)
+
+    with pytest.raises(PermissionError, match="synthetic persistent denial"):
+        storage.get_project_metadata(project.id)
+
+    assert attempts == storage._READ_RETRIES
+    assert delays == pytest.approx([0.05, 0.1, 0.15, 0.2])
 
 
 def test_background_thread_uses_bound_project_not_visible_project(

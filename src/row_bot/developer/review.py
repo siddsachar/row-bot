@@ -64,8 +64,10 @@ class DiffPreview:
     truncated: bool = False
 
 
-def _git_read_metadata(workspace_path: str, arguments: list[str]) -> tuple[int, bytes]:
+def _git_read_metadata(workspace_path: str, arguments: list[str], *, max_bytes: int = 8192) -> tuple[int, bytes]:
     """Read bounded Git metadata without interpreting it as a command or path grant."""
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 256 * 1024:
+        raise ValueError("git_metadata_unavailable")
     with subprocess.Popen(["git", "-C", workspace_path, *arguments], stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"}) as process:
         timer = threading.Timer(10, process.kill)
@@ -73,8 +75,8 @@ def _git_read_metadata(workspace_path: str, arguments: list[str]) -> tuple[int, 
         timer.start()
         try:
             assert process.stdout is not None
-            output = process.stdout.read(8193)
-            if len(output) > 8192:
+            output = process.stdout.read(max_bytes + 1)
+            if len(output) > max_bytes:
                 process.kill()
                 raise ValueError("git_metadata_unavailable")
             process.wait(timeout=2)

@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "tokens",
+        "runtime",
+        "vision"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "model_ref": {
+      "anyOf": [
+        {
+          "maxLength": 647,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Model Ref"
+    },
+    "provider_id": {
+      "enum": [
+        "codex",
+        "claude_subscription",
+        "xai_oauth"
+      ],
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider_id",
+    "provider_revision",
+    "kind",
+    "model_ref"
+  ],
+  "title": "SubscriptionProbeRequest",
+  "type": "object"
+}

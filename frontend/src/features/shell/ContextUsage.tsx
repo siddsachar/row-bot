@@ -6,10 +6,14 @@ export default function ContextUsage({
   usage?: ContextUsageView | null;
 }) {
   if (!usage || usage.state === 'unknown')
-    return <small>Context usage is available after a response.</small>;
+    return (
+      <small className="context-usage-summary">
+        Context usage is available after a response.
+      </small>
+    );
   return (
     <details className="context-usage">
-      <summary>
+      <summary className="context-usage-summary">
         Last saved context:{' '}
         {usage.estimated_input_tokens?.toLocaleString('en-GB') ?? 'unknown'}{' '}
         estimated tokens{usage.state === 'stale' ? ' · out of date' : ''}

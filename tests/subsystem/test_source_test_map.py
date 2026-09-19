@@ -8,6 +8,17 @@ from tests.helpers.source_test_map import SOURCE_TEST_RULES, select_tests_for_ch
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.parametrize(('source', 'lane'), [
+    ('src/row_bot/application/buddy_commands.py', 'tests/subsystem/buddy'),
+    ('src/row_bot/application/capability_catalog_controls.py', 'tests/subsystem/mcp'),
+    ('src/row_bot/application/document_job_commands.py', 'tests/subsystem/knowledge_graph'),
+    ('src/row_bot/application/knowledge_relations.py', 'tests/subsystem/knowledge_graph'),
+    ('src/row_bot/application/workspace_edit_commands.py', 'tests/subsystem/developer'),
+])
+def test_capability_commands_select_their_canonical_domain_regressions(source, lane):
+    assert lane in select_tests_for_changes([source]).test_paths
+
+
 def test_client_foundation_paths_have_routing_and_dependency_owners() -> None:
     selection = select_tests_for_changes(["frontend/src/main.tsx", "src/row_bot/client_assets.py", "scripts/dependency_requirements.py", "scripts/client_build.py", "scripts/docs/collect_inventory.py", "docs-site/docs/reference/generated/environment-and-config.mdx"])
     assert {"client_foundation", "normalized_dependency_requirements", "public_docs_inventory"} <= set(selection.matched_rules)

@@ -114,15 +114,15 @@ def resolve_managed_path(
     return resolved
 
 
-def is_thread_deleting(thread_id: str | None) -> bool:
+def is_thread_deleting(thread_id: str | None, *, initialized_read: bool = False) -> bool:
     clean = str(thread_id or "").strip()
     if not clean:
         return False
     with _deletion_lock:
         if clean in _deleting_threads:
             return True
-    from row_bot.runtime.admissions import deletion_state
-    return deletion_state(clean) != "active"
+    from row_bot.runtime.admissions import deletion_state, read_deletion_state
+    return (read_deletion_state(clean) if initialized_read else deletion_state(clean)) != "active"
 
 
 def allow_thread_recreation(thread_id: str | None) -> None:

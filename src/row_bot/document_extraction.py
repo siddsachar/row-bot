@@ -8,6 +8,11 @@ import pathlib
 import re
 import shutil
 import threading
+import hashlib
+import os
+import stat
+from contextlib import contextmanager
+from contextvars import ContextVar
 from collections.abc import Callable, Iterable, Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -27,6 +32,26 @@ _WINDOW_SIZE = 6_000
 _WINDOW_OVERLAP = 500
 _state_lock = threading.Lock()
 _active_extraction: dict[str, Any] | None = None
+_worker_policy: ContextVar[Any] = ContextVar("document_extraction_worker_policy", default=None)
+
+
+@contextmanager
+def captured_extraction_policy(policy):
+    """Use one admitted worker's LLM and source authority through nested helpers."""
+    policy.validate()
+    token = _worker_policy.set(policy)
+    try:
+        yield
+    finally:
+        _worker_policy.reset(token)
+
+
+def _strict_effects():
+    policy = _worker_policy.get()
+    if policy is None:
+        return {}
+    policy.validate()
+    return {"validate":policy.validate}
 
 
 def get_extraction_status() -> dict[str, Any] | None:
@@ -113,9 +138,15 @@ def _llm_call(prompt: str) -> str:
     from langchain_core.messages import HumanMessage
     from row_bot.models import get_current_model, get_llm_for
 
-    llm = get_llm_for(get_current_model())
-    response = llm.invoke([HumanMessage(content=prompt)])
-    raw = response.content or ""
+    policy = _worker_policy.get()
+    if policy is not None:
+        policy.validate()
+        raw = policy.invoke(prompt) or ""
+        policy.validate()
+    else:
+        llm = get_llm_for(get_current_model())
+        response = llm.invoke([HumanMessage(content=prompt)])
+        raw = response.content or ""
     if isinstance(raw, list):
         parts: list[str] = []
         for block in raw:
@@ -231,8 +262,13 @@ def _copy_to_vault_raw(
     *,
     original_name: str | None = None,
     document_id: str = "",
+    validate: Callable[[], None] | None = None,
+    expected_sha256: str | None = None,
 ) -> pathlib.Path | None:
     """Copy by collision-safe stored name and retain original display metadata."""
+    if validate is not None:
+        return _strict_copy_to_vault_raw(file_path, stored_name, original_name=original_name,
+            document_id=document_id, validate=validate, expected_sha256=expected_sha256)
     try:
         import row_bot.wiki_vault as wiki_vault
 
@@ -262,6 +298,156 @@ def _copy_to_vault_raw(
     except Exception:
         logger.debug("Document vault raw copy skipped", exc_info=True)
         return None
+
+
+def _strict_copy_to_vault_raw(file_path, stored_name, *, original_name, document_id, validate, expected_sha256):
+    """Retained no-replace raw copy under the existing vault's guarded parents."""
+    from row_bot import wiki_vault
+    from row_bot.document_jobs import MAX_UPLOAD_BYTES, MIN_STAGING_FREE_BYTES, is_safe_document_name
+    from row_bot.file_ownership import guard_directory, directory_identity
+    from row_bot.developer.edits import _rename_edit_no_replace
+    if (not is_safe_document_name(stored_name) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", document_id)
+            or not isinstance(expected_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_sha256)):
+        raise ValueError("document_raw_source_unavailable")
+    validate()
+    if not wiki_vault.is_enabled():
+        return None
+    root = wiki_vault.get_vault_path().absolute()
+    source = pathlib.Path(file_path).absolute()
+    def leaf(directory, name, descriptor):
+        return name if descriptor is not None else directory / name
+    def read_owned(directory, name, descriptor, maximum):
+        name = leaf(directory, name, descriptor)
+        fd = os.open(name, os.O_RDONLY | getattr(os,"O_NOFOLLOW",0) | getattr(os,"O_NONBLOCK",0), dir_fd=descriptor)
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > maximum:
+                raise ValueError("document_raw_source_unavailable")
+            data = bytearray()
+            while chunk := os.read(fd, min(65536, maximum + 1 - len(data))):
+                validate()
+                data.extend(chunk)
+                if len(data) > maximum:
+                    raise ValueError("document_raw_source_unavailable")
+            after = os.fstat(fd)
+            named = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            def identity(info):
+                return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_nlink)
+            if identity(before) != identity(after) or identity(after) != identity(named):
+                raise ValueError("document_raw_source_changed")
+            return bytes(data)
+        finally:
+            os.close(fd)
+    with guard_directory(root,directory_identity(root,parent=True)) as root_fd:
+        validate()
+        try:
+            os.mkdir(leaf(root,"raw",root_fd),dir_fd=root_fd)
+        except FileExistsError:
+            pass
+        raw = root / "raw"
+        with guard_directory(raw,directory_identity(raw,parent=True)) as raw_fd:
+            validate()
+            try:
+                os.mkdir(leaf(raw,".metadata",raw_fd),dir_fd=raw_fd)
+            except FileExistsError:
+                pass
+            meta = raw / ".metadata"
+            with guard_directory(meta,directory_identity(meta,parent=True)) as meta_fd:
+                destination = leaf(raw,stored_name,raw_fd)
+                try:
+                    os.stat(destination,dir_fd=raw_fd,follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    saved = json.loads(read_owned(meta,stored_name + ".json",meta_fd,65536))
+                    if saved.get("document_id") != document_id or saved.get("content_sha256") != expected_sha256:
+                        raise ValueError("document_raw_copy_conflict")
+                    # Hash in bounded chunks below instead of materializing a full source.
+                    with guard_directory(raw,directory_identity(raw,parent=True)) as selected:
+                        fd = os.open(leaf(raw,stored_name,selected),os.O_RDONLY | getattr(os,"O_NOFOLLOW",0),dir_fd=selected)
+                        try:
+                            before = os.fstat(fd)
+                            digest,total = hashlib.sha256(),0
+                            while chunk := os.read(fd,1024**2):
+                                validate()
+                                total += len(chunk)
+                                if total > MAX_UPLOAD_BYTES:
+                                    raise ValueError("document_raw_copy_conflict")
+                                digest.update(chunk)
+                            after = os.fstat(fd)
+                            named = os.stat(leaf(raw,stored_name,selected),dir_fd=selected,follow_symlinks=False)
+                            if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or after.st_nlink != 1
+                                    or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns) !=
+                                       (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns)
+                                    or (named.st_dev,named.st_ino) != (after.st_dev,after.st_ino)
+                                    or digest.hexdigest() != expected_sha256):
+                                raise ValueError("document_raw_copy_conflict")
+                            return raw / stored_name
+                        finally:
+                            os.close(fd)
+                temporary = f".{stored_name}.{document_id}.copying"
+                with guard_directory(source.parent,directory_identity(source.parent,parent=True)) as source_parent:
+                    source_fd = os.open(leaf(source.parent,source.name,source_parent),os.O_RDONLY | getattr(os,"O_NOFOLLOW",0),dir_fd=source_parent)
+                    try:
+                        before = os.fstat(source_fd)
+                        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_UPLOAD_BYTES:
+                            raise ValueError("document_raw_source_unavailable")
+                        validate()
+                        fd = os.open(leaf(raw,temporary,raw_fd),os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600,dir_fd=raw_fd)
+                        try:
+                            digest,total = hashlib.sha256(),0
+                            while chunk := os.read(source_fd,1024**2):
+                                validate()
+                                total += len(chunk)
+                                if total > MAX_UPLOAD_BYTES or shutil.disk_usage(raw).free - len(chunk) < MIN_STAGING_FREE_BYTES:
+                                    raise ValueError("document_raw_copy_budget")
+                                offset = 0
+                                while offset < len(chunk):
+                                    validate()
+                                    count = os.write(fd,chunk[offset:])
+                                    if count <= 0:
+                                        raise OSError("Document copy made no progress")
+                                    offset += count
+                                digest.update(chunk)
+                            os.fsync(fd)
+                            info = os.fstat(fd)
+                        finally:
+                            os.close(fd)
+                        after = os.fstat(source_fd)
+                        named = os.stat(leaf(source.parent,source.name,source_parent),dir_fd=source_parent,follow_symlinks=False)
+                        if (digest.hexdigest() != expected_sha256 or before.st_size != total
+                                or (before.st_dev,before.st_ino,before.st_mtime_ns) != (after.st_dev,after.st_ino,after.st_mtime_ns)
+                                or (after.st_dev,after.st_ino) != (named.st_dev,named.st_ino) or after.st_nlink != 1):
+                            raise ValueError("document_raw_source_changed")
+                    finally:
+                        os.close(source_fd)
+                candidate = os.stat(leaf(raw,temporary,raw_fd),dir_fd=raw_fd,follow_symlinks=False)
+                if (candidate.st_dev,candidate.st_ino,candidate.st_nlink) != (info.st_dev,info.st_ino,1):
+                    raise ValueError("document_raw_copy_changed")
+                validate()
+                _rename_edit_no_replace(leaf(raw,temporary,raw_fd),destination,src_dir_fd=raw_fd,dst_dir_fd=raw_fd)
+                published = os.stat(destination,dir_fd=raw_fd,follow_symlinks=False)
+                if (published.st_dev,published.st_ino,published.st_nlink) != (info.st_dev,info.st_ino,1):
+                    raise ValueError("document_raw_copy_changed")
+                metadata = json.dumps({"document_id":document_id,"original_name":original_name or stored_name,
+                    "stored_name":stored_name,"content_sha256":expected_sha256}).encode()
+                temp_meta = f".{stored_name}.{document_id}.json"
+                validate()
+                fd = os.open(leaf(meta,temp_meta,meta_fd),os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600,dir_fd=meta_fd)
+                try:
+                    with os.fdopen(fd,"wb",closefd=False) as output:
+                        output.write(metadata)
+                        output.flush()
+                        os.fsync(fd)
+                    info = os.fstat(fd)
+                finally:
+                    os.close(fd)
+                current = os.stat(leaf(meta,temp_meta,meta_fd),dir_fd=meta_fd,follow_symlinks=False)
+                if (current.st_dev,current.st_ino,current.st_nlink) != (info.st_dev,info.st_ino,1):
+                    raise ValueError("document_raw_copy_changed")
+                validate()
+                _rename_edit_no_replace(leaf(meta,temp_meta,meta_fd),leaf(meta,stored_name + ".json",meta_fd),src_dir_fd=meta_fd,dst_dir_fd=meta_fd)
+                return raw / stored_name
 
 
 def _fixed_groups(
@@ -361,8 +547,22 @@ def _commit_knowledge(
     summary_count: int,
 ) -> int:
     import row_bot.knowledge_graph as kg
+
+    with kg.projection_batch(drain_on_exit=False):
+        return _commit_knowledge_rows(job, article, window_count=window_count, summary_count=summary_count)
+
+
+def _commit_knowledge_rows(
+    job: DocumentJob,
+    article: str,
+    *,
+    window_count: int,
+    summary_count: int,
+) -> int:
+    import row_bot.knowledge_graph as kg
     import row_bot.memory_evolution as memory_evolution
     from row_bot.memory import update_memory
+    strict = _strict_effects()
 
     title = pathlib.Path(job.original_name).stem
     source_label = str(getattr(job, "source_label", "") or f"document:{job.id}")
@@ -389,7 +589,6 @@ def _commit_knowledge(
         actor="document_extraction",
         source_context=context,
     )
-    kg._skip_reindex = True
     hub = _find_document_hub_by_source(source_label)
     if hub:
         update_memory(
@@ -397,6 +596,7 @@ def _commit_knowledge(
             article,
             source=source_label,
             properties=properties,
+            **strict,
         )
         hub = kg.get_entity(hub["id"])
     else:
@@ -406,12 +606,13 @@ def _commit_knowledge(
             article,
             source=source_label,
             properties=properties,
+            **strict,
         )
     saved = 1 if hub else 0
     if hub:
-        user_id = kg._ensure_user_entity()
+        user_id = kg._ensure_user_entity(**strict)
         if user_id:
-            kg.add_relation(user_id, hub["id"], "uploaded", source=source_label)
+            kg.add_relation(user_id, hub["id"], "uploaded", source=source_label, **strict)
 
     extracted = _extract_from_summary(title, article)
     entities = [
@@ -429,6 +630,8 @@ def _commit_knowledge(
             _cross_window_dedup(entities + relations),
             source=source_label,
             source_context=context,
+            **strict,
+            **({"invoke":_llm_call} if strict else {}),
         )
         if hub:
             conn = kg._get_conn()
@@ -446,13 +649,17 @@ def _commit_knowledge(
                         hub["id"],
                         "extracted_from",
                         source=source_label,
+                        **strict,
                     )
                 except Exception:
+                    if strict:
+                        raise
                     logger.debug("Document extracted_from relation skipped", exc_info=True)
     return saved
 
 
-def extract_document_job(job: DocumentJob, service: Any) -> dict[str, Any]:
+def extract_document_job(job: DocumentJob, service: Any, *, source_path: str | None = None,
+                         original_extension: str | None = None) -> dict[str, Any]:
     """Resume bounded map/reduce extraction for one already-searchable job."""
     from row_bot.documents import (
         iter_document_pages,
@@ -473,10 +680,12 @@ def extract_document_job(job: DocumentJob, service: Any) -> dict[str, Any]:
             job.stored_name,
             original_name=job.original_name,
             document_id=job.id,
+            **({**_strict_effects(), "expected_sha256":job.content_sha256} if _worker_policy.get() is not None else {}),
         )
         completed_window = service.last_map_window(job.id)
         window_count = 0
-        windows = iter_extraction_windows(iter_document_pages(job.staged_path))
+        windows = iter_extraction_windows(iter_document_pages(source_path if source_path is not None else job.staged_path,
+            **({"original_extension":original_extension} if original_extension is not None else {})))
         for window_index, window in enumerate(windows):
             window_count = window_index + 1
             if window_index <= completed_window:
@@ -615,7 +824,17 @@ def extract_from_document(
             "phase": "knowledge_map",
         }
     try:
-        return extract_document_job(job, checkpoint)
+        result = extract_document_job(job, checkpoint)
+        if result.get("entities_saved"):
+            import row_bot.knowledge_graph as kg
+
+            projection = kg.repair_projections(
+                max_entities=1000, cancelled=stop_event.is_set if stop_event else None,
+            )
+            if projection["failures"] or projection["pending"]["semantic"] or (
+                    projection["wiki_enabled"] and projection["pending"]["wiki"]):
+                result.update(status="error", error="Knowledge was saved; projection repair remains incomplete.")
+        return result
     except DocumentCancelled:
         return {
             "entities_saved": 0,

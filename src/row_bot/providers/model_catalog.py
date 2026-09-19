@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 import time
 from typing import Any, Iterable
 
-from row_bot.providers.capabilities import SURFACE_REQUIREMENTS, normalize_snapshot, snapshot_supports_surface
+from row_bot.providers.capabilities import normalize_snapshot, snapshot_supports_surface
 from row_bot.providers.catalog import get_provider_definition, model_info_from_legacy, model_info_from_metadata
 from row_bot.providers.models import ModelInfo, TransportMode
 from row_bot.providers.selection import model_ref
@@ -281,6 +281,100 @@ def build_model_catalog_rows(
     return sorted(rows.values(), key=lambda row: (row.provider_display_name.lower(), row.display_name.lower()))
 
 
+def build_saved_model_catalog_rows(
+    *,
+    cloud_cache: dict[str, dict[str, Any]],
+    ollama_rows: Iterable[dict[str, Any]],
+    provider_config: dict[str, Any],
+) -> list[CatalogModelRow]:
+    """Compose only supplied saved metadata, without runtime or credential reads.
+
+    Unlike the interactive NiceGUI catalog, missing capabilities stay unknown and
+    subscription fallbacks, curated models and runtime probes are not consulted.
+    This is a passive projection of the existing catalog, not another catalog.
+    """
+    from row_bot.providers.catalog import split_model_cache_key
+    from row_bot.providers.custom import normalize_custom_endpoint
+
+    quick = provider_config.get("quick_choices", [])
+    pinned = _pinned_surfaces_by_ref((item for item in quick if isinstance(item, dict)), infer_unknown=False)
+    rows: dict[str, CatalogModelRow] = {}
+
+    def add(provider: str, model: str, info: dict[str, Any], *, label: str = "", local: bool = False) -> None:
+        if not isinstance(provider, str) or not isinstance(model, str) or not provider or not model:
+            return
+        snapshot = info.get("capabilities_snapshot")
+        snapshot = snapshot if isinstance(snapshot, dict) else info
+        normalized = normalize_snapshot(snapshot)
+        # Model metadata is advisory: never infer a working runtime from a cache.
+        definition = get_provider_definition(provider)
+        ref = model_ref(provider, model)
+        try:
+            context = _positive_int(info.get("context_window") or info.get("ctx"))
+        except (OverflowError, ValueError):
+            context = 0
+        rows[ref] = CatalogModelRow(
+            provider_id=provider, model_id=model, selection_ref=ref,
+            display_name=next((value for value in (info.get("display_name"), info.get("label")) if isinstance(value, str) and value), model),
+            provider_display_name=label or (definition.display_name if definition else provider),
+            categories=categories_for_snapshot(normalized), capabilities_snapshot=normalized,
+            context_window=context, runtime_ready=False, configured=False,
+            installed=info.get("installed") is True if local else False,
+            pinned_surfaces=tuple(sorted(pinned.get(ref, set()))), source="saved_catalog",
+        )
+
+    for key, info in cloud_cache.items():
+        if not isinstance(info, dict):
+            continue
+        provider, model = split_model_cache_key(key)
+        add(info.get("provider") or provider or "", model, info)
+    providers = provider_config.get("providers", {})
+    for provider, entry in providers.items() if isinstance(providers, dict) else ():
+        cache = entry.get("catalog_cache") if isinstance(entry, dict) else None
+        models = cache.get("models") if isinstance(cache, dict) else None
+        for info in models if isinstance(models, list) else ():
+            if isinstance(info, dict):
+                add(provider, info.get("model_id") or info.get("id") or "", info)
+    for endpoint in provider_config.get("custom_endpoints", []):
+        if not isinstance(endpoint, dict):
+            continue
+        try:
+            endpoint = normalize_custom_endpoint(endpoint)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        for info in endpoint.get("models", []):
+            add(endpoint["provider_id"], info.get("model_id") or info.get("id") or "", info,
+                label=endpoint["display_name"])
+    for info in ollama_rows:
+        if isinstance(info, dict):
+            add("ollama", info.get("model_id") or "", info, local=True)
+    return sorted(rows.values(), key=lambda row: (
+        row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id,
+    ))
+
+
+def project_saved_catalog_readiness(rows: Iterable[CatalogModelRow]) -> list[CatalogModelRow]:
+    """Apply the NiceGUI availability rules using local status and saved metadata.
+
+    A cached cloud row means catalog presence, not a verified provider response.
+    Status reads must not refresh tokens or contact provider runtimes.
+    """
+    statuses = _provider_status_by_id()
+    projected = []
+    for row in rows:
+        assessed = _catalog_row(
+            provider_id=row.provider_id, model_id=row.model_id,
+            display_name=row.display_name, categories=row.categories,
+            capabilities_snapshot=row.capabilities_snapshot,
+            provider_status=statuses, pinned_by_ref={row.selection_ref: set(row.pinned_surfaces)},
+            default_refs={}, context_window=row.context_window,
+            installed=row.installed if row.provider_id == "ollama" else True,
+            downloadable=False, source=row.source, risk_label=row.risk_label,
+        )
+        projected.append(replace(assessed, provider_display_name=row.provider_display_name))
+    return projected
+
+
 def _add_model_info_row(
     rows: dict[str, CatalogModelRow],
     model_info: ModelInfo,
@@ -477,7 +571,9 @@ def _safe_quick_choices() -> list[dict[str, Any]]:
         return []
 
 
-def _pinned_surfaces_by_ref(quick: Iterable[dict[str, Any]]) -> dict[str, set[str]]:
+def _pinned_surfaces_by_ref(
+    quick: Iterable[dict[str, Any]], *, infer_unknown: bool = True,
+) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for choice in quick:
         ref = str(choice.get("id") or "")
@@ -486,7 +582,7 @@ def _pinned_surfaces_by_ref(quick: Iterable[dict[str, Any]]) -> dict[str, set[st
         surfaces = set()
         snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
         for surface in CATALOG_SURFACES:
-            if snapshot_supports_surface(snapshot, surface):
+            if (snapshot or infer_unknown) and snapshot_supports_surface(snapshot, surface):
                 surfaces.add(surface)
         visibility = choice.get("visibility")
         if isinstance(visibility, list):

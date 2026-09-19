@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "wiki.configure",
+        "wiki.publish",
+        "wiki.rebuild",
+        "wiki.import",
+        "wiki.sync"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "wiki_conflict",
+            "wiki_outcome_uncertain"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conflicts": {
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "Conflicts",
+      "type": "integer"
+    },
+    "count": {
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "Count",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "action",
+    "count",
+    "conflicts",
+    "code"
+  ],
+  "title": "WikiReceipt",
+  "type": "object"
+}

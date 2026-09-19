@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Command",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "command"
+  ],
+  "title": "WorkspaceProcessReviewRequest",
+  "type": "object"
+}

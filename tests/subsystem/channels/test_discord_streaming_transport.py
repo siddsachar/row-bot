@@ -117,7 +117,7 @@ def test_discord_long_output_splits_and_cleans_preview() -> None:
     assert operations[-1][0] == "delete"
 
 
-def test_discord_final_edit_failure_falls_back_to_send() -> None:
+def test_discord_uncertain_final_edit_never_sends_duplicate() -> None:
     async def run_case():
         channel = FakeDiscordChannel()
         channel.fail_next_message_final_edit = True
@@ -129,9 +129,10 @@ def test_discord_final_edit_failure_falls_back_to_send() -> None:
 
     result, operations = asyncio.run(run_case())
 
-    assert result.delivered is True
-    assert result.fallback_sent is True
-    assert [op for op, _payload in operations].count("send") == 2
+    assert result.delivered is False
+    assert result.uncertain is True
+    assert result.fallback_sent is False
+    assert [op for op, _payload in operations].count("send") == 1
 
 
 def test_discord_goal_callback_preserves_no_duplicate_final(monkeypatch: pytest.MonkeyPatch) -> None:

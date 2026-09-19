@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "skill.preference",
+        "skill.create",
+        "skill.import",
+        "skill.edit",
+        "skill.duplicate",
+        "skill.delete",
+        "skill.proposal.apply",
+        "skill.proposal.reject"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "action",
+    "payload"
+  ],
+  "title": "SkillReviewRequest",
+  "type": "object"
+}

@@ -423,7 +423,8 @@ def test_claude_subscription_disconnect_removes_row_bot_secrets_only(tmp_path, m
 
         disconnect_claude_subscription_metadata()
 
-        assert "claude_subscription" not in provider_config.load_provider_config()["providers"]
+        assert provider_config.load_provider_config()["providers"]["claude_subscription"]["configured"] is False
+        assert provider_config.load_provider_config()["providers"]["claude_subscription"]["oauth_bundle_ref"] == {"cleared": True}
         assert get_provider_secret("claude_subscription", "access_token") == ""
         assert credentials.exists()
     finally:

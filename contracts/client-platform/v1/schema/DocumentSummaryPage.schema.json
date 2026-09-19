@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "DocumentSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "extraction_current": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Extraction Current"
+        },
+        "extraction_total": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Extraction Total"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "index_current": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Index Current"
+        },
+        "index_total": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Index Total"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "record_state": {
+          "enum": [
+            "saved",
+            "job_only",
+            "record_only",
+            "partial",
+            "removed"
+          ],
+          "title": "Record State",
+          "type": "string"
+        },
+        "searchability": {
+          "const": "unknown",
+          "title": "Searchability",
+          "type": "string"
+        },
+        "stage": {
+          "maxLength": 64,
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "maxLength": 64,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status",
+        "stage",
+        "record_state",
+        "index_current",
+        "index_total",
+        "extraction_current",
+        "extraction_total",
+        "updated_at",
+        "truncated",
+        "searchability"
+      ],
+      "title": "DocumentSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/DocumentSummary"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "maxLength": 64,
+      "minLength": 64,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Total"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items",
+    "total",
+    "next_cursor",
+    "availability"
+  ],
+  "title": "DocumentSummaryPage",
+  "type": "object"
+}

@@ -146,6 +146,7 @@ def test_telegram_setting_audit_can_surface_legacy_scope_refusal():
 
 
 def test_telegram_send_html_splits_plain_text_fallback():
+    from telegram.error import BadRequest
     from row_bot.channels.telegram import MAX_TG_MESSAGE_LEN, _send_html
 
     class FakeTarget:
@@ -154,7 +155,7 @@ def test_telegram_send_html_splits_plain_text_fallback():
 
         async def reply_text(self, text, **kwargs):
             if kwargs.get("parse_mode") == "HTML":
-                raise RuntimeError("bad html")
+                raise BadRequest("Can't parse entities: unclosed tag")
             self.sent.append((text, kwargs))
 
     async def run_case():

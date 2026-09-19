@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Asset Id"
+    },
+    "code": {
+      "maxLength": 80,
+      "title": "Code",
+      "type": "string"
+    },
+    "operation": {
+      "maxLength": 64,
+      "title": "Operation",
+      "type": "string"
+    },
+    "preset_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Preset Id"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "saved",
+        "unchanged",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "operation",
+    "status",
+    "code"
+  ],
+  "title": "ArtifactDesignOutcome",
+  "type": "object"
+}

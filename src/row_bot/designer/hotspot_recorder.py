@@ -249,6 +249,14 @@ def record_hotspot(
     project.pages[src_idx].html = new_html
     project.pages[src_idx].thumbnail_b64 = None
 
+    # One recorded target owns one current interaction. Retire only its exact
+    # saved selector; unrelated elements and routes retain their graph edges.
+    project.interactions[:] = [
+        item for item in project.interactions
+        if not (item.source_route.strip().lower() == src_key
+                and item.selector.strip() == selector.strip())
+    ]
+
     if action_value is not None:
         project.interactions.append(
             DesignerInteraction(

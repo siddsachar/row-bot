@@ -7,17 +7,13 @@ their manifests, and loads enabled plugins safely (try/except + timeout).
 from __future__ import annotations
 
 import ast
-import importlib.util
 import json
 import logging
-import os
 import pathlib
 import re
-import signal
 import shutil
 import sys
 import threading
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -25,7 +21,8 @@ from typing import Any
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime_paths import app_path
 from row_bot.plugins.manifest import PluginManifest, ManifestError, parse_manifest
-from row_bot.plugins.api import PluginAPI, PluginTool
+from row_bot.plugins.api import PluginAPI
+from row_bot.plugins.worker import WorkerAPI, WorkerError
 from row_bot.plugins import registry as plugin_registry
 from row_bot.plugins import state as plugin_state
 
@@ -89,7 +86,7 @@ _registrations: dict[str, PluginAPI] = {}
 
 
 def _install_plugin_api_compat_aliases() -> None:
-    """Preserve the public plugin import path for installed third-party plugins."""
+    """Preserve the explicit public SDK alias without importing plugin code."""
     import row_bot.plugins as _plugins_pkg
     import row_bot.plugins.api as _plugins_api
 
@@ -98,6 +95,29 @@ def _install_plugin_api_compat_aliases() -> None:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+def load_plugin_manifests_readonly() -> list[LoadResult]:
+    """Publish installed manifest metadata without importing plugin code.
+
+    This is the Settings capture owner: it performs no directory creation,
+    quarantine, registration callback, health check, or runtime refresh.
+    """
+    global _load_results
+    results: list[LoadResult] = []
+    if PLUGINS_DIR.is_dir():
+        for entry in sorted(PLUGINS_DIR.iterdir()):
+            if not entry.is_dir() or entry.name.startswith((".", "_")):
+                continue
+            try:
+                manifest = parse_manifest(entry)
+            except (ManifestError, OSError, ValueError) as exc:
+                results.append(LoadResult(plugin_id=entry.name, success=False, error=str(exc)))
+                continue
+            plugin_registry.register_plugin(manifest, tools=[], skills=[])
+            results.append(LoadResult(plugin_id=manifest.id, success=True, manifest=manifest))
+    _load_results = results
+    return list(results)
+
+
 def load_plugins() -> list[LoadResult]:
     """Discover and load all installed plugins. Safe to call multiple times.
 
@@ -254,13 +274,19 @@ def refresh_plugin_runtime(
 def _unregister_loaded_plugins() -> None:
     manifests = list(plugin_registry.get_loaded_manifests())
     with _registration_lock:
-        for api in _registrations.values():
+        for plugin_id, api in list(_registrations.items()):
             api._revoke()
-        _registrations.clear()
+            if not _registration_draining(api):
+                _registrations.pop(plugin_id, None)
         for manifest in manifests:
             plugin_id = str(getattr(manifest, "id", "") or "")
             if plugin_id:
                 _cleanup_plugin_runtime(plugin_id)
+
+
+def _registration_draining(api: PluginAPI) -> bool:
+    worker = getattr(api, "_worker", None)
+    return worker is not None and worker.has_pending_work()
 
 
 def revoke_registration(plugin_id: str) -> None:
@@ -276,9 +302,11 @@ def _cleanup_plugin_runtime(plugin_id: str, *, expected_api: PluginAPI | None = 
         if expected_api is not None and _registrations.get(plugin_id) is not expected_api:
             expected_api._revoke()
             return
-        api = _registrations.pop(plugin_id, None)
+        api = _registrations.get(plugin_id)
         if api is not None:
             api._revoke()
+            if not _registration_draining(api):
+                _registrations.pop(plugin_id, None)
         _unregister_plugin_contributions(plugin_id)
 
 
@@ -520,7 +548,7 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
     # Step 5: Import and call register()
     api = None
     try:
-        api = PluginAPI(
+        api = WorkerAPI(
             plugin_id=plugin_id,
             plugin_dir=plugin_dir,
             state_backend=plugin_state,
@@ -530,8 +558,15 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
             old_api = _registrations.get(plugin_id)
             if old_api is not None:
                 old_api._revoke()
+                if _registration_draining(old_api):
+                    raise WorkerError("worker_busy")
             _registrations[plugin_id] = api
-        _call_register_with_timeout(plugin_dir, api)
+        if (plugin_dir / "plugin_main.py").is_file():
+            _call_register_with_timeout(plugin_dir, api)
+        elif manifest.provides.native_tools or manifest.provides.channels:
+            raise WorkerError("worker_registration_required")
+        # Declarative skills/MCP require no plugin import. The MCP launch
+        # resolver independently enforces preparation for Python contributions.
     except TimeoutError:
         _cleanup_plugin_runtime(plugin_id, expected_api=api)
         return LoadResult(
@@ -789,53 +824,16 @@ def _security_error(rel_path: pathlib.Path, line_no: int, module: str) -> str:
 
 # ── Plugin Registration ──────────────────────────────────────────────────────
 def _call_register_with_timeout(plugin_dir: pathlib.Path, api: PluginAPI) -> None:
-    """Import plugin_main.py and call register(api) with timeout."""
-    main_path = plugin_dir / "plugin_main.py"
-    if not main_path.exists():
-        raise FileNotFoundError(f"Missing plugin_main.py in {plugin_dir}")
-
-    # Add plugin dir to sys.path temporarily for local imports
-    plugin_dir_str = str(plugin_dir)
-    added_path = plugin_dir_str not in sys.path
-    if added_path:
-        sys.path.insert(0, plugin_dir_str)
-    _install_plugin_api_compat_aliases()
-
-    error_holder: list[Exception] = []
-
-    def _do_register():
-        try:
-            spec = importlib.util.spec_from_file_location(
-                f"_row_bot_plugin_{api.plugin_id}", main_path
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(f"Cannot create module spec for {main_path}")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            register_fn = getattr(module, "register", None)
-            if register_fn is None:
-                raise AttributeError("plugin_main.py has no register() function")
-
-            register_fn(api)
-        except Exception as exc:
-            error_holder.append(exc)
-
-    thread = threading.Thread(target=_do_register, daemon=True)
-    thread.start()
-    thread.join(timeout=REGISTER_TIMEOUT)
-
-    # Restore sys.path
-    if added_path and plugin_dir_str in sys.path:
-        sys.path.remove(plugin_dir_str)
-
-    if thread.is_alive():
+    """Register only in the explicitly prepared, owned plugin worker."""
+    if not isinstance(api, WorkerAPI):
+        raise WorkerError("worker_registration_required")
+    try:
+        api.register_worker(REGISTER_TIMEOUT)
+    except WorkerError as exc:
         api._revoke()
-        raise TimeoutError(f"register() timed out after {REGISTER_TIMEOUT}s")
-
-    if error_holder:
-        api._revoke()
-        raise error_holder[0]
+        if str(exc) == "worker_timeout":
+            raise TimeoutError("Plugin worker registration timed out") from None
+        raise
 
 
 # ── Skill Discovery ─────────────────────────────────────────────────────────
@@ -906,6 +904,7 @@ def _reset():
     global _load_results
     _load_results = []
     with _registration_lock:
-        for api in _registrations.values():
+        for plugin_id, api in list(_registrations.items()):
             api._revoke()
-        _registrations.clear()
+            if not _registration_draining(api):
+                _registrations.pop(plugin_id, None)

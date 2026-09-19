@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Any, Iterable
+from typing import Any, Iterable, Callable
 
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.catalog import infer_provider_id
-from row_bot.providers.config import load_provider_config, save_provider_config
+from row_bot.providers.config import (load_provider_config, save_provider_config,
+    provider_config_transaction, provider_config_revision, ProviderConfigError)
 from row_bot.providers.errors import NormalizedProviderError, normalize_provider_error
 
 CHAT_VISIBILITY = ["chat", "workflow", "channels", "designer", "status_tool"]
@@ -1412,6 +1413,7 @@ def migrate_legacy_starred_models(*, cloud_models: Iterable[str] | None = None) 
     return quick
 
 
+@provider_config_transaction()
 def add_quick_choice_for_model(
     model_id: str,
     *,
@@ -1462,6 +1464,51 @@ def add_quick_choice_for_model(
     save_provider_config(cfg)
 
 
+def set_reviewed_model_pin(provider_id: str, model_id: str, surface: str, pinned: bool, *,
+                           expected_revision: str, validate: Callable[[], None],
+                           record_commit: Callable[[dict], None]) -> None:
+    """Change one picker group against canonical config and saved catalog only."""
+    from row_bot.providers.model_catalog_cache import read_model_catalog_cache
+    from row_bot.providers.model_catalog import build_saved_model_catalog_rows
+    if surface not in SURFACE_VISIBILITY or type(pinned) is not bool:
+        raise ProviderConfigError("invalid_command")
+    with provider_config_transaction():
+        validate()
+        cfg = load_provider_config(strict=True)
+        if provider_config_revision(cfg) != expected_revision:
+            raise ProviderConfigError("revision_conflict")
+        ref = model_ref(provider_id, model_id)
+        quick = cfg["quick_choices"]
+        existing = next((item for item in quick if isinstance(item, dict) and item.get("id") == ref), None)
+        group = set(SURFACE_VISIBILITY[surface])
+        if pinned:
+            saved = read_model_catalog_cache(allow_runtime_bootstrap=False)
+            rows = build_saved_model_catalog_rows(cloud_cache=saved.cloud_cache, ollama_rows=saved.ollama_rows, provider_config=cfg)
+            row = next((item for item in rows if item.provider_id == provider_id and item.model_id == model_id and surface in item.categories), None)
+            if row is None:
+                raise ProviderConfigError("model_configuration_unavailable")
+            snapshot = {name: sorted(value) if isinstance(value, (set, frozenset)) else value
+                        for name, value in row.capabilities_snapshot.items()}
+            choice = _quick_choice_for_model(model_id, provider_id=provider_id, display_name=row.display_name,
+                source="models_catalog", capabilities_snapshot=snapshot, visibility=sorted(group))
+            if existing is None:
+                quick.append(choice)
+            else:
+                visibility = set(existing.get("visibility", [])) | group
+                existing.update({"pinned": True, "active": True, "inactive_reason": "", "inactive_surfaces": {},
+                    "last_error": "", "visibility": sorted(visibility), "capabilities_snapshot": snapshot})
+        elif existing is not None:
+            visibility = set(existing.get("visibility", [])) - group
+            if visibility:
+                existing["visibility"] = sorted(visibility)
+            else:
+                quick.remove(existing)
+        validate()
+        record_commit(cfg)
+        save_provider_config(cfg, expected_revision=expected_revision)
+
+
+@provider_config_transaction()
 def remove_quick_choice_for_model(model_id: str, *, provider_id: str | None = None) -> None:
     provider_id = provider_id or infer_provider_id(model_id)
     if not provider_id:
@@ -1475,6 +1522,7 @@ def remove_quick_choice_for_model(model_id: str, *, provider_id: str | None = No
     save_provider_config(cfg)
 
 
+@provider_config_transaction()
 def remove_quick_choices_for_provider(provider_id: str) -> int:
     provider_id = str(provider_id or "").strip()
     if not provider_id:
@@ -1489,6 +1537,7 @@ def remove_quick_choices_for_provider(provider_id: str) -> int:
     return removed
 
 
+@provider_config_transaction()
 def remove_quick_choices_for_missing_models(provider_id: str, valid_model_ids: set[str]) -> int:
     provider_id = str(provider_id or "").strip()
     valid = {str(model_id) for model_id in valid_model_ids if str(model_id)}

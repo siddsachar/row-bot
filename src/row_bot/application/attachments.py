@@ -351,6 +351,27 @@ class AttachmentUploads:
             upload.expires = self.clock() + UPLOAD_TTL_SECONDS
             return result
 
+    def read_staged(self, session_id: str, upload_id: str, *, conversation_id: str,
+                    name: str, validate: Callable[[], None]) -> bytes:
+        """Read exact scoped staging for a different canonical resource owner.
+
+        The existing TTL owns cleanup; reading never creates an attachment or
+        chooses an asset destination. The consumer must check size and digest.
+        """
+        with self._lock:
+            validate()
+            upload = self._get(session_id, upload_id)
+            if upload.conversation_id != conversation_id or upload.name != name:
+                raise AttachmentError("not_found")
+            if upload.received != upload.size:
+                raise AttachmentError("upload_incomplete")
+            upload.source.seek(0)
+            data = upload.source.read(MAX_ATTACHMENT_BYTES + 1)
+            if len(data) != upload.size or hashlib.sha256(data).hexdigest() != upload.digest:
+                raise AttachmentError("revision_conflict")
+            validate()
+            return data
+
     def cancel(self, session_id: str, upload_id: str) -> None:
         with self._lock:
             upload = self._get(session_id, upload_id)

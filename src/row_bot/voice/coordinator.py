@@ -2,10 +2,51 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from functools import wraps
+import threading
 import time
 from typing import Literal
 
 from row_bot.voice import VoiceService
+
+
+def _legacy_start(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._dictation_lock:
+            owner = threading.get_ident()
+            transition = self._legacy_transition_owner
+            if self._dictation_busy() or (transition is not None and transition != owner):
+                from row_bot.voice.client_transport import DictationError
+                raise DictationError("voice_session_busy")
+            if self._dictation_lease is not None:
+                self._dictation_adapter._invalidate(self._dictation_lease)
+            self._legacy_transition_owner = owner
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            if transition is None:
+                with self._dictation_lock:
+                    self._legacy_transition_owner = None
+    return guarded
+
+
+def _legacy_control(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._dictation_lock:
+            owner = threading.get_ident()
+            transition = self._legacy_transition_owner
+            if self._dictation_busy() or (transition is not None and transition != owner):
+                return None
+            self._legacy_transition_owner = owner
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            if transition is None:
+                with self._dictation_lock:
+                    self._legacy_transition_owner = None
+    return guarded
 
 
 VoiceMode = Literal["talk", "dictate"]
@@ -33,6 +74,14 @@ class VoiceSessionCoordinator:
     """Owns the active Talk/Dictate session around the existing VoiceService."""
 
     def __init__(self, voice_service: VoiceService) -> None:
+        self._dictation_lock = threading.RLock()
+        self._dictation_lease = None
+        self._dictation_adapter = None
+        self._dictation_clock = time.monotonic
+        self._dictation_closed = False
+        # Reserve transitions without holding the admission lock during a host
+        # voice thread's bounded shutdown/join. Nested same-thread calls retain it.
+        self._legacy_transition_owner: int | None = None
         self.voice_service = voice_service
         self.mode: VoiceMode = "talk"
         self.transport: VoiceTransport = "local"
@@ -77,12 +126,30 @@ class VoiceSessionCoordinator:
         if self.transport == "realtime":
             return self.realtime_state
         if self.transport == "browser":
+            lease = self._dictation_lease
+            if lease is not None and lease.mode == "talk" and lease.handle.voice_session_id == self.session_id:
+                if lease.phase == "submit":
+                    return "thinking"
+                if lease.phase == "speech":
+                    return "speaking"
+                if lease.phase == "worker":
+                    return "transcribing"
             return "listening"
         return self.voice_service.state
 
     def start_talk(self) -> int:
         return self.start("talk")
 
+    def _dictation_busy(self) -> bool:
+        """Called only under the coordinator lock; expiry never releases a worker."""
+        lease = self._dictation_lease
+        if lease is None:
+            return False
+        self._dictation_adapter._expire(lease)
+        return lease.starting or lease.operation is not None or (not lease.revoked and
+                (lease.mode == "talk" or lease.state != "completed"))
+
+    @_legacy_start
     def start_realtime_talk(self) -> int:
         if self._active:
             self.stop()
@@ -99,6 +166,7 @@ class VoiceSessionCoordinator:
         self._emit("realtime_connecting")
         return self._session_id
 
+    @_legacy_start
     def start_browser(self, mode: VoiceMode = "talk") -> int:
         """Start browser capture without opening a server audio device."""
         if self._active:
@@ -116,6 +184,7 @@ class VoiceSessionCoordinator:
     def start_dictation(self) -> int:
         return self.start("dictate")
 
+    @_legacy_start
     def start(self, mode: VoiceMode) -> int:
         if self._active and self.mode == mode and self.voice_service.is_running:
             return self._session_id
@@ -145,6 +214,7 @@ class VoiceSessionCoordinator:
         except Exception:
             return
 
+    @_legacy_control
     def stop(self, *, session_id: int | None = None) -> None:
         if session_id is not None and session_id != self._session_id:
             self._emit("stale_stop_ignored", detail=str(session_id))
@@ -159,12 +229,14 @@ class VoiceSessionCoordinator:
         if was_active:
             self._emit("session_stopped")
 
+    @_legacy_control
     def mute(self) -> None:
         if self._active and self.voice_service.is_running:
             self.voice_service.mute()
             self.output_activity.mark_started()
             self._emit("assistant_audio_started")
 
+    @_legacy_control
     def unmute(self) -> None:
         if self._active and self.voice_service.is_running:
             self.voice_service.unmute()
@@ -180,6 +252,7 @@ class VoiceSessionCoordinator:
             return self.realtime_state
         return self.voice_service.get_status()
 
+    @_legacy_control
     def get_transcription(self) -> str | None:
         if not self._active or self.transport == "realtime":
             return None

@@ -9,7 +9,7 @@ Vault structure::
     vault/
     ├── wiki/                  ← one .md per entity (by type sub-folder)
     │   ├── person/
-    │   │   ├── Mom.md
+    │   │   ├── entity-<stable-ID-hash>.md
     │   │   └── _index.md      ← rollup of sparse entities
     │   ├── preference/
     │   ├── fact/
@@ -25,15 +25,18 @@ Settings are stored in ``~/.row-bot/wiki_config.json``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import pathlib
 import re
-import shutil
 import threading
+import uuid
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from row_bot.data_paths import get_row_bot_data_dir
 
@@ -41,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # ── Data / config paths ─────────────────────────────────────────────────────
 
-_DATA_DIR = get_row_bot_data_dir()
+_DATA_DIR = get_row_bot_data_dir(create=False)
 _CONFIG_PATH = _DATA_DIR / "wiki_config.json"
 
 # Minimum description length for an entity to get its own .md file.
@@ -61,6 +64,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 _config_lock = threading.Lock()
+_export_lock = threading.RLock()
 
 
 def _load_config() -> dict[str, Any]:
@@ -79,11 +83,32 @@ def _load_config() -> dict[str, Any]:
 
 def _save_config(cfg: dict[str, Any]) -> None:
     """Persist wiki vault config to disk."""
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with _config_lock:
-        _CONFIG_PATH.write_text(
-            json.dumps(cfg, indent=2), encoding="utf-8"
-        )
+    from row_bot.providers.config import provider_config_transaction, write_provider_metadata
+    with _config_lock, provider_config_transaction(_CONFIG_PATH):
+        write_provider_metadata(_CONFIG_PATH, cfg)
+
+
+def read_control_config() -> tuple[dict, str]:
+    """Strict passive config read; malformed saved state is never a default."""
+    from row_bot.providers.saved_model_settings import read_saved_model_settings
+    raw, revision, _ = read_saved_model_settings(_CONFIG_PATH)
+    cfg = {**_DEFAULT_CONFIG, **raw}
+    if type(cfg.get("enabled")) is not bool or not isinstance(cfg.get("vault_path"), str):
+        raise ValueError("wiki_unavailable")
+    return cfg, revision
+
+
+def configure_vault(*, enabled: bool, vault_path: pathlib.Path, expected_revision: str,
+                    validate: Callable[[], None], proof: dict) -> dict:
+    """Publish only reviewed settings; enabling does not imply rebuilding."""
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
+    if type(enabled) is not bool:
+        raise ValueError("invalid_wiki_command")
+    with _export_lock:
+        validate()
+        return update_saved_model_settings(
+            lambda raw: {**raw, "enabled": enabled, "vault_path": str(vault_path), "wiki_command": proof},
+            path=_CONFIG_PATH, expected_revision=expected_revision, validate=validate)
 
 
 def is_enabled() -> bool:
@@ -93,11 +118,13 @@ def is_enabled() -> bool:
 
 def set_enabled(enabled: bool) -> None:
     """Toggle the wiki vault on or off."""
-    cfg = _load_config()
-    cfg["enabled"] = enabled
-    _save_config(cfg)
-    if enabled:
-        _ensure_vault_dirs()
+    from row_bot.providers.config import provider_config_transaction
+    with _export_lock, provider_config_transaction(_CONFIG_PATH):
+        cfg = _load_config()
+        cfg["enabled"] = enabled
+        _save_config(cfg)
+        if enabled:
+            _ensure_vault_dirs()
 
 
 def get_vault_path() -> pathlib.Path:
@@ -107,11 +134,13 @@ def get_vault_path() -> pathlib.Path:
 
 def set_vault_path(path: str) -> None:
     """Change the vault root directory."""
-    cfg = _load_config()
-    cfg["vault_path"] = str(pathlib.Path(path).resolve())
-    _save_config(cfg)
-    if cfg.get("enabled"):
-        _ensure_vault_dirs()
+    from row_bot.providers.config import provider_config_transaction
+    with _export_lock, provider_config_transaction(_CONFIG_PATH):
+        cfg = _load_config()
+        cfg["vault_path"] = str(pathlib.Path(path).resolve())
+        _save_config(cfg)
+        if cfg.get("enabled"):
+            _ensure_vault_dirs()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -130,6 +159,8 @@ def _ensure_vault_dirs() -> None:
     """Create the vault folder structure if it doesn't exist."""
     vault = get_vault_path()
     for sub in _WIKI_SUBDIRS:
+        if sub.startswith("wiki/"):
+            _wiki_path(sub.removeprefix("wiki/"))
         (vault / sub).mkdir(parents=True, exist_ok=True)
 
 
@@ -152,9 +183,216 @@ def _safe_filename(subject: str) -> str:
 def _entity_md_path(entity: dict) -> pathlib.Path:
     """Return the expected .md path for an entity."""
     vault = get_vault_path()
-    etype = entity.get("entity_type", "fact")
-    fname = _safe_filename(entity.get("subject", "unnamed"))
+    etype = _entity_type(entity)
+    fname = _entity_filename(str(entity["id"]))
     return vault / "wiki" / etype / f"{fname}.md"
+
+
+def _entity_type(entity: dict) -> str:
+    value = entity.get("entity_type", "fact")
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z_]{0,39}", value):
+        raise ValueError("Invalid wiki entity type")
+    return value
+
+
+def _entity_filename(entity_id: str) -> str:
+    return "entity-" + hashlib.sha256(entity_id.encode("utf-8")).hexdigest()
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _source_revision(entity: dict) -> str:
+    return _digest(json.dumps(entity, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+
+
+def _wiki_path(relative: str) -> pathlib.Path:
+    """Validate managed paths before every file effect; never traverse links."""
+    root = get_vault_path() / "wiki"
+    path = pathlib.PurePosixPath(relative)
+    if path.is_absolute() or not path.parts or any(
+        part in {".", ".."} or "\\" in part or ":" in part for part in path.parts
+    ):
+        raise ValueError("Invalid wiki ownership path")
+    candidate = root.joinpath(*path.parts)
+    if root.is_symlink() or root.is_junction():
+        raise ValueError("Linked wiki directory")
+    current = root
+    for part in path.parts:
+        current = current / part
+        if current.is_symlink() or current.is_junction():
+            raise ValueError("Linked wiki ownership path")
+    return candidate
+
+
+def _manifest_path() -> pathlib.Path:
+    return _wiki_path(".row-bot-ownership.json")
+
+
+def _read_manifest() -> dict:
+    path = _manifest_path()
+    if not path.exists():
+        return {"version": 1, "files": {}}
+    if path.stat().st_size > 64 * 1024 * 1024:
+        raise ValueError("Wiki ownership manifest exceeds limit")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.get("version") != 1:
+        raise ValueError("Invalid wiki ownership manifest")
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        raise ValueError("Invalid wiki ownership entries")
+    for relative, entry in files.items():
+        _wiki_path(relative)
+        if not isinstance(entry, dict) or not re.fullmatch(r"[a-f0-9]{64}", entry.get("hash", "")):
+            raise ValueError("Invalid wiki ownership entry")
+    pending = manifest.get("pending", {})
+    if not isinstance(pending, dict):
+        raise ValueError("Invalid pending wiki publication")
+    # Interrupted publication is reconciled by content, never by timestamps.
+    for relative, entry in pending.items():
+        path = _wiki_path(relative)
+        if not isinstance(entry, dict) or not isinstance(entry.get("hash"), str) or not re.fullmatch(r"[a-f0-9]{64}", entry["hash"]):
+            raise ValueError("Invalid pending wiki entry")
+        candidate = _wiki_path(entry.get("candidate", ""))
+        if (path.is_file() and candidate.is_file() and os.path.samefile(path, candidate)
+                and _digest(path.read_bytes()) == entry["hash"]):
+            files[relative] = entry
+    manifest.pop("pending", None)
+    return manifest
+
+
+def _write_manifest(manifest: dict, *, validate: Callable[[], None] | None = None) -> None:
+    if validate is not None:
+        validate()
+    path = _manifest_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = _wiki_path(f".row-bot-{uuid.uuid4().hex}.tmp")
+    content = json.dumps(manifest, ensure_ascii=False, sort_keys=True)
+    if len(content.encode("utf-8")) > 64 * 1024 * 1024:
+        raise ValueError("Wiki ownership manifest exceeds limit")
+    with temporary.open("x", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if validate is not None:
+        validate()
+    os.replace(temporary, _manifest_path())
+
+
+def _stage(content: str, entity: dict | None = None, *, existing: dict | None = None, validate: Callable[[], None] | None = None) -> dict:
+    """Retain candidates privately until a complete publication is ready."""
+    data = content.encode("utf-8")
+    content_hash = _digest(data)
+    relative = (existing or {}).get("candidate", "")
+    reusable = False
+    if relative and (existing or {}).get("hash") == content_hash:
+        path = _wiki_path(relative)
+        reusable = path.is_file() and _digest(path.read_bytes()) == content_hash
+    if not reusable:
+        if validate is not None:
+            validate()
+        relative = f".row-bot-recovery/{uuid.uuid4().hex}.candidate"
+        path = _wiki_path(relative)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("xb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    entry = {"hash": content_hash, "candidate": relative}
+    if entity is not None:
+        entry.update(entity_id=str(entity["id"]), subject=entity.get("subject", ""),
+                     source_revision=_source_revision(entity),
+                     source_updated_at=entity.get("updated_at", ""))
+    return entry
+
+
+def _retain_existing(path: pathlib.Path, expected: str, *, validate: Callable[[], None] | None = None) -> bool:
+    """Move the current name into recovery before inspecting or replacing it.
+
+    Even an external atomic replacement racing this rename is retained. Restoring
+    an unexpected version never overwrites a newly created external file.
+    """
+    if validate is not None:
+        validate()
+    backup = _wiki_path(f".row-bot-recovery/{uuid.uuid4().hex}.retained")
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    backup.with_suffix(".json").write_text(json.dumps({
+        "original": path.relative_to(get_vault_path() / "wiki").as_posix(),
+        "expected_hash": expected, "retained": backup.name,
+    }), encoding="utf-8")
+    if validate is not None:
+        validate()
+    os.rename(path, backup)
+    if _digest(backup.read_bytes()) == expected:
+        return True
+    try:
+        if validate is not None:
+            validate()
+        os.link(backup, path, follow_symlinks=False)
+    except FileExistsError:
+        pass
+    return False
+
+
+def _publish(manifest: dict, staged: dict[str, dict], *, validate: Callable[[], None] | None = None) -> tuple[int, list[str]]:
+    """Publish a prepared batch; retain both versions on conflicts or interruption."""
+    strict = {"validate":validate} if validate is not None else {}
+    manifest["pending"] = staged
+    _write_manifest(manifest, **strict)
+    published = 0
+    conflicts = []
+    for relative, entry in staged.items():
+        if validate is not None:
+            validate()
+        target = _wiki_path(relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        old = manifest["files"].get(relative)
+        if target.exists():
+            if old is not None and old.get("managed") is not False and old["hash"] == entry["hash"] and _digest(target.read_bytes()) == entry["hash"]:
+                manifest["files"][relative] = entry
+                published += 1
+                continue
+            if old is None or old.get("managed") is False or not _retain_existing(target, old["hash"], **strict):
+                conflicts.append(relative)
+                continue
+        # link is atomic no-replace; an external creator wins the name.
+        try:
+            if validate is not None:
+                validate()
+            os.link(_wiki_path(entry["candidate"]), _wiki_path(relative))
+        except FileExistsError:
+            conflicts.append(relative)
+            continue
+        manifest["files"][relative] = entry
+        published += 1
+    manifest.pop("pending", None)
+    previous_conflicts = manifest.get("conflicts", {})
+    manifest["conflicts"] = {relative: item for relative, item in previous_conflicts.items()
+                             if relative not in staged}
+    manifest["conflicts"].update({relative: staged[relative] for relative in conflicts})
+    _write_manifest(manifest, **strict)
+    return published, conflicts
+
+
+def _retire(manifest: dict, relatives: set[str], *, validate: Callable[[], None] | None = None) -> int:
+    removed = 0
+    for relative in relatives:
+        if validate is not None:
+            validate()
+        entry = manifest["files"].get(relative)
+        if entry is None or entry.get("managed") is False:
+            continue
+        path = _wiki_path(relative)
+        if not path.exists():
+            manifest["files"].pop(relative)
+        elif _retain_existing(path, entry["hash"], **({"validate": validate} if validate is not None else {})):
+            manifest["files"].pop(relative)
+            removed += 1
+    if validate is not None:
+        validate()
+    _write_manifest(manifest, **({"validate": validate} if validate is not None else {}))
+    return removed
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -174,7 +412,7 @@ def _render_frontmatter(entity: dict) -> str:
         "---",
         f"id: {json.dumps(str(entity['id']))}",
         f"type: {entity.get('entity_type', '')}",
-        f"subject: \"{entity.get('subject', '')}\"",
+        f"subject: {json.dumps(entity.get('subject', ''))}",
     ]
     aliases = entity.get("aliases", "")
     if aliases:
@@ -196,11 +434,8 @@ def _render_frontmatter(entity: dict) -> str:
 
 def _render_relations_section(entity_id: str) -> str:
     """Build a markdown section listing an entity's relations as wiki-links."""
-    try:
-        import row_bot.knowledge_graph as kg
-        rels = kg.get_relations(entity_id, direction="both")
-    except Exception:
-        return ""
+    import row_bot.knowledge_graph as kg
+    rels = kg.get_relations(entity_id, direction="both")
 
     if not rels:
         return ""
@@ -208,7 +443,7 @@ def _render_relations_section(entity_id: str) -> str:
     lines = ["\n## Connections\n"]
     for r in rels:
         peer = r.get("peer_subject", "?")
-        link = f"[[{peer}]]"
+        link = f"[[{_entity_filename(str(r['peer_id']))}|{peer}]]" if r.get("peer_id") else f"[[{peer}]]"
         direction = r.get("direction", "outgoing")
         rtype = r.get("relation_type", "related_to")
         if direction == "outgoing":
@@ -268,7 +503,7 @@ def _render_type_index(entity_type: str, entities: list[dict]) -> str:
     if full_entities:
         for e in full_entities:
             subj = e.get("subject", "?")
-            lines.append(f"- [[{subj}]]")
+            lines.append(f"- [[{_entity_filename(str(e['id']))}|{subj}]]")
         lines.append("")
 
     if sparse_entities:
@@ -303,170 +538,261 @@ def _render_master_index(all_entities: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _refresh_type_index(entity_type: str) -> None:
-    """Regenerate the _index.md for a single entity type.
+def _refresh_type_index(entity_type: str, *, validate: Callable[[], None] | None = None) -> bool:
+    """Refresh one rollup through the same ownership publication gate."""
+    import row_bot.knowledge_graph as kg
 
-    Called after a sparse entity is saved so it appears in the rollup
-    immediately rather than waiting for a full ``rebuild_vault()``.
+    entities = list(kg.iter_entities_snapshot(entity_type))
+    with _export_lock:
+        strict = {"validate":validate} if validate is not None else {}
+        if validate is not None:
+            validate()
+        manifest = _read_manifest()
+        relative = f"{_entity_type({'entity_type': entity_type})}/_index.md"
+        _, conflicts = _publish(manifest, {relative: _stage(_render_type_index(entity_type, entities),
+                                                          existing=manifest["files"].get(relative), **strict)}, **strict)
+        return not conflicts
+
+
+@dataclass(frozen=True)
+class WikiProjectionOutcome:
+    """Private publication result; completion is distinct from article eligibility."""
+
+    complete: bool
+    disposition: Literal["published", "excluded", "conflict", "stale", "disabled"]
+    path: pathlib.Path | None
+    source_revision: str
+
+
+def _batch_type_index(entity_type: str, rollups: dict[str, tuple[str, str] | None], *, validate=None) -> bool:
+    """Reuse one admitted rollup only while its ownership and bytes still match."""
+    if entity_type not in rollups:
+        rollups[entity_type] = None
+        if not _refresh_type_index(entity_type, **({"validate":validate} if validate is not None else {})):
+            return False
+        relative = f"{entity_type}/_index.md"
+        entry = _read_manifest()["files"].get(relative)
+        if entry is not None and entry.get("managed") is not False:
+            rollups[entity_type] = (relative, entry["hash"])
+    expected = rollups[entity_type]
+    if expected is None:
+        return False
+    relative, digest = expected
+    entry = _read_manifest()["files"].get(relative)
+    path = _wiki_path(relative)
+    valid = (entry is not None and entry.get("managed") is not False
+             and entry["hash"] == digest and path.is_file()
+             and _digest(path.read_bytes()) == digest)
+    if not valid:
+        # An editor's change during the operation invalidates this result for
+        # the rest of the batch, even if the original bytes later reappear.
+        rollups[entity_type] = None
+    return valid
+
+
+def _export_entity_projection(entity: dict, *, rollups: dict[str, tuple[str, str] | None] | None = None, validate: Callable[[], None] | None = None) -> WikiProjectionOutcome:
+    """Publish under the existing export lock; callers choose source admission."""
+    strict = {"validate":validate} if validate is not None else {}
+    revision = _source_revision(entity)
+    manifest = _read_manifest()
+    path = _entity_md_path(entity)
+    relative = path.relative_to(get_vault_path() / "wiki").as_posix()
+    sparse = len(entity.get("description", "") or "") < _MIN_CONTENT_LENGTH
+    if sparse:
+        etype = _entity_type(entity)
+        refreshed = _refresh_type_index(etype, **strict) if rollups is None else _batch_type_index(etype, rollups, **strict)
+        if not refreshed:
+            return WikiProjectionOutcome(False, "conflict", None, revision)
+        # Rollup publication updates the same manifest. Retire every formerly
+        # generated article for this ID, including its previous entity type.
+        manifest = _read_manifest()
+        obsolete = {name for name, item in manifest["files"].items()
+                    if item.get("entity_id") == str(entity["id"])}
+    else:
+        _, conflicts = _publish(manifest, {relative: _stage(render_entity_md(entity), entity,
+                                                          existing=manifest["files"].get(relative), **strict)}, **strict)
+        if conflicts:
+            logger.warning("Wiki export retained conflicting article: %s", relative)
+            return WikiProjectionOutcome(False, "conflict", None, revision)
+        obsolete = {name for name, item in manifest["files"].items()
+                    if name != relative and item.get("entity_id") == str(entity["id"])}
+    if obsolete:
+        _retire(manifest, obsolete, **strict)
+    # Explicitly unmanaged imports stay preserved; edited generated articles
+    # still owned by this projection require review and cannot be acknowledged.
+    unresolved = any(name in manifest["files"] and manifest["files"][name].get("managed") is not False
+                     for name in obsolete)
+    result_path = None if sparse else path
+    if unresolved:
+        return WikiProjectionOutcome(False, "conflict", result_path, revision)
+    return WikiProjectionOutcome(True, "excluded" if sparse else "published", result_path, revision)
+
+
+def export_entity_projection(entity: dict) -> WikiProjectionOutcome:
+    """Publish one exact saved row, or leave its durable projection work pending.
+
+    Writer admission keeps the current row and relations stable through file
+    publication/retirement. Existing graph writers commit before taking the
+    export lock, preserving the established lock order.
     """
-    try:
-        import row_bot.knowledge_graph as kg
-        entities = [
-            e for e in kg.list_entities(limit=100_000)
-            if e.get("entity_type") == entity_type
-        ]
-    except Exception:
-        return
+    import row_bot.knowledge_graph as kg
 
-    vault = get_vault_path()
-    idx_path = vault / "wiki" / entity_type / "_index.md"
-    idx_path.parent.mkdir(parents=True, exist_ok=True)
-    idx_path.write_text(
-        _render_type_index(entity_type, entities), encoding="utf-8"
-    )
+    entity = dict(entity)
+    revision = _source_revision(entity)
+    if not is_enabled():
+        return WikiProjectionOutcome(False, "disabled", None, revision)
+    with _export_lock:
+        conn = kg._get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT * FROM entities WHERE id=?", (entity.get("id"),)).fetchone()
+            if current is None or dict(current) != entity:
+                return WikiProjectionOutcome(False, "stale", None, revision)
+            return _export_entity_projection(entity)
+        finally:
+            conn.close()
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Export engine
-# ═════════════════════════════════════════════════════════════════════════════
+def export_entities_projection(entities: Iterable[dict], *,
+                               cancelled: Callable[[], bool] | None = None, validate: Callable[[], None] | None = None) -> list[WikiProjectionOutcome]:
+    """Project at most 1000 captured rows under one source admission.
+
+    Results preserve input order. Rollup memoization lasts only through this
+    writer transaction; every row retains the single-entity publication gate.
+    Interruption can leave durable file effects, so callers acknowledge results
+    only after this operation returns and retain unfinished work for retry.
+    """
+    import row_bot.knowledge_graph as kg
+
+    outcomes: list[WikiProjectionOutcome] = []
+    seen: set[str] = set()
+    rollups: dict[str, tuple[str, str] | None] = {}
+    with _export_lock:
+        conn = kg._get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if validate is not None:
+                validate()
+            enabled = is_enabled()
+            for entity in entities:
+                if len(outcomes) >= 1000:
+                    raise ValueError("Wiki projection batch exceeds 1000 rows")
+                if cancelled and cancelled():
+                    raise InterruptedError("Wiki projection batch cancelled")
+                if validate is not None:
+                    validate()
+                entity = dict(entity)
+                entity_id = str(entity.get("id", ""))
+                if entity_id in seen:
+                    raise ValueError("Duplicate wiki projection source")
+                seen.add(entity_id)
+                revision = _source_revision(entity)
+                current = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
+                if not enabled:
+                    outcome = WikiProjectionOutcome(False, "disabled", None, revision)
+                elif current is None or dict(current) != entity:
+                    outcome = WikiProjectionOutcome(False, "stale", None, revision)
+                else:
+                    outcome = _export_entity_projection(entity, rollups=rollups, **({"validate":validate} if validate is not None else {}))
+                outcomes.append(outcome)
+            return outcomes
+        finally:
+            conn.close()
+
 
 def export_entity(entity: dict) -> pathlib.Path | None:
-    """Export a single entity to its .md file.  Returns the path or None."""
+    """Compatibility export for caller-supplied articles; retain Path/None API."""
     if not is_enabled():
         return None
-
-    desc = entity.get("description", "") or ""
-    md_path = _entity_md_path(entity)
-
-    if len(desc) < _MIN_CONTENT_LENGTH:
-        # Sparse entity — remove individual file if it exists (moved to index)
-        if md_path.exists():
-            md_path.unlink()
-        # Regenerate this type's _index.md so the sparse entity appears
-        # immediately rather than waiting for a full rebuild_vault().
-        _refresh_type_index(entity.get("entity_type", "fact"))
-        return None
-
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    content = render_entity_md(entity)
-    md_path.write_text(content, encoding="utf-8")
-
-    # Stamp the file mtime to match the entity's updated_at so that
-    # check_vault_sync() only triggers when a user *actually* edits
-    # the file outside Row-Bot — not on every export.
-    try:
-        ts_str = entity.get("updated_at", "")
-        if ts_str:
-            clean = ts_str[:19].replace("T", " ")
-            dt = datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
-            epoch = dt.timestamp()
-            os.utime(md_path, (epoch, epoch))
-    except (ValueError, OSError):
-        pass  # non-critical — worst case file shows as out-of-sync
-
-    logger.debug("Wiki export: %s", md_path)
-    return md_path
+    with _export_lock:
+        return _export_entity_projection(entity).path
 
 
-def delete_entity_md(entity: dict) -> None:
-    """Remove the .md file for a deleted entity."""
+def delete_entity_md(entity: dict, *, only_if_entity_absent: bool = False,
+                     validate: Callable[[], None] | None = None) -> None:
+    """Retire only unchanged generated copies belonging to the deleted ID."""
     if not is_enabled():
         return
-    md_path = _entity_md_path(entity)
-    if md_path.exists():
-        md_path.unlink()
-        logger.debug("Wiki deleted: %s", md_path)
+    with _export_lock:
+        if validate is not None:
+            validate()
+        manifest = _read_manifest()
+        if only_if_entity_absent:
+            from row_bot import knowledge_graph as kg
+            # Writers commit SQLite before waiting to export. Guarding this read
+            # with the export lock protects already published and later exports.
+            if kg.get_entity(str(entity["id"])) is not None:
+                return
+        _retire(manifest, {name for name, item in manifest["files"].items()
+                           if item.get("entity_id") == str(entity["id"])},
+                **({"validate": validate} if validate is not None else {}))
 
 
 def clear_wiki_folder() -> int:
-    """Delete all files inside ``vault/wiki/``, preserving ``raw/`` and ``conversations/``.
-
-    Returns the number of files removed.
-    """
-    vault = get_vault_path()
-    wiki_dir = vault / "wiki"
-    if not wiki_dir.exists():
-        return 0
-    removed = 0
-    for item in wiki_dir.rglob("*"):
-        if item.is_file():
-            item.unlink()
-            removed += 1
-    # Remove now-empty subdirectories (bottom-up)
-    for item in sorted(wiki_dir.rglob("*"), reverse=True):
-        if item.is_dir() and not any(item.iterdir()):
-            item.rmdir()
-    logger.info("Wiki folder cleared: %d files removed", removed)
-    return removed
+    """Retire unchanged generated files; preserve external files and recovery copies."""
+    with _export_lock:
+        manifest = _read_manifest()
+        return _retire(manifest, set(manifest["files"]))
 
 
-def rebuild_vault() -> dict:
-    """Full rebuild: re-export all entities and regenerate indexes.
+def rebuild_vault(*, cancelled: Callable[[], bool] | None = None,
+                  validate: Callable[[], None] | None = None) -> dict:
+    """Stage a complete database snapshot before publication or orphan retirement.
 
-    Removes orphan .md files that no longer match any entity.
-    Returns stats dict with counts.
+    Partial enumeration, rendering failures and cancellation cannot trigger cleanup.
+    Conflicting generated candidates are retained for review beside the manifest.
     """
     if not is_enabled():
         return {"error": "Wiki vault is not enabled"}
-
     import row_bot.knowledge_graph as kg
 
-    _ensure_vault_dirs()
-    vault = get_vault_path()
-    wiki_dir = vault / "wiki"
-
-    # Snapshot existing .md files so we can remove orphans afterwards
-    existing_md = {p for p in wiki_dir.rglob("*.md") if p.is_file()}
-
-    all_entities = kg.list_entities(limit=100_000)
-    exported = 0
-    sparse = 0
-    written_paths: set[pathlib.Path] = set()
-
-    # Group by type for indexes
-    by_type: dict[str, list[dict]] = {}
-    for e in all_entities:
-        etype = e.get("entity_type", "fact")
-        by_type.setdefault(etype, []).append(e)
-
-        result = export_entity(e)
-        if result:
-            exported += 1
-            written_paths.add(result)
-        else:
-            sparse += 1
-
-    # Write per-type indexes
-    for etype, entities in by_type.items():
-        idx_path = wiki_dir / etype / "_index.md"
-        idx_path.parent.mkdir(parents=True, exist_ok=True)
-        idx_path.write_text(
-            _render_type_index(etype, entities), encoding="utf-8"
-        )
-        written_paths.add(idx_path)
-
-    # Write master index
-    master_path = wiki_dir / "index.md"
-    master_path.write_text(
-        _render_master_index(all_entities), encoding="utf-8"
-    )
-    written_paths.add(master_path)
-
-    # Remove orphan .md files
-    orphans = existing_md - written_paths
-    for orphan in orphans:
-        orphan.unlink()
-        logger.debug("Orphan removed: %s", orphan)
-
-    stats = {
-        "total": len(all_entities),
-        "exported": exported,
-        "sparse": sparse,
-        "types": len(by_type),
-        "orphans_removed": len(orphans),
-    }
-    logger.info("Wiki vault rebuilt: %s", stats)
-    return stats
+    with _export_lock:
+        strict = {"validate": validate} if validate is not None else {}
+        if validate is not None:
+            validate()
+        manifest = _read_manifest()
+        staged: dict[str, dict] = {}
+        by_type: dict[str, list[dict]] = {}
+        total = exported = sparse = 0
+        for entity in kg.iter_entities_snapshot():
+            if validate is not None:
+                validate()
+            if cancelled and cancelled():
+                return {"total": total, "exported": 0, "sparse": sparse,
+                        "types": len(by_type), "orphans_removed": 0, "cancelled": True}
+            total += 1
+            etype = _entity_type(entity)
+            description = entity.get("description", "") or ""
+            # Rollups need only labels and sparse descriptions, not full articles.
+            by_type.setdefault(etype, []).append({
+                "id": entity["id"], "subject": entity.get("subject", ""),
+                "entity_type": etype, "description": description[:_MIN_CONTENT_LENGTH],
+            })
+            if len(description) >= _MIN_CONTENT_LENGTH:
+                relative = _entity_md_path(entity).relative_to(get_vault_path() / "wiki").as_posix()
+                staged[relative] = _stage(render_entity_md(entity), entity,
+                                          existing=manifest["files"].get(relative), **strict)
+                exported += 1
+            else:
+                sparse += 1
+        for etype, entities in by_type.items():
+            relative = f"{etype}/_index.md"
+            staged[relative] = _stage(_render_type_index(etype, entities),
+                                      existing=manifest["files"].get(relative), **strict)
+        summaries = [entity for entities in by_type.values() for entity in entities]
+        staged["index.md"] = _stage(_render_master_index(summaries),
+                                    existing=manifest["files"].get("index.md"), **strict)
+        if cancelled and cancelled():
+            return {"total": total, "exported": 0, "sparse": sparse,
+                    "types": len(by_type), "orphans_removed": 0, "cancelled": True}
+        _, conflicts = _publish(manifest, staged, **strict)
+        removed = 0
+        if not conflicts:
+            removed = _retire(manifest, set(manifest["files"]) - set(staged), **strict)
+        return {"total": total, "exported": exported - sum(
+                    "entity_id" in staged[name] for name in conflicts),
+                "sparse": sparse, "types": len(by_type), "orphans_removed": removed,
+                "conflicts": conflicts, "complete": not conflicts}
 
 
 def export_conversation(
@@ -596,6 +922,14 @@ def read_article(subject: str) -> str | None:
 
     vault = get_vault_path()
     wiki_dir = vault / "wiki"
+    try:
+        for relative, entry in _read_manifest()["files"].items():
+            if subject in (entry.get("entity_id"), entry.get("subject")):
+                path = _wiki_path(relative)
+                if path.is_file():
+                    return path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
     safe_name = _safe_filename(subject)
 
     # Search across all type folders
@@ -635,7 +969,18 @@ def open_in_editor(entity: dict) -> bool:
     """
     md_path = _entity_md_path(entity)
     if not md_path.exists():
-        return False
+        root = get_vault_path() / "wiki"
+        for legacy in root.rglob(f"{_safe_filename(entity.get('subject', ''))}.md"):
+            try:
+                _wiki_path(legacy.relative_to(root).as_posix())
+                parsed = parse_entity_md(legacy)
+                if parsed and parsed.get("id") == str(entity["id"]):
+                    md_path = legacy
+                    break
+            except (OSError, ValueError):
+                continue
+        else:
+            return False
 
     import platform
     import subprocess
@@ -673,8 +1018,15 @@ def parse_entity_md(filepath: str | pathlib.Path) -> dict | None:
 
     try:
         text = filepath.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeError):
         return None
+
+    return _parse_entity_text(text)
+
+
+def _parse_entity_text(text: str) -> dict | None:
+    """Parse exactly one captured version, without reopening an editor's file."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
 
     # Strip auto-header comment if present
     text = re.sub(r"<!--\s*(?:Auto-generated|Managed) by Row-Bot[^>]*-->\s*", "", text, count=1)
@@ -704,7 +1056,7 @@ def parse_entity_md(filepath: str | pathlib.Path) -> dict | None:
             except json.JSONDecodeError:
                 value = value[1:-1]
         # Handle list syntax [a, b, c]
-        if value.startswith("[") and value.endswith("]"):
+        if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
             inner = value[1:-1]
             items = []
             for item in re.findall(r"'([^']*)'|\"([^\"]*)\"|([^,]+)", inner):
@@ -758,73 +1110,139 @@ def parse_entity_md(filepath: str | pathlib.Path) -> dict | None:
 
 
 def check_vault_sync() -> list[dict]:
-    """Compare vault ``.md`` file mtimes against DB ``updated_at`` timestamps.
-
-    Returns a list of dicts for each out-of-sync entity::
-
-        {"entity_id": "...", "subject": "...", "vault_path": "...",
-         "vault_mtime": "2025-...", "db_updated": "2025-..."}
-
-    An entity is out-of-sync when its vault file's mtime is strictly
-    newer than its DB ``updated_at`` timestamp (meaning the user edited
-    the file in Obsidian after Row-Bot last wrote it).
-    """
+    """Report content edits and divergent DB revisions without trusting mtimes."""
     if not is_enabled():
         return []
+    import row_bot.knowledge_graph as kg
 
-    vault = get_vault_path()
-    wiki_dir = vault / "wiki"
-    if not wiki_dir.exists():
-        return []
+    manifest = _read_manifest()
+    result = []
+    for relative, baseline in manifest["files"].items():
+        entity_id = baseline.get("entity_id")
+        if not entity_id:
+            continue
+        path = _wiki_path(relative)
+        try:
+            content_hash = _digest(path.read_bytes())
+            if content_hash == baseline["hash"]:
+                continue
+            entity = kg.get_entity(entity_id)
+            conflict = entity is None or _source_revision(entity) != baseline.get("source_revision")
+            result.append({
+                "entity_id": entity_id, "subject": baseline.get("subject", ""),
+                "vault_path": str(path), "vault_mtime": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                "db_updated": entity.get("updated_at", "") if entity else "",
+                "status": "conflict" if conflict else "edited",
+                "vault_hash": content_hash, "exported_hash": baseline["hash"],
+                "exported_revision": baseline.get("source_revision", ""),
+                "db_revision": _source_revision(entity) if entity else "",
+            })
+        except (OSError, UnicodeError):
+            continue
+    # Legacy subject-named files remain usable, but are never claimed for cleanup.
+    # First import needs explicit review because legacy timestamps omit property edits.
+    root = get_vault_path() / "wiki"
+    for path in root.rglob("*.md"):
+        relative = path.relative_to(root).as_posix()
+        if relative in manifest["files"] or path.name.startswith("_") or path.name == "index.md":
+            continue
+        try:
+            _wiki_path(relative)
+            parsed = parse_entity_md(path)
+            entity = kg.get_entity(parsed["id"]) if parsed else None
+            if entity is None or path.read_text(encoding="utf-8") == render_entity_md(entity):
+                continue
+            result.append({
+                "entity_id": entity["id"], "subject": parsed.get("subject", ""),
+                "vault_path": str(path), "vault_mtime": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                "db_updated": entity["updated_at"], "vault_hash": _digest(path.read_bytes()),
+                "exported_hash": "", "exported_revision": parsed.get("updated_at", ""),
+                "db_revision": _source_revision(entity),
+                "status": "legacy_review" if parsed.get("updated_at") == entity["updated_at"] else "conflict",
+            })
+        except (OSError, ValueError):
+            continue
+    return result
+
+
+def read_import_review(entity_id: str, filepath: str | pathlib.Path) -> dict[str, str]:
+    """Capture both complete versions and their guards for a local import review.
+
+    This is read-only. The returned path and database content are private local
+    UI data, not a wire projection. Parse, display and hash the same captured
+    bytes so an editor's intervening replacement cannot change what is reviewed.
+    """
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise ValueError("A wiki entity ID is required")
+    path = pathlib.Path(filepath)
+    relative = path.relative_to(get_vault_path() / "wiki").as_posix()
+    path = _wiki_path(relative)
+    baseline = _read_manifest()["files"].get(relative)
+    if baseline is not None and baseline.get("entity_id") != entity_id:
+        raise ValueError("Wiki ownership does not match the entity")
+    captured_bytes = path.read_bytes()
+    vault_text = captured_bytes.decode("utf-8")
+    parsed = _parse_entity_text(vault_text)
+    if parsed is None or parsed.get("id") != entity_id:
+        raise ValueError("Wiki article does not match the entity")
 
     import row_bot.knowledge_graph as kg
 
-    out_of_sync = []
-    for md_file in wiki_dir.rglob("*.md"):
-        if md_file.name.startswith("_") or md_file.name == "index.md":
-            continue
-
-        parsed = parse_entity_md(md_file)
-        if not parsed or not parsed.get("id"):
-            continue
-
-        entity = kg.get_entity(parsed["id"])
-        if not entity:
-            continue
-
-        # Compare file mtime with DB updated_at
-        try:
-            file_mtime = datetime.fromtimestamp(md_file.stat().st_mtime)
-            db_updated_str = entity.get("updated_at", "")
-            if not db_updated_str:
-                continue
-            # Parse DB timestamp (handles both "2025-04-10 14:30:22" and
-            # ISO format "2025-04-10T14:30:22.123456")
-            clean_ts = db_updated_str[:19].replace("T", " ")
-            db_updated = datetime.strptime(clean_ts, "%Y-%m-%d %H:%M:%S")
-            # File is newer than DB by at least 2 seconds (to avoid
-            # race conditions from Row-Bot's own export writes)
-            if file_mtime > db_updated and (file_mtime - db_updated).total_seconds() > 2:
-                out_of_sync.append({
-                    "entity_id": parsed["id"],
-                    "subject": parsed.get("subject", entity.get("subject", "")),
-                    "vault_path": str(md_file),
-                    "vault_mtime": file_mtime.strftime("%Y-%m-%d %H:%M:%S"),
-                    "db_updated": db_updated_str[:19],
-                })
-        except (OSError, ValueError):
-            continue
-
-    return out_of_sync
+    entity = kg.get_entity(entity_id)
+    if entity is None or entity.get("id") != entity_id:
+        raise ValueError("The database entity is unavailable")
+    return {
+        "entity_id": entity_id,
+        "subject": str(entity.get("subject", "")),
+        "vault_path": str(path),
+        "database_text": json.dumps(entity, ensure_ascii=False, sort_keys=True, indent=2),
+        "vault_text": vault_text,
+        "expected_db_revision": _source_revision(entity),
+        "expected_vault_hash": _digest(captured_bytes),
+    }
 
 
-def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
-    """Apply vault file changes to the DB for a single entity (vault wins).
+def import_from_vault(
+    entity_id: str, filepath: str | pathlib.Path, *,
+    expected_db_revision: str | None = None, expected_vault_hash: str | None = None,
+    validate: Callable[[], None] | None = None,
+) -> bool:
+    """Import an external edit only when its exported database revision still matches.
 
     Parses the ``.md`` file and calls ``kg.update_entity()`` with the
-    parsed fields.  Returns True on success, False on failure.
+    parsed fields. A divergent version requires both hashes from an explicit
+    review; either version changing afterwards rejects the import. Returns True
+    on success, False on failure.
     """
-    parsed = parse_entity_md(filepath)
+    authority_error: Exception | None = None
+    def authority() -> None:
+        nonlocal authority_error
+        if validate is not None:
+            try:
+                validate()
+            except Exception as error:
+                authority_error = error
+                raise
+    authority()
+    strict = {"validate": authority} if validate is not None else {}
+    try:
+        path = pathlib.Path(filepath)
+        relative = path.relative_to(get_vault_path() / "wiki").as_posix()
+        path = _wiki_path(relative)
+        baseline = _read_manifest()["files"].get(relative)
+        if baseline and baseline.get("entity_id") != entity_id:
+            return False
+        imported_bytes = path.read_bytes()
+        imported_hash = _digest(imported_bytes)
+        if (expected_db_revision is None) != (expected_vault_hash is None):
+            return False
+        if expected_vault_hash is not None and expected_vault_hash != imported_hash:
+            return False
+        parsed = _parse_entity_text(imported_bytes.decode("utf-8"))
+        if _digest(path.read_bytes()) != imported_hash:
+            return False
+    except (OSError, ValueError, UnicodeError):
+        return False
     if not parsed or parsed.get("id") != entity_id:
         logger.warning("import_from_vault: parse failed or ID mismatch for %s", filepath)
         return False
@@ -834,7 +1252,24 @@ def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
 
     try:
         existing = kg.get_entity(entity_id)
-        existing_props = existing.get("properties", {}) if existing else {}
+        if baseline is None and existing and expected_db_revision is not None:
+            baseline = {"entity_id": entity_id, "managed": False,
+                        "source_revision": ""}
+        if not existing or baseline is None:
+            return False
+        current_revision = _source_revision(existing)
+        if expected_db_revision is not None and expected_db_revision != current_revision:
+            return False
+        if current_revision != baseline.get("source_revision"):
+            if expected_db_revision is None:
+                return False
+            # Preserve the reviewed database version before accepting the vault.
+            with _export_lock:
+                authority()
+                manifest = _read_manifest()
+                manifest.setdefault("conflicts", {})[relative] = _stage(render_entity_md(existing), existing, **strict)
+                _write_manifest(manifest, **strict)
+        existing_props = existing.get("properties", {})
         parsed_props = parsed.get("properties", {}) or {}
         if "status" not in parsed_props:
             parsed_props["status"] = "active"
@@ -850,7 +1285,7 @@ def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
             },
             high_authority=True,
         )
-        kg.update_entity(
+        updated = kg.update_entity(
             entity_id,
             subject=parsed.get("subject"),
             entity_type=parsed.get("entity_type"),
@@ -859,7 +1294,24 @@ def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
             tags=parsed.get("tags"),
             source=parsed.get("source"),
             properties=merged_props,
+            expected_updated_at=existing["updated_at"],
+            expected_entity=existing,
+            **strict,
         )
+        if updated is None:
+            return False
+        # Accept precisely the imported bytes; a subsequent edit remains pending.
+        with _export_lock:
+            authority()
+            manifest = _read_manifest()
+            accepted = dict(baseline, hash=imported_hash,
+                            source_revision=_source_revision(updated),
+                            source_updated_at=updated["updated_at"],
+                            subject=updated.get("subject", ""))
+            manifest["files"][relative] = accepted
+            manifest.get("conflicts", {}).pop(relative, None)
+            _write_manifest(manifest, **strict)
+        authority()
         memory_evo.append_journal(
             "wiki_import",
             entity_id=entity_id,
@@ -873,6 +1325,8 @@ def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
                      entity_id, parsed.get("subject"))
         return True
     except Exception as exc:
+        if authority_error is not None:
+            raise authority_error
         logger.error("import_from_vault failed for %s: %s", entity_id, exc)
         return False
 

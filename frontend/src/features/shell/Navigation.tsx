@@ -1,3 +1,4 @@
+import BuddySurface from '../buddy/BuddySurface';
 import { useId, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -22,13 +23,11 @@ export default function Navigation({
   onOpenHome,
   onNewChat,
   creatingChat = false,
-  onPreferences,
 }: {
   onOpenConversation?: () => void;
   onOpenHome?: () => void;
   onNewChat?: () => void;
   creatingChat?: boolean;
-  onPreferences?: () => void;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -39,6 +38,7 @@ export default function Navigation({
   const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(0);
   const sectionId = useId();
+  const sectionHeadingId = `${sectionId}-heading`;
   const selected =
     state.conversations.find(({ id }) => id === state.selectedConversationId) ??
     (state.conversation?.id === state.selectedConversationId
@@ -54,10 +54,11 @@ export default function Navigation({
   function conversationRow(conversation: (typeof state.conversations)[number]) {
     const title = conversation.title || 'Untitled conversation';
     return (
-      <li key={conversation.id}>
+      <li key={conversation.id} className="nav-conversation-item">
         <Hint label={title}>
           <Button
             variant="ghost"
+            className="nav-conversation-link"
             aria-label={title}
             aria-current={
               location.pathname === `/conversations/${conversation.id}`
@@ -74,7 +75,11 @@ export default function Navigation({
           >
             <MessageSquare size={15} aria-hidden />
             <span className="conversation-title">{title}</span>
-            {conversation.pinned && <span aria-label="Pinned">★</span>}
+            {conversation.pinned && (
+              <span role="img" aria-label="Pinned">
+                ★
+              </span>
+            )}
           </Button>
         </Hint>
       </li>
@@ -83,7 +88,12 @@ export default function Navigation({
   return (
     <nav className="navigation" aria-label="Workspace navigation">
       <Brand />
-      <div className="nav-primary-actions">
+      <BuddySurface />
+      <div
+        className="nav-primary-actions"
+        role="group"
+        aria-label="Primary workspace actions"
+      >
         <Link
           className="button ghost nav-home"
           to="/"
@@ -125,6 +135,7 @@ export default function Navigation({
         Search conversations
       </Button>
       <Button
+        id={sectionHeadingId}
         className="nav-heading"
         variant="ghost"
         aria-expanded={sectionOpen}
@@ -143,10 +154,16 @@ export default function Navigation({
           {conversationRow(selected)}
         </ul>
       )}
-      <div id={sectionId} className="nav-conversations" hidden={!sectionOpen}>
+      <section
+        id={sectionId}
+        className="nav-conversations"
+        aria-labelledby={sectionHeadingId}
+        hidden={!sectionOpen}
+      >
         {sectionOpen && (
           <>
             <Select
+              className="nav-conversation-filter"
               aria-label="Conversation group"
               value={state.conversationGroup}
               onChange={(event) => {
@@ -158,11 +175,11 @@ export default function Navigation({
             >
               <option value="all">All conversations</option>
               <option value="pinned">Pinned</option>
-              <option value="artifact">With Deck resources</option>
+              <option value="artifact">With design resources</option>
               <option value="workspace">With coding workspaces</option>
             </Select>
             {state.conversationListError && (
-              <div role="alert">
+              <div role="alert" className="nav-conversation-error">
                 <p>{state.conversationListError.message}</p>
                 <Button
                   disabled={state.loadingConversations}
@@ -221,7 +238,11 @@ export default function Navigation({
               </Button>
             )}
             {expanded && state.conversations.length > 100 && (
-              <div className="button-row">
+              <div
+                className="button-row nav-pagination"
+                role="group"
+                aria-label="Conversation pages"
+              >
                 <Button
                   disabled={!page}
                   onClick={() => setPage((value) => value - 1)}
@@ -248,25 +269,38 @@ export default function Navigation({
             )}
           </>
         )}
-      </div>
-      <div className="nav-footer">
-        {onPreferences && (
-          <Button variant="ghost" onClick={onPreferences}>
+      </section>
+      <footer className="nav-footer" aria-label="Workspace destinations">
+        <div className="nav-preferences">
+          <Link
+            className="button ghost"
+            to="/settings/providers"
+            aria-current={
+              location.pathname.startsWith('/settings') ? 'page' : undefined
+            }
+            onClick={() => overlay.close()}
+          >
             <Settings size={17} aria-hidden />
-            Preferences
-          </Button>
-        )}
-        <a href="/" className="button ghost">
-          Current application
-        </a>
-        <Link
-          className="button ghost"
-          to="/primitives"
-          onClick={() => overlay.close()}
+            Settings
+          </Link>
+        </div>
+        <div
+          className="nav-secondary-destinations"
+          role="group"
+          aria-label="Additional destinations"
         >
-          Component gallery
-        </Link>
-      </div>
+          <a href="/" className="button ghost">
+            Current application
+          </a>
+          <Link
+            className="button ghost"
+            to="/primitives"
+            onClick={() => overlay.close()}
+          >
+            Component gallery
+          </Link>
+        </div>
+      </footer>
     </nav>
   );
 }

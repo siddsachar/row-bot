@@ -1,0 +1,201 @@
+{
+  "$defs": {
+    "BrowserAvailability": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "check_on_use",
+            "unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "code"
+      ],
+      "title": "BrowserAvailability",
+      "type": "object"
+    },
+    "BrowserControlSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "availability": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BrowserAvailability"
+          },
+          "maxProperties": 12,
+          "title": "Availability",
+          "type": "object"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "last_action": {
+          "maxLength": 160,
+          "title": "Last Action",
+          "type": "string"
+        },
+        "paused": {
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "site": {
+          "maxLength": 120,
+          "title": "Site",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "idle",
+            "acting",
+            "observing",
+            "waiting_user",
+            "waiting_approval",
+            "needs_attention"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "conversation_id",
+        "revision",
+        "active",
+        "paused",
+        "state",
+        "site",
+        "url",
+        "last_action",
+        "availability"
+      ],
+      "title": "BrowserControlSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "browser.navigate",
+        "browser.take_over",
+        "browser.check",
+        "browser.back",
+        "browser.end"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "browser_control": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BrowserControlSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Revision"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "action",
+    "conversation_id",
+    "status",
+    "code",
+    "revision",
+    "browser_control"
+  ],
+  "title": "BrowserReceipt",
+  "type": "object"
+}

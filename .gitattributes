@@ -1,4 +1,5 @@
 *.sh text eol=lf
+frontend/** text=auto eol=lf
 .github/workflows/docs.yml text eol=lf
 docs-content/**/*.md text eol=lf
 docs-content/**/*.yml text eol=lf

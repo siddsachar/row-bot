@@ -29,14 +29,13 @@ import io
 import json
 import logging
 import os
+import re as _re
 import platform
-import queue
 import shutil
 import subprocess
 import sys
 import tarfile
 import threading
-import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -50,8 +49,11 @@ from row_bot.channels import config as ch_config
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.streaming import (
     ChannelDeliveryResult,
+    ChannelDeliveryUncertain,
+    confirmed_channel_effect,
     ChannelStreamConfig,
     ChannelStreamConsumer,
+    consume_channel_producer,
     default_split_text,
 )
 from row_bot.data_paths import get_row_bot_data_dir
@@ -71,8 +73,6 @@ def _agent_mod():
 # ──────────────────────────────────────────────────────────────────────
 # Markdown → WhatsApp formatting converter
 # ──────────────────────────────────────────────────────────────────────
-import re as _re
-
 
 def _convert_tables(text: str) -> str:
     """Convert markdown pipe-tables to a WhatsApp-friendly label: value list."""
@@ -652,25 +652,28 @@ def _send_and_wait(method: str, params: dict | None = None,
         raise RuntimeError("WhatsApp bridge not running")
 
     event = threading.Event()
-    with _writer_lock:
-        _msg_id_counter += 1
-        msg_id = _msg_id_counter
-        _pending_responses[msg_id] = event
-        message = json.dumps({
-            "id": msg_id,
-            "method": method,
-            "params": params or {},
-        }) + "\n"
-        _bridge_proc.stdin.write(message)
-        _bridge_proc.stdin.flush()
+    msg_id = None
     try:
+        with _writer_lock:
+            _msg_id_counter += 1
+            msg_id = _msg_id_counter
+            _pending_responses[msg_id] = event
+            message = json.dumps({
+                "id": msg_id,
+                "method": method,
+                "params": params or {},
+            }) + "\n"
+            _bridge_proc.stdin.write(message)
+            _bridge_proc.stdin.flush()
         if event.wait(timeout):
-            return _response_data.pop(msg_id, None)
+            with _writer_lock:
+                return _response_data.pop(msg_id, None)
         log.warning("Timeout waiting for bridge response to %s (id=%d)", method, msg_id)
         return None
     finally:
-        _pending_responses.pop(msg_id, None)
-        _response_data.pop(msg_id, None)
+        with _writer_lock:
+            _pending_responses.pop(msg_id, None)
+            _response_data.pop(msg_id, None)
 
 
 def _handle_bridge_message(data: dict) -> None:
@@ -708,9 +711,11 @@ def _handle_bridge_message(data: dict) -> None:
     elif msg_type == "response":
         # Response to a send command
         msg_id = data.get("id")
-        if msg_id in _pending_responses:
-            _response_data[msg_id] = data
-            _pending_responses[msg_id].set()
+        with _writer_lock:
+            waiting = _pending_responses.get(msg_id)
+            if waiting is not None:
+                _response_data[msg_id] = data
+                waiting.set()
 
     elif msg_type == "auth_failure":
         _authenticated = False
@@ -842,7 +847,7 @@ def _process_inbound(data: dict) -> None:
         answer, new_interrupt, captured, captured_video_paths, delivery = _run_whatsapp_stream_resume_sync(
             chat_id, config, approved, interrupt_ids=interrupt_ids
         )
-        if answer and not delivery.delivered:
+        if answer and not delivery.delivered and not delivery.uncertain:
             _send_message_sync(chat_id, answer)
         _send_whatsapp_media(chat_id, captured, captured_video_paths)
         captured = []
@@ -907,7 +912,13 @@ def _process_inbound(data: dict) -> None:
             _run_whatsapp_stream_turn_sync(chat_id, body, config)
         )
     except Exception:
-        log.warning("Shared WhatsApp streaming failed; falling back to legacy path", exc_info=True)
+        log.warning("WhatsApp turn outcome could not be confirmed", exc_info=True)
+        _send_message_sync(
+            chat_id,
+            "The previous turn could not be confirmed. Check the saved conversation "
+            "and any approval or tool results before trying again.",
+        )
+        return
     else:
         if msg_key:
             _react_sync(chat_id, msg_key, "\U0001f44d")
@@ -921,7 +932,7 @@ def _process_inbound(data: dict) -> None:
             _send_whatsapp_media(chat_id, captured_images, captured_video_paths)
             return
 
-        if clean_answer and not delivery.delivered:
+        if clean_answer and not delivery.delivered and not delivery.uncertain:
             _send_message_sync(chat_id, clean_answer)
         for url in yt_urls:
             _send_raw_sync(chat_id, url)
@@ -937,164 +948,6 @@ def _process_inbound(data: dict) -> None:
             _send_message_sync(chat_id, detail + "\n\nReply YES or NO.")
         return
 
-    # Send placeholder for streaming edits
-    placeholder_key = _send_message_sync(chat_id, "⏳", wait_key=True)
-
-    eq: queue.Queue = queue.Queue()
-    consumer_thread: threading.Thread | None = None
-    streamed_display: str | None = None
-
-    if placeholder_key:
-        consumer_thread = threading.Thread(
-            target=lambda: None,  # replaced below
-            daemon=True,
-        )
-        # We need the consumer result, so use a mutable container
-        _consumer_result: list[str | None] = [None]
-
-        def _run_consumer():
-            _consumer_result[0] = _wa_edit_consumer(chat_id, placeholder_key, eq)
-
-        consumer_thread = threading.Thread(target=_run_consumer, daemon=True)
-        consumer_thread.start()
-
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = _run_agent_sync(body, config, eq)
-    except Exception as exc:
-        log.error("Agent error for chat %s: %s", chat_id, exc)
-        # Drain queue so consumer exits
-        eq.put(None)
-        if consumer_thread:
-            consumer_thread.join(timeout=5)
-
-        from row_bot.channels.thread_repair import is_corrupt_thread_error
-        if is_corrupt_thread_error(exc):
-            try:
-                from row_bot.agent import repair_orphaned_tool_calls
-                repair_orphaned_tool_calls(None, config)
-                log.info("Repaired orphaned tool calls for chat %s, retrying", chat_id)
-                answer, interrupt_data, captured_images, captured_video_paths = _run_agent_sync(body, config)
-            except Exception as retry_exc:
-                log.error("Retry after repair failed: %s", retry_exc)
-                if msg_key:
-                    _react_sync(chat_id, msg_key, "💔")
-                _send_message_sync(chat_id,
-                    "⚠️ The previous conversation had a stuck tool call "
-                    "and couldn't be repaired.\n"
-                    "🆕 I've started a fresh thread — please resend your message.")
-                thread_id = _new_thread(chat_id)
-                return
-            # Repair succeeded — send answer normally (no streaming for retry)
-            if msg_key:
-                _react_sync(chat_id, msg_key, "👍")
-            if placeholder_key:
-                _edit_message_sync(chat_id, placeholder_key, answer or "_(done)_")
-            elif answer and not ch_runtime.channel_turn_is_suspended(answer):
-                _send_message_sync(chat_id, answer)
-            for img_bytes in captured_images:
-                try:
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                        tmp.write(img_bytes)
-                        tmp_path = tmp.name
-                    _send_media_sync(chat_id, tmp_path, caption="🖼️ Image")
-                    os.unlink(tmp_path)
-                except Exception as img_exc:
-                    log.warning("Failed to send WhatsApp image: %s", img_exc)
-            for vpath in captured_video_paths:
-                try:
-                    _send_media_sync(chat_id, vpath, caption="🎬 Video")
-                except Exception as vid_exc:
-                    log.warning("Failed to send WhatsApp video: %s", vid_exc)
-            if interrupt_data:
-                with _pending_lock:
-                    _pending_interrupts[chat_id] = {
-                        "data": interrupt_data, "config": config
-                    }
-                from row_bot.channels import approval as approval_helpers
-                detail = approval_helpers.format_interrupt_text(interrupt_data)
-                _send_message_sync(chat_id, detail + "\n\nReply YES or NO.")
-            return
-        else:
-            if msg_key:
-                _react_sync(chat_id, msg_key, "💔")
-            if placeholder_key:
-                _edit_message_sync(chat_id, placeholder_key, f"⚠️ Error: {exc}")
-            else:
-                _send_message_sync(chat_id, f"⚠️ Error: {exc}")
-            return
-
-    # Wait for consumer to finish
-    if consumer_thread:
-        consumer_thread.join(timeout=10)
-        streamed_display = _consumer_result[0]
-
-    # Success reaction
-    if msg_key:
-        _react_sync(chat_id, msg_key, "👍")
-
-    # Extract YouTube URLs so they can be sent separately for auto-preview
-    from row_bot.channels import extract_youtube_urls
-    if ch_runtime.channel_turn_is_suspended(answer):
-        return
-    _, yt_urls = extract_youtube_urls(answer) if answer else ("", [])
-
-    # If streaming covered the full response and no interrupt, just send images/URLs
-    if streamed_display and not interrupt_data:
-        for url in yt_urls:
-            _send_raw_sync(chat_id, url)
-        for img_bytes in captured_images:
-            try:
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp.write(img_bytes)
-                    tmp_path = tmp.name
-                _send_media_sync(chat_id, tmp_path, caption="🖼️ Image")
-                os.unlink(tmp_path)
-            except Exception as exc:
-                log.warning("Failed to send WhatsApp image: %s", exc)
-        for vpath in captured_video_paths:
-            try:
-                _send_media_sync(chat_id, vpath, caption="🎬 Video")
-            except Exception as exc:
-                log.warning("Failed to send WhatsApp video: %s", exc)
-        return
-
-    # Streaming not used or placeholder not available — send normally
-    clean_answer, _ = extract_youtube_urls(answer) if answer else ("", [])
-    if placeholder_key and clean_answer:
-        _edit_message_sync(chat_id, placeholder_key, clean_answer)
-    elif clean_answer:
-        _send_message_sync(chat_id, clean_answer)
-    for url in yt_urls:
-        _send_raw_sync(chat_id, url)
-
-    for img_bytes in captured_images:
-        try:
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp.write(img_bytes)
-                tmp_path = tmp.name
-            _send_media_sync(chat_id, tmp_path, caption="🖼️ Image")
-            os.unlink(tmp_path)
-        except Exception as exc:
-            log.warning("Failed to send WhatsApp image: %s", exc)
-
-    for vpath in captured_video_paths:
-        try:
-            _send_media_sync(chat_id, vpath, caption="🎬 Video")
-        except Exception as exc:
-            log.warning("Failed to send WhatsApp video: %s", exc)
-
-    if interrupt_data:
-        with _pending_lock:
-            _pending_interrupts[chat_id] = {
-                "data": interrupt_data, "config": config
-            }
-        from row_bot.channels import approval as approval_helpers
-        detail = approval_helpers.format_interrupt_text(interrupt_data)
-        _send_message_sync(chat_id,
-                            detail + "\n\nReply YES or NO.")
 
 
 def _cache_inbound_image(thread_id: str, filename: str, data: bytes) -> str:
@@ -1227,6 +1080,7 @@ class WhatsAppStreamTransport:
     async def send_typing(self) -> None:
         await asyncio.to_thread(_typing_sync, self.chat_id)
 
+    @confirmed_channel_effect
     async def start(self, text: str):
         return await asyncio.to_thread(
             _send_message_sync,
@@ -1235,6 +1089,7 @@ class WhatsAppStreamTransport:
             wait_key=True,
         )
 
+    @confirmed_channel_effect
     async def update(self, handle, text: str, *, final: bool = False):
         if final:
             resp = await asyncio.to_thread(
@@ -1248,11 +1103,12 @@ class WhatsAppStreamTransport:
                 10.0,
             )
             if not resp or not resp.get("ok"):
-                raise RuntimeError("WhatsApp final edit was not confirmed")
+                raise ChannelDeliveryUncertain("WhatsApp final edit was not confirmed")
             return handle
         await asyncio.to_thread(_edit_message_sync, self.chat_id, handle, str(text or ""))
         return handle
 
+    @confirmed_channel_effect
     async def send_final(self, text: str) -> list[Any]:
         refs: list[Any] = []
         for chunk in self.split_text(str(text or "")):
@@ -1311,33 +1167,16 @@ async def _stream_agent_turn_to_whatsapp(
     user_text: str,
     config: dict,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _whatsapp_stream_config()
     consumer = ChannelStreamConsumer(WhatsAppStreamTransport(chat_id), stream_config)
-    agent_future = loop.run_in_executor(None, _run_agent_sync, user_text, config, event_queue)
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _run_agent_sync(user_text, config, sink),
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="whatsapp",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="whatsapp", delivery=delivery,
+    )
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 async def _stream_agent_resume_to_whatsapp(
@@ -1347,41 +1186,18 @@ async def _stream_agent_resume_to_whatsapp(
     *,
     interrupt_ids: list[str] | None = None,
 ) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
-    loop = asyncio.get_event_loop()
-    event_queue: queue.Queue = queue.Queue()
     stream_config = _whatsapp_stream_config()
     consumer = ChannelStreamConsumer(WhatsAppStreamTransport(chat_id), stream_config)
-    agent_future = loop.run_in_executor(
-        None,
-        lambda: _resume_agent_sync(
-            config,
-            approved,
-            interrupt_ids=interrupt_ids,
-            event_queue=event_queue,
+    result, delivery = await consume_channel_producer(
+        consumer, lambda sink: _resume_agent_sync(
+            config, approved, interrupt_ids=interrupt_ids, event_queue=sink,
         ),
     )
-    consumer_task = asyncio.ensure_future(
-        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    answer, interrupt_data, captured_images, captured_video_paths = result
+    ch_runtime.persist_channel_assistant_message(
+        config, answer or delivery.final_text, channel_name="whatsapp", delivery=delivery,
     )
-    try:
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
-        delivery = await consumer_task
-        ch_runtime.persist_channel_assistant_message(
-            config,
-            answer or delivery.final_text,
-            channel_name="whatsapp",
-            delivery=delivery,
-        )
-        return answer, interrupt_data, captured_images, captured_video_paths, delivery
-    except Exception:
-        if not consumer_task.done():
-            consumer_task.cancel()
-        try:
-            while True:
-                event_queue.get_nowait()
-        except Exception:
-            pass
-        raise
+    return answer, interrupt_data, captured_images, captured_video_paths, delivery
 
 
 def _run_whatsapp_stream_turn_sync(
@@ -1447,7 +1263,7 @@ def _whatsapp_goal_callbacks(chat_id: str):
         delivery = state.get("delivery")
         if (
             delivery
-            and delivery.delivered
+            and (delivery.delivered or delivery.uncertain)
             and str(delivery.final_text or "").strip() == str(message or "").strip()
         ):
             state["delivery"] = None
@@ -1456,69 +1272,6 @@ def _whatsapp_goal_callbacks(chat_id: str):
         _send_message_sync(chat_id, message)
 
     return _goal_run_turn, _goal_send_text
-
-
-def _wa_edit_consumer(chat_id: str, msg_key: dict,
-                      event_queue: queue.Queue) -> str | None:
-    """Read events from queue and edit the WhatsApp placeholder progressively.
-
-    Runs in a thread.  Returns the final display text, or None on error.
-    """
-    accumulated = ""
-    tool_lines: list[str] = []
-    last_edit = 0.0
-
-    while True:
-        try:
-            event = event_queue.get(timeout=0.3)
-        except Exception:
-            continue
-        if event is None:
-            break
-
-        event_type, payload = event
-        if event_type == "token":
-            accumulated += payload
-        elif event_type == "tool_call":
-            tool_lines.append(f"🔧 Using {payload}…")
-        elif event_type == "tool_done":
-            name = payload['name'] if isinstance(payload, dict) else payload
-            tool_lines.append(f"✅ {name} done")
-
-        now = time.monotonic()
-        if now - last_edit >= _WA_STREAM_EDIT_INTERVAL:
-            display = _build_stream_display(tool_lines, accumulated)
-            if display:
-                try:
-                    _edit_message_sync(chat_id, msg_key, display)
-                except Exception:
-                    pass
-                last_edit = now
-
-    # Final edit — use _send_and_wait so we know if it succeeded
-    display = _build_stream_display(tool_lines, accumulated)
-    if display:
-        try:
-            resp = _send_and_wait("edit_message", {
-                "chatId": chat_id, "msgKey": msg_key,
-                "text": _md_to_whatsapp(display),
-            }, timeout=10.0)
-            if not resp or not resp.get("ok"):
-                log.warning("Final streaming edit not confirmed, will resend")
-                return None
-        except Exception as exc:
-            log.warning("Final streaming edit failed: %s", exc)
-            return None
-    return display or None
-
-
-def _build_stream_display(tool_lines: list[str], accumulated: str) -> str:
-    parts = []
-    if tool_lines:
-        parts.append("\n".join(tool_lines))
-    if accumulated:
-        parts.append(accumulated)
-    return ("\n\n".join(parts)) if parts else ""
 
 
 def _edit_message_sync(chat_id: str, msg_key: dict, text: str) -> None:
@@ -1538,15 +1291,15 @@ def _send_message_sync(chat_id: str, text: str, *, wait_key: bool = False) -> di
     sent message key (a dict with remoteJid/id/fromMe) for later edits.
     """
     try:
-        if wait_key:
-            resp = _send_and_wait("send_message", {
-                "chatId": chat_id, "text": _md_to_whatsapp(text),
-            })
-            return resp.get("msgKey") if resp else None
-        _send_to_bridge("send_message", {"chatId": chat_id, "text": _md_to_whatsapp(text)})
+        resp = _send_and_wait("send_message", {
+            "chatId": chat_id, "text": _md_to_whatsapp(text),
+        })
     except Exception as exc:
-        log.warning("Failed to send WhatsApp message: %s", exc)
-    return None
+        raise ChannelDeliveryUncertain("WhatsApp message delivery was not confirmed") from exc
+    key = resp.get("msgKey") if isinstance(resp, dict) else None
+    if not isinstance(resp, dict) or resp.get("ok") is not True or not isinstance(key, dict) or not key.get("id"):
+        raise ChannelDeliveryUncertain("WhatsApp message delivery was not confirmed")
+    return key if wait_key else None
 
 
 def _send_raw_sync(chat_id: str, text: str) -> None:

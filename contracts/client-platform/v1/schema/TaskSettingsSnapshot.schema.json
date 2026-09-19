@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "TaskSettingsFields": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_profile_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Agent Profile Id",
+          "type": "string"
+        },
+        "approval_mode": {
+          "enum": [
+            "block",
+            "approve",
+            "allow_all"
+          ],
+          "title": "Approval Mode",
+          "type": "string"
+        },
+        "concurrency_group": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Concurrency Group"
+        },
+        "model_override": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Override"
+        },
+        "persistent_enabled": {
+          "title": "Persistent Enabled",
+          "type": "boolean"
+        },
+        "trigger_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Trigger Task Id"
+        },
+        "trigger_type": {
+          "enum": [
+            "none",
+            "task_complete",
+            "webhook"
+          ],
+          "title": "Trigger Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "concurrency_group",
+        "trigger_type",
+        "trigger_task_id",
+        "model_override",
+        "agent_profile_id",
+        "approval_mode",
+        "persistent_enabled"
+      ],
+      "title": "TaskSettingsFields",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Conversation Id"
+    },
+    "effective_approval_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "block",
+            "approve",
+            "allow_all"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Effective Approval Mode"
+    },
+    "fields": {
+      "$ref": "#/$defs/TaskSettingsFields"
+    },
+    "profile_available": {
+      "title": "Profile Available",
+      "type": "boolean"
+    },
+    "profile_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Profile Revision"
+    },
+    "revision": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "task_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "webhook_configured": {
+      "title": "Webhook Configured",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "task_id",
+    "revision",
+    "fields",
+    "profile_revision",
+    "effective_approval_mode",
+    "profile_available",
+    "webhook_configured",
+    "conversation_id"
+  ],
+  "title": "TaskSettingsSnapshot",
+  "type": "object"
+}
