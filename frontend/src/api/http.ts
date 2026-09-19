@@ -154,6 +154,45 @@ export class HttpTransport implements ClientTransport {
   knowledgeEditor(entity: string | null, signal?: AbortSignal) {
     return wire.getKnowledgeEditor(this.base, this.session(), entity, signal);
   }
+  knowledgeEntityDetail(entity: string, signal?: AbortSignal) {
+    return wire.getSavedEntityDetail(this.base, this.session(), entity, signal);
+  }
+  knowledgeRecalls(signal?: AbortSignal) {
+    return wire.getKnowledgeRecalls(this.base, this.session(), signal);
+  }
+  knowledgeChangeLog(signal?: AbortSignal) {
+    return wire.getKnowledgeChangeLog(this.base, this.session(), signal);
+  }
+  reviewKnowledgeMaintenance(
+    body: wire.KnowledgeMaintenanceRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.reviewKnowledgeMaintenance(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
+  }
+  knowledgeMaintenanceReceipt(command: string, signal?: AbortSignal) {
+    return wire.getKnowledgeMaintenanceReceipt(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  executeKnowledgeMaintenance(
+    command: wire.KnowledgeMaintenanceCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendKnowledgeMaintenance(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
   knowledgeRelations(entity: string, cursor?: string, signal?: AbortSignal) {
     return wire.getKnowledgeRelations(
       this.base,
@@ -201,6 +240,9 @@ export class HttpTransport implements ClientTransport {
   }
   wikiStatus(folderGrant?: string, signal?: AbortSignal) {
     return wire.getWikiStatus(this.base, this.session(), folderGrant, signal);
+  }
+  openWikiFolder(signal?: AbortSignal) {
+    return wire.openWikiFolder(this.base, this.session(), signal);
   }
   wikiArticles(folderGrant: string, cursor?: string, signal?: AbortSignal) {
     return wire.getWikiArticles(
@@ -1279,6 +1321,32 @@ export class HttpTransport implements ClientTransport {
       this.session(),
       query,
       entityType,
+      undefined,
+      undefined,
+      undefined,
+      25,
+      cursor,
+      signal,
+    );
+  }
+  knowledgeEntities(
+    query = '',
+    entityType?: string,
+    status?: string,
+    source?: string,
+    tier?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getSavedEntities(
+      this.base,
+      this.session(),
+      query,
+      entityType,
+      status,
+      source,
+      tier,
+      25,
       cursor,
       signal,
     );

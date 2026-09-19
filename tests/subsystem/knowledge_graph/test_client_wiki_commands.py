@@ -96,6 +96,22 @@ def test_status_open_and_check_are_passive_and_path_free(stack, monkeypatch):
     assert before == {str(p): p.read_bytes() for p in stack["vault"].rglob("*") if p.is_file()}
 
 
+def test_open_configured_folder_uses_only_canonical_saved_target(stack, tmp_path):
+    opened = []
+    result = controls.open_configured_wiki_folder(
+        validate=noop, opener=lambda path: opened.append(path) or True
+    )
+    assert result == {"status": "opened"}
+    assert opened == [stack["vault"]]
+
+    stack["wiki_vault"]._save_config(
+        {**stack["wiki_vault"]._load_config(), "vault_path": str(tmp_path / "missing")}
+    )
+    assert controls.open_configured_wiki_folder(
+        validate=noop, opener=lambda _path: pytest.fail("missing target must not open")
+    ) == {"status": "not_found"}
+
+
 def test_explicit_config_is_atomic_retains_unknown_fields_and_does_not_rebuild(stack, monkeypatch):
     wiki = stack["wiki_vault"]
     cfg = wiki._load_config()

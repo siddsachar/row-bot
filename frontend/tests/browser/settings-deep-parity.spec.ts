@@ -13,7 +13,6 @@ const settingsRoutes = [
   ['providers', 'Providers'],
   ['models', 'Models'],
   ['knowledge', 'Knowledge'],
-  ['wiki', 'Wiki'],
   ['buddy', 'Buddy'],
   ['goals', 'Goals'],
   ['voice', 'Voice'],
@@ -38,6 +37,7 @@ const firefoxPhoneRoutes = new Set([
 ]);
 
 const aliases = [
+  ['wiki', 'knowledge', 'Knowledge'],
   ['cloud', 'providers', 'Providers'],
   ['google', 'accounts', 'Accounts'],
   ['gmail', 'accounts', 'Accounts'],

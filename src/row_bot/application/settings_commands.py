@@ -30,6 +30,7 @@ _PAGES = {
     "voice",
     "system",
     "tracker",
+    "knowledge",
     "documents",
     "tools",
     "accounts",
@@ -123,6 +124,7 @@ _BOOL_FIELDS = {
     ("system", "computer_use.enabled"),
     ("system", "file_operations.enabled"),
     ("tracker", "enabled"),
+    ("knowledge", "memory_enabled"),
     ("documents", "embedding.auto_unload"),
     ("accounts", "gmail.enabled"),
     ("accounts", "calendar.enabled"),
@@ -473,6 +475,8 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
             raise SettingsCommandError("settings_unavailable")
         if page == "tracker" and field == "enabled":
             tools["tracker"] = value
+        elif page == "knowledge" and field == "memory_enabled":
+            tools["memory"] = value
         elif page == "utilities" and field.endswith(".enabled"):
             tools[field.removesuffix(".enabled")] = value
         elif page == "tools" and field.endswith(".enabled"):
@@ -577,7 +581,7 @@ def _apply(intent: dict[str, Any], *, validate: Callable[[], None]) -> dict[str,
         else:
             api_keys.set_key(name, value)
     elif (
-        page in {"tools", "tracker", "utilities"}
+        page in {"tools", "tracker", "knowledge", "utilities"}
         or page == "system"
         and field
         in {

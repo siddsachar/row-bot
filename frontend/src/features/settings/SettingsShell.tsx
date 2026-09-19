@@ -8,7 +8,6 @@ import {
   Cloud,
   Cpu,
   FileText,
-  Library,
   Mic,
   Plug,
   Puzzle,
@@ -34,7 +33,6 @@ const icons: Record<string, Icon> = {
   voice: Mic,
   knowledge: Brain,
   documents: FileText,
-  wiki: Library,
   tools: Wrench,
   skills: Sparkles,
   mcp: Plug,
@@ -54,7 +52,6 @@ const descriptions: Record<string, string> = {
     'Connect model providers, review credential sources, refresh catalogs, and check provider health. Model pinning and defaults live in the Models tab.',
   models: 'Choose defaults, input models, and pinned catalogue choices.',
   knowledge: 'Manage memory, graph health, and stored knowledge.',
-  wiki: 'Keep the local Wiki Vault in sync with saved knowledge.',
   buddy: 'Tune companion visibility, behaviour, look, and motion.',
   goals: 'Manage conversation goals and reusable agent profiles.',
   voice:

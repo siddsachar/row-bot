@@ -3203,6 +3203,20 @@ def create_router(
         result = await call(read_wiki_status, scope=scope, validate=validate)
         return await respond(request, dto.WikiStatus, result)
 
+    @router.post("/settings/wiki/open-folder")
+    async def wiki_open_folder(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        if context.authentication_kind != "local_owner" or not context.direct_loopback:
+            raise ProtocolError("action_denied", 403)
+        from row_bot.application.wiki_commands import open_configured_wiki_folder
+
+        result = await call(
+            open_configured_wiki_folder,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.WikiOpenFolderResult, result)
+
     @router.get("/settings/wiki/articles")
     async def wiki_articles(
         request: Request, folder_grant: str, cursor: str | None = None, limit: int = 50
@@ -4018,6 +4032,77 @@ def create_router(
         )
         return await respond(request, dto.KnowledgeReceipt, result)
 
+    @router.post("/knowledge/maintenance/review")
+    async def knowledge_maintenance_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.KnowledgeMaintenanceRequest, 64 * 1024)
+        from row_bot.application.knowledge_commands import read_knowledge_maintenance_review
+
+        payload = {
+            "catalog_revision": body.catalog_revision,
+            "targets": [item.model_dump(mode="json") for item in body.targets],
+        }
+        result = await call(
+            read_knowledge_maintenance_review,
+            body.action,
+            payload,
+            validate=dispatch_validation(request, current),
+        )
+        result["review_id"] = security.approval_nonce(
+            current,
+            "knowledge:maintenance",
+            result["catalog_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.KnowledgeMaintenanceReview, result)
+
+    @router.get("/knowledge/maintenance/commands/{command_id}")
+    async def knowledge_maintenance_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.knowledge_commands import read_knowledge_maintenance_command
+
+        result = await call(
+            read_knowledge_maintenance_command,
+            owner_id=current.id,
+            command_id=str(command_id),
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.KnowledgeMaintenanceReceipt, result)
+
+    @router.post("/knowledge/maintenance/commands")
+    async def knowledge_maintenance_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.KnowledgeMaintenanceCommand, 64 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("action_denied", 403)
+        key = request.headers.get("idempotency-key", "")
+        if key != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.knowledge_commands import execute_knowledge_maintenance_command
+
+        validate_access = dispatch_validation(request, current)
+
+        def validate_review(_command: dict, review: dict) -> None:
+            validate_access()
+            security.consume_nonce(
+                current,
+                "knowledge:maintenance",
+                review["catalog_revision"],
+                review["action_digest"],
+                body.payload.review_id,
+                str(body.command_id),
+            )
+
+        result = await call(
+            execute_knowledge_maintenance_command,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            key=key,
+            validate=validate_access,
+            validate_review=validate_review,
+        )
+        return await respond(request, dto.KnowledgeMaintenanceReceipt, result)
+
     @router.get("/knowledge/relations")
     async def knowledge_relations(
         request: Request, entity_id: str, cursor: str | None = None, limit: int = 50
@@ -4123,6 +4208,9 @@ def create_router(
         request: Request,
         query: str = "",
         entity_type: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
+        tier: str | None = None,
         cursor: str | None = None,
         limit: int = 50,
     ) -> JSONResponse:
@@ -4137,10 +4225,46 @@ def create_router(
                     list_saved_entities,
                     query=query,
                     entity_type=entity_type,
+                    status=status,
+                    source=source,
+                    tier=tier,
                     cursor=cursor,
                     limit=limit,
                 )
             ),
+        )
+
+    @router.get("/knowledge/entities/{entity_id}")
+    async def saved_entity_detail(entity_id: str, request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_saved_entity_detail
+
+        return await respond(
+            request,
+            dto.KnowledgeEntityDetail,
+            asdict(await call(read_saved_entity_detail, entity_id)),
+        )
+
+    @router.get("/knowledge/recalls")
+    async def knowledge_recalls(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_recent_recall_decisions
+
+        return await respond(
+            request,
+            dto.KnowledgeRecallPage,
+            asdict(await call(read_recent_recall_decisions)),
+        )
+
+    @router.get("/knowledge/change-log")
+    async def knowledge_change_log(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_memory_change_log
+
+        return await respond(
+            request,
+            dto.KnowledgeMemoryChangePage,
+            asdict(await call(read_memory_change_log)),
         )
 
     @router.get("/knowledge/documents")

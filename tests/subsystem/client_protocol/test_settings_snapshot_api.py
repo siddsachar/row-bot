@@ -725,6 +725,13 @@ def test_tracker_delete_all_uncertain_outcome_is_not_replayed(api, monkeypatch):
         ),
         ("tracker", "enabled", True, "tools_config.json", ("tools", "tracker")),
         (
+            "knowledge",
+            "memory_enabled",
+            False,
+            "tools_config.json",
+            ("tools", "memory"),
+        ),
+        (
             "documents",
             "embedding.auto_unload",
             True,
@@ -780,3 +787,21 @@ def test_each_snapshot_owned_page_has_a_reviewed_saved_mutation(
     for part in saved_path:
         saved = saved[part]
     assert saved == value
+
+
+def test_memory_switch_refreshes_the_existing_tool_registry(api, monkeypatch):
+    from row_bot.tools import registry
+
+    client, headers, _data, _service = api
+    calls = []
+    monkeypatch.setattr(registry, "reload_saved_config", lambda: calls.append(True))
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "knowledge",
+        "field": "memory_enabled",
+        "value": False,
+    }
+    response = _execute(client, headers, request, _review(client, headers, request))
+    assert response.status_code == 200 and response.json()["status"] == "completed"
+    assert calls == [True]

@@ -28,7 +28,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
-    "EntitySummaryPage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
+    "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
     "ProviderCredentialState", "ProviderSettingsReviewRequest", "ProviderSettingsReview", "ProviderSettingsReceipt",
     "ProviderEndpointFields", "ProviderEndpointSnapshot", "ProviderConfigurationPage",
@@ -42,7 +42,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DocumentQueuePage", "DocumentControlReviewRequest", "DocumentControlReview", "DocumentControlReceipt",
     "DocumentUploadReviewRequest", "DocumentUploadReview", "DocumentUploadReceipt",
     "DocumentProcessingReviewRequest", "DocumentProcessingReview", "DocumentProcessingReceipt",
-    "WikiStatus", "WikiArticlePage", "WikiArticle", "WikiReviewRequest", "WikiReview", "WikiReceipt",
+    "WikiStatus", "WikiArticlePage", "WikiArticle", "WikiReviewRequest", "WikiReview", "WikiReceipt", "WikiOpenFolderResult",
     "ChannelPage", "ChannelActionRequest", "ChannelActionReview", "ChannelReceipt",
     "PluginCatalogPage", "PluginDetail", "PluginReviewRequest", "PluginReview", "PluginReceipt",
     "SkillPage", "SkillDetail", "SkillProposalPage", "SkillReviewRequest", "SkillReview", "SkillReceipt",
@@ -50,6 +50,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ProfilePage", "ProfileDetail", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
+    "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
     "SubscriptionActionRequest", "SubscriptionActionResult", "SubscriptionActionReceipt", "SubscriptionQuiescence",
@@ -137,6 +138,9 @@ OPERATIONS = (
     ("post", "/knowledge/entities/review", "KnowledgeReviewRequest", "KnowledgeReview"),
     ("get", "/knowledge/entities/commands/{command_id}", None, "KnowledgeReceipt"),
     ("post", "/knowledge/entities/commands", "Command", "KnowledgeReceipt"),
+    ("post", "/knowledge/maintenance/review", "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview"),
+    ("get", "/knowledge/maintenance/commands/{command_id}", None, "KnowledgeMaintenanceReceipt"),
+    ("post", "/knowledge/maintenance/commands", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt"),
     ("get", "/knowledge/relations", None, "KnowledgeRelationPage"),
     ("post", "/knowledge/relations/review", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview"),
     ("get", "/knowledge/relations/commands/{command_id}", None, "KnowledgeRelationReceipt"),
@@ -157,6 +161,7 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/documents/processing/commands/{command_id}", None, "DocumentProcessingReceipt"),
     ("post", "/conversations/{conversation_id}/documents/processing/commands", "Command", "DocumentProcessingReceipt"),
     ("get", "/settings/wiki", None, "WikiStatus"),
+    ("post", "/settings/wiki/open-folder", None, "WikiOpenFolderResult"),
     ("get", "/settings/wiki/articles", None, "WikiArticlePage"),
     ("get", "/settings/wiki/articles/{article_id}", None, "WikiArticle"),
     ("post", "/settings/wiki/review", "WikiReviewRequest", "WikiReview"),
@@ -266,6 +271,9 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download", None, "bytes"),
     ("post", "/tasks/commands", "Command", "CommandReceipt"),
     ("get", "/knowledge/entities", None, "EntitySummaryPage"),
+    ("get", "/knowledge/entities/{entity_id}", None, "KnowledgeEntityDetail"),
+    ("get", "/knowledge/recalls", None, "KnowledgeRecallPage"),
+    ("get", "/knowledge/change-log", None, "KnowledgeMemoryChangePage"),
     ("get", "/knowledge/documents", None, "DocumentSummaryPage"),
     ("get", "/settings/tools", None, "ToolCatalogPage"),
     ("get", "/settings/snapshot", None, "SettingsSnapshot"),
@@ -527,8 +535,14 @@ export const getLiveProviderRefresh = (base: string, proof: SessionProof, signal
   jsonRequest(base, '/settings/providers/live/refresh', 'ProviderCatalogRefresh', proof, 'GET', undefined, undefined, signal);
 export const testLiveProviderRuntime = (base: string, proof: SessionProof, provider: string, signal?: AbortSignal): Promise<ProviderRuntimeProbe> =>
   jsonRequest(base, `/settings/providers/live/${id(provider)}/runtime-test`, 'ProviderRuntimeProbe', proof, 'POST', undefined, undefined, signal);
-export const getSavedEntities = (base: string, proof: SessionProof, search = '', entity_type?: string, cursor?: string, signal?: AbortSignal): Promise<EntitySummaryPage> =>
-  jsonRequest(base, '/knowledge/entities' + query({query:search, entity_type, cursor}), 'EntitySummaryPage', proof, 'GET', undefined, undefined, signal);
+export const getSavedEntities = (base: string, proof: SessionProof, search = '', entity_type?: string, status?: string, source?: string, tier?: string, limit = 25, cursor?: string, signal?: AbortSignal): Promise<EntitySummaryPage> =>
+  jsonRequest(base, '/knowledge/entities' + query({query:search, entity_type, status, source, tier, limit, cursor}), 'EntitySummaryPage', proof, 'GET', undefined, undefined, signal);
+export const getSavedEntityDetail = (base: string, proof: SessionProof, entity: string, signal?: AbortSignal): Promise<KnowledgeEntityDetail> =>
+  jsonRequest(base, `/knowledge/entities/${id(entity)}`, 'KnowledgeEntityDetail', proof, 'GET', undefined, undefined, signal);
+export const getKnowledgeRecalls = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<KnowledgeRecallPage> =>
+  jsonRequest(base, '/knowledge/recalls', 'KnowledgeRecallPage', proof, 'GET', undefined, undefined, signal);
+export const getKnowledgeChangeLog = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<KnowledgeMemoryChangePage> =>
+  jsonRequest(base, '/knowledge/change-log', 'KnowledgeMemoryChangePage', proof, 'GET', undefined, undefined, signal);
 export const getSavedDocuments = (base: string, proof: SessionProof, search = '', status?: string, cursor?: string, signal?: AbortSignal): Promise<DocumentSummaryPage> =>
   jsonRequest(base, '/knowledge/documents' + query({query:search, status, cursor}), 'DocumentSummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getCachedTools = (base: string, proof: SessionProof, source?: 'core' | 'mcp' | 'plugin' | 'custom', search = '', cursor?: string, signal?: AbortSignal): Promise<ToolCatalogPage> =>
@@ -648,6 +662,8 @@ export const pickFolder = (base: string, proof: SessionProof, signal?: AbortSign
   jsonRequest(base, '/resources/folder-selection', 'FolderGrantView', proof, 'POST', undefined, undefined, signal);
 export const getWikiStatus = (base: string, proof: SessionProof, folder_grant?: string, signal?: AbortSignal): Promise<WikiStatus> =>
   jsonRequest(base, '/settings/wiki' + query({folder_grant}), 'WikiStatus', proof, 'GET', undefined, undefined, signal);
+export const openWikiFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<WikiOpenFolderResult> =>
+  jsonRequest(base, '/settings/wiki/open-folder', 'WikiOpenFolderResult', proof, 'POST', undefined, undefined, signal);
 export const getWikiArticles = (base: string, proof: SessionProof, folder_grant: string, cursor?: string, signal?: AbortSignal): Promise<WikiArticlePage> =>
   jsonRequest(base, '/settings/wiki/articles' + query({folder_grant,cursor}), 'WikiArticlePage', proof, 'GET', undefined, undefined, signal);
 export const getWikiArticle = (base: string, proof: SessionProof, folder_grant: string, article: string, signal?: AbortSignal): Promise<WikiArticle> =>
@@ -783,6 +799,12 @@ export const getKnowledgeReceipt = (base: string, proof: SessionProof, command: 
   jsonRequest(base, `/knowledge/entities/commands/${id(command)}`, 'KnowledgeReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendKnowledge = (base: string, proof: SessionProof, command: Command, signal?: AbortSignal): Promise<KnowledgeReceipt> =>
   jsonRequest(base, '/knowledge/entities/commands', 'KnowledgeReceipt', proof, 'POST', command, command.command_id, signal);
+export const reviewKnowledgeMaintenance = (base: string, proof: SessionProof, body: KnowledgeMaintenanceRequest, signal?: AbortSignal): Promise<KnowledgeMaintenanceReview> =>
+  jsonRequest(base, '/knowledge/maintenance/review', 'KnowledgeMaintenanceReview', proof, 'POST', validateWire('KnowledgeMaintenanceRequest', body), undefined, signal);
+export const getKnowledgeMaintenanceReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<KnowledgeMaintenanceReceipt> =>
+  jsonRequest(base, `/knowledge/maintenance/commands/${id(command)}`, 'KnowledgeMaintenanceReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendKnowledgeMaintenance = (base: string, proof: SessionProof, command: KnowledgeMaintenanceCommand, signal?: AbortSignal): Promise<KnowledgeMaintenanceReceipt> =>
+  jsonRequest(base, '/knowledge/maintenance/commands', 'KnowledgeMaintenanceReceipt', proof, 'POST', validateWire('KnowledgeMaintenanceCommand', command), command.command_id, signal);
 export const getKnowledgeRelations = (base: string, proof: SessionProof, entity: string, cursor?: string, signal?: AbortSignal): Promise<KnowledgeRelationPage> =>
   jsonRequest(base, '/knowledge/relations' + query({entity_id:entity, cursor}), 'KnowledgeRelationPage', proof, 'GET', undefined, undefined, signal);
 export const reviewKnowledgeRelation = (base: string, proof: SessionProof, body: KnowledgeRelationReviewRequest, signal?: AbortSignal): Promise<KnowledgeRelationReview> =>
@@ -1245,6 +1267,12 @@ def outputs() -> dict[Path, str]:
                                 ("cursor", False, {"type": "string", "maxLength": 1024}),
                                 ("entity_type" if suffix.endswith("/entities") else "status", False,
                                  {"type": "string", "minLength": 1, "maxLength": 64})]
+            if suffix.endswith("/entities"):
+                query_parameters += [
+                    ("status", False, {"type": "string", "enum": ["active", "needs_review", "superseded", "archived"]}),
+                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
+                    ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
+                ]
         elif "/content/" in suffix:
             query_parameters = [("limit_bytes", False, {"type": "integer", "minimum": 1, "maximum": 65536}),
                                 ("cursor", False, {"type": "string", "maxLength": 2048})]

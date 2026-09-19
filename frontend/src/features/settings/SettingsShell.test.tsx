@@ -24,12 +24,12 @@ function show(route = '/settings/providers') {
   );
 }
 
-it('keeps all 18 pages in NiceGUI order with a single current desktop link', () => {
+it('keeps all 17 pages in NiceGUI order with a single current desktop link', () => {
   show();
   const navigation = screen.getByRole('navigation', {
     name: 'Settings sections',
   });
-  expect(navigation.querySelectorAll('a')).toHaveLength(18);
+  expect(navigation.querySelectorAll('a')).toHaveLength(17);
   expect(screen.getByRole('link', { name: 'Providers' })).toHaveAttribute(
     'aria-current',
     'page',
@@ -45,7 +45,6 @@ it('keeps all 18 pages in NiceGUI order with a single current desktop link', () 
     'Providers',
     'Models',
     'Knowledge',
-    'Wiki',
     'Buddy',
     'Goals',
     'Voice',

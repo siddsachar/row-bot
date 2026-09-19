@@ -1,0 +1,307 @@
+{
+  "$defs": {
+    "KnowledgeRelationPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "incoming",
+            "outgoing"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "peer_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Peer Id",
+          "type": "string"
+        },
+        "peer_subject": {
+          "maxLength": 256,
+          "title": "Peer Subject",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 64,
+          "title": "Relation Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relation_type",
+        "direction",
+        "peer_id",
+        "peer_subject"
+      ],
+      "title": "KnowledgeRelationPreview",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "alias_count": {
+      "maximum": 256,
+      "minimum": 0,
+      "title": "Alias Count",
+      "type": "integer"
+    },
+    "aliases": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Aliases",
+      "type": "array"
+    },
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "can_archive": {
+      "title": "Can Archive",
+      "type": "boolean"
+    },
+    "can_resolve": {
+      "title": "Can Resolve",
+      "type": "boolean"
+    },
+    "can_restore": {
+      "title": "Can Restore",
+      "type": "boolean"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Confidence"
+    },
+    "created_at": {
+      "maxLength": 128,
+      "title": "Created At",
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 32768,
+      "title": "Description",
+      "type": "string"
+    },
+    "entity_type": {
+      "maxLength": 64,
+      "title": "Entity Type",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "evidence_count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Evidence Count",
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 128,
+      "title": "Id",
+      "type": "string"
+    },
+    "last_evolved_at": {
+      "maxLength": 128,
+      "title": "Last Evolved At",
+      "type": "string"
+    },
+    "last_recalled_at": {
+      "maxLength": 128,
+      "title": "Last Recalled At",
+      "type": "string"
+    },
+    "last_user_modified_at": {
+      "maxLength": 128,
+      "title": "Last User Modified At",
+      "type": "string"
+    },
+    "recall_count": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Recall Count"
+    },
+    "relation_count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Relation Count",
+      "type": "integer"
+    },
+    "relations": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeRelationPreview"
+      },
+      "maxItems": 5,
+      "title": "Relations",
+      "type": "array"
+    },
+    "review_reason": {
+      "maxLength": 1024,
+      "title": "Review Reason",
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 64,
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source": {
+      "maxLength": 4096,
+      "title": "Source",
+      "type": "string"
+    },
+    "source_bucket": {
+      "enum": [
+        "manual",
+        "extraction",
+        "document",
+        "wiki",
+        "other"
+      ],
+      "title": "Source Bucket",
+      "type": "string"
+    },
+    "source_context": {
+      "items": {
+        "maxLength": 512,
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Source Context",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "needs_review",
+        "superseded",
+        "archived"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "subject": {
+      "maxLength": 256,
+      "title": "Subject",
+      "type": "string"
+    },
+    "superseded_by": {
+      "maxLength": 128,
+      "title": "Superseded By",
+      "type": "string"
+    },
+    "supersedes": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Supersedes",
+      "type": "array"
+    },
+    "tag_count": {
+      "maximum": 256,
+      "minimum": 0,
+      "title": "Tag Count",
+      "type": "integer"
+    },
+    "tags": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    },
+    "tier": {
+      "enum": [
+        "core",
+        "semantic",
+        "episodic",
+        "resource"
+      ],
+      "title": "Tier",
+      "type": "string"
+    },
+    "updated_at": {
+      "maxLength": 128,
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "availability",
+    "id",
+    "revision",
+    "entity_type",
+    "subject",
+    "description",
+    "status",
+    "tier",
+    "source",
+    "source_bucket",
+    "confidence",
+    "aliases",
+    "alias_count",
+    "tags",
+    "tag_count",
+    "created_at",
+    "updated_at",
+    "last_user_modified_at",
+    "last_evolved_at",
+    "last_recalled_at",
+    "recall_count",
+    "review_reason",
+    "superseded_by",
+    "supersedes",
+    "source_context",
+    "evidence",
+    "evidence_count",
+    "relations",
+    "relation_count",
+    "can_archive",
+    "can_restore",
+    "can_resolve"
+  ],
+  "title": "KnowledgeEntityDetail",
+  "type": "object"
+}

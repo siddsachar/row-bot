@@ -525,6 +525,26 @@ export interface ClientTransport {
     entity: string | null,
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeEditorState>;
+  knowledgeEntityDetail?(
+    entity: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeEntityDetail>;
+  knowledgeRecalls?(signal?: AbortSignal): Promise<Wire.KnowledgeRecallPage>;
+  knowledgeChangeLog?(
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMemoryChangePage>;
+  reviewKnowledgeMaintenance?(
+    body: Wire.KnowledgeMaintenanceRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMaintenanceReview>;
+  knowledgeMaintenanceReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMaintenanceReceipt>;
+  executeKnowledgeMaintenance?(
+    command: Wire.KnowledgeMaintenanceCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMaintenanceReceipt>;
   knowledgeRelations?(
     entity: string,
     cursor?: string,
@@ -558,6 +578,7 @@ export interface ClientTransport {
     folderGrant?: string,
     signal?: AbortSignal,
   ): Promise<Wire.WikiStatus>;
+  openWikiFolder?(signal?: AbortSignal): Promise<Wire.WikiOpenFolderResult>;
   wikiArticles?(
     folderGrant: string,
     cursor?: string,
@@ -938,6 +959,15 @@ export interface ClientTransport {
   savedEntities?(
     query?: string,
     entityType?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.EntitySummaryPage>;
+  knowledgeEntities?(
+    query?: string,
+    entityType?: string,
+    status?: string,
+    source?: string,
+    tier?: string,
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.EntitySummaryPage>;

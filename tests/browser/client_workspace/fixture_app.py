@@ -1371,6 +1371,7 @@ def p4_knowledge(state: str, x_fixture_token: str = Header(default="")) -> dict:
         raise HTTPException(status_code=403, detail="Synthetic data scope required")
     from row_bot import knowledge_graph as kg
     from row_bot.document_jobs import DocumentJobService
+    kg._skip_reindex = True
     count = 105 if state == "populated" else 0
     with sqlite3.connect(kg.DB_PATH) as conn:
         conn.execute("DELETE FROM entities WHERE id LIKE 'p4-entity-%'")
@@ -1378,8 +1379,34 @@ def p4_knowledge(state: str, x_fixture_token: str = Header(default="")) -> dict:
             "INSERT INTO entities (id,entity_type,subject,description,aliases,tags,properties,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             [(f"p4-entity-{i:03}", "fact", f"Phase 4 knowledge {i:03}",
               "Synthetic description " * 60 + ("tail needle" if i == 104 else ""),
-              "", "", "{}", "synthetic", "2026-01-01", "2026-01-01") for i in range(count)],
+              "Fixture alias" if i == 0 else "", "fixture" if i == 0 else "",
+              json.dumps({
+                  "status": "needs_review" if i == 0 else "archived" if i == 1 else "active",
+                  "memory_tier": "core" if i == 0 else "episodic" if i == 1 else "semantic",
+                  "confidence": 0.93 if i == 0 else None,
+                  "review_reason": "Synthetic conflict for browser review" if i == 0 else "",
+                  "source_context": {"actor": "extraction", "thread_name": "Fixture thread"},
+                  "evidence": ["Synthetic browser evidence"],
+              }), "extraction" if i == 0 else "manual" if i == 1 else "synthetic",
+              "2026-01-01", "2026-01-01") for i in range(count)],
         )
+        conn.execute("DELETE FROM relations WHERE id LIKE 'p4-relation-%'")
+        if count:
+            conn.execute(
+                "INSERT INTO relations(id,source_id,target_id,relation_type,confidence,properties,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                ("p4-relation-000", "p4-entity-000", "p4-entity-001", "supports", 0.9, "{}", "synthetic", "2026-01-01", "2026-01-01"),
+            )
+    (predecessor.DATA / "memory_recall_trace.json").write_text(json.dumps([
+        {"ts": "2026-01-02T10:00:00", "allowed": True, "reason": "Synthetic relevant memory",
+         "candidates_seen": 2, "selected_ids": ["p4-entity-000"], "selected_count": 1,
+         "block_chars": 240, "top_scores": [{"id": "p4-entity-000", "final": 0.93}],
+         "rejected": [{"reason": "below threshold"}]}
+    ] if count else []), encoding="utf-8")
+    (predecessor.DATA / "memory_evolution_journal.json").write_text(json.dumps([
+        {"timestamp": "2026-01-02T11:00:00", "action": "mark_needs_review", "actor": "extraction",
+         "entity_ids": ["p4-entity-000"], "old_status": "active", "new_status": "needs_review",
+         "reason": "Synthetic conflict for browser review"}
+    ] if count else []), encoding="utf-8")
     service = DocumentJobService(predecessor.DATA)
     with sqlite3.connect(service.db_path) as conn:
         conn.execute("DELETE FROM document_records WHERE document_id IN (SELECT id FROM document_jobs WHERE original_name LIKE 'Phase 4 document %')")

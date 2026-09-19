@@ -1635,6 +1635,39 @@ export class ClientController {
     this.query(() => this.transport.defaultModel?.(signal));
   knowledgeEditor = (entity: string | null, signal?: AbortSignal) =>
     this.query(() => this.transport.knowledgeEditor?.(entity, signal));
+  knowledgeEntityDetail = (entity: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeEntityDetail?.(entity, signal));
+  knowledgeRecalls = (signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeRecalls?.(signal));
+  knowledgeChangeLog = (signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeChangeLog?.(signal));
+  reviewKnowledgeMaintenance = (
+    body: import('./types').KnowledgeMaintenanceRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.reviewKnowledgeMaintenance?.(body, signal));
+  knowledgeMaintenanceReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.knowledgeMaintenanceReceipt?.(command, signal),
+    );
+  executeKnowledgeMaintenance = async (
+    original: Omit<
+      import('./types').KnowledgeMaintenanceCommand,
+      'client_session_id'
+    >,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').KnowledgeMaintenanceCommand>(
+      'KnowledgeMaintenanceCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    return this.authenticatedResult((signal) => {
+      if (!this.transport.executeKnowledgeMaintenance)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeKnowledgeMaintenance(command, signal);
+    });
+  };
   knowledgeRelations = (
     entity: string,
     cursor?: string,
@@ -1718,6 +1751,8 @@ export class ClientController {
   };
   wikiStatus = (folderGrant?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.wikiStatus?.(folderGrant, signal));
+  openWikiFolder = (signal?: AbortSignal) =>
+    this.query(() => this.transport.openWikiFolder?.(signal));
   wikiArticles = (folderGrant: string, cursor?: string, signal?: AbortSignal) =>
     this.query(() =>
       this.transport.wikiArticles?.(folderGrant, cursor, signal),
@@ -2971,6 +3006,26 @@ export class ClientController {
   ) =>
     this.query(() =>
       this.transport.savedEntities?.(query, entityType, cursor, signal),
+    );
+  knowledgeEntities = (
+    query = '',
+    entityType?: string,
+    status?: string,
+    source?: string,
+    tier?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.knowledgeEntities?.(
+        query,
+        entityType,
+        status,
+        source,
+        tier,
+        cursor,
+        signal,
+      ),
     );
   savedDocuments = (
     query = '',

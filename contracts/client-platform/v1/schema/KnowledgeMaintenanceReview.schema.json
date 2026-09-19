@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "KnowledgeDeleteTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id",
+        "revision"
+      ],
+      "title": "KnowledgeDeleteTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "knowledge.delete",
+        "knowledge.delete.bulk",
+        "knowledge.delete_all"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "catalog_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Revision",
+      "type": "string"
+    },
+    "entity_count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Entity Count",
+      "type": "integer"
+    },
+    "review_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "side_effects": {
+      "items": {
+        "enum": [
+          "entities",
+          "relations",
+          "lexical_index",
+          "vector_index",
+          "managed_wiki_files"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Side Effects",
+      "type": "array"
+    },
+    "targets": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeDeleteTarget"
+      },
+      "maxItems": 100,
+      "title": "Targets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "catalog_revision",
+    "targets",
+    "entity_count",
+    "side_effects",
+    "action_digest",
+    "review_id"
+  ],
+  "title": "KnowledgeMaintenanceReview",
+  "type": "object"
+}

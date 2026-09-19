@@ -98,6 +98,195 @@ def test_search_full_fields_before_bounded_page(saved, query, expected):
     assert views.list_saved_entities(entity_type="fact").total == 102
 
 
+def test_entity_filters_are_normalized_combined_and_cursor_bound(saved):
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute(
+            "UPDATE entities SET properties=?, source=? WHERE id='entity-0001'",
+            (
+                json.dumps(
+                    {
+                        "status": "needs_review",
+                        "memory_tier": "core",
+                        "source_context": {"actor": "extraction"},
+                    }
+                ),
+                "extraction",
+            ),
+        )
+    options = {
+        "entity_type": "fact",
+        "status": "needs_review",
+        "source": "extraction",
+        "tier": "core",
+        "query": "Saved 1",
+        "limit": 1,
+    }
+    page = views.list_saved_entities(**options)
+    assert [item.id for item in page.items] == ["entity-0001"]
+    broad = views.list_saved_entities(entity_type="fact", limit=1)
+    with pytest.raises(views.KnowledgeViewError, match="cursor_expired"):
+        views.list_saved_entities(
+            entity_type="fact", status="active", limit=1, cursor=broad.next_cursor
+        )
+    for key, value in {
+        "status": "unknown",
+        "source": "private-path",
+        "tier": "future",
+    }.items():
+        with pytest.raises(views.KnowledgeViewError, match="invalid_knowledge_query"):
+            views.list_saved_entities(**{key: value})
+
+
+def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved):
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute(
+            "UPDATE entities SET aliases=?,tags=?,source=?,properties=? WHERE id='entity-0001'",
+            (
+                ",".join(f"alias-{index}" for index in range(20)),
+                ",".join(f"tag-{index}" for index in range(20)),
+                "extraction",
+                json.dumps(
+                    {
+                        "status": "needs_review",
+                        "memory_tier": "core",
+                        "confidence": 0.875,
+                        "review_reason": "Verify this memory",
+                        "source_context": {
+                            "actor": "extraction",
+                            "thread_name": "Synthetic thread",
+                        },
+                        "evidence": [f"Evidence {index}" for index in range(10)],
+                        "last_user_modified_at": "user-time",
+                        "last_evolved_at": "evolved-time",
+                        "recalled_at": "recall-time",
+                    }
+                ),
+            ),
+        )
+        for index in range(7):
+            peer = f"peer-{index}"
+            conn.execute(
+                "INSERT INTO entities VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (peer, "fact", f"Peer {index}", "", "", "", "{}", "live", "c", "u"),
+            )
+            conn.execute(
+                "INSERT INTO relations VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    f"relation-{index}",
+                    "entity-0001",
+                    peer,
+                    "related_to",
+                    1.0,
+                    "{}",
+                    "live",
+                    "c",
+                    "u",
+                ),
+            )
+    detail = views.read_saved_entity_detail("entity-0001")
+    assert detail.availability == "available"
+    assert detail.status == "needs_review" and detail.tier == "core"
+    assert detail.source_bucket == "extraction" and detail.confidence == 0.875
+    assert len(detail.aliases) == 12 and detail.alias_count == 20
+    assert len(detail.tags) == 12 and detail.tag_count == 20
+    assert len(detail.relations) == 5 and detail.relation_count == 7
+    assert detail.evidence == ("Evidence 0", "Evidence 1", "Evidence 2")
+    assert "private" not in json.dumps(asdict(detail))
+
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute("UPDATE entities SET properties='not-json' WHERE id='entity-0001'")
+    degraded = views.read_saved_entity_detail("entity-0001")
+    assert degraded.availability == "available" and degraded.status == "active"
+    assert degraded.evidence == () and degraded.source_context == ()
+
+
+def test_recent_audit_reads_are_bounded_typed_and_missing_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    assert views.read_recent_recall_decisions().availability == "missing"
+    assert views.read_memory_change_log().availability == "missing"
+    (tmp_path / "memory_recall_trace.json").write_text(
+        json.dumps(
+            [
+                {
+                    "timestamp": "2026-01-01",
+                    "allowed": True,
+                    "reason": "synthetic",
+                    "candidates_seen": 7,
+                    "selected": [
+                        {"id": "entity-0001", "score": 0.9},
+                        {"subject": "Direct subject", "score": 0.8},
+                    ],
+                    "context_chars": 123,
+                    "rejections": ["low score", "wrong tier", "duplicate", "extra"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "memory_evolution_journal.json").write_text(
+        json.dumps(
+            [
+                {
+                    "timestamp": "2026-01-02",
+                    "action": "status_changed",
+                    "actor": "manual",
+                    "entity_ids": ["entity-0001", "entity-0002", "entity-0003", "entity-0004"],
+                    "old_status": "needs_review",
+                    "new_status": "active",
+                    "reason": "resolved",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    recall = views.read_recent_recall_decisions()
+    assert recall.availability == "available" and len(recall.items) == 1
+    assert recall.items[0].selected_count == 2
+    assert len(recall.items[0].candidates) == 2
+    assert recall.items[0].rejection_reasons == ("low score", "wrong tier", "duplicate")
+    journal = views.read_memory_change_log()
+    assert journal.availability == "available" and len(journal.items) == 1
+    assert journal.items[0].additional_subjects == 1
+
+
+@pytest.mark.parametrize("name", ["memory_recall_trace.json", "memory_evolution_journal.json"])
+def test_recent_audit_reads_reject_oversized_or_linked_files(tmp_path, monkeypatch, name):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    path = tmp_path / name
+    path.write_bytes(b"x" * (views._AUDIT_FILE_BYTES + 1))
+    read = (
+        views.read_recent_recall_decisions
+        if name.startswith("memory_recall")
+        else views.read_memory_change_log
+    )
+    assert read().availability == "unavailable"
+
+
+@pytest.mark.parametrize(
+    ("name", "read"),
+    [
+        ("memory_recall_trace.json", views.read_recent_recall_decisions),
+        ("memory_evolution_journal.json", views.read_memory_change_log),
+    ],
+)
+def test_recent_audit_reads_report_malformed_files_without_initializing_store(
+    tmp_path, monkeypatch, name, read
+):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    path = tmp_path / name
+    path.write_text("{not-json", encoding="utf-8")
+    assert read().availability == "corrupt"
+    assert sorted(item.name for item in tmp_path.iterdir()) == [name]
+    path.unlink()
+    outside = tmp_path.parent / f"outside-{name}"
+    outside.write_text("[]", encoding="utf-8")
+    try:
+        path.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks unavailable on this platform")
+    assert read().availability == "unavailable"
+
+
 @pytest.mark.parametrize("change", ["data", "filter", "limit", "tail_match"])
 def test_revision_and_filter_bound_cursors(saved, change):
     options = {"limit": 1}
@@ -178,7 +367,8 @@ def test_snapshot_bounded_reads_and_readonly_connection(saved, monkeypatch):
     assert page.total == 1 and page.items[0].subject == "Saved 204"
     assert max(batches) == 128
     assert all(
-        sql.strip().split()[0] in {"SELECT", "PRAGMA", "BEGIN"} for sql in statements
+        sql.strip().split()[0] in {"SELECT", "WITH", "PRAGMA", "BEGIN"}
+        for sql in statements
     )
     assert "PRAGMA query_only=ON" in statements
     assert views.list_saved_entities(query="Saved 204").total == 0

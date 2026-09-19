@@ -54,6 +54,36 @@ def saved(client, subject='Synthetic subject', properties=None):
         return kg.save_entity('fact', subject, 'Original body', properties=properties)
 
 
+def reviewed_maintenance(client, kind, entities):
+    api, _, _ = client
+    page = api.knowledge_views.list_saved_entities(limit=1)
+    targets = [
+        {
+            'entity_id': entity['id'],
+            'revision': api.knowledge_views.read_saved_entity_detail(entity['id']).revision,
+        }
+        for entity in entities
+    ]
+    intent = {'catalog_revision': page.revision, 'targets': targets}
+    review = api.read_knowledge_maintenance_review(kind, intent, validate=lambda: None)
+    return {
+        'command_id': str(uuid4()),
+        'type': kind,
+        'payload': {**intent, 'action_digest': review['action_digest'], 'review_id': 'test-review'},
+    }, review
+
+
+def execute_maintenance(client, command, review):
+    api, _, context = client
+    return api.execute_knowledge_maintenance_command(
+        command,
+        owner_id=context['owner_id'],
+        key=command['command_id'],
+        validate=context['validate'],
+        validate_review=lambda _command, actual: actual == review or pytest.fail('review changed'),
+    )
+
+
 def test_create_saved_pending_and_duplicate_is_read_only(client, monkeypatch):
     api, kg, context = client
     command = reviewed(client)
@@ -71,6 +101,85 @@ def test_create_saved_pending_and_duplicate_is_read_only(client, monkeypatch):
     monkeypatch.setattr(api.admissions, 'transaction', forbidden)
     assert api.read_knowledge_command(command_id=command['command_id'], **context) == result
     assert '_knowledge' not in json.dumps(result) and 'Synthetic' not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    ('kind', 'count'),
+    [('knowledge.delete', 1), ('knowledge.delete.bulk', 2)],
+)
+def test_reviewed_exact_deletion_cascades_and_replays_without_repeating(client, monkeypatch, kind, count):
+    api, kg, context = client
+    monkeypatch.setattr(kg, '_skip_reindex', True)
+    rows = [saved(client, f'Delete {index}') for index in range(count)]
+    if count == 2:
+        with kg.projection_batch(drain_on_exit=False):
+            kg.add_relation(rows[0]['id'], rows[1]['id'], 'related_to')
+    command, review = reviewed_maintenance(client, kind, rows)
+    result = execute_maintenance(client, command, review)
+    assert result['status'] == 'completed'
+    assert result['deleted'] == [row['id'] for row in rows]
+    assert all(kg.get_entity(row['id']) is None for row in rows)
+    monkeypatch.setattr(kg, 'delete_reviewed_entities', lambda *_a, **_k: pytest.fail('no replay'))
+    assert execute_maintenance(client, command, review) == result
+    assert api.read_knowledge_maintenance_command(
+        owner_id=context['owner_id'], command_id=command['command_id'], validate=lambda: None
+    ) == result
+    with pytest.raises(ValueError, match='knowledge_operation_unavailable'):
+        api.read_knowledge_maintenance_command(
+            owner_id='other-owner', command_id=command['command_id'], validate=lambda: None
+        )
+
+
+def test_delete_all_requires_exact_catalog_and_reports_cleanup_truthfully(client, monkeypatch):
+    _, kg, _ = client
+    monkeypatch.setattr(kg, '_skip_reindex', True)
+    rows = [saved(client, 'First'), saved(client, 'Second')]
+    cleared = []
+    from row_bot import wiki_vault
+    monkeypatch.setattr(wiki_vault, 'clear_wiki_folder', lambda: cleared.append(True) or 2)
+    command, review = reviewed_maintenance(client, 'knowledge.delete_all', [])
+    assert review['entity_count'] == 2
+    result = execute_maintenance(client, command, review)
+    assert result['status'] == 'completed'
+    assert result['deleted'] == [row['id'] for row in sorted(rows, key=lambda row: row['id'])]
+    assert result['cleanup'] == {
+        'lexical_index': 'completed', 'vector_index': 'skipped', 'wiki': 'completed'
+    }
+    assert cleared == [True] and kg.count_entities() == 0
+
+
+def test_maintenance_stale_review_rejects_before_deletion(client):
+    _, kg, _ = client
+    row = saved(client)
+    command, review = reviewed_maintenance(client, 'knowledge.delete', [row])
+    with kg.projection_batch(drain_on_exit=False):
+        kg.update_entity(row['id'], 'Concurrent change')
+    with pytest.raises(ValueError, match='knowledge_changed'):
+        execute_maintenance(client, command, review)
+    assert kg.get_entity(row['id']) is not None
+
+
+def test_maintenance_partial_cleanup_and_lost_receipt_are_never_resent(client, monkeypatch):
+    api, kg, context = client
+    monkeypatch.setattr(kg, '_skip_reindex', True)
+    row = saved(client)
+    command, review = reviewed_maintenance(client, 'knowledge.delete', [row])
+    monkeypatch.setattr(kg, '_delete_fts_entity', lambda *_: (_ for _ in ()).throw(OSError('cleanup')))
+    result = execute_maintenance(client, command, review)
+    assert result['status'] == 'partial'
+    assert result['cleanup']['lexical_index'] == 'failed'
+    assert result['deleted'] == [row['id']]
+
+    second = saved(client, 'Lost receipt')
+    command, review = reviewed_maintenance(client, 'knowledge.delete', [second])
+    monkeypatch.setattr(api.admissions, 'complete_command', lambda *_: (_ for _ in ()).throw(OSError('lost receipt')))
+    with pytest.raises(OSError, match='lost receipt'):
+        execute_maintenance(client, command, review)
+    receipt = api.read_knowledge_maintenance_command(
+        owner_id=context['owner_id'], command_id=command['command_id'], validate=lambda: None
+    )
+    assert receipt['status'] == 'partial' and receipt['code'] == 'knowledge_outcome_uncertain'
+    assert kg.get_entity(second['id']) is None
 
 
 def test_edit_one_commit_preserves_private_metadata_and_marks_manual(client):

@@ -21,11 +21,10 @@ import SubscriptionOptions from './SubscriptionOptions';
 import McpConnectionsPanel from './McpConnections';
 import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
-import KnowledgeEditors from '../knowledge/KnowledgeEditors';
+import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
 import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
-import WikiSettings from '../knowledge/WikiSettings';
 import ChannelSettings from './ChannelSettings';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
@@ -103,6 +102,7 @@ export default function SettingRoute() {
   const [settingsSnapshotLoading, setSettingsSnapshotLoading] = useState(true);
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
+  const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
   const requestedConversationId = search.get('conversation');
   const settingsConversationId = resolveSettingsConversation(
     state.conversations,
@@ -170,6 +170,7 @@ export default function SettingRoute() {
     'accounts',
     'utilities',
     'preferences',
+    'knowledge',
   ];
   const snapshotPage = settingsPages.includes(leaf.id as SettingsPage)
     ? (leaf.id as SettingsPage)
@@ -435,19 +436,87 @@ export default function SettingRoute() {
           <>
             <KnowledgeCatalog
               key={session}
-              load={controller.savedEntities}
+              loadFiltered={(filters, cursor, signal) =>
+                controller.knowledgeEntities(
+                  filters.query,
+                  filters.entityType || undefined,
+                  filters.status || undefined,
+                  filters.source || undefined,
+                  filters.tier || undefined,
+                  cursor,
+                  signal,
+                )
+              }
+              loadDetail={controller.knowledgeEntityDetail}
+              loadRecalls={controller.knowledgeRecalls}
+              loadChangeLog={controller.knowledgeChangeLog}
+              maintenance={{
+                review: (action, catalogRevision, targets, signal) =>
+                  controller.reviewKnowledgeMaintenance(
+                    {
+                      action,
+                      catalog_revision: catalogRevision,
+                      targets,
+                    },
+                    signal,
+                  ),
+                execute: (review, commandId) =>
+                  controller.executeKnowledgeMaintenance({
+                    command_id: commandId,
+                    type: review.action,
+                    payload: {
+                      catalog_revision: review.catalog_revision,
+                      targets: review.targets,
+                      action_digest: review.action_digest,
+                      review_id: review.review_id,
+                    },
+                  }),
+                receipt: controller.knowledgeMaintenanceReceipt,
+              }}
+              settingsMutation={mutation}
+              wikiSession={wikiOwner?.get()}
+              wikiSnapshot={settingsSnapshot?.wiki}
               onOpen={(id) => knowledgeOwner?.get()?.open(id)}
+              onLifecycle={async (id, revision, action) => {
+                const review = await controller.reviewKnowledge(action, {
+                  entity_id: id,
+                  revision,
+                });
+                const receipt = await controller.executeKnowledge({
+                  command_id: crypto.randomUUID(),
+                  type: action,
+                  payload: {
+                    entity_id: id,
+                    revision: review.revision,
+                    review_id: review.review_id,
+                  },
+                });
+                if (receipt.status !== 'completed')
+                  throw { code: receipt.code ?? 'knowledge_outcome_uncertain' };
+                setKnowledgeRefresh((value) => value + 1);
+                setSettingsSnapshotReload((value) => value + 1);
+                void wikiOwner?.get()?.load();
+              }}
+              onMutation={() => {
+                knowledgeOwner?.get()?.close();
+                setKnowledgeRefresh((value) => value + 1);
+                setSettingsSnapshotReload((value) => value + 1);
+                void wikiOwner?.get()?.load();
+              }}
               snapshot={settingsSnapshot?.knowledge}
+              refreshToken={knowledgeRefresh}
             />
             {knowledgeOwner?.get() && (
-              <KnowledgeEditors owner={knowledgeOwner.get()!} />
+              <KnowledgeEditorDialog
+                owner={knowledgeOwner.get()!}
+                onMutation={() => {
+                  setKnowledgeRefresh((value) => value + 1);
+                  setSettingsSnapshotReload((value) => value + 1);
+                  void wikiOwner?.get()?.load();
+                }}
+              />
             )}
           </>
-        ) : leaf.id === 'wiki' && wikiOwner?.get() ? (
-          <WikiSettings
-            session={wikiOwner.get()!}
-            snapshot={settingsSnapshot?.wiki}
-          />
         ) : leaf.id === 'channels' && channelOwner?.get() ? (
           <ChannelSettings
             session={channelOwner.get()!}

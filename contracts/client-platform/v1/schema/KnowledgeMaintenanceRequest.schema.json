@@ -1,0 +1,57 @@
+{
+  "$defs": {
+    "KnowledgeDeleteTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id",
+        "revision"
+      ],
+      "title": "KnowledgeDeleteTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "knowledge.delete",
+        "knowledge.delete.bulk",
+        "knowledge.delete_all"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "catalog_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Revision",
+      "type": "string"
+    },
+    "targets": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeDeleteTarget"
+      },
+      "maxItems": 100,
+      "title": "Targets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "action",
+    "catalog_revision",
+    "targets"
+  ],
+  "title": "KnowledgeMaintenanceRequest",
+  "type": "object"
+}

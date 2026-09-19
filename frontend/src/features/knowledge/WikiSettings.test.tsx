@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import type { WikiSettingsSnapshot } from '../../api/types';
 import WikiSettings, {
   WikiSettingsSession,
   type WikiReview,
@@ -76,6 +77,7 @@ function setup(available = true) {
     receipt: vi.fn(async () => null),
     chooseVault: vi.fn(async () => {
       scope.selected = true;
+      return 'Authorized vault';
     }),
   };
   return { io, session: new WikiSettingsSession(io), review };
@@ -102,12 +104,32 @@ it('selects an authorized vault explicitly before exposing article controls', as
   render(<WikiSettings session={session} />);
   await screen.findByText(/Select an authorized vault/);
   expect(io.articles).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Choose authorized vault' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
   await screen.findByText('Reviewed article');
   expect(io.chooseVault).toHaveBeenCalledTimes(1);
   expect(io.articles).toHaveBeenCalledTimes(1);
+});
+
+it('shows an editable display path but requires Browse authority before Apply', async () => {
+  const { io, session } = setup();
+  const snapshot: WikiSettingsSnapshot = {
+    availability: 'available',
+    enabled: true,
+    vault_path: 'C:/Synthetic/Vault',
+    path_state: 'available',
+    articles: 1,
+    conversations: 2,
+  };
+  render(<WikiSettings compact session={session} snapshot={snapshot} />);
+  await screen.findByText('Reviewed article');
+  const path = screen.getByRole('textbox', { name: 'Vault path' });
+  fireEvent.change(path, { target: { value: 'C:/Untrusted/Typed' } });
+  expect(screen.getByText(/Browse to authorize this folder/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  expect(io.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
+  await waitFor(() => expect(path).toHaveValue('Authorized: Authorized vault'));
+  expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
 });
 
 it('retains the exact reviewed versions through navigation and executes once', async () => {

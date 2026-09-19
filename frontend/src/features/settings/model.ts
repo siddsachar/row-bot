@@ -8,7 +8,7 @@ export const settingsGroups = [
   {
     id: 'knowledge',
     label: 'Knowledge and documents',
-    leaves: ['Knowledge', 'Documents', 'Wiki'],
+    leaves: ['Knowledge', 'Documents'],
   },
   {
     id: 'integrations',
@@ -26,7 +26,6 @@ const settingsOrder = [
   'Providers',
   'Models',
   'Knowledge',
-  'Wiki',
   'Buddy',
   'Goals',
   'Voice',
@@ -56,6 +55,7 @@ export const settingsLeaves = settingsOrder.map((label) => {
   };
 });
 const aliases: Record<string, string> = {
+  wiki: 'knowledge',
   cloud: 'providers',
   google: 'accounts',
   gmail: 'accounts',

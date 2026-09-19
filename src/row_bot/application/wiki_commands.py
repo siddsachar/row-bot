@@ -13,6 +13,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
 import time
 
 from row_bot import knowledge_views, wiki_vault as wiki
@@ -24,6 +26,38 @@ from row_bot.runtime import admissions
 _ACTIONS = {"wiki.configure", "wiki.publish", "wiki.rebuild", "wiki.import", "wiki.sync"}
 _FILE_BYTES = 2 * 1024 * 1024
 _REVIEW_BYTES = 192 * 1024
+
+
+def _open_directory(path: Path) -> bool:
+    if sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+        return True
+    command = ["open", str(path)] if sys.platform == "darwin" else ["xdg-open", str(path)]
+    subprocess.Popen(command, close_fds=True, start_new_session=True)
+    return True
+
+
+def open_configured_wiki_folder(
+    *, validate: Callable[[], None], opener: Callable[[Path], bool] = _open_directory
+) -> dict[str, str]:
+    """Open only the canonical saved vault for a validated local desktop owner."""
+    validate()
+    try:
+        config, _revision = wiki.read_control_config()
+        raw = config.get("vault_path")
+        if not isinstance(raw, str) or not raw:
+            return {"status": "not_found"}
+        path = Path(raw)
+        if not path.is_absolute() or not path.exists() or not path.is_dir():
+            return {"status": "not_found"}
+        scope = WikiScope("configured-vault", path, directory_identity(path, parent=True))
+        _guard(scope)
+        validate()
+        return {"status": "opened" if opener(path) else "unavailable"}
+    except FileNotFoundError:
+        return {"status": "unavailable"}
+    except (OSError, ValueError):
+        return {"status": "unavailable"}
 
 
 @dataclass(frozen=True)

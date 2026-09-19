@@ -136,7 +136,7 @@ async function openDocumentsFromHome(page: Page) {
 
 test.use({ serviceWorkers: 'allow' });
 
-test('Owner-review Settings shell keeps all 18 routed owners in one responsive hierarchy', async ({
+test('Owner-review Settings shell keeps all 17 routed owners in one responsive hierarchy', async ({
   context,
   page,
 }, info) => {
@@ -160,7 +160,6 @@ test('Owner-review Settings shell keeps all 18 routed owners in one responsive h
     'voice',
     'knowledge',
     'documents',
-    'wiki',
     'tools',
     'skills',
     'mcp',
@@ -186,7 +185,7 @@ test('Owner-review Settings shell keeps all 18 routed owners in one responsive h
   const settingsHeading = page
     .getByRole('region', { name: 'Settings', exact: true })
     .locator('.settings-pane-header h2');
-  await expect(settingsNavigation.getByRole('link')).toHaveCount(18);
+  await expect(settingsNavigation.getByRole('link')).toHaveCount(17);
   for (const id of leaves) {
     await page.goto(`/app-v2/settings/${id}`);
     await expect(settingsHeading).toHaveText(label(id));
@@ -204,6 +203,8 @@ test('Owner-review Settings shell keeps all 18 routed owners in one responsive h
 
   await page.goto('/app-v2/settings/google');
   await expect(page).toHaveURL(/\/app-v2\/settings\/accounts$/);
+  await page.goto('/app-v2/settings/wiki');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
   await page.goto('/app-v2/settings/models');
   await page.goto('/app-v2/settings/accounts');
   await page.goBack();
@@ -220,13 +221,13 @@ test('Owner-review Settings shell keeps all 18 routed owners in one responsive h
   const picker = page.getByRole('combobox', { name: 'Settings section' });
   await expect(picker).toBeVisible();
   expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await picker.selectOption('wiki');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/wiki$/);
-  await expect(settingsHeading).toHaveText('Wiki');
+  await picker.selectOption('knowledge');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
+  await expect(settingsHeading).toHaveText('Knowledge');
   await expect(settingsHeading).toBeFocused();
   await assertNoOverflow(page);
-  await screenshot(page, info, 'settings-shell-narrow-wiki');
-  await accessibility(page, info, 'settings-shell-narrow-wiki');
+  await screenshot(page, info, 'settings-shell-narrow-knowledge');
+  await accessibility(page, info, 'settings-shell-narrow-knowledge');
 
   await page.goto('/app-v2/tasks');
   await expect(page).toHaveURL(/\/app-v2\/?\?tab=workflows$/);
@@ -420,21 +421,17 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
   };
   await page.goto('/app-v2/');
   await openSettingsRouteFromHome(page, {
-    linkName: 'Wiki',
-    path: '/app-v2/settings/wiki',
-    headingName: 'Wiki vault',
+    linkName: 'Knowledge',
+    path: '/app-v2/settings/knowledge',
+    headingName: 'Knowledge',
   });
   const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
   await expect(wiki.getByText(/Select an authorized vault/)).toBeVisible();
-  await wiki
-    .getByRole('button', { name: 'Choose authorized vault', exact: true })
-    .click();
+  await wiki.getByRole('button', { name: 'Browse', exact: true }).click();
   await expect(wiki.getByText(/Authorized folder selected/)).toBeVisible();
-  const enabled = wiki.getByRole('checkbox', { name: 'Enable wiki vault' });
+  const enabled = wiki.getByRole('switch', { name: 'Enable Wiki Vault' });
   if (!(await enabled.isChecked())) await enabled.check();
-  await wiki
-    .getByRole('button', { name: 'Review configuration', exact: true })
-    .click();
+  await wiki.getByRole('button', { name: 'Apply', exact: true }).click();
   const configuration = wiki.getByRole('region', {
     name: 'Reviewed wiki action',
     exact: true,
@@ -448,7 +445,7 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
   expect(setup.ok()).toBe(true);
   const created = await setup.json();
   await wiki
-    .getByRole('button', { name: 'Reload wiki status', exact: true })
+    .getByRole('button', { name: 'Check vault sync', exact: true })
     .click();
   await expect(wiki.getByText(created.title, { exact: true })).toBeVisible();
   await expect(wiki.getByText('edited', { exact: true })).toBeVisible();
@@ -930,7 +927,7 @@ test('Managed runtimes review metadata then install exact archive and retain rou
   expect((await saved()).calls).toEqual(['resolve', 'download']);
 });
 
-test('Knowledge creates a reviewed entry retains its draft and applies archive restore through the real owner', async ({
+test('Knowledge Settings omits create, retains modal drafts, and confirms lifecycle changes', async ({
   page,
 }, info) => {
   const headers = {
@@ -939,37 +936,89 @@ test('Knowledge creates a reviewed entry retains its draft and applies archive r
   };
   expect(
     (
-      await page.request.post('/__p4_fixture/knowledge/empty', { headers })
+      await page.request.post('/__p4_fixture/knowledge/populated', { headers })
     ).ok(),
   ).toBe(true);
   await page.goto('/app-v2/settings/knowledge');
-  await page
-    .getByRole('button', { name: 'Create knowledge', exact: true })
-    .click();
-  const editor = page.getByRole('region', {
-    name: 'Knowledge editor',
-    exact: true,
-  });
-  const subject = `Synthetic retained knowledge ${info.project.name}`;
   await expect(
-    editor.getByRole('heading', { name: 'Create knowledge', exact: true }),
-  ).toBeFocused();
-  await editor.getByLabel('Subject', { exact: true }).fill(subject);
+    page.getByRole('button', { name: 'Create knowledge', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText('Showing 25 of 105 matching entries.'),
+  ).toBeVisible();
+  await page
+    .getByRole('searchbox', { name: 'Search knowledge' })
+    .fill('Phase 4 knowledge 002');
+  await expect(
+    page.getByText('Showing 1 of 1 matching entries.'),
+  ).toBeVisible();
+  const filtered = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith('/knowledge/entities') &&
+      url.searchParams.get('query') === 'Phase 4 knowledge 002' &&
+      url.searchParams.get('status') === 'active'
+    );
+  });
+  await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
+  await filtered;
+  await expect(
+    page.getByText('Showing 1 of 1 matching entries.'),
+  ).toBeVisible();
+  const entry = page.locator('.settings-knowledge-result').first();
+  await entry.locator('summary').click();
+  await entry.getByRole('button', { name: 'Edit', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit knowledge' });
+  const editor = dialog;
+  await expect(dialog).toBeVisible();
   await editor
-    .getByLabel('Description', { exact: true })
-    .fill('Synthetic retained description');
+    .getByRole('textbox', { name: 'Description', exact: true })
+    .fill('Synthetic retained modal draft');
   await editor
     .getByRole('button', { name: 'Review save', exact: true })
     .click();
+  await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
+  await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'Knowledge',
     path: '/app-v2/settings/knowledge',
     headingName: 'Knowledge',
   });
-  await expect(editor.getByLabel('Subject', { exact: true })).toHaveValue(
-    subject,
-  );
+  await expect(
+    page.getByText('Showing 25 of 105 matching entries.'),
+  ).toBeVisible();
+  await page
+    .getByRole('searchbox', { name: 'Search knowledge' })
+    .fill('Phase 4 knowledge 002');
+  await expect(
+    page.getByText('Showing 1 of 1 matching entries.'),
+  ).toBeVisible();
+  const reopenedFilter = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith('/knowledge/entities') &&
+      url.searchParams.get('query') === 'Phase 4 knowledge 002' &&
+      url.searchParams.get('status') === 'active'
+    );
+  });
+  await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
+  await reopenedFilter;
+  await expect(
+    page.getByText('Showing 1 of 1 matching entries.'),
+  ).toBeVisible();
+  const reopenedEntry = page
+    .getByRole('listitem')
+    .filter({ hasText: 'Phase 4 knowledge 002' })
+    .first();
+  await reopenedEntry.locator('summary').click();
+  await reopenedEntry
+    .getByRole('button', { name: 'Edit', exact: true })
+    .click();
+  await expect(dialog).toBeVisible();
+  await expect(
+    editor.getByRole('textbox', { name: 'Description', exact: true }),
+  ).toHaveValue('Synthetic retained modal draft');
   await editor
     .getByRole('button', { name: 'Confirm knowledge change', exact: true })
     .click();
@@ -979,65 +1028,51 @@ test('Knowledge creates a reviewed entry retains its draft and applies archive r
       { exact: true },
     ),
   ).toBeVisible();
+  const refreshedCatalog = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith('/knowledge/entities') &&
+      url.searchParams.get('query') === 'Phase 4 knowledge 002' &&
+      url.searchParams.get('status') === 'active'
+    );
+  });
   await editor
     .getByRole('button', {
       name: 'Discard draft and reload saved entry',
       exact: true,
     })
     .click();
-  for (const [action, status] of [
-    ['Archive', 'archived'],
-    ['Restore', 'active'],
-  ] as const) {
-    await editor.getByRole('button', { name: action, exact: true }).click();
-    const saved = page.waitForResponse(
-      (response) =>
-        response.url().endsWith('/knowledge/entities/commands') &&
-        response.request().method() === 'POST',
-    );
-    await editor
-      .getByRole('button', { name: 'Confirm knowledge change', exact: true })
-      .click();
-    expect((await saved).ok()).toBe(true);
-    await editor
-      .getByRole('button', { name: 'Reload saved entry', exact: true })
-      .click();
+  await refreshedCatalog;
+  await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
+  await expect(dialog).toHaveCount(0);
+  const archive = reopenedEntry.getByRole('button', {
+    name: 'Archive',
+    exact: true,
+  });
+  if (!(await archive.isVisible())) {
+    await reopenedEntry.locator('summary').click();
     await expect(
-      editor.getByText(
-        `Saved status: ${status}. Projection readiness: unknown.`,
-        { exact: true },
-      ),
+      reopenedEntry.getByText('p4-entity-002', { exact: true }),
     ).toBeVisible();
   }
+  await archive.click();
+  await page
+    .getByRole('button', { name: 'Confirm lifecycle change', exact: true })
+    .click();
+  await expect(page.getByText('No matching knowledge')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Status' }).selectOption('archived');
+  const archived = page.locator('.settings-knowledge-result').first();
+  await archived.locator('summary').click();
+  await archived.getByRole('button', { name: 'Restore', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Confirm lifecycle change', exact: true })
+    .click();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
     await screenshot(page, info, `knowledge-editor-${appearance}`);
     await accessibility(page, info, `knowledge-editor-${appearance}`);
   }
-  await page
-    .getByRole('button', { name: 'Reload knowledge', exact: true })
-    .click();
-  const entry = page.getByRole('listitem').filter({ hasText: subject });
-  await entry.locator('summary').click();
-  await entry
-    .getByRole('button', { name: `Edit ${subject}`, exact: true })
-    .click();
-  await expect(
-    page.getByRole('region', { name: 'Knowledge editor', exact: true }),
-  ).toHaveCount(1);
-  await page.reload();
-  const reloaded = page.getByRole('listitem').filter({ hasText: subject });
-  await reloaded.locator('summary').click();
-  await reloaded
-    .getByRole('button', { name: `Edit ${subject}`, exact: true })
-    .click();
-  await expect(
-    editor.getByRole('heading', { name: 'Edit knowledge', exact: true }),
-  ).toBeFocused();
-  await expect(
-    editor.getByRole('textbox', { name: 'Description', exact: true }),
-  ).toHaveValue('Synthetic retained description');
 });
 
 test('Knowledge relations retain reviewed targets and save directed edges removal and replacement', async ({
@@ -1058,9 +1093,7 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
     .filter({ hasText: 'Phase 4 knowledge 000' })
     .first();
   await entry.locator('summary').click();
-  await entry
-    .getByRole('button', { name: 'Edit Phase 4 knowledge 000', exact: true })
-    .click();
+  await entry.getByRole('button', { name: 'Edit', exact: true }).click();
   await page
     .getByRole('button', { name: 'Relations and replacement', exact: true })
     .click();
@@ -1080,12 +1113,24 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
   await relations
     .getByRole('button', { name: 'Review new relation', exact: true })
     .click();
+  const dialog = page.getByRole('dialog', { name: 'Edit knowledge' });
+  await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
+  await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'Knowledge',
     path: '/app-v2/settings/knowledge',
     headingName: 'Knowledge',
   });
+  const reopenedEntry = page
+    .getByRole('listitem')
+    .filter({ hasText: 'Phase 4 knowledge 000' })
+    .first();
+  await reopenedEntry.locator('summary').click();
+  await reopenedEntry
+    .getByRole('button', { name: 'Edit', exact: true })
+    .click();
+  await expect(relations).toBeVisible();
   const confirm = async (outcome: string) => {
     const result = page.waitForResponse(
       (response) =>
@@ -1119,7 +1164,12 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
     .click();
   await confirm('removed');
   await expect(
-    relations.getByText('0 saved relations. 0 shown on this page.', {
+    relations.getByText('1 saved relations. 1 shown on this page.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    relations.getByText('Outgoing · supports · Phase 4 knowledge 001', {
       exact: true,
     }),
   ).toBeVisible();

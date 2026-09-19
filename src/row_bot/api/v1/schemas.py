@@ -425,6 +425,88 @@ class EntitySummaryPage(WireModel):
     availability: Literal["available", "missing", "unavailable"]
 
 
+class KnowledgeRelationPreview(WireModel):
+    relation_type: str = Field(max_length=64)
+    direction: Literal["incoming", "outgoing"]
+    peer_id: OpaqueId
+    peer_subject: str = Field(max_length=256)
+
+
+class KnowledgeEntityDetail(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable"]
+    id: str = Field(max_length=128)
+    revision: str = Field(max_length=64)
+    entity_type: str = Field(max_length=64)
+    subject: str = Field(max_length=256)
+    description: str = Field(max_length=32768)
+    status: Literal["active", "needs_review", "superseded", "archived"]
+    tier: Literal["core", "semantic", "episodic", "resource"]
+    source: str = Field(max_length=4096)
+    source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
+    confidence: float | None = Field(ge=0, le=1)
+    aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=12)
+    alias_count: int = Field(ge=0, le=256)
+    tags: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=12)
+    tag_count: int = Field(ge=0, le=256)
+    created_at: str = Field(max_length=128)
+    updated_at: str = Field(max_length=128)
+    last_user_modified_at: str = Field(max_length=128)
+    last_evolved_at: str = Field(max_length=128)
+    last_recalled_at: str = Field(max_length=128)
+    recall_count: int | None = Field(ge=0, le=9007199254740991)
+    review_reason: str = Field(max_length=1024)
+    superseded_by: str = Field(max_length=128)
+    supersedes: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=4)
+    source_context: list[Annotated[str, StringConstraints(max_length=512)]] = Field(max_length=10)
+    evidence: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=3)
+    evidence_count: int = Field(ge=0, le=9007199254740991)
+    relations: list[KnowledgeRelationPreview] = Field(max_length=5)
+    relation_count: int = Field(ge=0, le=9007199254740991)
+    can_archive: bool
+    can_restore: bool
+    can_resolve: bool
+
+
+class KnowledgeRecallCandidate(WireModel):
+    subject: str = Field(max_length=256)
+    score: float | None = Field(ge=0, le=1)
+
+
+class KnowledgeRecallDecision(WireModel):
+    timestamp: str = Field(max_length=128)
+    outcome: Literal["used", "skipped"]
+    reason: str = Field(max_length=512)
+    candidate_count: int = Field(ge=0, le=2147483647)
+    selected_count: int = Field(ge=0, le=2147483647)
+    context_characters: int = Field(ge=0, le=2147483647)
+    candidates: list[KnowledgeRecallCandidate] = Field(max_length=3)
+    rejection_reasons: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=3)
+
+
+class KnowledgeRecallPage(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable", "corrupt"]
+    items: list[KnowledgeRecallDecision] = Field(max_length=10)
+
+
+class KnowledgeMemoryChange(WireModel):
+    timestamp: str = Field(max_length=128)
+    action: str = Field(max_length=128)
+    actor: str = Field(max_length=128)
+    old_status: str = Field(max_length=64)
+    new_status: str = Field(max_length=64)
+    subjects: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=3)
+    additional_subjects: int = Field(ge=0, le=100)
+    reason: str = Field(max_length=512)
+
+
+class KnowledgeMemoryChangePage(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable", "corrupt"]
+    items: list[KnowledgeMemoryChange] = Field(max_length=20)
+
+
 class DocumentSummaryPage(WireModel):
     schema_version: Literal[1]
     revision: str = Field(min_length=64, max_length=64)
@@ -878,6 +960,7 @@ SettingsMutationPage = Literal[
     "voice",
     "system",
     "tracker",
+    "knowledge",
     "documents",
     "tools",
     "accounts",
@@ -1550,6 +1633,64 @@ class KnowledgeReceipt(WireModel):
     reused: bool | None = None
 
 
+KnowledgeMaintenanceAction = Literal[
+    "knowledge.delete", "knowledge.delete.bulk", "knowledge.delete_all"
+]
+
+
+class KnowledgeDeleteTarget(WireModel):
+    entity_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class KnowledgeMaintenanceRequest(WireModel):
+    action: KnowledgeMaintenanceAction
+    catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
+
+
+class KnowledgeMaintenanceReview(WireModel):
+    schema_version: Literal[1]
+    action: KnowledgeMaintenanceAction
+    catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
+    entity_count: int = Field(ge=0, le=9007199254740991)
+    side_effects: list[Literal["entities", "relations", "lexical_index", "vector_index", "managed_wiki_files"]] = Field(max_length=5)
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class KnowledgeMaintenancePayload(WireModel):
+    catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class KnowledgeMaintenanceCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: KnowledgeMaintenanceAction
+    payload: KnowledgeMaintenancePayload
+
+
+class KnowledgeCleanupResult(WireModel):
+    lexical_index: Literal["completed", "skipped", "failed"] | None = None
+    vector_index: Literal["completed", "skipped", "failed"] | None = None
+    wiki: Literal["completed", "skipped", "failed"] | None = None
+
+
+class KnowledgeMaintenanceReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "partial", "rejected"]
+    action: KnowledgeMaintenanceAction
+    deleted: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]] = Field(max_length=100)
+    stale: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]] = Field(max_length=100)
+    missing: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]] = Field(max_length=100)
+    cleanup: KnowledgeCleanupResult
+    code: Literal["knowledge_changed", "knowledge_cleanup_partial", "knowledge_outcome_uncertain"] | None = None
+
+
 KnowledgeId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
 KnowledgeRevision = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 KnowledgeRelationAction = Literal[
@@ -1875,6 +2016,10 @@ class WikiReceipt(WireModel):
     count: int = Field(ge=0, le=100000)
     conflicts: int = Field(ge=0, le=100000)
     code: Literal["wiki_conflict", "wiki_outcome_uncertain"] | None
+
+
+class WikiOpenFolderResult(WireModel):
+    status: Literal["opened", "unavailable", "not_found", "denied"]
 
 
 ChannelOperation = Literal["configure", "start", "stop", "pair", "revoke"]

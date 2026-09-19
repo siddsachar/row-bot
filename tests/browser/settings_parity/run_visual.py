@@ -65,7 +65,6 @@ REACT_PAGES = (
     "Providers",
     "Models",
     "Knowledge",
-    "Wiki",
     "Buddy",
     "Goals",
     "Voice",
