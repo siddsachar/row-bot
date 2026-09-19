@@ -48,6 +48,11 @@
           "title": "Personality",
           "type": "string"
         },
+        "personality_description": {
+          "maxLength": 200,
+          "title": "Personality Description",
+          "type": "string"
+        },
         "visible": {
           "title": "Visible",
           "type": "boolean"
@@ -58,6 +63,7 @@
         "collapsed",
         "display_name",
         "personality",
+        "personality_description",
         "bubble_verbosity",
         "animation_intensity",
         "pack_id"

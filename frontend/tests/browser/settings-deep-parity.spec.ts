@@ -265,6 +265,19 @@ for (const [id, label] of settingsRoutes) {
         ),
       ).toHaveCount(0);
       await assertNoOverflow(page);
+      const close = page.getByRole('link', {
+        name: 'Close settings',
+        exact: true,
+      });
+      await close.focus();
+      await page.keyboard.press('Tab');
+      expect(
+        await page.locator('.settings-shell').evaluate((root) => {
+          const active = document.activeElement;
+          return !!active && active !== document.body && root.contains(active);
+        }),
+        `${label} must retain keyboard focus inside the Settings shell`,
+      ).toBe(true);
       if (info.project.use.viewport!.width === 390)
         await expectCoarseTargets(page, info);
       await accessibility(page, info, `settings-${id}-axe`);

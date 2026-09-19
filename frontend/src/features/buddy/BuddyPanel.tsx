@@ -527,6 +527,7 @@ export default function BuddyPanel(props: BuddyPanelProps) {
         packs={state.packs}
         save={props.session.save}
         loadPacks={props.session.loadPacks}
+        reload={props.session.load}
       />
       {state.statusError && <p role="status">{state.statusError}</p>}
       {props.settingsOpen && (
@@ -537,6 +538,12 @@ export default function BuddyPanel(props: BuddyPanelProps) {
             configRevision={state.snapshot?.revision ?? null}
             initialPrompt={props.initialPrompt}
             selectedPack={state.selectedPack}
+            personality={
+              state.snapshot?.preferences.personality ?? 'warm_mystical'
+            }
+            styleNotes={
+              state.snapshot?.preferences.personality_description ?? ''
+            }
             result={state.result}
             review={props.session.review}
             confirm={props.session.confirm}

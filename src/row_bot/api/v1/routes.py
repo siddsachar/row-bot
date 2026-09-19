@@ -4403,6 +4403,9 @@ def create_router(
             body.field,
             body.value,
             validate=dispatch_validation(request, current),
+            resolve_folder_grant=lambda grant_id: str(
+                folder_selections.resolve(grant_id, current.id).path
+            ),
         )
         result["review_id"] = security.approval_nonce(
             current,
@@ -4460,6 +4463,9 @@ def create_router(
             command=wire,
             validate=validate,
             validate_review=validate_review,
+            resolve_folder_grant=lambda grant_id: str(
+                folder_selections.resolve(grant_id, current.id).path
+            ),
         )
         return await respond(request, dto.SettingsMutationReceipt, result)
 

@@ -290,6 +290,16 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
+it('keeps public discovery explicit and installation behind reviewed import', async () => {
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
+
+  const browse = await screen.findByRole('link', { name: 'Browse skills' });
+  expect(browse).toHaveAttribute('href', 'https://skills.sh/');
+  expect(
+    screen.getByText('Import a skill').closest('details'),
+  ).not.toHaveAttribute('open');
+});
+
 it('opens, edits, duplicates, and offers destructive delete review', async () => {
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);

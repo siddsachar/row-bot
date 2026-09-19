@@ -716,6 +716,7 @@ export default function SettingRoute() {
               snapshot={settingsSnapshot}
               mutation={mutation}
               selectedConversationId={state.selectedConversationId}
+              pickFolder={controller.pickFolder}
             />
           ) : (
             snapshotState

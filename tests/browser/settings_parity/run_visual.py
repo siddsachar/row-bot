@@ -1,9 +1,11 @@
 """Guarded NiceGUI/React Settings parity evidence runner.
 
-This runner is intentionally observational in real-data mode. It starts one
-loopback Row-Bot process, captures every NiceGUI Settings owner first, then the
-React routes, and rejects browser writes, external requests, secret rendering,
-and meaningful changes to the mounted data directory.
+The normal mode seeds one isolated synthetic profile, starts one loopback
+Row-Bot process, captures every NiceGUI Settings owner first and then the React
+routes, and rejects browser writes, external requests, secret rendering, and
+meaningful changes to the mounted data directory.  A retained legacy mode can
+still validate an explicitly authorized canonical profile, but parity work must
+use ``--synthetic-data-dir``.
 """
 
 from __future__ import annotations
@@ -33,8 +35,7 @@ EVIDENCE_ROOT = (
     ROOT
     / ".local"
     / "evidence"
-    / "unified-client-platform"
-    / "phase-4-settings-deep-parity"
+    / "settings-remaining-parity"
 )
 AXE_SOURCE = ROOT / "frontend" / "node_modules" / "axe-core" / "axe.min.js"
 LAUNCH_SECRET_ENV = "ROW_BOT_LAUNCH_SECRET"
@@ -44,9 +45,6 @@ VIEWPORTS = {
     "phone": {"width": 390, "height": 844},
 }
 NICEGUI_PAGES = (
-    "Providers",
-    "Models",
-    "Knowledge",
     "Buddy",
     "Voice",
     "System",
@@ -62,9 +60,6 @@ NICEGUI_PAGES = (
     "Preferences",
 )
 REACT_PAGES = (
-    "Providers",
-    "Models",
-    "Knowledge",
     "Buddy",
     "Goals",
     "Voice",
@@ -183,6 +178,64 @@ def _canonical_real_data_dir(requested: Path, authorized: bool) -> Path:
     return actual
 
 
+def _canonical_synthetic_data_dir(requested: Path) -> Path:
+    """Accept only an isolated directory below the repository's ignored roots."""
+
+    actual = requested.expanduser().resolve()
+    allowed_roots = (
+        (ROOT / ".tmp").resolve(),
+        EVIDENCE_ROOT.resolve(),
+    )
+    if not any(actual == root or root in actual.parents for root in allowed_roots):
+        raise CaptureSafetyError(
+            "synthetic parity data must be inside .tmp or the ignored evidence root"
+        )
+    if actual == ROOT.resolve():
+        raise CaptureSafetyError("the repository root cannot be used as synthetic data")
+    actual.mkdir(parents=True, exist_ok=True)
+    return actual
+
+
+def _seed_synthetic_data(data_dir: Path) -> None:
+    """Seed deterministic inert metadata without reading any configured profile."""
+
+    marker = data_dir / ".settings-parity-synthetic-v1"
+    if marker.is_file():
+        return
+    environment = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(
+            (str(SRC), str(ROOT), os.environ.get("PYTHONPATH", ""))
+        ),
+        "ROW_BOT_DATA_DIR": str(data_dir),
+        "ROW_BOT_DOCS_CAPTURE": "1",
+        "ROW_BOT_DOCS_DISABLE_NETWORK": "1",
+        "ROW_BOT_DOCS_FAKE_PROVIDERS": "1",
+        "ROW_BOT_DOCS_REAL_DATA": "0",
+        "ROW_BOT_TEST_MODE": "1",
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "docs" / "seed_real_app_demo_data.py"),
+            "--data-dir",
+            str(data_dir),
+            "--scenario",
+            "full",
+        ],
+        cwd=str(ROOT),
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    if completed.returncode:
+        detail = _redact((completed.stderr or completed.stdout).strip())
+        raise CaptureSafetyError(f"synthetic parity seed failed: {detail}")
+    marker.write_text("synthetic settings parity fixture\n", encoding="utf-8")
+
+
 def _hash_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -215,8 +268,12 @@ def _data_manifest(root: Path) -> dict[str, Any]:
 def _is_ephemeral_data_path(relative_path: str) -> bool:
     lowered = relative_path.casefold().replace("\\", "/")
     name = lowered.rsplit("/", 1)[-1]
+    # The ingestion supervisor records its own lease/heartbeat in jobs.db even
+    # with autostart disabled. Browser mutations remain independently blocked
+    # and audited, so this operational heartbeat is not profile content.
     return (
-        lowered.startswith("logs/")
+        lowered.startswith(("logs/", "crashes/", "plugin_logs/"))
+        or lowered == "document_ingestion/jobs.db"
         or name.endswith((".log", ".pid", ".lock", ".tmp", "-shm", "-wal"))
         or "/__pycache__/" in f"/{lowered}/"
     )
@@ -231,15 +288,24 @@ def _manifest_changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str
         current = new.get(name)
         if prior == current:
             continue
+        metadata_only = bool(
+            prior
+            and current
+            and prior.get("size") == current.get("size")
+            and prior.get("sha256")
+            and prior.get("sha256") == current.get("sha256")
+        )
         changed.append(
             {
                 "path": name,
-                "kind": "created"
+                "kind": "metadata-only"
+                if metadata_only
+                else "created"
                 if prior is None
                 else "removed"
                 if current is None
                 else "changed",
-                "ephemeral": _is_ephemeral_data_path(name),
+                "ephemeral": metadata_only or _is_ephemeral_data_path(name),
                 "before": prior,
                 "after": current,
             }
@@ -250,8 +316,37 @@ def _manifest_changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str
     }
 
 
+def _wait_for_synthetic_startup(data_dir: Path, timeout: float = 12.0) -> dict[str, Any]:
+    """Wait for startup-owned schema/reconciliation writes before evidence."""
+
+    started = time.monotonic()
+    prior: dict[str, tuple[int, str | None]] | None = None
+    stable = 0
+    while time.monotonic() - started < timeout:
+        manifest = _data_manifest(data_dir)
+        semantic = {
+            row["path"]: (int(row["size"]), row.get("sha256"))
+            for row in manifest["files"]
+            if not _is_ephemeral_data_path(row["path"])
+        }
+        if time.monotonic() - started >= 6.0 and semantic == prior:
+            stable += 1
+            if stable >= 2:
+                return manifest
+        else:
+            stable = 0
+        prior = semantic
+        time.sleep(0.5)
+    return _data_manifest(data_dir)
+
+
 def _launch_app(
-    port: int, data_dir: Path, stack: ExitStack, run_root: Path
+    port: int,
+    data_dir: Path,
+    stack: ExitStack,
+    run_root: Path,
+    *,
+    synthetic: bool,
 ) -> tuple[subprocess.Popen[Any], str]:
     stdout = stack.enter_context(
         (run_root / "server.stdout.log").open("w", encoding="utf-8")
@@ -273,8 +368,9 @@ def _launch_app(
         "ROW_BOT_DOCS_DISABLE_NETWORK": "1",
         "ROW_BOT_DOCS_DISABLE_AUTOSTART": "1",
         "ROW_BOT_DOCS_REDUCE_MOTION": "1",
-        "ROW_BOT_DOCS_FAKE_PROVIDERS": "0",
-        "ROW_BOT_DOCS_REAL_DATA": "1",
+        "ROW_BOT_DOCS_FAKE_PROVIDERS": "1" if synthetic else "0",
+        "ROW_BOT_DOCS_REAL_DATA": "0" if synthetic else "1",
+        "ROW_BOT_TEST_MODE": "1" if synthetic else "0",
         "ROW_BOT_AUTO_START_OLLAMA": "0",
         "ROW_BOT_NATIVE": "0",
         "ROW_BOT_BROWSER_HEADLESS": "1",
@@ -760,10 +856,24 @@ def _parse_viewports(raw: str) -> list[str]:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    data_dir = _canonical_real_data_dir(
-        Path(args.data_dir),
-        bool(args.authorize_real_data_capture),
-    )
+    if args.synthetic_data_dir:
+        if args.authorize_real_data_capture or args.data_dir:
+            raise CaptureSafetyError(
+                "--synthetic-data-dir cannot be combined with real-data options"
+            )
+        synthetic = True
+        data_dir = _canonical_synthetic_data_dir(Path(args.synthetic_data_dir))
+        _seed_synthetic_data(data_dir)
+    else:
+        if not args.data_dir:
+            raise CaptureSafetyError(
+                "parity capture requires --synthetic-data-dir"
+            )
+        synthetic = False
+        data_dir = _canonical_real_data_dir(
+            Path(args.data_dir),
+            bool(args.authorize_real_data_capture),
+        )
     pages = _parse_pages(args.pages)
     viewports = _parse_viewports(args.viewports)
     nicegui_targets, react_targets = _targets(pages)
@@ -784,15 +894,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     metrics_root = EVIDENCE_ROOT / "metrics" / stage
     for directory in (run_root, failure_root, reference_root, react_root, metrics_root):
         directory.mkdir(parents=True, exist_ok=True)
-    pre = _data_manifest(data_dir)
-    _write_json(run_root / "data-manifest-pre.json", pre)
+    launch_pre = _data_manifest(data_dir)
+    _write_json(run_root / "data-manifest-launch-pre.json", launch_pre)
     port = _free_port()
     process: subprocess.Popen[Any] | None = None
     records: list[dict[str, Any]] = []
+    pre: dict[str, Any] | None = None
+    post: dict[str, Any] | None = None
     try:
         with ExitStack() as stack:
-            process, launch_secret = _launch_app(port, data_dir, stack, run_root)
+            process, launch_secret = _launch_app(
+                port, data_dir, stack, run_root, synthetic=synthetic
+            )
             _wait_for_app(port, process, launch_secret, args.timeout)
+            pre = (
+                _wait_for_synthetic_startup(data_dir)
+                if synthetic
+                else _data_manifest(data_dir)
+            )
+            _write_json(run_root / "data-manifest-pre.json", pre)
             from playwright.sync_api import sync_playwright
 
             with sync_playwright() as playwright:
@@ -837,6 +957,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             )
                 finally:
                     browser.close()
+            post = _data_manifest(data_dir)
+            _write_json(run_root / "data-manifest-post.json", post)
     finally:
         if process is not None and process.poll() is None:
             process.terminate()
@@ -845,8 +967,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
-    post = _data_manifest(data_dir)
-    _write_json(run_root / "data-manifest-post.json", post)
+    if pre is None:
+        pre = launch_pre
+    if post is None:
+        post = _data_manifest(data_dir)
+        _write_json(run_root / "data-manifest-post.json", post)
     change_report = _manifest_changes(pre, post)
     _write_json(run_root / "data-manifest-diff.json", change_report)
     summary = {
@@ -855,7 +980,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "data_dir": str(data_dir),
         "process_count": 1,
         "binding": "127.0.0.1",
-        "seeded": False,
+        "seeded": synthetic,
+        "profile_kind": "synthetic" if synthetic else "authorized-real",
         "network_disabled": True,
         "autostart_disabled": True,
         "native_outputs_suppressed": True,
@@ -879,7 +1005,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--authorize-real-data-capture", action="store_true")
-    parser.add_argument("--data-dir", required=True)
+    parser.add_argument("--data-dir")
+    parser.add_argument("--synthetic-data-dir")
     parser.add_argument("--engine", default="chromium")
     parser.add_argument("--channel", default="msedge")
     parser.add_argument("--viewports", default="desktop,phone")

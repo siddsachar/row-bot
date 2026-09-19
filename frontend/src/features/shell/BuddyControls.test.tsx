@@ -16,6 +16,7 @@ const snapshot: BuddySnapshot = {
     collapsed: false,
     display_name: 'Buddy',
     personality: 'warm_mystical',
+    personality_description: 'Warm and luminous',
     bubble_verbosity: 'normal',
     animation_intensity: 'normal',
     pack_id: 'glyph',
@@ -61,6 +62,7 @@ function props(): BuddyControlsProps {
     onSettings: vi.fn(),
     save: vi.fn(async () => snapshot),
     loadPacks: vi.fn(async () => page),
+    reload: vi.fn(async () => snapshot),
     stop: vi.fn(async () => {}),
   };
 }
@@ -115,6 +117,18 @@ describe('Buddy shared companion and preferences', () => {
     expect(screen.getByLabelText('Compact Buddy')).toBeEnabled();
     expect(screen.getByLabelText('Buddy name')).toHaveValue('Buddy');
     expect(screen.getByLabelText('Animation intensity')).toHaveValue('normal');
+    expect(screen.getByLabelText('Style notes (optional)')).toHaveValue(
+      'Warm and luminous',
+    );
+  });
+
+  it('refreshes looks only after an explicit action', async () => {
+    const input = props();
+    render(<BuddyControls {...input} />);
+    expect(input.reload).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh looks' }));
+    await screen.findByText('Buddy looks refreshed.');
+    expect(input.reload).toHaveBeenCalledOnce();
   });
 
   it('saves only explicit changes with the captured revision', async () => {

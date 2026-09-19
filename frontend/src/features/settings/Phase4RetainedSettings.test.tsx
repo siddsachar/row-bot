@@ -26,7 +26,6 @@ const account = {
   enabled: null,
   configured: false,
   authentication_state: 'not_configured' as const,
-  credentials_path: '',
   credential: null,
   operations: [],
   read_operations: [],
@@ -95,7 +94,7 @@ const snapshot = {
   },
   system: {
     availability: 'available',
-    workspace: { path: 'D:/Workspace', configured: true, exists: true },
+    workspace: { label: 'Workspace', configured: true, exists: true },
     shell: { available: true, enabled: true, blocked_patterns: 'format c:' },
     browser: {
       available: true,
@@ -136,7 +135,7 @@ const snapshot = {
       active_devices: 0,
       active_sessions: 1,
     },
-    logging: { level: 'INFO', directory: 'D:/Logs' },
+    logging: { level: 'INFO', directory_available: true },
   },
   tracker: {
     availability: 'available',
@@ -245,7 +244,6 @@ const snapshot = {
       ...account,
       account_id: 'gmail',
       enabled: true,
-      credentials_path: 'D:/credentials.json',
       operations: ['search_gmail'],
     },
     calendar: {
@@ -392,6 +390,7 @@ it('renders real voice controls without probing a device or provider', () => {
   expect(screen.queryByLabelText('Start automatically')).toBeNull();
   expect(screen.queryByLabelText('Provider voice')).toBeNull();
   expect(screen.getByLabelText('Enable text-to-speech')).toBeChecked();
+  fireEvent.click(screen.getByText('Models & setup'));
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
   expect(screen.getByText('Kokoro')).toBeVisible();
@@ -444,6 +443,38 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
   expect(screen.getByText('Kokoro not installed')).toBeVisible();
   expect(screen.queryByLabelText('Enable text-to-speech')).toBeNull();
   expect(screen.queryByLabelText('Speech speed')).toBeNull();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review Install Kokoro TTS' }),
+  );
+  expect(mutation.review).toHaveBeenCalledWith(
+    expect.objectContaining({
+      page: 'voice',
+      field: 'tts.install',
+      value: true,
+    }),
+    expect.any(AbortSignal),
+  );
+});
+
+it('reviews local voice output and SenseVoice setup only after explicit actions', async () => {
+  renderSetting('voice');
+  fireEvent.click(screen.getByRole('button', { name: 'Review Test voice' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({ field: 'tts.test', value: true }),
+      expect.any(AbortSignal),
+    ),
+  );
+  fireEvent.click(screen.getByText('Models & setup'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review Install SenseVoice Small' }),
+  );
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({ field: 'sensevoice.install', value: true }),
+      expect.any(AbortSignal),
+    ),
+  );
 });
 
 it('does not expose writable System fields when their tool owner is unavailable', () => {
@@ -490,6 +521,60 @@ it('groups available filesystem operations and keeps runtime detail supplemental
   expect(
     screen.getByText('Computer Use setup details').closest('details'),
   ).not.toHaveAttribute('open');
+});
+
+it('keeps System install network tunnel and OS actions explicit and reviewed', async () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+  );
+  expect(mutation.review).not.toHaveBeenCalled();
+  expect(mutation.execute).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review Install browser runtime' }),
+  );
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'system',
+        field: 'browser.install',
+        value: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('uses an opaque local-owner folder grant and never renders a workspace path', async () => {
+  mutation.page = 'system';
+  const pickFolder = vi.fn().mockResolvedValue({
+    status: 'selected' as const,
+    grant_id: 'g'.repeat(43),
+    name: 'Selected workspace',
+  });
+  render(
+    <SystemSnapshotPanel
+      snapshot={snapshot.system}
+      mutation={mutation}
+      pickFolder={pickFolder}
+    />,
+  );
+  expect(document.body).not.toHaveTextContent('D:/Workspace');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Choose workspace folder' }),
+  );
+  expect(await screen.findByText('Selected: Selected workspace')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'system',
+        field: 'workspace.folder_grant',
+        value: 'g'.repeat(43),
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
 });
 
 it('reviews and saves one retained setting without replaying it', async () => {
@@ -669,7 +754,8 @@ it('does not carry a write draft into a new authenticated session owner', () => 
 
 it('renders System, Tracker, Accounts, and Utilities controls from one snapshot', () => {
   const system = renderSetting('system');
-  expect(screen.getByLabelText('Workspace folder')).toHaveValue('D:/Workspace');
+  expect(screen.getByText(/Current folder: Workspace/)).toBeVisible();
+  expect(screen.queryByDisplayValue(/D:\/Workspace/)).toBeNull();
   expect(screen.getByLabelText('File log level')).toHaveValue('INFO');
   expect(screen.queryByRole('heading', { name: 'Mobile Access' })).toBeNull();
   expect(screen.getByText('Connected devices')).toBeVisible();
@@ -698,6 +784,10 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   fireEvent.click(screen.getByText('Google (Gmail & Calendar)'));
   expect(screen.getByLabelText('Gmail')).toBeChecked();
   expect(screen.getByLabelText('Calendar')).not.toBeChecked();
+  expect(accounts.container.textContent).not.toMatch(
+    /[A-Z]:\\|\/Users\/|\/home\//,
+  );
+  expect(screen.getByText('Credentials file')).toBeVisible();
   fireEvent.click(screen.getByText('X (Twitter)'));
   expect(screen.getByText('Search posts')).toBeVisible();
   expect(screen.getByText('Saved · not checked')).toBeVisible();
@@ -710,7 +800,7 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   expect(screen.queryByText('Timer')).not.toBeInTheDocument();
 });
 
-it('renders editable document, tool, and preference owners', () => {
+it('renders editable document, tool, and preference owners', async () => {
   mutation.page = 'documents';
   const documents = render(
     <DocumentEmbeddingSnapshot
@@ -728,11 +818,28 @@ it('renders editable document, tool, and preference owners', () => {
   expect(screen.getByText(/Local model: cached/)).toBeVisible();
   expect(screen.getByText(/Memory index: pending/)).toBeVisible();
   expect(
-    screen.getByRole('button', { name: /Rebuild document vectors/ }),
-  ).toBeDisabled();
+    screen.getByText('Index & model maintenance').closest('details'),
+  ).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByText('Index & model maintenance'));
   expect(
-    screen.getByRole('button', { name: /Repair local model/ }),
-  ).toBeDisabled();
+    screen.getByRole('button', { name: 'Review rebuild document vectors' }),
+  ).toBeEnabled();
+  expect(
+    screen.getByRole('button', { name: 'Review repair local model' }),
+  ).toBeEnabled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review rebuild document vectors' }),
+  );
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'documents',
+        field: 'vectors.rebuild',
+        value: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
   fireEvent.change(screen.getByLabelText('Provider'), {
     target: { value: 'cloud' },
   });
@@ -753,7 +860,10 @@ it('renders editable document, tool, and preference owners', () => {
     }),
   ).toBeChecked();
   expect(screen.getByLabelText('Enable Web Search')).toBeChecked();
+  expect(screen.getByText('Search the live web with Tavily.')).toBeVisible();
+  expect(screen.getByLabelText('Search research tools')).toBeVisible();
   expect(screen.queryByLabelText('Search API key')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('Credentials & setup'));
   fireEvent.click(
     screen.getByRole('button', { name: 'Replace or remove Search API key' }),
   );

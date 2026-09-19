@@ -96,6 +96,14 @@ export type SettingsMutationIO = {
   drafts: SettingsDraftOwner;
   onSnapshot: (snapshot: SettingsSnapshot) => void;
 };
+export type SettingsFolderGrant = {
+  status: 'selected' | 'cancelled' | 'unavailable';
+  grant_id?: string | null;
+  name?: string | null;
+};
+export type SettingsFolderPicker = (
+  signal?: AbortSignal,
+) => Promise<SettingsFolderGrant>;
 
 function StateChip({
   active,
@@ -543,6 +551,161 @@ function SavedSetting({
       </div>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
+    </div>
+  );
+}
+
+function ReviewedSettingsAction({
+  mutation,
+  field,
+  label,
+  description,
+  variant,
+}: {
+  mutation: SettingsMutationIO;
+  field: string;
+  label: string;
+  description: string;
+  variant?: 'danger' | 'primary' | 'ghost';
+}) {
+  const [review, setReview] = useState<SettingsMutationReview | null>(null);
+  const [request, setRequest] = useState<SettingsMutationRequest | null>(null);
+  const [pendingCommand, setPendingCommand] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
+  useEffect(() => {
+    if (review && review.settings_revision !== mutation.revision) {
+      setReview(null);
+      setRequest(null);
+      setMessage('Saved Settings changed. Review this action again.');
+    }
+  }, [mutation.revision, review]);
+
+  async function reviewAction() {
+    if (busy || pendingCommand) return;
+    const next: SettingsMutationRequest = {
+      settings_revision: mutation.revision,
+      page: mutation.page,
+      field,
+      value: true,
+    };
+    abort.current?.abort();
+    abort.current = new AbortController();
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await mutation.review(next, abort.current.signal);
+      if (
+        result.settings_revision !== next.settings_revision ||
+        result.page !== next.page ||
+        result.field !== next.field
+      )
+        throw { code: 'revision_conflict' };
+      setReview(result);
+      setRequest(next);
+      setMessage(`Review ready: ${result.value_summary}`);
+    } catch (cause) {
+      if (!abort.current.signal.aborted) setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function executeAction() {
+    if (!review || !request || busy) return;
+    const commandId = crypto.randomUUID();
+    setBusy(true);
+    setPendingCommand(commandId);
+    setError('');
+    try {
+      const receipt = await mutation.execute(request, review, commandId);
+      setReview(null);
+      setRequest(null);
+      if (receipt.status === 'completed' && receipt.snapshot) {
+        setPendingCommand('');
+        mutation.onSnapshot(receipt.snapshot);
+        setMessage(`${label} completed.`);
+      } else if (receipt.status === 'partial') {
+        setMessage('The outcome is unconfirmed. Check the original receipt.');
+      } else {
+        setPendingCommand('');
+        setError('The reviewed action was rejected.');
+      }
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setMessage('The outcome is unconfirmed. This action was not repeated.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkReceipt() {
+    if (!pendingCommand || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const receipt = await mutation.receipt(pendingCommand);
+      if (receipt.status === 'partial') {
+        setMessage('The original outcome is still unconfirmed.');
+      } else {
+        setPendingCommand('');
+        if (receipt.status === 'completed' && receipt.snapshot) {
+          mutation.onSnapshot(receipt.snapshot);
+          setMessage(`${label} confirmed.`);
+        } else setError('The original reviewed action was rejected.');
+      }
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-reviewed-action" aria-busy={busy}>
+      <p className="settings-help">{description}</p>
+      {!review && !pendingCommand && (
+        <Button
+          variant={variant}
+          disabled={busy}
+          onClick={() => void reviewAction()}
+        >
+          Review {label}
+        </Button>
+      )}
+      {review && (
+        <div className="settings-control-actions">
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void executeAction()}
+          >
+            {busy ? 'Working…' : `Run reviewed ${label}`}
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              setReview(null);
+              setRequest(null);
+              setMessage('');
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+      {pendingCommand && (
+        <Button disabled={busy} onClick={() => void checkReceipt()}>
+          {busy ? 'Checking…' : 'Check original receipt'}
+        </Button>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {message && <p role="status">{message}</p>}
     </div>
   );
 }
@@ -1195,69 +1358,114 @@ export function VoiceSnapshotPanel({
               />
             </>
           ) : (
-            <StateChip warning>Kokoro not installed</StateChip>
+            <>
+              <StateChip warning>Kokoro not installed</StateChip>
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="tts.install"
+                label="Install Kokoro TTS"
+                description="Downloads the Kokoro model and voices, then keeps speech generation local. Network access occurs only after review."
+              />
+            </>
           )}
         </div>
+        {snapshot.tts.installed && (
+          <ReviewedSettingsAction
+            mutation={mutation}
+            field="tts.test"
+            label="Test voice"
+            description="Plays one fixed local phrase through the selected output device."
+          />
+        )}
       </Section>
-      <Section
-        title="Voice Models"
-        description="Saved runtime choices and masked provider configuration."
-        icon={Radio}
-      >
-        <h4>Runtime Voice Models</h4>
-        <ul className="settings-voice-model-list">
-          <VoiceModelRow
-            title={`Whisper ${snapshot.local.whisper_model}`}
-            description="Dictation and local Talk transcription"
-            provider="Local"
-            status={savedStateLabel(snapshot.local.runtime_state)}
-          />
-          <VoiceModelRow
-            title="SenseVoice"
-            description="Talk and Dictation multilingual transcription"
-            provider="Local"
-            status={
-              snapshot.local.sensevoice_path_configured
-                ? 'Configured'
-                : 'Setup needed'
-            }
-            ready={snapshot.local.sensevoice_path_configured}
-          />
-          <VoiceModelRow
-            title="Kokoro"
-            description={`Speech output · ${snapshot.tts.voice}`}
-            provider="Local"
-            status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
-            ready={snapshot.tts.installed}
-          />
-          <VoiceModelRow
-            title="OpenAI Realtime Talk"
-            description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice}`}
-            provider="OpenAI"
-            status={
-              snapshot.openai_realtime_credential.configured
-                ? 'Credential saved · not checked'
-                : 'Setup needed'
-            }
-            ready={
-              snapshot.openai_realtime_credential.configured ? undefined : false
-            }
-          />
-        </ul>
-        <Link className="button" to="/settings/providers">
-          Open Providers
-        </Link>
-      </Section>
-      <Section
-        title="Diagnostics"
-        description="Cached audio configuration; no device or provider was probed."
-        icon={ShieldCheck}
-      >
-        <Facts>
-          <Fact label="Settings availability" value={snapshot.availability} />
-          <Fact label="Microphone/provider readiness" value="Not checked" />
-        </Facts>
-      </Section>
+      <details className="settings-snapshot-disclosure">
+        <summary>Models &amp; setup</summary>
+        <Section
+          title="Voice Models"
+          description="Saved runtime choices and masked provider configuration."
+          icon={Radio}
+        >
+          <h4>Runtime Voice Models</h4>
+          <ul className="settings-voice-model-list">
+            <VoiceModelRow
+              title={`Whisper ${snapshot.local.whisper_model}`}
+              description="Dictation and local Talk transcription"
+              provider="Local"
+              status={savedStateLabel(snapshot.local.runtime_state)}
+            />
+            <VoiceModelRow
+              title="SenseVoice"
+              description="Talk and Dictation multilingual transcription"
+              provider="Local"
+              status={
+                snapshot.local.sensevoice_path_configured
+                  ? 'Configured'
+                  : 'Setup needed'
+              }
+              ready={snapshot.local.sensevoice_path_configured}
+            />
+            <VoiceModelRow
+              title="Kokoro"
+              description={`Speech output · ${snapshot.tts.voice}`}
+              provider="Local"
+              status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
+              ready={snapshot.tts.installed}
+            />
+            <VoiceModelRow
+              title="OpenAI Realtime Talk"
+              description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice}`}
+              provider="OpenAI"
+              status={
+                snapshot.openai_realtime_credential.configured
+                  ? 'Credential saved · not checked'
+                  : 'Setup needed'
+              }
+              ready={
+                snapshot.openai_realtime_credential.configured
+                  ? undefined
+                  : false
+              }
+            />
+          </ul>
+          {!snapshot.local.sensevoice_path_configured && (
+            <>
+              <a
+                href="https://modelscope.cn/models/iic/SenseVoiceSmall"
+                target="_blank"
+                rel="noreferrer"
+              >
+                SenseVoice Small model and Apache-2.0 license
+              </a>
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="sensevoice.install"
+                label="Install SenseVoice Small"
+                description="Downloads the Apache-2.0 SenseVoice Small model from ModelScope. No audio, prompts, or usage data are sent."
+              />
+            </>
+          )}
+          <Link className="button" to="/settings/providers">
+            Open Providers
+          </Link>
+        </Section>
+      </details>
+      <details className="settings-snapshot-disclosure">
+        <summary>Diagnostics</summary>
+        <Section
+          title="Diagnostics"
+          description="Cached audio configuration; no device or provider was probed."
+          icon={ShieldCheck}
+        >
+          <Facts>
+            <Fact label="Settings availability" value={snapshot.availability} />
+            <Fact label="Microphone/provider readiness" value="Not checked" />
+          </Facts>
+          <p className="settings-help">
+            Talk can call models and tools. Realtime sessions can incur provider
+            cost while active.
+          </p>
+        </Section>
+      </details>
     </div>
   );
 }
@@ -1265,9 +1473,11 @@ export function VoiceSnapshotPanel({
 export function SystemSnapshotPanel({
   snapshot,
   mutation,
+  pickFolder,
 }: {
   snapshot: SettingsSnapshot['system'];
   mutation: SettingsMutationIO;
+  pickFolder?: SettingsFolderPicker;
 }) {
   return (
     <div className="stack settings-snapshot-page settings-system-page">
@@ -1276,11 +1486,12 @@ export function SystemSnapshotPanel({
         description="The filesystem tool is sandboxed to this folder."
         icon={HardDrive}
       >
-        <TextSetting
+        <WorkspaceFolderSetting
+          key={mutation.revision}
           mutation={mutation}
-          field="workspace.path"
-          label="Workspace folder"
-          value={snapshot.workspace.path}
+          configured={snapshot.workspace.configured}
+          currentName={snapshot.workspace.label}
+          pickFolder={pickFolder}
         />
         <StateChip
           active={snapshot.workspace.exists}
@@ -1334,6 +1545,12 @@ export function SystemSnapshotPanel({
                 label="Enable Browser tool"
                 value={snapshot.browser.enabled}
               />
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="browser.install"
+                label="Install browser runtime"
+                description="Downloads Row-Bot's managed Playwright Chromium only after review. Installed Chrome or Edge remains preferred."
+              />
             </div>
           ) : (
             <StateChip warning>Browser tool not found</StateChip>
@@ -1380,6 +1597,15 @@ export function SystemSnapshotPanel({
             </Facts>
           </details>
         )}
+        {snapshot.computer_use.available &&
+          snapshot.computer_use.disclosure_acknowledged && (
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="computer_use.install"
+              label="Install Computer Use runtime"
+              description="Downloads the reviewed, pinned Cua Driver artifact for this platform after review."
+            />
+          )}
       </Section>
       <Section
         title="File Operations"
@@ -1433,6 +1659,26 @@ export function SystemSnapshotPanel({
             : `${snapshot.tunnel.active_count} active tunnels.`}{' '}
           Opening Settings never starts or exposes a tunnel.
         </p>
+        <div className="settings-action-grid">
+          <ReviewedSettingsAction
+            mutation={mutation}
+            field="tunnel.check"
+            label="Check tunnel setup"
+            description="Checks saved local configuration without opening a tunnel."
+          />
+          <ReviewedSettingsAction
+            mutation={mutation}
+            field="tunnel.start_main"
+            label="Start app tunnel"
+            description="Exposes the local app and task webhook endpoint to the internet through ngrok."
+          />
+          <ReviewedSettingsAction
+            mutation={mutation}
+            field="tunnel.stop_main"
+            label="Stop app tunnel"
+            description="Stops only the Row-Bot app tunnel managed by this process."
+          />
+        </div>
       </Section>
       <Section
         title="Remote Access"
@@ -1493,10 +1739,90 @@ export function SystemSnapshotPanel({
           ]}
         />
         <Facts>
-          <Fact label="Log directory" value={snapshot.logging.directory} />
+          <Fact
+            label="Log directory"
+            value={
+              snapshot.logging.directory_available
+                ? 'Available locally'
+                : 'Created when logging starts'
+            }
+          />
         </Facts>
+        <ReviewedSettingsAction
+          mutation={mutation}
+          field="logging.open"
+          label="Open Log Folder"
+          description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
+        />
       </Section>
     </div>
+  );
+}
+
+function WorkspaceFolderSetting({
+  mutation,
+  configured,
+  currentName,
+  pickFolder,
+}: {
+  mutation: SettingsMutationIO;
+  configured: boolean;
+  currentName: string;
+  pickFolder?: SettingsFolderPicker;
+}) {
+  const [selectedName, setSelectedName] = useState('');
+  const [pickError, setPickError] = useState('');
+  const [picking, setPicking] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
+  return (
+    <SavedSetting
+      mutation={mutation}
+      field="workspace.folder_grant"
+      label="Workspace folder grant"
+      value=""
+      group
+    >
+      {({ setValue, disabled }) => (
+        <div className="stack">
+          <p className="settings-help">
+            {configured
+              ? `Current folder: ${currentName || 'Selected local folder'}.`
+              : 'No workspace folder selected.'}{' '}
+            The full local path is never sent to the renderer.
+          </p>
+          <Button
+            disabled={disabled || picking || !pickFolder}
+            onClick={() => {
+              if (!pickFolder || picking) return;
+              abort.current?.abort();
+              abort.current = new AbortController();
+              setPicking(true);
+              setPickError('');
+              void pickFolder(abort.current.signal)
+                .then((result) => {
+                  if (result.status === 'unavailable') {
+                    setPickError('The local folder picker is unavailable.');
+                    return;
+                  }
+                  if (result.status !== 'selected' || !result.grant_id) return;
+                  setSelectedName(result.name || 'Selected local folder');
+                  setValue(result.grant_id);
+                })
+                .catch((cause) => {
+                  if (!abort.current?.signal.aborted)
+                    setPickError(clientError(cause).message);
+                })
+                .finally(() => setPicking(false));
+            }}
+          >
+            {picking ? 'Choosing folder…' : 'Choose workspace folder'}
+          </Button>
+          {selectedName && <p role="status">Selected: {selectedName}</p>}
+          {pickError && <p role="alert">{pickError}</p>}
+        </div>
+      )}
+    </SavedSetting>
   );
 }
 
@@ -1904,18 +2230,6 @@ function GoogleAccountPanel({
             />
           )}
         </div>
-        <TextSetting
-          mutation={mutation}
-          field="gmail.credentials_path"
-          label="Gmail credentials file"
-          value={gmail.credentials_path}
-        />
-        <TextSetting
-          mutation={mutation}
-          field="calendar.credentials_path"
-          label="Calendar credentials file"
-          value={calendar.credentials_path}
-        />
         <ChoiceListSetting
           mutation={mutation}
           field="gmail.operations"
@@ -1946,6 +2260,14 @@ function GoogleAccountPanel({
         />
         <Facts>
           <Fact
+            label="Credentials file"
+            value={
+              gmail.configured || calendar.configured
+                ? 'Configured locally'
+                : 'Not configured'
+            }
+          />
+          <Fact
             label="Gmail configuration"
             value={configuredLabel(gmail.configured)}
           />
@@ -1955,7 +2277,9 @@ function GoogleAccountPanel({
           />
         </Facts>
         <p className="settings-help">
-          Authentication starts only through an explicit account action.
+          Credential locations stay local and are never returned to this page.
+          Native credential selection and authentication start only through an
+          explicit reviewed account action.
         </p>
       </div>
     </details>
@@ -2225,50 +2549,50 @@ export function DocumentEmbeddingSnapshot({
             rebuild either index.
           </p>
         </div>
-        <div
-          className="settings-document-maintenance"
-          role="group"
-          aria-label="Document index maintenance"
-        >
-          <Button
-            disabled
-            title="A reviewed document-vector rebuild owner is not available in this client."
+        <details className="settings-snapshot-disclosure">
+          <summary>Index &amp; model maintenance</summary>
+          <div
+            className="settings-document-maintenance"
+            role="group"
+            aria-label="Document index maintenance"
           >
-            <RefreshCw size={16} aria-hidden /> Rebuild document vectors
-          </Button>
-          <Button
-            disabled
-            title="A reviewed memory-index rebuild owner is not available in this client."
-          >
-            <Network size={16} aria-hidden /> Rebuild memory index
-          </Button>
-          {provider === 'local' && (
-            <>
-              <Button
-                disabled
-                title="A cache-only local model retry owner is not available in this client."
-              >
-                Retry local load
-              </Button>
-              <Button
-                disabled
-                title="Model downloads require an explicit reviewed installation owner."
-              >
-                Download model
-              </Button>
-              <Button
-                disabled
-                title="Model repair requires an explicit reviewed installation owner."
-              >
-                <Wrench size={16} aria-hidden /> Repair local model
-              </Button>
-            </>
-          )}
-        </div>
-        <p className="settings-help">
-          Rebuild, retry, download, and repair remain unavailable until their
-          explicit reviewed command owners are migrated.
-        </p>
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="vectors.rebuild"
+              label="rebuild document vectors"
+              description="Recreate document search vectors from the admitted local document vault."
+            />
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="memory_index.rebuild"
+              label="rebuild memory index"
+              description="Recreate the local memory vector index with the saved embedding configuration."
+            />
+            {provider === 'local' && (
+              <>
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="local_model.retry"
+                  label="retry local load"
+                  description="Retry loading the selected model from the existing on-device cache."
+                />
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="local_model.download"
+                  label="download local model"
+                  description="Download the selected embedding model only after review. This requires network access."
+                />
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="local_model.repair"
+                  label="repair local model"
+                  description="Replace the selected model's cached files only after review. This requires network access."
+                  variant="danger"
+                />
+              </>
+            )}
+          </div>
+        </details>
       </Section>
     </div>
   );
@@ -2281,20 +2605,61 @@ export function ToolConfigurationSnapshot({
   snapshot: SettingsSnapshot['tools'];
   mutation: SettingsMutationIO;
 }) {
-  const toolPresentation: Record<string, { label: string; order: number }> = {
-    arxiv: { label: 'arXiv', order: 0 },
-    duckduckgo: { label: 'DuckDuckGo', order: 1 },
-    web_search: { label: 'Web Search', order: 2 },
-    wikipedia: { label: 'Wikipedia', order: 3 },
-    wolfram_alpha: { label: 'Wolfram Alpha', order: 4 },
-    youtube: { label: 'YouTube', order: 5 },
+  const toolPresentation: Record<
+    string,
+    { label: string; order: number; description: string; setupUrl?: string }
+  > = {
+    arxiv: {
+      label: 'arXiv',
+      order: 0,
+      description: 'Search research papers and preprints.',
+    },
+    duckduckgo: {
+      label: 'DuckDuckGo',
+      order: 1,
+      description: 'Search the current web without an API key.',
+    },
+    web_search: {
+      label: 'Web Search',
+      order: 2,
+      description: 'Search the live web with Tavily.',
+      setupUrl: 'https://app.tavily.com/',
+    },
+    wikipedia: {
+      label: 'Wikipedia',
+      order: 3,
+      description: 'Look up encyclopedia articles and summaries.',
+    },
+    wolfram_alpha: {
+      label: 'Wolfram Alpha',
+      order: 4,
+      description: 'Run advanced computation and scientific queries.',
+      setupUrl: 'https://developer.wolframalpha.com/',
+    },
+    youtube: {
+      label: 'YouTube',
+      order: 5,
+      description: 'Search videos and retrieve available transcripts.',
+    },
   };
+  const [toolQuery, setToolQuery] = useState('');
+  const normalizedQuery = toolQuery.trim().toLocaleLowerCase();
   const tools = snapshot.items
-    .filter((tool) => tool.available)
     .map((tool) => ({
       ...tool,
       displayLabel: toolPresentation[tool.tool_id]?.label ?? tool.label,
+      description:
+        toolPresentation[tool.tool_id]?.description ??
+        'Saved research capability.',
+      setupUrl: toolPresentation[tool.tool_id]?.setupUrl,
     }))
+    .filter(
+      (tool) =>
+        !normalizedQuery ||
+        `${tool.displayLabel} ${tool.description}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery),
+    )
     .sort(
       (left, right) =>
         (toolPresentation[left.tool_id]?.order ?? Number.MAX_SAFE_INTEGER) -
@@ -2357,18 +2722,28 @@ export function ToolConfigurationSnapshot({
         description="Saved enablement and masked configuration for research tools."
         icon={BookOpen}
       >
+        <Field label="Search research tools">
+          <Input
+            type="search"
+            value={toolQuery}
+            onChange={(event) => setToolQuery(event.target.value)}
+            placeholder="Name or purpose"
+          />
+        </Field>
         <ul className="settings-toggle-list">
           {tools.map((tool) => (
             <li key={tool.tool_id}>
               <div>
                 <strong>{tool.displayLabel}</strong>
+                <small>{tool.description}</small>
                 <small>
+                  {tool.available ? 'Available' : 'Unavailable'}
                   {tool.configured_fields.length
-                    ? `${tool.configured_fields.length} configured fields`
-                    : 'No extra configuration'}
+                    ? ` · ${tool.configured_fields.length} configured fields`
+                    : ''}
                 </small>
               </div>
-              {tool.enabled != null ? (
+              {tool.available && tool.enabled != null ? (
                 <SwitchSetting
                   mutation={mutation}
                   field={`${tool.tool_id}.enabled`}
@@ -2378,36 +2753,54 @@ export function ToolConfigurationSnapshot({
               ) : (
                 <StateChip warning>Unavailable</StateChip>
               )}
-              {tool.credentials.map((credential) =>
-                tool.tool_id === 'web_search' ||
-                tool.tool_id === 'wolfram_alpha' ? (
-                  <SecretSetting
-                    key={credential.name}
-                    mutation={mutation}
-                    field={`${tool.tool_id}.credential`}
-                    label={credential.label}
-                    configured={credential.configured}
-                    source={credential.source}
-                  />
-                ) : (
-                  <div className="settings-summary-strip" key={credential.name}>
-                    <strong>{credential.label}</strong>
-                    <StateChip
-                      active={credential.configured}
-                      warning={!credential.configured}
-                    >
-                      {credential.configured
-                        ? 'Saved · masked'
-                        : 'Not configured'}
-                    </StateChip>
-                  </div>
-                ),
+              {(tool.credentials.length > 0 || tool.setupUrl) && (
+                <details className="settings-snapshot-disclosure settings-tool-detail">
+                  <summary>Credentials &amp; setup</summary>
+                  {tool.setupUrl && (
+                    <p className="settings-help">
+                      Create the provider credential at{' '}
+                      <a href={tool.setupUrl} target="_blank" rel="noreferrer">
+                        {new URL(tool.setupUrl).hostname}
+                      </a>
+                      , then save it below. Credentials remain write-only and
+                      masked.
+                    </p>
+                  )}
+                  {tool.credentials.map((credential) =>
+                    tool.tool_id === 'web_search' ||
+                    tool.tool_id === 'wolfram_alpha' ? (
+                      <SecretSetting
+                        key={credential.name}
+                        mutation={mutation}
+                        field={`${tool.tool_id}.credential`}
+                        label={credential.label}
+                        configured={credential.configured}
+                        source={credential.source}
+                      />
+                    ) : (
+                      <div
+                        className="settings-summary-strip"
+                        key={credential.name}
+                      >
+                        <strong>{credential.label}</strong>
+                        <StateChip
+                          active={credential.configured}
+                          warning={!credential.configured}
+                        >
+                          {credential.configured
+                            ? 'Saved · masked'
+                            : 'Not configured'}
+                        </StateChip>
+                      </div>
+                    ),
+                  )}
+                </details>
               )}
             </li>
           ))}
         </ul>
         {!tools.length && (
-          <p className="settings-help">No research tools are available.</p>
+          <p className="settings-help">No research tools match this search.</p>
         )}
       </Section>
     </div>

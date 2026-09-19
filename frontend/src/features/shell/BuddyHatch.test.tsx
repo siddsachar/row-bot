@@ -25,6 +25,8 @@ function props(): BuddyHatchProps {
   return {
     scopeKey: 'owner-one',
     configRevision: 'revision-one',
+    personality: 'warm_mystical',
+    styleNotes: 'Warm and luminous',
     result: null,
     selectedPack: {
       id: 'hatch-one',
@@ -103,6 +105,11 @@ describe('Buddy Hatch explicit controls', () => {
     expect(input.review).not.toHaveBeenCalled();
     expect(input.confirm).not.toHaveBeenCalled();
     await reviewNew();
+    expect(input.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('User style notes: Warm and luminous'),
+      }),
+    );
     expect(screen.getByText('Image model: openai/image')).toBeInTheDocument();
     expect(screen.getByText('Provider calls: 7')).toBeInTheDocument();
     expect(input.confirm).not.toHaveBeenCalled();

@@ -80,6 +80,15 @@ def test_real_data_capture_rejects_any_other_directory() -> None:
         )
 
 
+def test_synthetic_capture_accepts_only_ignored_repository_roots() -> None:
+    with _temp_directory() as directory:
+        accepted = runner._canonical_synthetic_data_dir(Path(directory) / "profile")
+
+    assert accepted.name == "profile"
+    with pytest.raises(runner.CaptureSafetyError, match="inside .tmp"):
+        runner._canonical_synthetic_data_dir(Path(r"D:\not-row-bot-synthetic"))
+
+
 def test_manifest_diff_separates_ephemeral_and_meaningful_changes() -> None:
     before = {
         "files": [
@@ -103,23 +112,42 @@ def test_manifest_diff_separates_ephemeral_and_meaningful_changes() -> None:
     assert [row["path"] for row in report["meaningful"]] == ["settings.json"]
 
 
+def test_manifest_diff_records_identical_content_rewrite_as_metadata_only() -> None:
+    before = {
+        "files": [
+            {"path": "skills_config.json", "size": 2, "mtime_ns": 1, "sha256": "same"}
+        ]
+    }
+    after = {
+        "files": [
+            {"path": "skills_config.json", "size": 2, "mtime_ns": 2, "sha256": "same"}
+        ]
+    }
+
+    report = runner._manifest_changes(before, after)
+
+    assert report["changes"][0]["kind"] == "metadata-only"
+    assert report["meaningful"] == []
+
+
 def test_page_targets_preserve_required_order_and_surface_ownership() -> None:
     nicegui, react = runner._targets(None)
 
     assert [target.name for target in nicegui] == list(runner.NICEGUI_PAGES)
     assert [target.name for target in react] == list(runner.REACT_PAGES)
-    assert len(nicegui) == 16
-    assert len(react) == 18
-    assert react[3].route == "/app-v2/settings/wiki"
-    assert react[5].route == "/app-v2/settings/goals"
+    assert len(nicegui) == 13
+    assert len(react) == 14
+    assert react[0].route == "/app-v2/settings/buddy"
+    assert react[1].route == "/app-v2/settings/goals"
+    assert all(target.name != "Wiki" for target in (*nicegui, *react))
 
 
 def test_page_filter_keeps_cross_surface_page_selection() -> None:
-    requested = runner._parse_pages("Providers,Goals")
+    requested = runner._parse_pages("Buddy,Goals")
     nicegui, react = runner._targets(requested)
 
-    assert [target.name for target in nicegui] == ["Providers"]
-    assert [target.name for target in react] == ["Providers", "Goals"]
+    assert [target.name for target in nicegui] == ["Buddy"]
+    assert [target.name for target in react] == ["Buddy", "Goals"]
 
 
 @pytest.mark.parametrize(
@@ -156,7 +184,7 @@ def test_scroll_positions_overlap_and_include_boundaries_once() -> None:
 
 
 def test_react_scroll_capture_prefers_the_settings_pane() -> None:
-    nicegui, react = runner._targets({"providers"})
+    nicegui, react = runner._targets({"buddy"})
 
     assert runner._scroll_owner_selector(nicegui[0]) == ""
     assert runner._scroll_owner_selector(react[0]) == ".settings-shell-body"

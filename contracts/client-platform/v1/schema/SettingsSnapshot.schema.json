@@ -39,11 +39,6 @@
             }
           ]
         },
-        "credentials_path": {
-          "maxLength": 4096,
-          "title": "Credentials Path",
-          "type": "string"
-        },
         "enabled": {
           "anyOf": [
             {
@@ -97,7 +92,6 @@
         "enabled",
         "configured",
         "authentication_state",
-        "credentials_path",
         "credential",
         "operations",
         "read_operations",
@@ -926,10 +920,9 @@
     "SettingsLoggingSnapshot": {
       "additionalProperties": false,
       "properties": {
-        "directory": {
-          "maxLength": 4096,
-          "title": "Directory",
-          "type": "string"
+        "directory_available": {
+          "title": "Directory Available",
+          "type": "boolean"
         },
         "level": {
           "enum": [
@@ -944,7 +937,7 @@
       },
       "required": [
         "level",
-        "directory"
+        "directory_available"
       ],
       "title": "SettingsLoggingSnapshot",
       "type": "object"
@@ -1217,14 +1210,14 @@
           "title": "Exists",
           "type": "boolean"
         },
-        "path": {
-          "maxLength": 4096,
-          "title": "Path",
+        "label": {
+          "maxLength": 255,
+          "title": "Label",
           "type": "string"
         }
       },
       "required": [
-        "path",
+        "label",
         "configured",
         "exists"
       ],

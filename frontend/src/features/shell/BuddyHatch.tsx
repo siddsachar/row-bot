@@ -49,6 +49,8 @@ export type BuddyHatchProps = {
   configRevision: string | null;
   initialPrompt?: string;
   selectedPack: BuddyPack | null;
+  personality: string;
+  styleNotes: string;
   result: HatchResult | null;
   review(request: HatchRequest): Promise<HatchReview>;
   confirm(reviewId: string): Promise<HatchResult | HatchRemoval>;
@@ -56,6 +58,39 @@ export type BuddyHatchProps = {
   refresh(commandId: string): Promise<HatchResult>;
   cancel(jobId: string): Promise<void>;
 };
+
+const personalityNames: Record<string, string> = {
+  warm_mystical: 'Warm mystical',
+  calm_focus: 'Calm focus',
+  playful_helper: 'Playful helper',
+  quiet_guardian: 'Quiet guardian',
+  curious_scholar: 'Curious scholar',
+};
+const personalityHints: Record<string, string> = {
+  warm_mystical: 'gentle, luminous, encouraging, and a little mysterious',
+  calm_focus: 'minimal, steady, precise, and designed for deep work',
+  playful_helper:
+    'bright, expressive, nimble, and visibly helpful without feeling noisy',
+  quiet_guardian: 'protective, quiet, observant, and reassuring',
+  curious_scholar: 'bookish, inquisitive, analytical, and warmly attentive',
+};
+
+export function composeHatchPrompt(
+  concept: string,
+  personality: string,
+  styleNotes: string,
+) {
+  const selected = personalityNames[personality]
+    ? personality
+    : 'warm_mystical';
+  return [
+    concept.trim(),
+    `Personality style: ${personalityNames[selected]} - ${personalityHints[selected]}.`,
+    styleNotes.trim() ? `User style notes: ${styleNotes.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 const active = (result: HatchResult | null) =>
   result !== null &&
@@ -194,7 +229,16 @@ export default function BuddyHatch(props: BuddyHatchProps) {
             action === 'retained-motion'
               ? 'motion'
               : (action as HatchRequest['action']),
-          prompt: prompt.trim() || 'Retained Buddy look',
+          prompt:
+            action === 'full' ||
+            action === 'motion' ||
+            action === 'retained-motion'
+              ? composeHatchPrompt(
+                  prompt.trim() || 'Retained Buddy look',
+                  props.personality,
+                  props.styleNotes,
+                )
+              : prompt.trim() || 'Retained Buddy look',
           config_revision: revision,
         };
         if (

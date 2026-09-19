@@ -1346,6 +1346,19 @@
           "default": null,
           "title": "Personality"
         },
+        "personality_description": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Personality Description"
+        },
         "visible": {
           "anyOf": [
             {

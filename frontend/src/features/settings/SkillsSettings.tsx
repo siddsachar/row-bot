@@ -627,6 +627,14 @@ export default function SkillsSettings({
         <Button disabled={locked} onClick={() => void load()}>
           Reload skills
         </Button>
+        <a
+          className="button"
+          href="https://skills.sh/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Browse skills
+        </a>
         <Button
           disabled={locked}
           onClick={() =>
@@ -770,6 +778,11 @@ export default function SkillsSettings({
           </span>
         </summary>
         <Surface>
+          <p>
+            Browse public skills, inspect their source, then paste trusted
+            SKILL.md text here. Row-Bot validates and reviews the exact content
+            before saving it locally.
+          </p>
           <Field label="Import SKILL.md text">
             <textarea
               className="input"

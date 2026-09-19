@@ -2924,6 +2924,32 @@ progress {
   border-radius: var(--radius-control);
   background: var(--status-warning-background);
 }
+.settings-snapshot-disclosure {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-subtle);
+}
+.settings-snapshot-disclosure > summary {
+  min-height: 44px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-weight: 650;
+  cursor: pointer;
+}
+.settings-snapshot-disclosure[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.settings-tool-detail a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+.settings-snapshot-disclosure > .settings-snapshot-section {
+  margin: 10px;
+}
+.settings-reviewed-action > .settings-help:first-child {
+  margin-top: 0;
+}
 .settings-review-row,
 .settings-bulk-bar,
 .settings-knowledge-row {
@@ -4132,6 +4158,11 @@ details[open] > summary > .settings-disclosure-chevron {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 12px;
 }
+.settings-shell .checkbox-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
 .settings-buddy-visibility-grid > .field {
   grid-column: 1 / -1;
 }
@@ -4178,11 +4209,11 @@ details[open] > summary > .settings-disclosure-chevron {
     grid-column: auto;
   }
   .settings-buddy-preferences .buddy-look-list {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .settings-buddy-preferences .buddy-look .buddy-avatar {
-    width: min(100%, 204px);
-    height: 104px;
+    width: 88px;
+    height: 88px;
   }
   .settings-voice-page > .settings-snapshot-section,
   .settings-system-page > .settings-snapshot-section {

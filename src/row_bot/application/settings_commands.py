@@ -132,15 +132,28 @@ _BOOL_FIELDS = {
     ("preferences", "identity.self_improvement_enabled"),
     ("preferences", "dream_cycle.enabled"),
 }
+_ACTION_FIELDS = {
+    ("voice", "tts.install"),
+    ("voice", "tts.test"),
+    ("voice", "sensevoice.install"),
+    ("system", "browser.install"),
+    ("system", "computer_use.install"),
+    ("system", "tunnel.check"),
+    ("system", "tunnel.start_main"),
+    ("system", "tunnel.stop_main"),
+    ("system", "logging.open"),
+    ("documents", "vectors.rebuild"),
+    ("documents", "memory_index.rebuild"),
+    ("documents", "local_model.retry"),
+    ("documents", "local_model.download"),
+    ("documents", "local_model.repair"),
+}
 _TEXT_FIELDS = {
     ("voice", "runtime.talk_model"): 128,
     ("voice", "runtime.dictation_model"): 128,
     ("voice", "runtime.speech_output_model"): 128,
     ("voice", "runtime.speech_output_voice"): 64,
-    ("system", "workspace.path"): 4096,
     ("system", "shell.blocked_patterns"): 4096,
-    ("accounts", "gmail.credentials_path"): 4096,
-    ("accounts", "calendar.credentials_path"): 4096,
     ("preferences", "identity.name"): 128,
     ("preferences", "identity.personality"): 200,
 }
@@ -195,6 +208,7 @@ _LIST_FIELDS = {
     },
 }
 _SAFE_ID = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_OPAQUE_GRANT = re.compile(r"[A-Za-z0-9_-]{32,128}\Z")
 
 
 class SettingsCommandError(ValueError):
@@ -228,6 +242,12 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         return page, field, value.strip() if isinstance(value, str) else None, True
     if key in _ENUMS:
         if type(value) is not str or value not in _ENUMS[key]:
+            raise SettingsCommandError("invalid_settings_command")
+    elif key in _ACTION_FIELDS:
+        if value is not True:
+            raise SettingsCommandError("invalid_settings_command")
+    elif key == ("system", "workspace.folder_grant"):
+        if type(value) is not str or not _OPAQUE_GRANT.fullmatch(value):
             raise SettingsCommandError("invalid_settings_command")
     elif key in _BOOL_FIELDS:
         if type(value) is not bool:
@@ -323,12 +343,17 @@ def review_settings_update(
     value: Any,
     *,
     validate: Callable[[], None],
+    resolve_folder_grant: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     validate()
     intent = _intent(settings_revision, page, field, value)
     current = read_settings_snapshot(validate=validate)
     if current["revision"] != settings_revision:
         raise SettingsCommandError("settings_changed", current["revision"])
+    if (page, field) == ("system", "workspace.folder_grant"):
+        if resolve_folder_grant is None:
+            raise SettingsCommandError("settings_action_unavailable")
+        resolve_folder_grant(intent["value"])
     if page == "preferences" and field in {
         "dream_cycle.window_start",
         "dream_cycle.window_end",
@@ -356,6 +381,36 @@ def review_settings_update(
             "Delete all tracker data, including every tracker and entry. "
             "This cannot be undone."
         )
+    elif (page, field) == ("system", "workspace.folder_grant"):
+        summary = "Use the explicitly selected local folder as the filesystem workspace"
+    elif (page, field) == ("voice", "tts.install"):
+        summary = "Download and install Kokoro speech output locally"
+    elif (page, field) == ("voice", "sensevoice.install"):
+        summary = "Download and install SenseVoice Small locally"
+    elif (page, field) == ("voice", "tts.test"):
+        summary = "Play one local test phrase through the selected output device"
+    elif (page, field) == ("system", "browser.install"):
+        summary = "Download and install Row-Bot's managed Playwright Chromium runtime"
+    elif (page, field) == ("system", "computer_use.install"):
+        summary = "Download and install the reviewed Cua Driver runtime for this platform"
+    elif (page, field) == ("system", "tunnel.check"):
+        summary = "Check saved ngrok configuration without opening a tunnel"
+    elif (page, field) == ("system", "tunnel.start_main"):
+        summary = "Expose the local Row-Bot app and task webhook endpoint through ngrok"
+    elif (page, field) == ("system", "tunnel.stop_main"):
+        summary = "Stop the Row-Bot app tunnel managed by this process"
+    elif (page, field) == ("system", "logging.open"):
+        summary = "Open Row-Bot's local log folder with the operating system"
+    elif (page, field) == ("documents", "vectors.rebuild"):
+        summary = "Rebuild saved document vectors from the local document vault"
+    elif (page, field) == ("documents", "memory_index.rebuild"):
+        summary = "Rebuild the local memory vector index"
+    elif (page, field) == ("documents", "local_model.retry"):
+        summary = "Retry loading the selected local embedding model from its cache"
+    elif (page, field) == ("documents", "local_model.download"):
+        summary = "Download the selected local embedding model"
+    elif (page, field) == ("documents", "local_model.repair"):
+        summary = "Repair the selected local embedding model cache"
     else:
         summary = str(intent["value"])[:256]
     validate()
@@ -506,12 +561,6 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
             tools[identity] = value
         elif page == "accounts" and field.endswith(".enabled"):
             tools[field.removesuffix(".enabled")] = value
-        elif page == "accounts" and field in {
-            "gmail.credentials_path",
-            "calendar.credentials_path",
-        }:
-            identity = field.split(".", 1)[0]
-            configs.setdefault(identity, {})["credentials_path"] = value
         elif page == "accounts" and (page, field) in _LIST_FIELDS:
             identity, name = field.split(".", 1)
             key = "selected_operations" if identity in {"gmail", "calendar"} else name
@@ -566,12 +615,125 @@ def _clear_tracker_data(
             connection.close()
 
 
-def _apply(intent: dict[str, Any], *, validate: Callable[[], None]) -> dict[str, Any]:
+def _run_voice_action(field: str) -> None:
+    if field == "tts.install":
+        from row_bot.tts import TTSService
+
+        TTSService().download_model()
+        return
+    if field == "sensevoice.install":
+        from row_bot.voice import VoiceService
+
+        VoiceService().install_sensevoice_model()
+        return
+    if field == "tts.test":
+        from row_bot.tts import TTSService
+
+        service = TTSService()
+        if not service.is_installed():
+            raise SettingsCommandError("voice_test_unavailable")
+        service.speak_now("Hello! This is your local Row-Bot voice test.")
+        return
+    raise SettingsCommandError("settings_action_unavailable")
+
+
+def _run_system_action(field: str) -> None:
+    if field == "browser.install":
+        from row_bot.mcp_client.requirements import install_managed_runtime
+
+        result = install_managed_runtime("playwright-chrome")
+        if not result.ok:
+            raise SettingsCommandError("runtime_install_failed")
+        return
+    if field == "computer_use.install":
+        from row_bot.computer_use.readiness import install_cua_runtime
+
+        install_cua_runtime()
+        return
+    if field in {"tunnel.check", "tunnel.start_main", "tunnel.stop_main"}:
+        from row_bot.app_port import get_app_port
+        from row_bot.tunnel import tunnel_manager
+
+        if field == "tunnel.check":
+            tunnel_manager.status()
+        elif field == "tunnel.start_main":
+            tunnel_manager.start_tunnel(get_app_port(), label="main_app")
+        else:
+            tunnel_manager.stop_tunnel(get_app_port())
+        return
+    if field == "logging.open":
+        import subprocess
+
+        from row_bot.logging_config import get_log_dir
+
+        directory = str(get_log_dir())
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", directory])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", directory])
+        else:
+            subprocess.Popen(["xdg-open", directory])
+        return
+    raise SettingsCommandError("settings_action_unavailable")
+
+
+def _run_documents_action(field: str, root: Path) -> None:
+    if field == "vectors.rebuild":
+        from row_bot.documents import rebuild_vector_store_from_vault
+
+        rebuild_vector_store_from_vault()
+        return
+    if field == "memory_index.rebuild":
+        from row_bot import knowledge_graph
+
+        knowledge_graph.rebuild_index()
+        return
+    if field == "local_model.retry":
+        from row_bot.embedding_providers import (
+            get_embedding_provider_for_recall,
+            retry_local_embedding_load,
+        )
+
+        retry_local_embedding_load()
+        get_embedding_provider_for_recall()
+        return
+    if field in {"local_model.download", "local_model.repair"}:
+        from row_bot.embedding_config import get_embedding_config
+        from row_bot.embedding_providers import download_local_embedding_model
+
+        model_key = str(get_embedding_config().get("local_model") or "")
+        if model_key not in _ENUMS[("documents", "embedding.local_model")]:
+            raise SettingsCommandError("settings_unavailable")
+        download_local_embedding_model(
+            model_key,
+            repair=field == "local_model.repair",
+        )
+        return
+    raise SettingsCommandError("settings_action_unavailable")
+
+
+def _apply(
+    intent: dict[str, Any],
+    *,
+    validate: Callable[[], None],
+    resolve_folder_grant: Callable[[str], str] | None = None,
+) -> dict[str, Any]:
     validate()
     root = get_row_bot_data_dir(create=False).absolute()
     page, field, value = intent["page"], intent["field"], intent["value"]
     if (page, field) == ("tracker", "delete_all"):
         _clear_tracker_data(root, intent["settings_revision"], validate=validate)
+    elif (page, field) == ("system", "workspace.folder_grant"):
+        if resolve_folder_grant is None:
+            raise SettingsCommandError("settings_action_unavailable")
+        selected = resolve_folder_grant(value)
+        _write_tool_setting(root, "system", "workspace.path", selected)
+    elif page == "voice" and (page, field) in _ACTION_FIELDS:
+        _run_voice_action(field)
+    elif page == "system" and (page, field) in _ACTION_FIELDS:
+        _run_system_action(field)
+    elif page == "documents" and (page, field) in _ACTION_FIELDS:
+        _run_documents_action(field, root)
     elif intent["secret"]:
         from row_bot import api_keys
 
@@ -609,6 +771,7 @@ def execute_settings_update(
     command: dict[str, Any],
     validate: Callable[[], None],
     validate_review: Callable[[dict[str, Any]], None],
+    resolve_folder_grant: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     validate()
     if type(command) is not dict or command.get("type") != "settings.update":
@@ -651,6 +814,7 @@ def execute_settings_update(
         intent["field"],
         intent["value"],
         validate=validate,
+        resolve_folder_grant=resolve_folder_grant,
     )
     if review["action_digest"] != payload["action_digest"]:
         raise SettingsCommandError("settings_review_changed")
@@ -674,7 +838,11 @@ def execute_settings_update(
     if replay is not None:
         return replay
     try:
-        snapshot = _apply(intent, validate=validate)
+        snapshot = _apply(
+            intent,
+            validate=validate,
+            resolve_folder_grant=resolve_folder_grant,
+        )
         result = {
             "command_id": command_id,
             "status": "completed",

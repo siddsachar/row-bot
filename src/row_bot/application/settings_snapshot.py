@@ -529,7 +529,7 @@ def _system(
     return {
         "availability": "available",
         "workspace": {
-            "path": workspace,
+            "label": Path(workspace).name if workspace else "",
             "configured": bool(workspace),
             "exists": bool(workspace and _local_path_is_dir(workspace)),
         },
@@ -573,7 +573,7 @@ def _system(
         "mobile_access": _mobile_access(root),
         "logging": {
             "level": log_level,
-            "directory": str(root / "logs"),
+            "directory_available": (root / "logs").is_dir(),
         },
     }
 
@@ -1243,7 +1243,6 @@ def _account(
     enabled: bool | None,
     configured: bool,
     authentication_state: str,
-    credentials_path: str = "",
     credential: dict[str, Any] | None = None,
     operations: list[str] | None = None,
     read_operations: list[str] | None = None,
@@ -1255,7 +1254,6 @@ def _account(
         "enabled": enabled,
         "configured": configured,
         "authentication_state": authentication_state,
-        "credentials_path": credentials_path,
         "credential": credential,
         "operations": operations or [],
         "read_operations": read_operations or [],
@@ -1311,7 +1309,6 @@ def _accounts(
             enabled=_enabled("gmail", tools, registered),
             configured=_local_path_is_file(gmail_path),
             authentication_state=_token_state(root / "gmail" / "token.json"),
-            credentials_path=gmail_path,
             operations=gmail_ops,
         ),
         "calendar": _account(
@@ -1319,7 +1316,6 @@ def _accounts(
             enabled=_enabled("calendar", tools, registered),
             configured=_local_path_is_file(calendar_path),
             authentication_state=_token_state(root / "calendar" / "token.json"),
-            credentials_path=calendar_path,
             operations=calendar_ops,
         ),
         "x": _account(

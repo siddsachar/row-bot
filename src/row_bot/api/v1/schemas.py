@@ -630,7 +630,7 @@ class VoiceSettingsSnapshot(WireModel):
 
 
 class SettingsWorkspaceSnapshot(WireModel):
-    path: str = Field(max_length=4096)
+    label: str = Field(max_length=255)
     configured: bool
     exists: bool
 
@@ -686,7 +686,7 @@ class SettingsMobileAccessSnapshot(WireModel):
 
 class SettingsLoggingSnapshot(WireModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"]
-    directory: str = Field(max_length=4096)
+    directory_available: bool
 
 
 class SystemSettingsSnapshot(WireModel):
@@ -844,7 +844,6 @@ class AccountSettingsItem(WireModel):
         "expired",
         "unavailable",
     ]
-    credentials_path: str = Field(max_length=4096)
     credential: SettingsCredentialState | None
     operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=128
@@ -4168,6 +4167,7 @@ class BuddyPreferences(WireModel):
         "quiet_guardian",
         "curious_scholar",
     ]
+    personality_description: str = Field(max_length=200)
     bubble_verbosity: Literal["quiet", "normal", "chatty"]
     animation_intensity: Literal["quiet", "normal", "expressive"]
     pack_id: str = Field(min_length=1, max_length=128)
@@ -4187,6 +4187,7 @@ class BuddyPreferenceChanges(WireModel):
         ]
         | None
     ) = None
+    personality_description: str | None = Field(default=None, max_length=200)
     bubble_verbosity: Literal["quiet", "normal", "chatty"] | None = None
     animation_intensity: Literal["quiet", "normal", "expressive"] | None = None
     pack_id: str | None = Field(default=None, min_length=1, max_length=128)

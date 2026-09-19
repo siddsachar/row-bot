@@ -24,6 +24,7 @@ const snapshot: BuddySnapshot = {
     collapsed: false,
     display_name: 'Buddy',
     personality: 'warm_mystical',
+    personality_description: 'Warm and luminous',
     bubble_verbosity: 'normal',
     animation_intensity: 'quiet',
     pack_id: 'glyph',

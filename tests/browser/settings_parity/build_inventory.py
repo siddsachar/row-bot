@@ -17,106 +17,88 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[3]
-EVIDENCE = ROOT / ".local/evidence/unified-client-platform/phase-4-settings-deep-parity"
+EVIDENCE = ROOT / ".local/evidence/settings-remaining-parity"
 DEFAULT_DOM = EVIDENCE / "metrics/before/nicegui"
 DEFAULT_REACT_DOM = EVIDENCE / "metrics/before/react"
-DEFAULT_OUTPUT = EVIDENCE / "control-inventory.md"
-DEFAULT_OVERRIDES = EVIDENCE / "control-inventory-overrides.json"
+DEFAULT_OUTPUT = EVIDENCE / "control-ledger.md"
+DEFAULT_OVERRIDES = EVIDENCE / "control-ledger-overrides.json"
 
 OWNERS = {
-    "Providers": (
-        "src/row_bot/ui/settings.py",
-        2930,
-        "_build_cloud_tab",
-        "ProviderStatus.tsx + ProviderSettingsPanel.tsx",
-    ),
-    "Models": (
-        "src/row_bot/ui/settings.py",
-        2859,
-        "_build_models_tab",
-        "Catalog.tsx + DefaultModelSettings.tsx",
-    ),
-    "Knowledge": (
-        "src/row_bot/ui/settings.py",
-        4649,
-        "_build_knowledge_tab",
-        "KnowledgeCatalog.tsx + KnowledgeEditors.tsx",
-    ),
     "Buddy": (
         "src/row_bot/ui/buddy.py",
-        1,
+        1377,
         "build_buddy_settings_tab",
         "BuddyControls.tsx + BuddyHatch.tsx",
     ),
     "Voice": (
         "src/row_bot/ui/settings.py",
-        5488,
+        5507,
         "_build_voice_tab",
-        "VoiceSettings.tsx",
+        "SettingsSnapshotPanels.tsx::VoiceSnapshotPanel",
     ),
     "System": (
         "src/row_bot/ui/settings.py",
-        3531,
+        3545,
         "_build_system_access_tab",
-        "SystemSettings.tsx",
+        "SettingsSnapshotPanels.tsx::SystemSnapshotPanel",
     ),
     "Tracker": (
         "src/row_bot/ui/settings.py",
-        4547,
+        4566,
         "_build_tracker_tab",
-        "TrackerSettings.tsx",
+        "SettingsSnapshotPanels.tsx::TrackerSnapshotPanel",
     ),
     "Documents": (
         "src/row_bot/ui/settings.py",
         1056,
         "_build_documents_tab",
-        "DocumentSettings.tsx",
+        "SettingsSnapshotPanels.tsx + DocumentsCatalog.tsx + document owners",
     ),
     "Tools": (
         "src/row_bot/ui/settings.py",
-        3365,
+        3379,
         "_build_tools_tab",
-        "ToolSettings.tsx",
+        "SettingsSnapshotPanels.tsx::ToolConfigurationSnapshot + ToolCatalog.tsx",
     ),
     "Skills": (
         "src/row_bot/ui/settings.py",
-        2945,
+        2959,
         "_build_skills_tab",
         "SkillsSettings.tsx",
     ),
     "Accounts": (
         "src/row_bot/ui/settings.py",
-        4248,
+        4267,
         "_build_accounts_tab",
-        "AccountSettings.tsx",
+        "SettingsSnapshotPanels.tsx::AccountsSnapshotPanel",
     ),
     "Channels": (
         "src/row_bot/ui/settings.py",
-        5846,
+        5865,
         "_build_channels_tab",
         "ChannelSettings.tsx",
     ),
     "Utilities": (
         "src/row_bot/ui/settings.py",
-        4507,
+        4526,
         "_build_utilities_tab",
-        "UtilitySettings.tsx",
+        "SettingsSnapshotPanels.tsx::UtilitiesSnapshotPanel",
     ),
     "MCP": (
         "src/row_bot/ui/mcp_settings.py",
-        1,
+        198,
         "build_mcp_settings_tab",
-        "McpSettings.tsx",
+        "CapabilitySettings.tsx + McpConnections.tsx + MCP runtime/policy owners",
     ),
     "Plugins": (
         "src/row_bot/ui/settings.py",
-        6184,
+        6226,
         "_build_plugins_tab",
         "PluginSettings.tsx",
     ),
     "Preferences": (
         "src/row_bot/ui/settings.py",
-        6223,
+        6265,
         "_build_preferences_tab",
         "Preferences.tsx",
     ),
@@ -395,6 +377,8 @@ def build(
                 "react_owner": react_owner
                 + (f"; {missing_note}" if missing_note else ""),
                 "disposition": disposition,
+                "final_ux": "keep pending page-specific simplification review",
+                "reason": "reference capability remains user-relevant until its page gate records a source-proven adaptation",
                 "tests": TESTS[page],
                 "evidence": _evidence_paths(page, dom_dir, react_dom_dir),
             }
@@ -419,16 +403,16 @@ def build(
     disposition_summary = ", ".join(
         f"{name}={count}" for name, count in sorted(dispositions.items())
     )
-    body = f"""# NiceGUI Settings control inventory
+    body = f"""# Remaining Settings control ledger
 
-Generated from authorized real-data NiceGUI desktop DOM evidence and the selected React DOM evidence. Dynamic element IDs and field values are excluded; secret-shaped text is masked by the capture runner. Hidden and conditional controls present in the rendered DOM remain inventoried. Page-builder locations identify the frozen reference owner; exact helper/callback refinements belong in `{DEFAULT_OVERRIDES.relative_to(ROOT).as_posix()}`.
+Generated from isolated synthetic NiceGUI desktop DOM evidence and the selected React DOM evidence. Dynamic element IDs and field values are excluded; secret-shaped text is masked by the capture runner. Hidden and conditional controls present in the rendered DOM remain inventoried. Page-builder locations identify the frozen reference owner; exact helper/callback refinements belong in `{DEFAULT_OVERRIDES.relative_to(ROOT).as_posix()}`.
 
 Inventory status: **{total} rendered controls inventoried** ({disposition_summary}, unreviewed=0). Every row has one of the plan's final dispositions. A `blocked` row identifies the exact reference control and its missing semantic React peer; it is not a parity claim.
 
 {summary}
 
-| Page and stable control key | NiceGUI owner | Reference label and icon | Control type | Visual context | State source | Behaviour | React owner | Disposition | Tests | Evidence |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Page and stable control key | NiceGUI owner | Reference label and icon | Control type | Visual context | State source | Behaviour | React owner | Parity disposition | Final UX disposition | Reason | Tests | Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {"\n".join(rows)}
 """
     output.parent.mkdir(parents=True, exist_ok=True)

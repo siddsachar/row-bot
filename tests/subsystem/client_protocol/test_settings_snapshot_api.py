@@ -166,15 +166,25 @@ def api(tmp_path, monkeypatch):
         """
         CREATE TABLE knowledge_projection_state (
             singleton INTEGER PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 0,
             generation TEXT,
-            vector_error TEXT
+            vector_revision INTEGER NOT NULL DEFAULT -1,
+            vector_error TEXT,
+            lexical_error TEXT
         );
-        INSERT INTO knowledge_projection_state VALUES (1, 'synthetic', NULL);
+        INSERT INTO knowledge_projection_state
+            (singleton, generation, vector_error)
+        VALUES (1, 'synthetic', NULL);
         CREATE TABLE knowledge_projection_work (
             entity_id TEXT PRIMARY KEY,
-            semantic_pending INTEGER NOT NULL
+            semantic_pending INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 0,
+            wiki_pending INTEGER NOT NULL DEFAULT 1,
+            deleted_type TEXT,
+            deleted_source TEXT
         );
-        INSERT INTO knowledge_projection_work VALUES ('a', 1);
+        INSERT INTO knowledge_projection_work (entity_id, semantic_pending)
+        VALUES ('a', 1);
         """
     )
     graph.commit()
@@ -185,12 +195,16 @@ def api(tmp_path, monkeypatch):
             "tools": {"shell": True, "tracker": False, "gmail": True},
             "tool_configs": {
                 "shell": {"blocked_commands": "unsafe"},
+                "filesystem": {
+                    "workspace_root": str(data / "private-workspace")
+                },
                 "web_search": {"api_key": "PRIVATE_SENTINEL"},
                 "gmail": {"selected_operations": ["search_gmail"]},
             },
             "global": {"compression_mode": "deep"},
         },
     )
+    (data / "private-workspace").mkdir()
     _write(data / "user_config.json", {"identity": {"name": "Ada"}})
     _write(data / "app_config.json", {"window_mode": "native"})
     _write(
@@ -285,10 +299,15 @@ def api(tmp_path, monkeypatch):
     admissions.instance_identity()
     service = _isolated_service()
     security = ClientSecurity(instance_id=service.instance_id)
+    selected_workspace = data / "selected-workspace"
+    selected_workspace.mkdir()
+    from row_bot.application.folder_selections import FolderSelections
+
     app = create_client_platform_app(
         service,
         security=security,
         choices=lambda: {"models": [], "capabilities": []},
+        folder_selections=FolderSelections(picker=lambda: selected_workspace),
     )
     with TestClient(
         app, base_url="http://localhost", client=("127.0.0.1", 12345)
@@ -344,6 +363,8 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
     )
     assert snapshot.voice.tts.voice == "af_bella"
     assert snapshot.system.shell.blocked_patterns == "unsafe"
+    assert snapshot.system.workspace.label == "private-workspace"
+    assert str(data / "private-workspace") not in response.text
     assert snapshot.knowledge.entities == 3
     assert snapshot.knowledge.relations == 1
     assert snapshot.knowledge.connected_components == 2
@@ -412,6 +433,37 @@ def test_x_account_requires_saved_client_credentials_before_token_state(
 
     assert result["x"]["configured"] is False
     assert result["x"]["authentication_state"] == "not_configured"
+
+
+def test_account_snapshot_never_returns_google_credential_paths(tmp_path, monkeypatch):
+    from row_bot.application import settings_snapshot
+
+    private_path = tmp_path / "private" / "client-secret.json"
+    private_path.parent.mkdir()
+    private_path.write_text("{}", encoding="utf-8")
+    credentials = {
+        "GITHUB_TOKEN": {"configured": False, "source": "none", "fingerprint": ""},
+        "X_CLIENT_ID": {"configured": False, "source": "none", "fingerprint": ""},
+        "X_CLIENT_SECRET": {"configured": False, "source": "none", "fingerprint": ""},
+    }
+    monkeypatch.setattr(
+        settings_snapshot, "_credential_status", lambda name: credentials[name]
+    )
+
+    result = settings_snapshot._accounts(
+        tmp_path,
+        {},
+        {
+            "gmail": {"credentials_path": str(private_path)},
+            "calendar": {"credentials_path": str(private_path)},
+        },
+        {},
+    )
+
+    assert result["gmail"]["configured"] is True
+    assert result["calendar"]["configured"] is True
+    assert "credentials_path" not in result["gmail"]
+    assert str(private_path) not in json.dumps(result)
 
 
 def test_knowledge_component_analysis_fails_closed_above_bound(tmp_path, monkeypatch):
@@ -601,6 +653,165 @@ def test_tracker_delete_all_review_is_passive_and_describes_exact_scope(api):
     )
     assert review["secret"] is False
     assert _tree(data) == before
+
+
+def test_workspace_folder_uses_ephemeral_local_owner_grant_without_path_input(api):
+    client, headers, data, _ = api
+    picked = client.post("/api/v1/resources/folder-selection", headers=headers)
+    assert picked.status_code == 200, picked.text
+    grant = picked.json()
+    assert grant["status"] == "selected"
+    assert "selected-workspace" in grant["name"]
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "workspace.folder_grant",
+        "value": grant["grant_id"],
+    }
+    review = _review(client, headers, request)
+    assert "selected local folder" in review["value_summary"]
+    assert str(data) not in json.dumps(review)
+
+    result = _execute(client, headers, request, review)
+
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["status"] == "completed"
+    assert body["snapshot"]["system"]["workspace"] == {
+        "label": "selected-workspace",
+        "configured": True,
+        "exists": True,
+    }
+    assert str(data / "selected-workspace") not in result.text
+    saved = json.loads((data / "tools_config.json").read_text(encoding="utf-8"))
+    assert saved["tool_configs"]["filesystem"]["workspace_root"] == str(
+        data / "selected-workspace"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "summary"),
+    [
+        ("tts.install", "Download and install Kokoro speech output locally"),
+        ("sensevoice.install", "Download and install SenseVoice Small locally"),
+        (
+            "tts.test",
+            "Play one local test phrase through the selected output device",
+        ),
+    ],
+)
+def test_voice_actions_are_passive_during_review_and_execute_once(
+    api, monkeypatch, field, summary
+):
+    from row_bot.application import settings_commands
+
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    before = _tree(data)
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "voice",
+        "field": field,
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    assert review["value_summary"] == summary
+    assert _tree(data) == before
+
+    calls = []
+    monkeypatch.setattr(settings_commands, "_run_voice_action", calls.append)
+    command_id = str(uuid4())
+    result = _execute(client, headers, request, review, command_id)
+
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "completed"
+    assert calls == [field]
+    assert _execute(client, headers, request, review, command_id).json() == result.json()
+    assert calls == [field]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "browser.install",
+        "computer_use.install",
+        "tunnel.check",
+        "tunnel.start_main",
+        "tunnel.stop_main",
+        "logging.open",
+    ],
+)
+def test_system_actions_are_reviewed_passive_and_execute_once(
+    api, monkeypatch, field
+):
+    from row_bot.application import settings_commands
+
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    before = _tree(data)
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": field,
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    assert _tree(data) == before
+    calls = []
+    monkeypatch.setattr(settings_commands, "_run_system_action", calls.append)
+    command_id = str(uuid4())
+
+    result = _execute(client, headers, request, review, command_id)
+
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "completed"
+    assert calls == [field]
+    assert _execute(client, headers, request, review, command_id).json() == result.json()
+    assert calls == [field]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "vectors.rebuild",
+        "memory_index.rebuild",
+        "local_model.retry",
+        "local_model.download",
+        "local_model.repair",
+    ],
+)
+def test_document_maintenance_actions_are_reviewed_passive_and_execute_once(
+    api, monkeypatch, field
+):
+    from row_bot.application import settings_commands
+
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    before = _tree(data)
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "documents",
+        "field": field,
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    assert _tree(data) == before
+    calls = []
+    monkeypatch.setattr(
+        settings_commands,
+        "_run_documents_action",
+        lambda action, root: calls.append((action, root)),
+    )
+    command_id = str(uuid4())
+
+    result = _execute(client, headers, request, review, command_id)
+
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "completed"
+    assert calls == [(field, data.absolute())]
+    assert _execute(client, headers, request, review, command_id).json() == result.json()
+    assert calls == [(field, data.absolute())]
 
 
 def test_tracker_delete_all_is_atomic_and_replays_durable_receipt(api):
