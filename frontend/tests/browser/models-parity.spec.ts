@@ -93,7 +93,9 @@ test('Model catalog rows remain lazy and bounded', async ({ page }, info) => {
   await expect(
     models.getByRole('listitem').filter({ hasText: 'Saved example 000' }),
   ).toHaveCount(0);
-  await models.locator('.settings-model-provider-summaries').scrollIntoViewIfNeeded();
+  await models
+    .locator('.settings-model-provider-summaries')
+    .scrollIntoViewIfNeeded();
   await screenshot(page, info, 'models-catalog-provider-summaries');
   await models
     .getByRole('button', { name: 'Open' })
@@ -102,7 +104,10 @@ test('Model catalog rows remain lazy and bounded', async ({ page }, info) => {
     .click();
   await expect(models.getByText('Showing 80 of 105 models')).toBeVisible();
   await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
-  await models.locator('.settings-model-row-list > li').first().scrollIntoViewIfNeeded();
+  await models
+    .locator('.settings-model-row-list > li')
+    .first()
+    .scrollIntoViewIfNeeded();
   await screenshot(page, info, 'models-catalog-provider-rows');
   await accessibility(page, info, 'models-catalog-provider-rows');
   await models.getByRole('button', { name: 'Show more models' }).click();
