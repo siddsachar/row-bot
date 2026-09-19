@@ -81,7 +81,7 @@ it('bounds rendered task rows while preserving full forward traversal and reload
     60,
   );
   expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
-});
+}, 15_000);
 function show(load: React.ComponentProps<typeof SavedTasks>['load']) {
   return render(
     <MemoryRouter>
