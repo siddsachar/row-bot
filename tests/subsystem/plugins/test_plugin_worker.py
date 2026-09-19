@@ -715,6 +715,7 @@ def test_worker_revocation_cancels_owned_host_channel_turn(worker_fixture, monke
     assert entered.wait(3)
     api._revoke()
     assert stopped.wait(3) and scopes[0].is_cancelled()
+    assert api._worker._callbacks_drained.wait(3)
     assert api._worker._process.poll() is not None
     assert not api._worker._callbacks
     assert worker_fixture.state.get_plugin_config("sample-plugin", "unexpected") is None
