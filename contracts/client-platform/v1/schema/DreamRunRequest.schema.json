@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "snapshot_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Snapshot Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "snapshot_revision"
+  ],
+  "title": "DreamRunRequest",
+  "type": "object"
+}

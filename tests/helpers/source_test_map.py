@@ -23,6 +23,18 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "core_surface_monitor",
+        ("src/row_bot/application/client_monitor.py",),
+        ("tests/subsystem/client_protocol/test_monitor_api.py",),
+        "Monitor projections are passive and bounded; local logs and reviewed Dream execution retain separate authority.",
+    ),
+    SourceTestRule(
+        "core_surface_workflow_delivery",
+        ("src/row_bot/application/task_delivery_controls.py",),
+        ("tests/subsystem/client_protocol/test_task_edit_commands.py",),
+        "Workflow delivery defaults are passive to read and revision-bound when changed through the task command owner.",
+    ),
+    SourceTestRule(
         "react_models_settings",
         ("src/row_bot/application/client_models_settings.py",),
         ("tests/subsystem/client_protocol/test_models_settings_api.py",

@@ -1644,6 +1644,29 @@ export class ClientController {
     this.query(() => this.transport.knowledgeRecalls?.(signal));
   knowledgeChangeLog = (signal?: AbortSignal) =>
     this.query(() => this.transport.knowledgeChangeLog?.(signal));
+  knowledgeGraph = (limit = 250, signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeGraph?.(limit, signal));
+  monitorSnapshot = (signal?: AbortSignal) =>
+    this.query(() => this.transport.monitorSnapshot?.(signal));
+  monitorLogs = (limit = 200, signal?: AbortSignal) =>
+    this.query(() => this.transport.monitorLogs?.(limit, signal));
+  reviewDreamRun = (
+    body: import('./types').DreamRunRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewDreamRun?.(body, signal));
+  dreamRunReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.dreamRunReceipt?.(command, signal));
+  executeDreamRun = async (
+    command: import('./types').DreamRunCommand,
+    signal?: AbortSignal,
+  ) => {
+    const result = await this.query(() =>
+      this.transport.executeDreamRun?.(command, signal),
+    );
+    if (result.command_id !== command.command_id)
+      throw clientError({ code: 'operation_uncertain' });
+    return result;
+  };
   reviewKnowledgeMaintenance = (
     body: import('./types').KnowledgeMaintenanceRequest,
     signal?: AbortSignal,
@@ -3057,6 +3080,8 @@ export class ClientController {
     this.query(() =>
       this.transport.savedTasks?.(query, enabled, cursor, signal),
     );
+  taskDeliveryDefaults = (signal?: AbortSignal) =>
+    this.query(() => this.transport.taskDeliveryDefaults?.(signal));
   taskEditor = (task: string, signal?: AbortSignal) =>
     this.query(() => this.transport.taskEditor?.(task, signal));
   taskGraph = (task: string, signal?: AbortSignal) =>

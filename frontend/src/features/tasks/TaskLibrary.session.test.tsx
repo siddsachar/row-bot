@@ -30,6 +30,12 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
       items: [],
       next_cursor: null,
     })),
+    taskDeliveryDefaults: vi.fn(async () => ({
+      schema_version: 1,
+      revision: 'b'.repeat(64),
+      channels: [],
+      web_app_always_on: true,
+    })),
     command: vi.fn(),
   } as unknown as ClientController;
   const taskEditSessions = createTaskEditSessions(controller);

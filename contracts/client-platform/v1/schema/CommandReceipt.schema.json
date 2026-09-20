@@ -1798,6 +1798,11 @@
       "title": "Task Created",
       "type": "boolean"
     },
+    "task_deleted": {
+      "default": false,
+      "title": "Task Deleted",
+      "type": "boolean"
+    },
     "task_id": {
       "anyOf": [
         {

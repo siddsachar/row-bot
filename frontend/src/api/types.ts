@@ -533,6 +533,24 @@ export interface ClientTransport {
   knowledgeChangeLog?(
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeMemoryChangePage>;
+  knowledgeGraph?(
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeGraphSnapshot>;
+  monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
+  monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
+  reviewDreamRun?(
+    body: Wire.DreamRunRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.DreamRunReview>;
+  dreamRunReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DreamRunReceipt>;
+  executeDreamRun?(
+    command: Wire.DreamRunCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.DreamRunReceipt>;
   reviewKnowledgeMaintenance?(
     body: Wire.KnowledgeMaintenanceRequest,
     signal?: AbortSignal,
@@ -1002,6 +1020,9 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.TaskSummaryPage>;
+  taskDeliveryDefaults?(
+    signal?: AbortSignal,
+  ): Promise<Wire.TaskDeliverySnapshot>;
   cachedModels?(
     providerId?: string,
     query?: string,

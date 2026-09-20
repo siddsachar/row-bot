@@ -11,7 +11,14 @@ const mock = vi.hoisted(() => ({
     handshake: { models: [] as ModelChoice[] },
   },
   version: 1,
-  controller: { intent: vi.fn(), getSelectionVersion: vi.fn() },
+  drafts: new Map<string, { text: string; attachments: [] }>(),
+  controller: {
+    intent: vi.fn(),
+    getSelectionVersion: vi.fn(),
+    skills: vi.fn(),
+    getDraft: vi.fn(),
+    setDraft: vi.fn(),
+  },
 }));
 vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
@@ -22,6 +29,21 @@ beforeEach(() => {
   mock.version = 1;
   mock.controller.getSelectionVersion.mockImplementation(() => mock.version);
   mock.controller.intent.mockResolvedValue({ status: 'completed' });
+  mock.controller.skills.mockResolvedValue({
+    schema_version: 1,
+    revision: 'skills-a',
+    availability: 'available',
+    items: [],
+    total: 0,
+    next_cursor: null,
+  });
+  mock.drafts.clear();
+  mock.controller.getDraft.mockImplementation(
+    (id: string) => mock.drafts.get(id) ?? { text: '', attachments: [] as [] },
+  );
+  mock.controller.setDraft.mockImplementation((id, draft) =>
+    mock.drafts.set(id, draft),
+  );
   mock.state.status = 'ready';
   mock.state.selectedConversationId = 'conversation-a';
   mock.state.handshake.models = [
@@ -116,6 +138,103 @@ it('shows compact current values with only the exact server-supplied Thinking ch
   expect(popover.getByRole('button', { name: 'Careful' })).toBeEnabled();
   expect(popover.queryByRole('button', { name: 'High' })).toBeNull();
   expect(popover.queryByLabelText('Thinking budget')).toBeNull();
+});
+
+it('discovers saved skills and inserts a reviewed slash token into the draft', async () => {
+  mock.drafts.set('conversation-a', {
+    text: 'Please investigate',
+    attachments: [],
+  });
+  mock.controller.skills.mockResolvedValueOnce({
+    schema_version: 1,
+    revision: 'skills-b',
+    availability: 'available',
+    items: [
+      {
+        id: 'plugin:careful-review',
+        display_name: 'Careful review',
+        icon: '🔎',
+        description: 'Review a change carefully.',
+        source: 'bundled',
+        version: '1',
+        tags: [],
+        activation: {},
+        available: true,
+        pinned: false,
+        editable: false,
+        tool_guide: false,
+        revision: '1',
+        instructions_preview: '',
+        truncated: false,
+      },
+      {
+        id: 'hidden-guide',
+        display_name: 'Hidden guide',
+        icon: '•',
+        description: '',
+        source: 'bundled',
+        version: '1',
+        tags: [],
+        activation: {},
+        available: true,
+        pinned: false,
+        editable: false,
+        tool_guide: true,
+        revision: '1',
+        instructions_preview: '',
+        truncated: false,
+      },
+    ],
+    total: 2,
+    next_cursor: null,
+  });
+  const onError = vi.fn();
+  render(<ComposerControls onError={onError} />);
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Skills and slash commands' }),
+    ),
+  );
+  const picker = within(
+    await screen.findByRole('dialog', { name: 'Skills and slash commands' }),
+  );
+  expect(picker.getByText(/sent as part of your message/)).toBeVisible();
+  expect(picker.queryByText('Hidden guide')).toBeNull();
+  await act(async () =>
+    fireEvent.click(
+      picker.getByRole('button', {
+        name: /Careful review · insert \/plugin-careful-review/,
+      }),
+    ),
+  );
+  expect(mock.controller.setDraft).toHaveBeenCalledExactlyOnceWith(
+    'conversation-a',
+    {
+      text: 'Please investigate /plugin-careful-review ',
+      attachments: [],
+    },
+  );
+  expect(onError).toHaveBeenCalledWith('');
+});
+
+it('offers canonical slash starters as draft text without claiming execution', async () => {
+  render(<ComposerControls onError={vi.fn()} />);
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Skills and slash commands' }),
+    ),
+  );
+  const picker = within(
+    await screen.findByRole('dialog', { name: 'Skills and slash commands' }),
+  );
+  await act(async () =>
+    fireEvent.click(picker.getByRole('button', { name: '/status · Status' })),
+  );
+  expect(mock.controller.setDraft).toHaveBeenCalledExactlyOnceWith(
+    'conversation-a',
+    { text: '/status ', attachments: [] },
+  );
+  expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 
 it.each([

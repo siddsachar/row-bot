@@ -31,25 +31,9 @@ import {
   ReceiptStorageError,
   type PendingCommand,
 } from './command-receipts';
+import SafeMarkdown from './chat-parity-markdown';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
-
-const FormattedText = memo(function FormattedText({ text }: { text: string }) {
-  const parts = text.split(/(```[^\n]*\n[\s\S]*?(?:```|$))/g);
-  return (
-    <>
-      {parts.map((part, index) =>
-        part.startsWith('```') ? (
-          <pre className="code-sample" key={index}>
-            <code>{part.replace(/^```[^\n]*\n/, '').replace(/```$/, '')}</code>
-          </pre>
-        ) : (
-          <span key={index}>{part}</span>
-        ),
-      )}
-    </>
-  );
-});
 
 const Message = memo(function Message({
   row,
@@ -58,11 +42,12 @@ const Message = memo(function Message({
   row: TranscriptRow;
   conversationId: string | null;
 }) {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
   const [expanded, setExpanded] = useState('');
   const [cursor, setCursor] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
   const author =
@@ -71,6 +56,23 @@ const Message = memo(function Message({
       : row.role === 'assistant'
         ? 'Row-Bot'
         : 'Tool result';
+  const visibleText =
+    expanded || row.blocks.map((block) => block.text).join('\n');
+  async function copy() {
+    try {
+      const result = await platform.writeClipboard(visibleText);
+      if (result.status !== 'ok') {
+        setCopied(false);
+        setError('Copy is unavailable in this browser.');
+        return;
+      }
+      setCopied(true);
+      setError('');
+    } catch {
+      setCopied(false);
+      setError('The visible message could not be copied.');
+    }
+  }
   async function more() {
     const identity = conversationId;
     if (!identity || !row.content_ref) return;
@@ -106,23 +108,30 @@ const Message = memo(function Message({
       data-row-id={row.id}
       tabIndex={-1}
     >
-      <header className="message-meta">
-        <strong className="message-role">{author}</strong>
-        {!!row.tool_call_ids?.length && (
-          <small className="message-tool-count">
-            {row.tool_call_ids.length} tool{' '}
-            {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
-          </small>
-        )}
-      </header>
-      <div className="message-text">
-        <FormattedText
-          text={expanded || row.blocks.map((block) => block.text).join('\n')}
-        />
-      </div>
-      {(row.content_status === 'lazy' && (!expanded || cursor)) ||
-      previous.length ? (
+      <div className="transcript-content">
+        <header className="message-meta">
+          <strong className="message-role">{author}</strong>
+          {!!row.tool_call_ids?.length && (
+            <small className="message-tool-count">
+              {row.tool_call_ids.length} tool{' '}
+              {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
+            </small>
+          )}
+          {row.content_status && row.content_status !== 'inline' && (
+            <small className="message-delivery-state">
+              {row.content_status === 'lazy'
+                ? 'Paged content'
+                : 'Oversized content'}
+            </small>
+          )}
+        </header>
+        <div className="message-text">
+          <SafeMarkdown text={visibleText} />
+        </div>
         <div className="message-actions">
+          <Button variant="ghost" onClick={() => void copy()}>
+            {copied ? 'Copied' : 'Copy visible message'}
+          </Button>
           {row.content_status === 'lazy' && (!expanded || cursor) && (
             <Button onClick={() => void more()} disabled={busy}>
               {cursor ? 'Load next content page' : 'Load message content'}
@@ -135,14 +144,16 @@ const Message = memo(function Message({
                 setPrevious((pages) => pages.slice(0, -1));
                 setExpanded('');
                 setCursor(start);
+                setCopied(false);
               }}
             >
               Previous message portion
             </Button>
           )}
         </div>
-      ) : null}
-      {error && <p role="alert">{error}</p>}
+        {copied && <small role="status">Visible message copied.</small>}
+        {error && <p role="alert">{error}</p>}
+      </div>
     </article>
   );
 });

@@ -1533,6 +1533,13 @@ progress {
   background: var(--card-tint);
   box-shadow: var(--shadow-card);
 }
+.workflow-card-disabled {
+  border-color: color-mix(in srgb, var(--text-muted) 28%, var(--card-border));
+  background: color-mix(in srgb, var(--surface-soft) 72%, var(--card-tint));
+}
+.workflow-card-disabled .workflow-icon {
+  opacity: 0.55;
+}
 .workflow-card-header,
 .workflow-card-footer,
 .workflow-card-actions,
@@ -1647,6 +1654,269 @@ progress {
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+.workflow-delivery-defaults,
+.workflow-heading-actions,
+.workflow-bulk-actions,
+.workflow-enabled-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.workflow-delivery-defaults {
+  margin-top: 8px;
+}
+.workflow-delivery-menu {
+  display: grid;
+  width: min(320px, 100%);
+  gap: 7px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+}
+.workflow-delivery-menu > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-size);
+}
+.workflow-chip-action {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  margin: -2px -7px -2px 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.workflow-bulk-actions {
+  position: sticky;
+  top: 52px;
+  z-index: 3;
+  justify-content: flex-end;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.workflow-bulk-actions > [role='status'] {
+  margin-right: auto;
+}
+.workflow-card {
+  position: relative;
+}
+.workflow-select-control {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: grid;
+  min-width: var(--control-size);
+  min-height: var(--control-size);
+  place-items: center;
+}
+.workflow-select-control input,
+.workflow-enabled-control input {
+  width: 20px;
+  height: 20px;
+}
+.workflow-enabled-control {
+  font-size: var(--type-size-metadata);
+}
+
+.knowledge-home {
+  display: grid;
+  gap: 14px;
+}
+.knowledge-home-header,
+.knowledge-home-summary,
+.knowledge-graph-toolbar,
+.knowledge-explorer-layout {
+  width: 100%;
+}
+.knowledge-graph-toolbar {
+  display: grid;
+  grid-template-columns:
+    minmax(190px, 1fr) repeat(2, minmax(130px, 0.4fr))
+    auto auto auto auto;
+  align-items: end;
+}
+.knowledge-graph-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-size);
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.knowledge-view-toggle {
+  display: flex;
+  gap: 6px;
+  width: fit-content;
+}
+.knowledge-view-toggle [aria-pressed='true'] {
+  border-color: var(--accent-solid);
+  color: var(--accent-foreground);
+  background: var(--accent-soft);
+}
+.knowledge-explorer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.34fr);
+  gap: 12px;
+  align-items: start;
+}
+.knowledge-explorer-surface,
+.knowledge-node-detail {
+  min-width: 0;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-panel);
+  background: var(--card-tint);
+}
+.knowledge-explorer-surface {
+  overflow: auto;
+}
+.knowledge-graph {
+  display: block;
+  min-width: 620px;
+  color: var(--text-muted);
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      color-mix(in srgb, var(--accent-soft) 42%, transparent),
+      transparent 48%
+    ),
+    var(--surface-soft);
+}
+.knowledge-graph-node {
+  cursor: pointer;
+}
+.knowledge-graph-node circle {
+  transition:
+    filter 120ms ease,
+    stroke-width 120ms ease;
+}
+.knowledge-graph-node:hover circle,
+.knowledge-graph-node:focus-visible circle,
+.knowledge-graph-node.selected circle {
+  filter: brightness(1.18);
+  stroke-width: 4;
+}
+.knowledge-graph-node:focus-visible {
+  outline: none;
+}
+.knowledge-graph-node text {
+  fill: var(--text-primary);
+  paint-order: stroke;
+  stroke: var(--canvas);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.knowledge-graph-edge-label {
+  paint-order: stroke;
+  stroke: var(--canvas);
+  stroke-width: 3px;
+}
+.knowledge-entity-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.knowledge-entity-list-button {
+  display: grid;
+  width: 100%;
+  min-height: var(--control-size);
+  padding: 10px 12px;
+  gap: 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+.knowledge-node-detail {
+  position: sticky;
+  top: 58px;
+  max-height: calc(100dvh - 150px);
+  padding: 14px;
+  overflow: auto;
+}
+.knowledge-detail-content {
+  display: grid;
+  gap: 10px;
+}
+.knowledge-home-empty-icon {
+  font-size: 40px;
+  color: var(--accent-solid);
+}
+
+[aria-labelledby='monitor-heading'] > .capability-section {
+  display: grid;
+  gap: 10px;
+}
+[aria-labelledby='monitor-heading'] .card {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+[aria-labelledby='monitor-heading'] details > summary {
+  min-height: var(--control-size);
+  cursor: pointer;
+  font-weight: 600;
+}
+[aria-label='Application log entries'] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 980px) {
+  .knowledge-graph-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .knowledge-explorer-layout {
+    grid-template-columns: 1fr;
+  }
+  .knowledge-node-detail {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .workflow-heading,
+  .capability-header.knowledge-home-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .workflow-toolbar,
+  .knowledge-graph-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .workflow-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .workflow-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .knowledge-graph {
+    min-width: 540px;
+  }
 }
 .settings-shell {
   display: grid;

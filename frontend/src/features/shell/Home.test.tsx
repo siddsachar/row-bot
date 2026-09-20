@@ -8,11 +8,68 @@ const mock = vi.hoisted(() => ({
     status: 'ready',
     handshake: { instance_id: 'server-a', client_session_id: 'session-a' },
   },
+  controller: {
+    knowledgeGraph: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      availability: 'available',
+      revision: 'a'.repeat(64),
+      nodes: [],
+      edges: [],
+      total_entities: 0,
+      total_relations: 0,
+      shown_entities: 0,
+      shown_relations: 0,
+      truncated: false,
+      center_id: null,
+      entity_types: [],
+      sources: [],
+    }),
+    monitorSnapshot: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      dream_revision: 'b'.repeat(64),
+      extraction: {
+        availability: 'available',
+        last_run: null,
+        interval_hours: 2,
+        threads_scanned: 0,
+        entities_saved: 0,
+        islands_repaired: 0,
+      },
+      extraction_journal: [],
+      extraction_journal_availability: 'missing',
+      dream: {
+        availability: 'available',
+        enabled: true,
+        window: '1:00 – 5:00',
+        last_run: null,
+        last_summary: null,
+        recent: [],
+      },
+      dream_journal: [],
+      dream_journal_availability: 'missing',
+      logs: {
+        availability: 'unavailable',
+        authorized: false,
+        entries: [],
+        full_available: false,
+      },
+    }),
+    knowledgeEntityDetail: vi.fn(),
+    reviewDreamRun: vi.fn(),
+    executeDreamRun: vi.fn(),
+    monitorLogs: vi.fn(),
+  },
 }));
 
 vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
+  useRuntime: () => ({ controller: mock.controller }),
 }));
+
+vi.mock('../../ui/overlays', async (load) => {
+  const actual = await load<typeof import('../../ui/overlays')>();
+  return { ...actual, useOverlay: () => ({ open: vi.fn() }) };
+});
 
 vi.mock('../tasks/TaskLibrary', () => ({
   default: () => (
@@ -78,7 +135,7 @@ it('keeps Knowledge and Monitor as passive, truthful boundaries', () => {
   chooseTab('Knowledge');
   expect(screen.getByRole('region', { name: 'Knowledge' })).toBeVisible();
   chooseTab('Monitor');
-  expect(screen.getByRole('region', { name: 'Monitor' })).toBeVisible();
+  expect(screen.getByRole('region', { name: 'System Monitor' })).toBeVisible();
 });
 
 it('reports connection state without exposing client identity', () => {

@@ -80,6 +80,48 @@ def test_full_library_paging_and_private_projection(saved):
     )
 
 
+def test_graph_projection_is_bounded_topological_and_private(saved):
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute("UPDATE entities SET subject='User' WHERE id='entity-0001'")
+        conn.execute(
+            "INSERT INTO relations VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                "graph-edge",
+                "entity-0001",
+                "entity-0002",
+                "works_on",
+                0.9,
+                '{"private":"never project"}',
+                "document:/private/source.md",
+                "created",
+                "updated",
+            ),
+        )
+
+    graph = views.read_knowledge_graph(limit=250)
+
+    assert graph.availability == "available"
+    assert len(graph.nodes) == 205
+    assert graph.total_entities == 205 and graph.total_relations == 1
+    assert graph.center_id == "entity-0001"
+    assert graph.truncated is False
+    assert graph.edges[0].source_id == "entity-0001"
+    encoded = json.dumps(asdict(graph))
+    assert "never project" not in encoded and "/private/" not in encoded
+
+
+def test_graph_projection_caps_nodes_and_marks_truncation(saved):
+    graph = views.read_knowledge_graph(limit=20)
+    assert graph.availability == "available"
+    assert len(graph.nodes) == 20
+    assert graph.shown_entities == 20
+    assert graph.total_entities == 205
+    assert graph.truncated is True
+
+    with pytest.raises(views.KnowledgeViewError, match="invalid_knowledge_query"):
+        views.read_knowledge_graph(limit=251)
+
+
 @pytest.mark.parametrize(
     "query,expected",
     [
@@ -200,7 +242,9 @@ def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved)
     assert degraded.evidence == () and degraded.source_context == ()
 
 
-def test_recent_audit_reads_are_bounded_typed_and_missing_is_empty(tmp_path, monkeypatch):
+def test_recent_audit_reads_are_bounded_typed_and_missing_is_empty(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     assert views.read_recent_recall_decisions().availability == "missing"
     assert views.read_memory_change_log().availability == "missing"
@@ -230,7 +274,12 @@ def test_recent_audit_reads_are_bounded_typed_and_missing_is_empty(tmp_path, mon
                     "timestamp": "2026-01-02",
                     "action": "status_changed",
                     "actor": "manual",
-                    "entity_ids": ["entity-0001", "entity-0002", "entity-0003", "entity-0004"],
+                    "entity_ids": [
+                        "entity-0001",
+                        "entity-0002",
+                        "entity-0003",
+                        "entity-0004",
+                    ],
                     "old_status": "needs_review",
                     "new_status": "active",
                     "reason": "resolved",
@@ -249,8 +298,12 @@ def test_recent_audit_reads_are_bounded_typed_and_missing_is_empty(tmp_path, mon
     assert journal.items[0].additional_subjects == 1
 
 
-@pytest.mark.parametrize("name", ["memory_recall_trace.json", "memory_evolution_journal.json"])
-def test_recent_audit_reads_reject_oversized_or_linked_files(tmp_path, monkeypatch, name):
+@pytest.mark.parametrize(
+    "name", ["memory_recall_trace.json", "memory_evolution_journal.json"]
+)
+def test_recent_audit_reads_reject_oversized_or_linked_files(
+    tmp_path, monkeypatch, name
+):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     path = tmp_path / name
     path.write_bytes(b"x" * (views._AUDIT_FILE_BYTES + 1))

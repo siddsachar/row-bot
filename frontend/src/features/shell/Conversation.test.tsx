@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
@@ -51,6 +51,7 @@ const mock = vi.hoisted(() => ({
   close: vi.fn(),
   open: vi.fn(),
   download: vi.fn(),
+  writeClipboard: vi.fn(),
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
 }));
@@ -95,7 +96,10 @@ vi.mock('../../runtime', () => {
         throw new Error('No delegated run in this fixture');
       },
     },
-    platform: { save: vi.fn() },
+    platform: {
+      save: vi.fn(),
+      writeClipboard: mock.writeClipboard,
+    },
     conversationActionsOwner: {
       get: () => ({ get: () => ({}) }),
     },
@@ -265,6 +269,62 @@ function activeConversation(id = 'conversation-a') {
   mock.drafts.set(id, { text: 'Original queued draft', attachments: [] });
   return commandReceipts.scope(mock.state.handshake.instance_id, id);
 }
+
+it('renders assistant Markdown safely and copies only the visible canonical text', async () => {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    rows: [
+      {
+        id: 'row-a',
+        message_id: 'message-a',
+        role: 'assistant',
+        blocks: [
+          {
+            type: 'text',
+            text: '# Summary\n\n**Ready** with [docs](https://example.test).\n\n<script>never markup</script>',
+          },
+        ],
+        tool_call_ids: ['tool-a'],
+        content_status: 'lazy',
+        content_ref: 'content-a',
+      },
+    ],
+  } as unknown as Snapshot;
+  mock.writeClipboard.mockResolvedValue({
+    status: 'ok',
+    value: null,
+  });
+  await act(async () => {
+    conversation();
+  });
+  const message = screen.getByRole('article', { name: 'Row-Bot message' });
+  expect(message.querySelector(':scope > .transcript-content')).not.toBeNull();
+  expect(
+    within(message).getByRole('heading', { name: 'Summary' }),
+  ).toBeVisible();
+  expect(within(message).getByText('Ready')).toHaveProperty(
+    'tagName',
+    'STRONG',
+  );
+  expect(
+    within(message).getByText('<script>never markup</script>'),
+  ).toBeVisible();
+  expect(message.querySelector('script')).toBeNull();
+  expect(within(message).getByText('1 tool call')).toBeVisible();
+  expect(within(message).getByText('Paged content')).toBeVisible();
+  await act(async () =>
+    fireEvent.click(
+      within(message).getByRole('button', { name: 'Copy visible message' }),
+    ),
+  );
+  expect(mock.writeClipboard).toHaveBeenCalledExactlyOnceWith(
+    '# Summary\n\n**Ready** with [docs](https://example.test).\n\n<script>never markup</script>',
+  );
+  expect(within(message).getByRole('status')).toHaveTextContent(
+    'Visible message copied.',
+  );
+});
 
 it('opens reviewed conversation management from the existing action menu', async () => {
   activeConversation();

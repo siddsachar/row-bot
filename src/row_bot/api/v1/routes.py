@@ -56,6 +56,8 @@ _APPLICATION_CAPABILITIES = (
     "client:artifacts",
     "client:settings",
     "client:tasks",
+    "client:knowledge",
+    "client:monitor",
     "client:voice",
     "browser:upload",
 )
@@ -63,6 +65,7 @@ _LOCAL_APPLICATION_CAPABILITIES = (
     "native:bridge",
     "native:filesystem",
     "native:terminal",
+    "native:logs",
     "computer:interactive",
 )
 _PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
@@ -339,6 +342,9 @@ _STATUS.update(
             "task_advanced_edit_required",
             "task_delivery_review_required",
             "task_review_unsupported_fields",
+            "task_delete_revision_conflict",
+            "task_delete_review_required",
+            "task_delivery_revision_conflict",
         ),
         409,
     )
@@ -349,6 +355,8 @@ _STATUS.update(
         "task_metadata_too_large": 413,
         "task_schedule_unconfirmed": 503,
         "task_saved_read_unconfirmed": 503,
+        "task_delete_schedule_unconfirmed": 503,
+        "task_delivery_unconfirmed": 503,
     }
 )
 _STATUS.update(
@@ -462,6 +470,18 @@ _STATUS["runtime_installation_command_unavailable"] = 404
 _STATUS["mcp_policy_unavailable"] = 409
 _STATUS.update(dict.fromkeys(("mcp_catalog_unavailable", "mcp_catalog_stale"), 409))
 _STATUS.update(dict.fromkeys(("knowledge_changed", "knowledge_outcome_uncertain"), 409))
+_STATUS.update(
+    {
+        "invalid_monitor_query": 422,
+        "invalid_dream_command": 422,
+        "dream_changed": 409,
+        "dream_disabled": 409,
+        "dream_unavailable": 503,
+        "dream_operation_unavailable": 404,
+        "dream_outcome_uncertain": 409,
+        "dream_failed": 503,
+    }
+)
 _STATUS.update(
     dict.fromkeys(("knowledge_missing", "knowledge_operation_unavailable"), 404)
 )
@@ -1196,7 +1216,9 @@ def create_router(
         build = body.client_build.strip().lower()
         if build.startswith("row-bot-client-v"):
             try:
-                build_major = int(build.removeprefix("row-bot-client-v").split("/", 1)[0])
+                build_major = int(
+                    build.removeprefix("row-bot-client-v").split("/", 1)[0]
+                )
             except ValueError:
                 raise ProtocolError("protocol_incompatible", 426) from None
             if build_major < 2:
@@ -1468,9 +1490,7 @@ def create_router(
         )
 
     @router.post("/native/attachments/{reference}")
-    async def native_attachment_download(
-        reference: str, request: Request
-    ) -> Response:
+    async def native_attachment_download(reference: str, request: Request) -> Response:
         context = await _context(request)
         require_native_local(request, context)
         body = await _body(request, dto.NativeGrantRequest, 4096)
@@ -1518,7 +1538,9 @@ def create_router(
     ) -> JSONResponse:
         current = await session(request, lane="observation")
         try:
-            value = await call(terminal_client(terminal_id, current).read, cursor, max_bytes)
+            value = await call(
+                terminal_client(terminal_id, current).read, cursor, max_bytes
+            )
         except (ValueError, RuntimeError) as exc:
             raise ProtocolError(str(exc), 403) from exc
         return await respond(request, dto.NativeTerminalOutput, value)
@@ -1534,17 +1556,23 @@ def create_router(
         return await respond(request, dto.NativeTerminalChanged, {"ok": True})
 
     @router.post("/native/terminals/{terminal_id}/resize")
-    async def native_terminal_resize(terminal_id: str, request: Request) -> JSONResponse:
+    async def native_terminal_resize(
+        terminal_id: str, request: Request
+    ) -> JSONResponse:
         current = await session(request, lane="control")
         body = await _body(request, dto.NativeTerminalResize, 4096)
         try:
-            await call(terminal_client(terminal_id, current).resize, body.cols, body.rows)
+            await call(
+                terminal_client(terminal_id, current).resize, body.cols, body.rows
+            )
         except (ValueError, RuntimeError) as exc:
             raise ProtocolError(str(exc), 403) from exc
         return await respond(request, dto.NativeTerminalChanged, {"ok": True})
 
     @router.delete("/native/terminals/{terminal_id}")
-    async def native_terminal_disconnect(terminal_id: str, request: Request) -> JSONResponse:
+    async def native_terminal_disconnect(
+        terminal_id: str, request: Request
+    ) -> JSONResponse:
         current = await session(request, lane="control")
         client = terminal_client(terminal_id, current)
         with terminal_clients_lock:
@@ -2654,6 +2682,8 @@ def create_router(
             in {
                 "task.create",
                 "task.update",
+                "task.delete",
+                "task.delivery.update",
                 "task.graph.update",
                 "task.settings.update",
                 "task.webhook.rotate",
@@ -2752,6 +2782,7 @@ def create_router(
                 or not context.direct_loopback
             ):
                 raise ProtocolError("action_denied", 403)
+
             def validate_native_folder(scope: Any) -> None:
                 if not security.authorize_native_grant(
                     scope.authority_grant,
@@ -3368,6 +3399,19 @@ def create_router(
     @router.post("/tasks/commands")
     async def task_mutation(request: Request) -> JSONResponse:
         return await command("tasks", request, task_command=True)
+
+    @router.get("/tasks/delivery-defaults")
+    async def task_delivery_defaults(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.task_delivery_controls import (
+            read_task_delivery_defaults,
+        )
+
+        result = await call(
+            read_task_delivery_defaults,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.TaskDeliverySnapshot, result)
 
     @router.get("/tasks/{task_id}/editing")
     async def task_editing(task_id: str, request: Request) -> JSONResponse:
@@ -4325,6 +4369,105 @@ def create_router(
         )
         return await respond(request, dto.ProfileReceipt, result)
 
+    @router.get("/knowledge/graph")
+    async def knowledge_graph(request: Request, limit: int = 250) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_knowledge_graph
+
+        result = await call(
+            read_knowledge_graph,
+            limit=limit,
+        )
+        return await respond(request, dto.KnowledgeGraphSnapshot, asdict(result))
+
+    @router.get("/monitor")
+    async def monitor_snapshot(request: Request) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        from row_bot.application.client_monitor import read_monitor_snapshot
+
+        result = await call(
+            read_monitor_snapshot,
+            include_logs=context.is_local_owner and context.direct_loopback,
+        )
+        return await respond(request, dto.MonitorSnapshot, result)
+
+    @router.get("/monitor/logs")
+    async def monitor_logs(request: Request, limit: int = 200) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_monitor import read_monitor_logs
+
+        result = await call(read_monitor_logs, limit=limit)
+        return await respond(request, dto.MonitorLogs, result)
+
+    @router.post("/monitor/dream/review")
+    async def monitor_dream_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.DreamRunRequest, 4096)
+        from row_bot.application.client_monitor import review_dream_run
+
+        result = await call(
+            review_dream_run,
+            body.snapshot_revision,
+            validate=dispatch_validation(request, current),
+        )
+        result["review_id"] = security.approval_nonce(
+            current,
+            "monitor:dream",
+            result["snapshot_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.DreamRunReview, result)
+
+    @router.get("/monitor/dream/commands/{command_id}")
+    async def monitor_dream_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_monitor import read_dream_command
+
+        result = await call(
+            read_dream_command,
+            owner_id=current.id,
+            command_id=str(command_id),
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.DreamRunReceipt, result)
+
+    @router.post("/monitor/dream/commands")
+    async def monitor_dream_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.DreamRunCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_dream_command", 422)
+        key = request.headers.get("idempotency-key", "")
+        if key != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_monitor import execute_dream_command
+
+        validate_access = dispatch_validation(request, current)
+
+        def validate_review(command: dict, review: dict) -> None:
+            validate_access()
+            security.consume_nonce(
+                current,
+                "monitor:dream",
+                review["snapshot_revision"],
+                review["action_digest"],
+                command["payload"]["review_id"],
+                command["command_id"],
+            )
+
+        result = await call(
+            execute_dream_command,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            key=key,
+            validate=validate_access,
+            validate_review=validate_review,
+        )
+        return await respond(request, dto.DreamRunReceipt, result)
+
     @router.get("/knowledge/entities/editor")
     async def knowledge_editor(
         request: Request, entity_id: str | None = None
@@ -4430,7 +4573,9 @@ def create_router(
     async def knowledge_maintenance_review(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.KnowledgeMaintenanceRequest, 64 * 1024)
-        from row_bot.application.knowledge_commands import read_knowledge_maintenance_review
+        from row_bot.application.knowledge_commands import (
+            read_knowledge_maintenance_review,
+        )
 
         payload = {
             "catalog_revision": body.catalog_revision,
@@ -4451,9 +4596,13 @@ def create_router(
         return await respond(request, dto.KnowledgeMaintenanceReview, result)
 
     @router.get("/knowledge/maintenance/commands/{command_id}")
-    async def knowledge_maintenance_receipt(command_id: UUID, request: Request) -> JSONResponse:
+    async def knowledge_maintenance_receipt(
+        command_id: UUID, request: Request
+    ) -> JSONResponse:
         current = await session(request)
-        from row_bot.application.knowledge_commands import read_knowledge_maintenance_command
+        from row_bot.application.knowledge_commands import (
+            read_knowledge_maintenance_command,
+        )
 
         result = await call(
             read_knowledge_maintenance_command,
@@ -4472,7 +4621,9 @@ def create_router(
         key = request.headers.get("idempotency-key", "")
         if key != str(body.command_id):
             raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.knowledge_commands import execute_knowledge_maintenance_command
+        from row_bot.application.knowledge_commands import (
+            execute_knowledge_maintenance_command,
+        )
 
         validate_access = dispatch_validation(request, current)
 
@@ -4913,15 +5064,31 @@ def create_router(
         current = await session(request, lane="mutation")
         from row_bot.providers.catalog import get_provider_definition
         from row_bot.providers.custom import get_custom_endpoint
-        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+        from row_bot.providers.model_catalog_cache import (
+            start_model_catalog_refresh_background,
+        )
 
-        if get_provider_definition(provider_id) is None and get_custom_endpoint(provider_id) is None:
+        if (
+            get_provider_definition(provider_id) is None
+            and get_custom_endpoint(provider_id) is None
+        ):
             raise ProtocolError("not_found", 404)
         await call(dispatch_validation(request, current))
-        started = await call(start_model_catalog_refresh_background, reason="manual", provider_id=provider_id, force=True)
-        return await respond(request, dto.ProviderCatalogRefresh, {
-            "running": True, "started": started, "provider_id": provider_id if started else "",
-        })
+        started = await call(
+            start_model_catalog_refresh_background,
+            reason="manual",
+            provider_id=provider_id,
+            force=True,
+        )
+        return await respond(
+            request,
+            dto.ProviderCatalogRefresh,
+            {
+                "running": True,
+                "started": started,
+                "provider_id": provider_id if started else "",
+            },
+        )
 
     @router.get("/settings/providers/live/refresh")
     async def live_provider_refresh_state(request: Request) -> JSONResponse:
@@ -4929,25 +5096,46 @@ def create_router(
         from row_bot.providers.model_catalog_cache import model_catalog_refresh_state
 
         state = await call(model_catalog_refresh_state)
-        result = state.get("last_result") if isinstance(state.get("last_result"), dict) else {}
+        result = (
+            state.get("last_result")
+            if isinstance(state.get("last_result"), dict)
+            else {}
+        )
         provider_id = str(result.get("provider_id") or "")
-        provider_statuses = result.get("provider_status") if isinstance(result.get("provider_status"), dict) else {}
-        provider = provider_statuses.get(provider_id) if isinstance(provider_statuses.get(provider_id), dict) else {}
+        provider_statuses = (
+            result.get("provider_status")
+            if isinstance(result.get("provider_status"), dict)
+            else {}
+        )
+        provider = (
+            provider_statuses.get(provider_id)
+            if isinstance(provider_statuses.get(provider_id), dict)
+            else {}
+        )
         count = provider.get("count")
         await call(dispatch_validation(request, current))
-        return await respond(request, dto.ProviderCatalogRefresh, {
-            "running": bool(state.get("running")), "started": False,
-            "provider_id": provider_id,
-            "ok": bool(result.get("ok")) if result else None,
-            "model_count": count if type(count) is int and count >= 0 else None,
-            "message": "",
-        })
+        return await respond(
+            request,
+            dto.ProviderCatalogRefresh,
+            {
+                "running": bool(state.get("running")),
+                "started": False,
+                "provider_id": provider_id,
+                "ok": bool(result.get("ok")) if result else None,
+                "model_count": count if type(count) is int and count >= 0 else None,
+                "message": "",
+            },
+        )
 
     @router.post("/settings/providers/live/{provider_id}/runtime-test")
-    async def live_provider_runtime_test(provider_id: str, request: Request) -> JSONResponse:
+    async def live_provider_runtime_test(
+        provider_id: str, request: Request
+    ) -> JSONResponse:
         current = await session(request, lane="mutation")
         if provider_id == "claude_subscription":
-            from row_bot.providers.claude_subscription import run_claude_subscription_runtime_probe as probe
+            from row_bot.providers.claude_subscription import (
+                run_claude_subscription_runtime_probe as probe,
+            )
         elif provider_id == "xai_oauth":
             from row_bot.providers.xai_oauth import run_xai_oauth_runtime_probe as probe
         else:
@@ -4959,10 +5147,17 @@ def create_router(
             result = {"ok": False}
         await call(dispatch_validation(request, current))
         ok = bool(result.get("ok")) if isinstance(result, dict) else False
-        return await respond(request, dto.ProviderRuntimeProbe, {
-            "provider_id": provider_id, "ok": ok,
-            "detail": "Runtime and tool calls work" if ok else "Runtime test failed",
-        })
+        return await respond(
+            request,
+            dto.ProviderRuntimeProbe,
+            {
+                "provider_id": provider_id,
+                "ok": ok,
+                "detail": "Runtime and tool calls work"
+                if ok
+                else "Runtime test failed",
+            },
+        )
 
     @router.post("/settings/providers/commands")
     async def provider_mutation(request: Request) -> JSONResponse:
@@ -6329,19 +6524,31 @@ def create_router(
     async def models_settings_state(request: Request) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_models_settings import read_models_settings
-        return await respond(request, dto.ModelsSettingsState, await call(
-            read_models_settings, validate=dispatch_validation(request, current)))
+
+        return await respond(
+            request,
+            dto.ModelsSettingsState,
+            await call(
+                read_models_settings, validate=dispatch_validation(request, current)
+            ),
+        )
 
     @router.post("/settings/models/surface")
     async def models_surface_update(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.ModelSurfaceMutation, 2048)
         from row_bot.application.client_models_settings import update_model_surface
+
         try:
-            result = await call(update_model_surface, body.surface, body.action,
-                selection_ref=body.selection_ref, enabled=body.enabled,
+            result = await call(
+                update_model_surface,
+                body.surface,
+                body.action,
+                selection_ref=body.selection_ref,
+                enabled=body.enabled,
                 camera_index=body.camera_index,
-                validate=dispatch_validation(request, current))
+                validate=dispatch_validation(request, current),
+            )
         except ValueError as exc:
             raise ProtocolError(str(exc), 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
@@ -6351,9 +6558,14 @@ def create_router(
         current = await session(request, lane="mutation")
         body = await _body(request, dto.ModelContextMutation, 2048)
         from row_bot.application.client_models_settings import update_model_context
+
         try:
-            result = await call(update_model_context, body.policy_kind, body.cap,
-                validate=dispatch_validation(request, current))
+            result = await call(
+                update_model_context,
+                body.policy_kind,
+                body.cap,
+                validate=dispatch_validation(request, current),
+            )
         except ValueError as exc:
             raise ProtocolError(str(exc), 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
@@ -6362,17 +6574,27 @@ def create_router(
     async def models_agent_settings(request: Request) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_models_settings import read_agent_settings
-        return await respond(request, dto.AgentRuntimeSettingsState, await call(
-            read_agent_settings, validate=dispatch_validation(request, current)))
+
+        return await respond(
+            request,
+            dto.AgentRuntimeSettingsState,
+            await call(
+                read_agent_settings, validate=dispatch_validation(request, current)
+            ),
+        )
 
     @router.post("/settings/models/agents")
     async def models_agent_settings_save(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.AgentRuntimeSettingsState, 2048)
         from row_bot.application.client_models_settings import save_agent_settings
+
         try:
-            result = await call(save_agent_settings, body.model_dump(mode="json"),
-                validate=dispatch_validation(request, current))
+            result = await call(
+                save_agent_settings,
+                body.model_dump(mode="json"),
+                validate=dispatch_validation(request, current),
+            )
         except ValueError as exc:
             raise ProtocolError("invalid_agent_settings", 422) from exc
         return await respond(request, dto.AgentRuntimeSettingsState, result)
@@ -6381,17 +6603,25 @@ def create_router(
     async def models_agent_settings_reset(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         from row_bot.application.client_models_settings import save_agent_settings
-        result = await call(save_agent_settings, None,
-            validate=dispatch_validation(request, current))
+
+        result = await call(
+            save_agent_settings, None, validate=dispatch_validation(request, current)
+        )
         return await respond(request, dto.AgentRuntimeSettingsState, result)
 
     @router.get("/settings/models/catalog-summary")
-    async def models_catalog_summary(request: Request, surface: str = "chat") -> JSONResponse:
+    async def models_catalog_summary(
+        request: Request, surface: str = "chat"
+    ) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_models_settings import catalog_provider_summary
+
         try:
-            result = await call(catalog_provider_summary, surface,
-                validate=dispatch_validation(request, current))
+            result = await call(
+                catalog_provider_summary,
+                surface,
+                validate=dispatch_validation(request, current),
+            )
         except ValueError:
             raise ProtocolError("invalid_model_surface", 422) from None
         return await respond(request, dto.ModelCatalogSummary, result)
@@ -6399,34 +6629,67 @@ def create_router(
     @router.post("/settings/models/refresh")
     async def models_catalog_refresh(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
-        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+        from row_bot.providers.model_catalog_cache import (
+            start_model_catalog_refresh_background,
+        )
+
         await call(dispatch_validation(request, current))
-        started = await call(start_model_catalog_refresh_background,
-            reason="manual", force=True)
-        return await respond(request, dto.ProviderCatalogRefresh, {
-            "running": True, "started": started, "provider_id": ""})
+        started = await call(
+            start_model_catalog_refresh_background, reason="manual", force=True
+        )
+        return await respond(
+            request,
+            dto.ProviderCatalogRefresh,
+            {"running": True, "started": started, "provider_id": ""},
+        )
 
     @router.post("/settings/models/cameras/refresh")
     async def models_cameras_refresh(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         from row_bot.vision import list_cameras
+
         result = await call(list_cameras)
         await call(dispatch_validation(request, current))
-        return await respond(request, dto.ModelCameraList, {
-            "cameras": [camera for camera in result if type(camera) is int and 0 <= camera <= 64][:65]})
+        return await respond(
+            request,
+            dto.ModelCameraList,
+            {
+                "cameras": [
+                    camera
+                    for camera in result
+                    if type(camera) is int and 0 <= camera <= 64
+                ][:65]
+            },
+        )
 
     @router.get("/settings/models/catalog")
-    async def models_catalog_page(request: Request, surface: str = "chat",
-                                  provider_id: str | None = None, query: str = "",
-                                  cursor: str | None = None) -> JSONResponse:
+    async def models_catalog_page(
+        request: Request,
+        surface: str = "chat",
+        provider_id: str | None = None,
+        query: str = "",
+        cursor: str | None = None,
+    ) -> JSONResponse:
         current = await session(request)
-        from row_bot.providers.client_status import ProviderStatusError, list_cached_models
+        from row_bot.providers.client_status import (
+            ProviderStatusError,
+            list_cached_models,
+        )
+
         try:
-            result = await call(list_cached_models, surface=surface,
-                provider_id=provider_id, query=query, cursor=cursor, limit=80,
-                readiness=True)
+            result = await call(
+                list_cached_models,
+                surface=surface,
+                provider_id=provider_id,
+                query=query,
+                cursor=cursor,
+                limit=80,
+                readiness=True,
+            )
         except ProviderStatusError as exc:
-            raise ProtocolError(exc.code, 410 if exc.code == "cursor_expired" else 422) from None
+            raise ProtocolError(
+                exc.code, 410 if exc.code == "cursor_expired" else 422
+            ) from None
         await call(dispatch_validation(request, current))
         return await respond(request, dto.CachedModelPage, asdict(result))
 

@@ -163,6 +163,24 @@ export class HttpTransport implements ClientTransport {
   knowledgeChangeLog(signal?: AbortSignal) {
     return wire.getKnowledgeChangeLog(this.base, this.session(), signal);
   }
+  knowledgeGraph(limit = 250, signal?: AbortSignal) {
+    return wire.getKnowledgeGraph(this.base, this.session(), limit, signal);
+  }
+  monitorSnapshot(signal?: AbortSignal) {
+    return wire.getMonitorSnapshot(this.base, this.session(), signal);
+  }
+  monitorLogs(limit = 200, signal?: AbortSignal) {
+    return wire.getMonitorLogs(this.base, this.session(), limit, signal);
+  }
+  reviewDreamRun(body: wire.DreamRunRequest, signal?: AbortSignal) {
+    return wire.reviewDreamRun(this.base, this.session(), body, signal);
+  }
+  dreamRunReceipt(command: string, signal?: AbortSignal) {
+    return wire.getDreamRunReceipt(this.base, this.session(), command, signal);
+  }
+  executeDreamRun(command: wire.DreamRunCommand, signal?: AbortSignal) {
+    return wire.sendDreamRun(this.base, this.session(), command, signal);
+  }
   reviewKnowledgeMaintenance(
     body: wire.KnowledgeMaintenanceRequest,
     signal?: AbortSignal,
@@ -1423,6 +1441,9 @@ export class HttpTransport implements ClientTransport {
       cursor,
       signal,
     );
+  }
+  taskDeliveryDefaults(signal?: AbortSignal) {
+    return wire.getTaskDeliveryDefaults(this.base, this.session(), signal);
   }
   taskEditor(task: string, signal?: AbortSignal) {
     return wire.getTaskEditor(this.base, this.session(), task, signal);

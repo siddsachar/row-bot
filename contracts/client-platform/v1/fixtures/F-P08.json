@@ -9,8 +9,8 @@
     "files": {
       "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
       "src/row_bot/api/v1/document_upload_stream.py": "9d7f480472630d5aa7298503af7b9451607b1856406caa115cb6578bbe700494",
-      "src/row_bot/api/v1/routes.py": "26f37e0f54ed81a844250f7e06b27a542bfa753dc35aa4d4466a9070c205c575",
-      "src/row_bot/api/v1/schemas.py": "e4e39dfdbfcd8075a4d6cb686c5c1191d7a66e0c883c0e388f4d3282d660354e",
+      "src/row_bot/api/v1/routes.py": "08bd0c296df87063a6349e7f187421dfe6fd9818ecfa52617252750d624f11e5",
+      "src/row_bot/api/v1/schemas.py": "4ddd0f7d4e90203086705e792da4413e4ecbb96d7db459bea8653f9a1444eed7",
       "src/row_bot/api/v1/security.py": "b35f9aae3c08de4f05afc4295944962bf5952d14209b86f8f0ffdf066f8eb00a",
       "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
       "src/row_bot/application/artifact_controls.py": "25f0f623e0cd0571d4808a7f3dcecedecf932754993ba45b28b0f968d9b82dac",
@@ -30,7 +30,8 @@
       "src/row_bot/application/client_browser_controls.py": "8454ac0c312d2d4656909ef24013d972fe9ac436602c4cef8a9bee992442c431",
       "src/row_bot/application/client_goal_profile_commands.py": "82c2913852f2dd1c1f55c7f5a9e83efd9498b7f6daade11a03f083dc3656b959",
       "src/row_bot/application/client_models_settings.py": "749d2f2a2db9ddef3dba0428a42bebaba3a51aff0a8bbe7713ee8228ae493fa5",
-      "src/row_bot/application/client_platform.py": "81e0602dfd93b3b2797e67915a30f8fd48d929daf6d3fb0ccc18f2d3d9733f09",
+      "src/row_bot/application/client_monitor.py": "f9a1b1348d1ce13a81b01b31e535d601f9921dba715d15253a48b8484b2a66c6",
+      "src/row_bot/application/client_platform.py": "83abece9682497bedcd6e40154731a4cca8b15a272e4560b2e5ad84ca6bc79ea",
       "src/row_bot/application/client_queue.py": "47e35e02a0782aea73cea6681bcc8bafe3191a4b758713ac26b3b104da5769b3",
       "src/row_bot/application/client_voice.py": "8ffd69b8f00c7adeda2c468cdd1b10f8f1ba1c097b178771efba3d7b7bfa0e52",
       "src/row_bot/application/context_status.py": "f9f01d3766b79efff84a691fc5178b2a125cc6b47d438774de7f82d8f729f0b4",
@@ -67,8 +68,9 @@
       "src/row_bot/application/subscription_controls.py": "d6fc41d849c396135fd3f7617c43369358d4281fa1e7f6c331bcfbb469fb9c4e",
       "src/row_bot/application/subscription_options.py": "b77a2b96ce9ceca38403348c454ec87b1afc5a7cd371970a659ba66c4020f63a",
       "src/row_bot/application/subscription_probes.py": "791c59fee7f92aa7061863b4b4b1d4d3cf82adf1f7cf08ea79b3fcee994e9764",
-      "src/row_bot/application/task_commands.py": "c227d67a756ffe44f4c928de6b4aafe4d8a87597cc309d441e18758536ee094f",
+      "src/row_bot/application/task_commands.py": "1a326fd778cb9adb390c945f6a9f208722902cea9173b2cd6cf7e3a315510c44",
       "src/row_bot/application/task_controls.py": "37861de8b8e70cf4c04a1cf8949c7fd88758ff124c6e570b2f91670e5e9e3f22",
+      "src/row_bot/application/task_delivery_controls.py": "34c0276dcaf0110754a12d20aa7c24f2e83027c682c526e707e0769fab7e6f98",
       "src/row_bot/application/task_execution.py": "a9ddb5768259a105557c4f2036e9b2cf14210d20e4a2f9e60cc3b2c13d353099",
       "src/row_bot/application/task_graph_controls.py": "4432afbc420e8c1af6b972796152b74ed160919efe21cd7c85f3a51cdf32d6b3",
       "src/row_bot/application/task_run_commands.py": "7c5ae3bc287153bef451de6bd78a2bcf673a3f60506dc894ff725138e0e6d3f1",
@@ -91,7 +93,7 @@
       "src/row_bot/threads.py": "a1e5bc8e3cd8104b4ff070e1d3bb744cf0d1e819139d56397d25eefa556ab24e",
       "tests/helpers/client_platform_fakes.py": "9942b74294d55f44f058b6e561047fb30b92527662bf56fdb59ea8512c0034c3"
     },
-    "sha256": "d6b7900bb88c22e8a4844aaf4505d5664ff014560d59cd8dee4178ac1519ee6f"
+    "sha256": "884d76db908f381307adbfbe268d5fc5bd32edc1fbfeab2439afc1700ce36ad6"
   },
   "records": [
     {
@@ -115,11 +117,14 @@
           "client:artifacts",
           "client:settings",
           "client:tasks",
+          "client:knowledge",
+          "client:monitor",
           "client:voice",
           "browser:upload",
           "native:bridge",
           "native:filesystem",
           "native:terminal",
+          "native:logs",
           "computer:interactive"
         ],
         "presentation_capabilities": [],
@@ -166,11 +171,14 @@
           "client:artifacts",
           "client:settings",
           "client:tasks",
+          "client:knowledge",
+          "client:monitor",
           "client:voice",
           "browser:upload",
           "native:bridge",
           "native:filesystem",
           "native:terminal",
+          "native:logs",
           "computer:interactive"
         ],
         "presentation_capabilities": [],

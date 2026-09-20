@@ -1,0 +1,76 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "dream_outcome_uncertain",
+            "dream_failed",
+            "dream_disabled"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "enrichments": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Enrichments",
+      "type": "integer"
+    },
+    "errors": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Errors",
+      "type": "integer"
+    },
+    "inferred_relations": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Inferred Relations",
+      "type": "integer"
+    },
+    "merges": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Merges",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 512,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "summary",
+    "merges",
+    "enrichments",
+    "inferred_relations",
+    "errors"
+  ],
+  "title": "DreamRunReceipt",
+  "type": "object"
+}

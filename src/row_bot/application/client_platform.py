@@ -406,7 +406,7 @@ class ClientPlatformService:
                 from row_bot.application.workspace_edit_commands import execute_workspace_edit
                 return execute_workspace_edit(self, command, target, owner_id=owner_id, key=idempotency_key,
                                               validate=validate or (lambda: None))
-            if command["type"] in {"task.create", "task.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
+            if command["type"] in {"task.create", "task.update", "task.delete", "task.delivery.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
                 if target != "tasks":
                     raise ClientPlatformError("invalid_command")
                 from row_bot.application.task_commands import execute_task_command

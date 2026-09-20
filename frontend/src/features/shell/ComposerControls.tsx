@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
   Brain,
@@ -6,14 +6,36 @@ import {
   Cpu,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react';
 import type {
   ConversationControls,
   ReasoningSelectionValue,
+  SkillSummary,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { Button, Field, Hint, Input, Menu } from '../../ui/primitives';
+
+const SLASH_DISCOVERY = [
+  { token: '/skills', label: 'Skills', description: 'Ask about chat skills.' },
+  { token: '/help', label: 'Help', description: 'Ask for command help.' },
+  {
+    token: '/status',
+    label: 'Status',
+    description: 'Ask for a status summary.',
+  },
+  { token: '/tools', label: 'Tools', description: 'Ask about enabled tools.' },
+] as const;
+
+function skillSlash(value: string) {
+  return `/${value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')}`;
+}
 
 /** The server supplies exact-model choices; presentation never invents efforts. */
 export default function ComposerControls({
@@ -28,7 +50,20 @@ export default function ComposerControls({
   const [saving, setSaving] = useState(false);
   const operation = useRef(false);
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [skillsState, setSkillsState] = useState<
+    'idle' | 'loading' | 'ready' | 'unavailable'
+  >('idle');
+  const [skillQuery, setSkillQuery] = useState('');
+  const skillsRequest = useRef<AbortController | null>(null);
   const [budget, setBudget] = useState('');
+  useEffect(
+    () => () => {
+      skillsRequest.current?.abort();
+    },
+    [],
+  );
   const workspace = state.workspace;
   const controls = workspace?.controls;
   const id = state.selectedConversationId;
@@ -51,6 +86,43 @@ export default function ComposerControls({
   const approval = { approve: 'Ask', block: 'Block', allow_all: 'Auto' }[
     controls.approval_mode ?? 'approve'
   ];
+  async function loadSkills() {
+    if (skillsState === 'loading') return;
+    skillsRequest.current?.abort();
+    const abort = new AbortController();
+    skillsRequest.current = abort;
+    setSkillsState('loading');
+    try {
+      const page = await controller.skills(
+        '',
+        undefined,
+        undefined,
+        abort.signal,
+      );
+      if (abort.signal.aborted) return;
+      setSkills(
+        page.items.filter((item) => item.available && !item.tool_guide),
+      );
+      setSkillsState(
+        page.availability === 'available' ? 'ready' : 'unavailable',
+      );
+    } catch (cause) {
+      if (abort.signal.aborted) return;
+      setSkillsState('unavailable');
+      onError(clientError(cause).message);
+    }
+  }
+  function insertDiscovery(token: string) {
+    if (!id) return;
+    const draft = controller.getDraft(id);
+    const spacing = draft.text && !/\s$/.test(draft.text) ? ' ' : '';
+    controller.setDraft(id, {
+      ...draft,
+      text: `${draft.text}${spacing}${token} `,
+    });
+    onError('');
+    setSkillsOpen(false);
+  }
   async function save(patch: Partial<ConversationControls>) {
     if (operation.current || blocked || !id || !controls) return;
     operation.current = true;
@@ -223,6 +295,92 @@ export default function ComposerControls({
           </Popover.Portal>
         </Popover.Root>
       )}
+      <Popover.Root
+        open={skillsOpen}
+        onOpenChange={(open) => {
+          setSkillsOpen(open);
+          if (open && skillsState === 'idle') void loadSkills();
+        }}
+      >
+        <Hint label="Skills and slash commands">
+          <Popover.Trigger asChild>
+            <Button
+              variant="ghost"
+              className="composer-control"
+              disabled={blocked}
+              aria-label="Skills and slash commands"
+            >
+              <Sparkles size={18} aria-hidden />
+              <span>Skills</span>
+              <ChevronDown size={14} aria-hidden />
+            </Button>
+          </Popover.Trigger>
+        </Hint>
+        <Popover.Portal>
+          <Popover.Content
+            className="popover surface-effect thinking-menu"
+            sideOffset={6}
+            collisionPadding={12}
+            aria-label="Skills and slash commands"
+          >
+            <strong className="thinking-menu-title">
+              Skills and slash commands
+            </strong>
+            <small>
+              Choosing an item inserts text in your draft. It is sent as part of
+              your message only after you review and send it.
+            </small>
+            <Field label="Filter skills">
+              <Input
+                value={skillQuery}
+                placeholder="Search saved skills"
+                onChange={(event) => setSkillQuery(event.target.value)}
+              />
+            </Field>
+            {skillsState === 'loading' && (
+              <small role="status">Loading skills…</small>
+            )}
+            {skillsState === 'unavailable' && (
+              <small role="status">Saved skills are unavailable.</small>
+            )}
+            {skills
+              .filter((item) =>
+                `${item.display_name} ${item.description} ${item.id}`
+                  .toLowerCase()
+                  .includes(skillQuery.trim().toLowerCase()),
+              )
+              .slice(0, 12)
+              .map((item) => {
+                const token = skillSlash(item.id);
+                return (
+                  <Button
+                    key={item.id}
+                    variant="ghost"
+                    className="thinking-option"
+                    onClick={() => insertDiscovery(token)}
+                  >
+                    {item.icon} {item.display_name} · insert {token}
+                  </Button>
+                );
+              })}
+            <strong className="thinking-menu-title">Slash starters</strong>
+            {SLASH_DISCOVERY.map((item) => (
+              <Button
+                key={item.token}
+                variant="ghost"
+                className="thinking-option"
+                title={item.description}
+                onClick={() => insertDiscovery(item.token)}
+              >
+                {item.token} · {item.label}
+              </Button>
+            ))}
+            <Popover.Close asChild>
+              <Button variant="ghost">Close skills</Button>
+            </Popover.Close>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
       <Menu
         label="Approvals"
         hint={`Approvals: ${approval}`}

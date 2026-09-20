@@ -1,0 +1,247 @@
+{
+  "$defs": {
+    "KnowledgeGraphEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 64,
+          "title": "Relation Type",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "target_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 128,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "target_id",
+        "relation_type",
+        "updated_at"
+      ],
+      "title": "KnowledgeGraphEdge",
+      "type": "object"
+    },
+    "KnowledgeGraphNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "entity_type": {
+          "maxLength": 64,
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_user": {
+          "title": "Is User",
+          "type": "boolean"
+        },
+        "orphan": {
+          "title": "Orphan",
+          "type": "boolean"
+        },
+        "relation_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Relation Count",
+          "type": "integer"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "manual",
+            "extraction",
+            "document",
+            "wiki",
+            "other"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 128,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "subject",
+        "description",
+        "entity_type",
+        "source",
+        "updated_at",
+        "relation_count",
+        "orphan",
+        "is_user"
+      ],
+      "title": "KnowledgeGraphNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "center_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Center Id"
+    },
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeGraphEdge"
+      },
+      "maxItems": 2000,
+      "title": "Edges",
+      "type": "array"
+    },
+    "entity_types": {
+      "items": {
+        "maxLength": 64,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Entity Types",
+      "type": "array"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeGraphNode"
+      },
+      "maxItems": 250,
+      "title": "Nodes",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "shown_entities": {
+      "maximum": 250,
+      "minimum": 0,
+      "title": "Shown Entities",
+      "type": "integer"
+    },
+    "shown_relations": {
+      "maximum": 2000,
+      "minimum": 0,
+      "title": "Shown Relations",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "enum": [
+          "manual",
+          "extraction",
+          "document",
+          "wiki",
+          "other"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Sources",
+      "type": "array"
+    },
+    "total_entities": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Total Entities",
+      "type": "integer"
+    },
+    "total_relations": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Total Relations",
+      "type": "integer"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "availability",
+    "revision",
+    "nodes",
+    "edges",
+    "total_entities",
+    "total_relations",
+    "shown_entities",
+    "shown_relations",
+    "truncated",
+    "center_id",
+    "entity_types",
+    "sources"
+  ],
+  "title": "KnowledgeGraphSnapshot",
+  "type": "object"
+}

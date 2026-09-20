@@ -30,7 +30,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -54,6 +54,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ProfilePage", "ProfileDetail", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
+    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -139,6 +140,12 @@ OPERATIONS = (
     ("get", "/settings/mcp/policy", None, "McpPolicyPage"),
     ("get", "/settings/mcp/catalog", None, "McpTestedCatalogPage"),
     ("get", "/knowledge/entities/editor", None, "KnowledgeEditorState"),
+    ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
+    ("get", "/monitor", None, "MonitorSnapshot"),
+    ("get", "/monitor/logs", None, "MonitorLogs"),
+    ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
+    ("get", "/monitor/dream/commands/{command_id}", None, "DreamRunReceipt"),
+    ("post", "/monitor/dream/commands", "DreamRunCommand", "DreamRunReceipt"),
     ("post", "/knowledge/entities/review", "KnowledgeReviewRequest", "KnowledgeReview"),
     ("get", "/knowledge/entities/commands/{command_id}", None, "KnowledgeReceipt"),
     ("post", "/knowledge/entities/commands", "Command", "KnowledgeReceipt"),
@@ -260,6 +267,7 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/processes/{process_id}/output", None, "WorkspaceProcessOutput"),
     ("post", "/conversations/{conversation_id}/workspaces/{binding_id}/processes/review", "WorkspaceProcessReviewRequest", "WorkspaceProcessReview"),
     ("get", "/tasks", None, "TaskSummaryPage"),
+    ("get", "/tasks/delivery-defaults", None, "TaskDeliverySnapshot"),
     ("get", "/tasks/{task_id}/editing", None, "TaskEditorSnapshot"),
     ("get", "/tasks/{task_id}/graph", None, "TaskGraphSnapshot"),
     ("get", "/tasks/{task_id}/settings", None, "TaskSettingsSnapshot"),
@@ -553,6 +561,18 @@ export const testLiveProviderRuntime = (base: string, proof: SessionProof, provi
   jsonRequest(base, `/settings/providers/live/${id(provider)}/runtime-test`, 'ProviderRuntimeProbe', proof, 'POST', undefined, undefined, signal);
 export const getSavedEntities = (base: string, proof: SessionProof, search = '', entity_type?: string, status?: string, source?: string, tier?: string, limit = 25, cursor?: string, signal?: AbortSignal): Promise<EntitySummaryPage> =>
   jsonRequest(base, '/knowledge/entities' + query({query:search, entity_type, status, source, tier, limit, cursor}), 'EntitySummaryPage', proof, 'GET', undefined, undefined, signal);
+export const getKnowledgeGraph = (base: string, proof: SessionProof, limit = 250, signal?: AbortSignal): Promise<KnowledgeGraphSnapshot> =>
+  jsonRequest(base, '/knowledge/graph' + query({limit}), 'KnowledgeGraphSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getMonitorSnapshot = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MonitorSnapshot> =>
+  jsonRequest(base, '/monitor', 'MonitorSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getMonitorLogs = (base: string, proof: SessionProof, limit = 200, signal?: AbortSignal): Promise<MonitorLogs> =>
+  jsonRequest(base, '/monitor/logs' + query({limit}), 'MonitorLogs', proof, 'GET', undefined, undefined, signal);
+export const reviewDreamRun = (base: string, proof: SessionProof, body: DreamRunRequest, signal?: AbortSignal): Promise<DreamRunReview> =>
+  jsonRequest(base, '/monitor/dream/review', 'DreamRunReview', proof, 'POST', validateWire('DreamRunRequest', body), undefined, signal);
+export const getDreamRunReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<DreamRunReceipt> =>
+  jsonRequest(base, `/monitor/dream/commands/${id(command)}`, 'DreamRunReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendDreamRun = (base: string, proof: SessionProof, command: DreamRunCommand, signal?: AbortSignal): Promise<DreamRunReceipt> =>
+  jsonRequest(base, '/monitor/dream/commands', 'DreamRunReceipt', proof, 'POST', validateWire('DreamRunCommand', command), command.command_id, signal);
 export const getSavedEntityDetail = (base: string, proof: SessionProof, entity: string, signal?: AbortSignal): Promise<KnowledgeEntityDetail> =>
   jsonRequest(base, `/knowledge/entities/${id(entity)}`, 'KnowledgeEntityDetail', proof, 'GET', undefined, undefined, signal);
 export const getKnowledgeRecalls = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<KnowledgeRecallPage> =>
@@ -573,6 +593,8 @@ export const sendSettingsMutation = (base: string, proof: SessionProof, command:
   jsonRequest(base, '/settings/snapshot/commands', 'SettingsMutationReceipt', proof, 'POST', command, command.command_id, signal);
 export const getSavedTasks = (base: string, proof: SessionProof, search = '', enabled?: boolean, cursor?: string, signal?: AbortSignal): Promise<TaskSummaryPage> =>
   jsonRequest(base, '/tasks' + query({query:search, enabled: enabled === undefined ? undefined : String(enabled), cursor}), 'TaskSummaryPage', proof, 'GET', undefined, undefined, signal);
+export const getTaskDeliveryDefaults = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<TaskDeliverySnapshot> =>
+  jsonRequest(base, '/tasks/delivery-defaults', 'TaskDeliverySnapshot', proof, 'GET', undefined, undefined, signal);
 export const getTaskEditor = (base: string, proof: SessionProof, task: string, signal?: AbortSignal): Promise<TaskEditorSnapshot> =>
   jsonRequest(base, `/tasks/${id(task)}/editing`, 'TaskEditorSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getTaskGraph = (base: string, proof: SessionProof, task: string, signal?: AbortSignal): Promise<TaskGraphSnapshot> =>
@@ -1308,6 +1330,10 @@ def outputs() -> dict[Path, str]:
                     ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
+        elif suffix == "/knowledge/graph":
+            query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 250})]
+        elif suffix == "/monitor/logs":
+            query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 200})]
         elif "/content/" in suffix:
             query_parameters = [("limit_bytes", False, {"type": "integer", "minimum": 1, "maximum": 65536}),
                                 ("cursor", False, {"type": "string", "maxLength": 2048})]
@@ -1331,7 +1357,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/transcribe"):
                 parameters.append({"name": "X-Dictation-Utterance", "in": "header", "required": True,
                                    "schema": {"type": "string", "format": "uuid"}})
-        if request in {"Command", "UploadCompletion"} or suffix == "/uploads":
+        if request in {"Command", "DreamRunCommand", "UploadCompletion"} or suffix == "/uploads":
             parameters.append({"name": "Idempotency-Key", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":

@@ -1,0 +1,216 @@
+"""Deterministic paired NiceGUI/React fixture for the core-surface audit.
+
+The real application process serves NiceGUI at ``/`` and the built React
+client at ``/app-v2/``.  Only provider/native boundaries are replaced by the
+existing client-workspace fixture; all saved records live in its disposable
+``ROW_BOT_DATA_DIR``.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from fastapi import Header
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from nicegui import app
+
+from row_bot.brand import STRUCTURED_LOG_FILENAME
+from tests.browser.client_workspace import fixture_app as workspace
+from tests.helpers.client_platform_fakes import fixture_id
+
+
+FIXTURE_REVISION = "core-surface-parity-v1"
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def _seed_core_surface_state() -> None:
+    """Add bounded, content-safe state without starting any worker or run."""
+    token = workspace.predecessor.TOKEN
+    workspace.p4_tasks("populated", token)
+    workspace.p4_knowledge("populated", token)
+
+    from row_bot import tasks
+    from row_bot.threads import append_checkpoint_messages
+
+    connection = tasks._get_conn()
+    try:
+        connection.execute(
+            """UPDATE tasks
+               SET enabled = CASE WHEN id IN ('p4-task-000','p4-task-001') THEN 1 ELSE 0 END,
+                   description = CASE
+                     WHEN id = 'p4-task-000' THEN 'Prepare a compact synthetic morning brief.'
+                     WHEN id = 'p4-task-001' THEN 'Review the isolated knowledge fixture.'
+                     ELSE description END,
+                   prompts = CASE
+                     WHEN id = 'p4-task-000' THEN '[\"Summarize the synthetic fixture only.\"]'
+                     WHEN id = 'p4-task-001' THEN '[\"Review the synthetic fixture only.\"]'
+                     ELSE prompts END
+               WHERE id LIKE 'p4-task-%'"""
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    append_checkpoint_messages(
+        "p1-browser-a",
+        [
+            HumanMessage(
+                id=fixture_id("core-parity:user"),
+                content="Show the deterministic fixture summary.",
+            ),
+            AIMessage(
+                id=fixture_id("core-parity:assistant"),
+                content=(
+                    "## Fixture summary\n\n"
+                    "The paired clients share **synthetic state**.\n\n"
+                    "```text\nNo provider or channel was contacted.\n```"
+                ),
+                tool_calls=[
+                    {
+                        "id": fixture_id("core-parity:tool-call"),
+                        "name": "fixture_status",
+                        "args": {},
+                    }
+                ],
+            ),
+            ToolMessage(
+                id=fixture_id("core-parity:tool-result"),
+                tool_call_id=fixture_id("core-parity:tool-call"),
+                content="Synthetic fixture ready.",
+            ),
+            AIMessage(
+                id=fixture_id("core-parity:assistant-final"),
+                content="The isolated comparison state is ready.",
+            ),
+        ],
+    )
+
+    data = workspace.predecessor.DATA
+    _write_json(
+        data / "memory_extraction_state.json",
+        {
+            "last_extraction": "2026-01-02T09:30:00+00:00",
+            "threads_scanned": 4,
+            "entities_saved": 12,
+            "islands_repaired": 1,
+        },
+    )
+    _write_json(
+        data / "extraction_journal.json",
+        [
+            {
+                "timestamp": "2026-01-02T09:30:00+00:00",
+                "summary": "12 synthetic memories saved",
+                "contradictions_blocked": 1,
+                "low_confidence_skipped": 2,
+                "islands_repaired": 1,
+                "thread_details": [
+                    {"thread": "Fixture planning", "extracted": 8, "saved": 7},
+                    {"thread": "Fixture review", "extracted": 6, "saved": 5},
+                ],
+                "errors": [],
+            }
+        ],
+    )
+    _write_json(
+        data / "dream_config.json",
+        {"enabled": True, "window_start": 1, "window_end": 5},
+    )
+    _write_json(
+        data / "dream_journal.json",
+        [
+            {
+                "timestamp": "2026-01-02T04:15:00+00:00",
+                "summary": "Synthetic knowledge connected",
+                "merges": [
+                    {
+                        "duplicate_subject": "Fixture alias",
+                        "survivor_subject": "Fixture memory",
+                        "score": 0.94,
+                    }
+                ],
+                "enrichments": [
+                    {
+                        "subject": "Fixture memory",
+                        "old_length": 42,
+                        "new_length": 78,
+                        "new_description": "Content-safe synthetic enrichment.",
+                    }
+                ],
+                "inferred_relations": [
+                    {
+                        "source_subject": "Fixture memory",
+                        "target_subject": "Fixture review",
+                        "relation_type": "supports",
+                        "confidence": 0.91,
+                        "evidence": "Synthetic browser evidence.",
+                    }
+                ],
+                "errors": [],
+            }
+        ],
+    )
+    log_path = data / "logs" / STRUCTURED_LOG_FILENAME
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_rows = [
+        {
+            "ts": "2026-01-02T09:31:00+00:00",
+            "level": "INFO",
+            "logger": "row_bot.fixture",
+            "msg": "Core surface fixture ready",
+        },
+        {
+            "ts": "2026-01-02T09:30:00+00:00",
+            "level": "INFO",
+            "logger": "row_bot.fixture",
+            "msg": "Knowledge extraction fixture loaded",
+        },
+    ]
+    log_path.write_text(
+        "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in log_rows),
+        encoding="utf-8",
+    )
+    _write_json(
+        data / "core_surface_fixture.json",
+        {
+            "revision": FIXTURE_REVISION,
+            "clock": "2026-01-02T10:00:00+00:00",
+            "external_calls": 0,
+            "clients": ["nicegui", "react"],
+        },
+    )
+
+
+@app.get("/__core_parity_fixture/state")
+def core_surface_fixture_state(x_fixture_token: str = Header(default="")) -> dict:
+    workspace.predecessor._authorize(x_fixture_token)
+    state = json.loads(
+        (workspace.predecessor.DATA / "core_surface_fixture.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    state["data_scope"] = "disposable"
+    return state
+
+
+def main() -> None:
+    if os.environ.get("ROW_BOT_TEST_MODE") != "1":
+        raise RuntimeError("Core-surface parity fixture requires isolated test mode")
+    original_seed = workspace.predecessor.seed
+
+    def seed() -> None:
+        original_seed()
+        _seed_core_surface_state()
+
+    workspace.predecessor.seed = seed
+    workspace.main()
+
+
+if __name__ == "__main__":
+    main()

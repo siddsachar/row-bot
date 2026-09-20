@@ -445,7 +445,9 @@ class KnowledgeEntityDetail(WireModel):
     source: str = Field(max_length=4096)
     source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
     confidence: float | None = Field(ge=0, le=1)
-    aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=12)
+    aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=12
+    )
     alias_count: int = Field(ge=0, le=256)
     tags: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=12)
     tag_count: int = Field(ge=0, le=256)
@@ -457,9 +459,15 @@ class KnowledgeEntityDetail(WireModel):
     recall_count: int | None = Field(ge=0, le=9007199254740991)
     review_reason: str = Field(max_length=1024)
     superseded_by: str = Field(max_length=128)
-    supersedes: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=4)
-    source_context: list[Annotated[str, StringConstraints(max_length=512)]] = Field(max_length=10)
-    evidence: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=3)
+    supersedes: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=4
+    )
+    source_context: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=10
+    )
+    evidence: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=3
+    )
     evidence_count: int = Field(ge=0, le=9007199254740991)
     relations: list[KnowledgeRelationPreview] = Field(max_length=5)
     relation_count: int = Field(ge=0, le=9007199254740991)
@@ -481,7 +489,9 @@ class KnowledgeRecallDecision(WireModel):
     selected_count: int = Field(ge=0, le=2147483647)
     context_characters: int = Field(ge=0, le=2147483647)
     candidates: list[KnowledgeRecallCandidate] = Field(max_length=3)
-    rejection_reasons: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=3)
+    rejection_reasons: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=3
+    )
 
 
 class KnowledgeRecallPage(WireModel):
@@ -496,7 +506,9 @@ class KnowledgeMemoryChange(WireModel):
     actor: str = Field(max_length=128)
     old_status: str = Field(max_length=64)
     new_status: str = Field(max_length=64)
-    subjects: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=3)
+    subjects: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=3
+    )
     additional_subjects: int = Field(ge=0, le=100)
     reason: str = Field(max_length=512)
 
@@ -1030,6 +1042,19 @@ class TaskSummaryPage(WireModel):
     next_cursor: str | None = Field(max_length=1024)
 
 
+class TaskDeliveryChannel(WireModel):
+    id: OpaqueId
+    label: str = Field(max_length=256)
+    selected: bool
+
+
+class TaskDeliverySnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    channels: list[TaskDeliveryChannel] = Field(max_length=32)
+    web_app_always_on: Literal[True]
+
+
 class ProviderStatusRow(WireModel):
     provider_id: str = Field(min_length=1, max_length=160)
     display_name: str = Field(max_length=256)
@@ -1071,7 +1096,9 @@ class ProviderEndpointSnapshot(WireModel):
     fields: ProviderEndpointFields
     probe_state: Literal["agent_ready", "chat_only", "unavailable", "unknown"]
     model_count: int | None = Field(ge=0)
-    probe_components: list[ProviderProbeComponent] = Field(default_factory=list, max_length=20)
+    probe_components: list[ProviderProbeComponent] = Field(
+        default_factory=list, max_length=20
+    )
     transport: str = Field(default="openai_chat", max_length=80)
     runtime_state: Literal["unknown"] = "unknown"
 
@@ -1544,6 +1571,190 @@ class McpConfigurationOutcome(WireModel):
     code: Literal["mcp_configuration_unconfirmed"] | None
 
 
+class KnowledgeGraphNode(WireModel):
+    id: OpaqueId
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    subject: str = Field(max_length=256)
+    description: str = Field(max_length=1024)
+    entity_type: str = Field(max_length=64)
+    source: Literal["manual", "extraction", "document", "wiki", "other"]
+    updated_at: str = Field(max_length=128)
+    relation_count: int = Field(ge=0, le=9007199254740991)
+    orphan: bool
+    is_user: bool
+
+
+class KnowledgeGraphEdge(WireModel):
+    id: OpaqueId
+    source_id: OpaqueId
+    target_id: OpaqueId
+    relation_type: str = Field(max_length=64)
+    updated_at: str = Field(max_length=128)
+
+
+class KnowledgeGraphSnapshot(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable", "corrupt"]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    nodes: list[KnowledgeGraphNode] = Field(max_length=250)
+    edges: list[KnowledgeGraphEdge] = Field(max_length=2000)
+    total_entities: int = Field(ge=0, le=9007199254740991)
+    total_relations: int = Field(ge=0, le=9007199254740991)
+    shown_entities: int = Field(ge=0, le=250)
+    shown_relations: int = Field(ge=0, le=2000)
+    truncated: bool
+    center_id: OpaqueId | None
+    entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        max_length=64
+    )
+    sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
+        max_length=5
+    )
+
+
+MonitorAvailability = Literal["available", "missing", "unavailable", "corrupt"]
+
+
+class MonitorExtractionStatus(WireModel):
+    availability: MonitorAvailability
+    last_run: str | None = Field(max_length=128)
+    interval_hours: int = Field(ge=1, le=168)
+    threads_scanned: int = Field(ge=0, le=2147483647)
+    entities_saved: int = Field(ge=0, le=2147483647)
+    islands_repaired: int = Field(ge=0, le=2147483647)
+
+
+class MonitorExtractionThread(WireModel):
+    label: str = Field(max_length=256)
+    extracted: int = Field(ge=0, le=2147483647)
+    saved: int = Field(ge=0, le=2147483647)
+
+
+class MonitorExtractionJournalEntry(WireModel):
+    timestamp: str = Field(max_length=128)
+    summary: str = Field(max_length=512)
+    contradictions_blocked: int = Field(ge=0, le=2147483647)
+    low_confidence_skipped: int = Field(ge=0, le=2147483647)
+    islands_repaired: int = Field(ge=0, le=2147483647)
+    threads: list[MonitorExtractionThread] = Field(max_length=50)
+    errors: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=20
+    )
+
+
+class MonitorDreamRecent(WireModel):
+    timestamp: str = Field(max_length=128)
+    summary: str = Field(max_length=512)
+
+
+class MonitorDreamStatus(WireModel):
+    availability: MonitorAvailability
+    enabled: bool
+    window: str = Field(max_length=64)
+    last_run: str | None = Field(max_length=128)
+    last_summary: str | None = Field(max_length=512)
+    recent: list[MonitorDreamRecent] = Field(max_length=3)
+
+
+class MonitorDreamMerge(WireModel):
+    duplicate_subject: str = Field(max_length=256)
+    survivor_subject: str = Field(max_length=256)
+    score: float | None = Field(ge=0, le=1)
+
+
+class MonitorDreamEnrichment(WireModel):
+    subject: str = Field(max_length=256)
+    old_length: int = Field(ge=0, le=1000000)
+    new_length: int = Field(ge=0, le=1000000)
+    new_description: str = Field(max_length=512)
+
+
+class MonitorDreamRelation(WireModel):
+    source_subject: str = Field(max_length=256)
+    target_subject: str = Field(max_length=256)
+    relation_type: str = Field(max_length=64)
+    confidence: float | None = Field(ge=0, le=1)
+    evidence: str = Field(max_length=512)
+
+
+class MonitorDreamJournalEntry(WireModel):
+    timestamp: str = Field(max_length=128)
+    summary: str = Field(max_length=512)
+    merges: list[MonitorDreamMerge] = Field(max_length=50)
+    enrichments: list[MonitorDreamEnrichment] = Field(max_length=50)
+    inferred_relations: list[MonitorDreamRelation] = Field(max_length=50)
+    errors: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=20
+    )
+
+
+class MonitorLogEntry(WireModel):
+    timestamp: str = Field(max_length=128)
+    level: str = Field(max_length=32)
+    logger: str = Field(max_length=128)
+    message: str = Field(max_length=512)
+    exception: str = Field(max_length=1024)
+
+
+class MonitorLogs(WireModel):
+    availability: MonitorAvailability
+    authorized: bool
+    entries: list[MonitorLogEntry] = Field(max_length=200)
+    full_available: bool
+
+
+class MonitorSnapshot(WireModel):
+    schema_version: Literal[1]
+    dream_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    extraction: MonitorExtractionStatus
+    extraction_journal: list[MonitorExtractionJournalEntry] = Field(max_length=20)
+    extraction_journal_availability: MonitorAvailability
+    dream: MonitorDreamStatus
+    dream_journal: list[MonitorDreamJournalEntry] = Field(max_length=20)
+    dream_journal_availability: MonitorAvailability
+    logs: MonitorLogs
+
+
+class DreamRunRequest(WireModel):
+    snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DreamRunReview(WireModel):
+    schema_version: Literal[1]
+    snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effects: list[
+        Literal["knowledge_entities", "knowledge_relations", "dream_journal"]
+    ] = Field(max_length=3)
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class DreamRunPayload(WireModel):
+    snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class DreamRunCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: Literal["dream.run"]
+    payload: DreamRunPayload
+
+
+class DreamRunReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "partial", "rejected"]
+    code: (
+        Literal["dream_outcome_uncertain", "dream_failed", "dream_disabled"] | None
+    ) = None
+    summary: str = Field(max_length=512)
+    merges: int = Field(ge=0, le=2147483647)
+    enrichments: int = Field(ge=0, le=2147483647)
+    inferred_relations: int = Field(ge=0, le=2147483647)
+    errors: int = Field(ge=0, le=2147483647)
+
+
 KnowledgeAction = Literal[
     "knowledge.create",
     "knowledge.edit",
@@ -1654,7 +1865,15 @@ class KnowledgeMaintenanceReview(WireModel):
     catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
     entity_count: int = Field(ge=0, le=9007199254740991)
-    side_effects: list[Literal["entities", "relations", "lexical_index", "vector_index", "managed_wiki_files"]] = Field(max_length=5)
+    side_effects: list[
+        Literal[
+            "entities",
+            "relations",
+            "lexical_index",
+            "vector_index",
+            "managed_wiki_files",
+        ]
+    ] = Field(max_length=5)
     action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     review_id: str = Field(min_length=1, max_length=256)
 
@@ -1683,11 +1902,24 @@ class KnowledgeMaintenanceReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "partial", "rejected"]
     action: KnowledgeMaintenanceAction
-    deleted: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]] = Field(max_length=100)
-    stale: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]] = Field(max_length=100)
-    missing: list[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]] = Field(max_length=100)
+    deleted: list[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    ] = Field(max_length=100)
+    stale: list[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    ] = Field(max_length=100)
+    missing: list[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    ] = Field(max_length=100)
     cleanup: KnowledgeCleanupResult
-    code: Literal["knowledge_changed", "knowledge_cleanup_partial", "knowledge_outcome_uncertain"] | None = None
+    code: (
+        Literal[
+            "knowledge_changed",
+            "knowledge_cleanup_partial",
+            "knowledge_outcome_uncertain",
+        ]
+        | None
+    ) = None
 
 
 KnowledgeId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -4138,6 +4370,16 @@ class TaskUpdatePayload(TaskCreatePayload):
     task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class TaskDeletePayload(WireModel):
+    task_id: OpaqueId
+    task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TaskDeliveryUpdatePayload(WireModel):
+    delivery_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    channels: list[OpaqueId] = Field(max_length=32)
+
+
 class TaskRunPayload(WireModel):
     task_id: OpaqueId
     task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -4334,6 +4576,8 @@ class Command(WireModel):
         "artifact.edit",
         "task.create",
         "task.update",
+        "task.delete",
+        "task.delivery.update",
         "task.graph.update",
         "task.settings.update",
         "task.webhook.rotate",
@@ -4500,6 +4744,8 @@ COMMAND_PAYLOADS = {
     "task.graph.update": TaskGraphUpdatePayload,
     "task.create": TaskCreatePayload,
     "task.update": TaskUpdatePayload,
+    "task.delete": TaskDeletePayload,
+    "task.delivery.update": TaskDeliveryUpdatePayload,
     "task.settings.update": TaskSettingsUpdatePayload,
     "task.webhook.rotate": TaskWebhookRotatePayload,
     "task.run": TaskRunPayload,
@@ -4937,6 +5183,7 @@ class CommandReceipt(WireModel):
     task_id: OpaqueId | None = None
     task_saved: bool = False
     task_created: bool = False
+    task_deleted: bool = False
     task_run_id: OpaqueId | None = None
     task_run_reserved: bool = False
     task_stop_requested: bool = False
@@ -5235,8 +5482,12 @@ class HandshakeView(Choices):
     csrf_token: str = Field(min_length=32, max_length=256)
     authentication_kind: Literal["local_owner", "session"]
     client_compatibility: Literal["current", "newer", "unknown"] = "unknown"
-    application_capabilities: list[OpaqueId] = Field(default_factory=list, max_length=64)
-    presentation_capabilities: list[OpaqueId] = Field(default_factory=list, max_length=32)
+    application_capabilities: list[OpaqueId] = Field(
+        default_factory=list, max_length=64
+    )
+    presentation_capabilities: list[OpaqueId] = Field(
+        default_factory=list, max_length=32
+    )
     policy_revision: Revision
     session_ttl_seconds: int = Field(ge=0, le=43200)
     native_adapter: NativeAdapter

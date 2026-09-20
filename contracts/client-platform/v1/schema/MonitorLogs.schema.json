@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "MonitorLogEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "exception": {
+          "maxLength": 1024,
+          "title": "Exception",
+          "type": "string"
+        },
+        "level": {
+          "maxLength": 32,
+          "title": "Level",
+          "type": "string"
+        },
+        "logger": {
+          "maxLength": 128,
+          "title": "Logger",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "level",
+        "logger",
+        "message",
+        "exception"
+      ],
+      "title": "MonitorLogEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authorized": {
+      "title": "Authorized",
+      "type": "boolean"
+    },
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/MonitorLogEntry"
+      },
+      "maxItems": 200,
+      "title": "Entries",
+      "type": "array"
+    },
+    "full_available": {
+      "title": "Full Available",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "availability",
+    "authorized",
+    "entries",
+    "full_available"
+  ],
+  "title": "MonitorLogs",
+  "type": "object"
+}
