@@ -375,7 +375,8 @@ class ClientPlatformService:
                 validate: Callable[[], None] | None = None, authorized_folder: Any = None,
                 validate_approval: Callable[..., None] | None = None,
                 resolve_upload: Callable[[str], bytes] | None = None,
-                frozen_context: dict | None = None) -> dict:
+                frozen_context: dict | None = None,
+                runtime_surface: str = "normal_chat") -> dict:
         if frozen_context is not None and command["type"] != "conversation.submit":
             raise ClientPlatformError("invalid_command")
         if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate"}:
@@ -434,7 +435,12 @@ class ClientPlatformService:
                         admissions.command_progress(owner_id, idempotency_key, {
                             "command_id": command["command_id"], "conversation_id": conversation, "status": "admitting",
                         })
-                    result = self._execute(command, target, **({"frozen_context": frozen_context} if frozen_context is not None else {}))
+                    result = self._execute(
+                        command,
+                        target,
+                        runtime_surface=runtime_surface,
+                        **({"frozen_context": frozen_context} if frozen_context is not None else {}),
+                    )
                 result["command_id"] = command["command_id"]
                 admissions.complete_command(owner_id, idempotency_key, result)
                 return {key: value for key, value in result.items() if key != "_empty_workspace"}
@@ -451,7 +457,14 @@ class ClientPlatformService:
                     admissions.reject_command(owner_id, idempotency_key, exc.code, exc.current_revision)
                 raise
 
-    def _execute(self, command: dict, target: str, *, frozen_context: dict | None = None) -> dict:
+    def _execute(
+        self,
+        command: dict,
+        target: str,
+        *,
+        frozen_context: dict | None = None,
+        runtime_surface: str = "normal_chat",
+    ) -> dict:
         from row_bot import threads
         payload = command.get("payload") or {}
         kind = command["type"]
@@ -536,6 +549,7 @@ class ClientPlatformService:
                 if pending:
                     raise ClientPlatformError("approval_required")
             return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
+                               runtime_surface=runtime_surface,
                                **({"frozen_context": frozen_context} if frozen_context is not None else {}))
         if kind == "conversation.stop":
             generation_id = payload.get("generation_id")
@@ -583,7 +597,8 @@ class ClientPlatformService:
 
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",
                approval_context: dict | None = None, queue_record: dict | None = None,
-               frozen_context: dict | None = None) -> dict:
+               frozen_context: dict | None = None,
+               runtime_surface: str = "normal_chat") -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
         from row_bot.application import client_queue
@@ -655,7 +670,14 @@ class ClientPlatformService:
                 total_size += int(inspect_attachment(reference)["size_bytes"])
                 if total_size > UPLOAD_BATCH_BYTES:
                     raise ClientPlatformError("payload_too_large")
-        config = {"configurable": {"thread_id": conversation_id, "runtime_surface": "normal_chat",
+        effective_surface = str(
+            frozen_config.get("runtime_surface")
+            if frozen_context is not None
+            else runtime_surface
+        )
+        if effective_surface not in {"normal_chat", "remote_client"}:
+            raise ClientPlatformError("invalid_command")
+        config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,
                   "approval_mode": normalize_approval_mode(row.get("approval_mode")),
                   "agent_profile_id": row.get("agent_profile_id") or "",

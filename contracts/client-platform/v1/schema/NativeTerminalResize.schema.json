@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cols": {
+      "maximum": 500,
+      "minimum": 20,
+      "title": "Cols",
+      "type": "integer"
+    },
+    "rows": {
+      "maximum": 200,
+      "minimum": 5,
+      "title": "Rows",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cols",
+    "rows"
+  ],
+  "title": "NativeTerminalResize",
+  "type": "object"
+}

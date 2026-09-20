@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 from typing import Callable
 
 import pytest
 
-from row_bot.native_client import NativeClientBridge, PyWebViewDriver, attach_native_client, safe_external_url
+from row_bot.native_client import (
+    NativeClientBridge,
+    NativeDocumentAuthority,
+    NativePickerRequest,
+    NativeSelectionAuthority,
+    PyWebViewDriver,
+    attach_native_client,
+    safe_external_url,
+)
+
+
+def _picker_payload(**changes):
+    payload = {"intentId": "intent_1", "intent": "open_existing",
+               "conversationId": "conversation_1", "destination": "workspace"}
+    payload.update(changes)
+    return payload
 
 
 class Driver:
@@ -51,34 +67,47 @@ class Driver:
 @pytest.fixture
 def native():
     driver = Driver()
-    state = {"url": "http://localhost:8080/app-v2/", "clock": 100.0}
-    registered: list[tuple[str, Path]] = []
-    def register(kind: str, path: Path) -> str:
-        registered.append((kind, path))
+    state = {"url": "http://localhost:8080/app-v2/", "clock": 100.0, "authorized": True}
+    registered: list[tuple[NativePickerRequest, NativeSelectionAuthority, Path]] = []
+    def authenticate(attestation, context):
+        if attestation != "server_attestation" or context.instance_id != "instance":
+            return None
+        return NativeDocumentAuthority("session_1", "policy_1", "authority_1")
+    def authorize(authority, context):
+        return (state["authorized"] and authority.authority_grant == "authority_1"
+                and context.instance_id == "instance" and context.window_id == "window")
+    def register(request, authority, path: Path) -> str:
+        registered.append((request, authority, path))
         return "fixture_reference"
     bridge = NativeClientBridge(instance_id="instance", window_id="window", origin="http://localhost:8080",
                                 current_url=lambda: state["url"], driver=driver, register_selection=register,
+                                authenticate_document=authenticate, authorize_document=authorize,
                                 clock=lambda: state["clock"])
     proof = bridge._bind_loaded_document()
     assert proof
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "server_attestation"})["status"] == "ok"
     return bridge, proof, driver, state, registered
 
 
 def test_native_selection_registers_backend_ref_and_never_returns_path(native) -> None:
     bridge, proof, driver, _, registered = native
-    result = bridge.native_client_dispatch(proof, "select_file", {})
+    result = bridge.native_client_dispatch(proof, "select_file", _picker_payload())
     assert result == {"status": "ok", "value": {"reference": "fixture_reference", "kind": "file"}}
-    assert registered == [("file", Path("/synthetic/selected.txt"))]
+    request, authority, path = registered[0]
+    assert request == NativePickerRequest("file", "intent_1", "open_existing", "conversation_1", "workspace")
+    assert authority == NativeSelectionAuthority("instance", "session_1", "window", proof["epoch"],
+                                                  "policy_1", "authority_1")
+    assert path == Path("/synthetic/selected.txt")
     assert driver.calls == ["select:file"]
     driver.selected = None
-    assert bridge.native_client_dispatch(proof, "select_folder", {}) == {"status": "cancelled"}
+    assert bridge.native_client_dispatch(proof, "select_folder", _picker_payload()) == {"status": "cancelled"}
 
 
 @pytest.mark.parametrize("field,value", [("instanceId", "foreign"), ("windowId", "foreign"), ("epoch", 90), ("token", "fake")])
 def test_spoofed_identity_cannot_invoke_driver(native, field: str, value: object) -> None:
     bridge, proof, driver, _, _ = native
     proof[field] = value
-    assert bridge.native_client_dispatch(proof, "select_file", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "select_file", _picker_payload())["status"] == "unavailable"
     assert driver.calls == []
 
 
@@ -100,7 +129,7 @@ def test_navigation_reload_close_and_expiry_invalidate_proof(native, change: str
 def test_late_picker_and_save_do_not_register_or_write_after_navigation(native) -> None:
     bridge, proof, driver, _, registered = native
     driver.on_select = bridge._invalidate
-    assert bridge.native_client_dispatch(proof, "select_file", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "select_file", _picker_payload())["status"] == "unavailable"
     assert not registered
     proof = bridge._bind_loaded_document()
     driver.on_save = bridge._invalidate
@@ -117,7 +146,8 @@ def test_reentrant_trusted_callback_cannot_return_data_after_revocation(native, 
         bridge._invalidate()
         return value
     if operation == "select_file":
-        monkeypatch.setattr(bridge, "_register", lambda _kind, _path: revoked("fixture_reference"))
+        payload = _picker_payload()
+        monkeypatch.setattr(bridge, "_register", lambda _request, _authority, _path: revoked("fixture_reference"))
     elif operation == "clipboard_read":
         monkeypatch.setattr(driver, "clipboard_read", lambda: revoked("private fixture sentinel"))
     elif operation == "clipboard_write":
@@ -157,10 +187,15 @@ def test_all_narrow_operations_and_platform_discovery(native) -> None:
 
 def test_no_backend_registrar_means_no_native_picker(native) -> None:
     _, _, driver, _, _ = native
-    bridge = NativeClientBridge(instance_id="i", window_id="w", origin="http://localhost:8080",
-                                current_url=lambda: "http://localhost:8080/app-v2/", driver=driver)
+    bridge = NativeClientBridge(
+        instance_id="i", window_id="w", origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/", driver=driver,
+        authenticate_document=lambda _attestation, _context: NativeDocumentAuthority("session", "policy", "grant"),
+        authorize_document=lambda _authority, _context: True,
+    )
     proof = bridge._bind_loaded_document()
-    assert bridge.native_client_dispatch(proof, "select_file", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attestation"})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "select_file", _picker_payload())["status"] == "unavailable"
     assert driver.calls == []
 
 
@@ -169,7 +204,7 @@ def test_native_exception_never_exposes_private_paths(native) -> None:
     def fail() -> None:
         raise RuntimeError("private path and secret sentinel")
     driver.on_select = fail
-    assert bridge.native_client_dispatch(proof, "select_file", {}) == {"status": "unavailable", "reason": "operation_failed"}
+    assert bridge.native_client_dispatch(proof, "select_file", _picker_payload()) == {"status": "unavailable", "reason": "operation_failed"}
 
 
 def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -250,3 +285,163 @@ def test_workspace_picker_is_explicit_and_headless_default_stays_unavailable(mon
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(windows=[]))
     with pytest.raises(ClientPlatformError, match="capability_unavailable"):
         select_existing_workspace_folder()
+
+
+def test_native_capabilities_require_current_authenticated_attestation() -> None:
+    driver = Driver()
+    state = {"authorized": True, "url": "http://localhost:8080/app-v2/"}
+    consumed: set[str] = set()
+
+    def authenticate(attestation, context):
+        if attestation in consumed or attestation != "one_time_attestation":
+            return None
+        consumed.add(attestation)
+        return NativeDocumentAuthority("session", "policy", "current_grant")
+
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: state["url"], driver=driver,
+        authenticate_document=authenticate,
+        authorize_document=lambda authority, context: (
+            state["authorized"] and authority.authority_grant == "current_grant"
+            and context.instance_id == "instance" and context.window_id == "window"
+        ),
+    )
+    proof = bridge._bind_loaded_document()
+    assert proof
+    assert bridge.native_client_dispatch(proof, "discover", {}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "wrong"}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert driver.calls == []
+    assert bridge.native_client_dispatch(
+        proof, "discover", {"attestation": "one_time_attestation"})["status"] == "ok"
+    state["authorized"] = False
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    state["authorized"] = True
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(
+        proof, "discover", {"attestation": "one_time_attestation"})["status"] == "unavailable"
+    assert driver.calls == []
+
+
+def test_picker_cancel_consumes_exact_intent_without_registering_path(native, monkeypatch) -> None:
+    bridge, proof, driver, _, registered = native
+    cancelled = []
+    driver.selected = None
+    monkeypatch.setattr(
+        bridge, "_cancel_selection",
+        lambda request, authority: cancelled.append((request, authority)),
+    )
+    assert bridge.native_client_dispatch(proof, "select_folder", _picker_payload()) == {
+        "status": "cancelled"}
+    assert registered == []
+    assert cancelled[0][0].selection_kind == "folder"
+    assert cancelled[0][0].intent_id == "intent_1"
+    assert cancelled[0][1].session_id == "session_1"
+
+
+@pytest.mark.parametrize("field", ["intentId", "intent", "conversationId", "destination"])
+def test_picker_rejects_missing_exact_scope_field(native, field: str) -> None:
+    bridge, proof, driver, _, registered = native
+    payload = _picker_payload()
+    del payload[field]
+    assert bridge.native_client_dispatch(proof, "select_folder", payload) == {
+        "status": "unavailable", "reason": "invalid_request"}
+    assert driver.calls == [] and registered == []
+
+
+def test_late_registrar_completion_after_cross_thread_revocation_returns_no_reference(native) -> None:
+    bridge, proof, driver, _, registered = native
+    entered = threading.Event()
+    release = threading.Event()
+    result = []
+
+    def register(request, authority, path):
+        registered.append((request, authority, path))
+        entered.set()
+        assert release.wait(2)
+        return "late_reference"
+
+    bridge._register = register
+    worker = threading.Thread(
+        target=lambda: result.append(
+            bridge.native_client_dispatch(proof, "select_folder", _picker_payload())
+        )
+    )
+    worker.start()
+    assert entered.wait(2)
+    bridge._invalidate()
+    release.set()
+    worker.join(2)
+    assert result == [{"status": "unavailable", "reason": "native_proof_required"}]
+    assert "late_reference" not in str(result)
+
+
+def test_terminal_open_is_exact_native_authority_and_revocation_closes_document() -> None:
+    opened = []
+    revoked = []
+    bridge = NativeClientBridge(
+        instance_id="instance",
+        window_id="window",
+        origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/",
+        driver=Driver(),
+        authenticate_document=lambda _token, _context: NativeDocumentAuthority(
+            "session", "policy", "grant"
+        ),
+        authorize_document=lambda _authority, _context: True,
+        open_terminal=lambda authority, conversation: opened.append(
+            (authority, conversation)
+        )
+        or "terminal_reference",
+        revoke_document=lambda authority, context: revoked.append((authority, context)),
+    )
+    proof = bridge._bind_loaded_document()
+    assert proof
+    discovery = bridge.native_client_dispatch(
+        proof, "discover", {"attestation": "server_attestation"}
+    )
+    assert "terminal_open" in discovery["value"]["capabilities"]
+    assert bridge.native_client_dispatch(
+        proof, "terminal_open", {"conversationId": "conversation_1"}
+    ) == {"status": "ok", "value": {"terminalId": "terminal_reference"}}
+    authority, conversation = opened[0]
+    assert authority == NativeSelectionAuthority(
+        "instance", "session", "window", proof["epoch"], "policy", "grant"
+    )
+    assert conversation == "conversation_1"
+    bridge._invalidate()
+    assert len(revoked) == 1
+    assert revoked[0][0] == NativeDocumentAuthority("session", "policy", "grant")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"conversationId": "bad/path"}, {"conversationId": None, "extra": True}],
+)
+def test_terminal_open_rejects_unscoped_or_malformed_payload(payload) -> None:
+    opened = []
+    bridge = NativeClientBridge(
+        instance_id="instance",
+        window_id="window",
+        origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/",
+        driver=Driver(),
+        authenticate_document=lambda _token, _context: NativeDocumentAuthority(
+            "session", "policy", "grant"
+        ),
+        authorize_document=lambda _authority, _context: True,
+        open_terminal=lambda authority, conversation: opened.append(
+            (authority, conversation)
+        )
+        or "terminal_reference",
+    )
+    proof = bridge._bind_loaded_document()
+    assert proof
+    assert bridge.native_client_dispatch(
+        proof, "discover", {"attestation": "server_attestation"}
+    )["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "terminal_open", payload)["status"] == "unavailable"
+    assert opened == []

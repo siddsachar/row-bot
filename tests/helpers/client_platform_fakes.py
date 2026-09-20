@@ -220,7 +220,14 @@ class RecordedProtocolTrace:
             # This is a process-keyed opaque revision, not an ordered domain
             # counter. Preserve equality while retaining the decimal wire type.
             return self._policy_revisions.setdefault(value, str(len(self._policy_revisions) + 1))
-        if key in {"cursor", "next_cursor", "previous_cursor", "csrf_token", "nonce"} and value:
+        if key in {
+            "attestation",
+            "csrf_token",
+            "cursor",
+            "next_cursor",
+            "nonce",
+            "previous_cursor",
+        } and value:
             # Opaque proofs are transport artifacts, never executable credentials
             # in a portable fixture. Preserve equality/references, not HMACs.
             return self._identity(value)

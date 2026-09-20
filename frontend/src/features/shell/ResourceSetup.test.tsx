@@ -19,9 +19,9 @@ const mock = vi.hoisted(() => ({
     receipt: vi.fn(),
     intent: vi.fn(),
     library: vi.fn(),
-    pickFolder: vi.fn(),
     selectConversation: vi.fn(),
   },
+  platform: { selectFolder: vi.fn() },
   navigate: vi.fn(),
   routeKey: 'opening-route',
   selectionVersion: 1,
@@ -34,7 +34,7 @@ vi.mock('react-router-dom', async (original) => ({
   useLocation: () => ({ key: mock.routeKey }),
 }));
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: mock.controller }),
+  useRuntime: () => ({ controller: mock.controller, platform: mock.platform }),
   useClientState: () => ({ handshake: mock.handshake }),
 }));
 vi.mock('../../ui/overlays', () => ({ useOverlay: () => mock.overlay }));
@@ -119,10 +119,9 @@ it.each(['Home route', 'A-B-A selection', 'new session'])(
 );
 
 it('never restores an opaque folder grant after reopening with a new handshake', async () => {
-  mock.controller.pickFolder.mockResolvedValue({
-    status: 'selected',
-    grant_id: 'fixture-secret-grant',
-    name: 'Selected fixture',
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'fixture-secret-grant' },
   });
   let rendered!: ReturnType<typeof view>;
   await act(async () => {
@@ -138,7 +137,7 @@ it('never restores an opaque folder grant after reopening with a new handshake',
       screen.getByRole('button', { name: 'Choose existing folder' }),
     );
   });
-  expect(screen.getByText('Selected: Selected fixture')).toBeInTheDocument();
+  expect(screen.getByText('Selected: Authorized folder')).toBeInTheDocument();
   const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a');
   expect(sessionStorage.getItem(key)).not.toContain('fixture-secret-grant');
   rendered.unmount();
@@ -268,10 +267,9 @@ it.each([
 );
 
 it('requires an explicit name and parent before creating one empty workspace', async () => {
-  mock.controller.pickFolder.mockResolvedValue({
-    status: 'selected',
-    grant_id: 'parent-grant',
-    name: 'Parent',
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'parent-grant' },
   });
   await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
   await act(async () =>
@@ -325,10 +323,9 @@ it('continues an unregistered folder using renewed authority without an undefine
   setupSessions.reserve(key, original);
   setupSessions.confirm(key, original, partial);
   mock.controller.receipt.mockResolvedValue(partial);
-  mock.controller.pickFolder.mockResolvedValue({
-    status: 'selected',
-    grant_id: 'renewed-parent',
-    name: 'Parent',
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'renewed-parent' },
   });
   await act(async () => view());
   expect(screen.getByRole('button', { name: 'Continue setup' })).toBeDisabled();
@@ -415,7 +412,7 @@ it('opens the folder starter without creating anything or launching a picker aut
   expect(
     screen.getByRole('button', { name: 'Register folder' }),
   ).toBeDisabled();
-  expect(mock.controller.pickFolder).not.toHaveBeenCalled();
+  expect(mock.platform.selectFolder).not.toHaveBeenCalled();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 

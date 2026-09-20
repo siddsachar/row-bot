@@ -21,9 +21,13 @@ from row_bot.access.request_context import (
     AccessContext,
     RequestProvenance,
     request_origin_matches,
-    safe_relative_next,
 )
 from row_bot.access.service import AccessService, InvitationClaimError
+
+ACCESS_REQUEST_BODY_LIMIT = 32 * 1024
+REMOTE_CLIENT_PATH = "/app-v2/"
+_CLAIM_RATE_LIMIT = 20
+_MANAGEMENT_RATE_LIMIT = 30
 
 ACCESS_RESPONSE_HEADERS = {
     "Cache-Control": "no-store",
@@ -113,21 +117,79 @@ def _origin_ok(request: Request, context: AccessContext | None) -> bool:
     return context is not None and request_origin_matches(context, request.scope)
 
 
+def _rate_subject(context: AccessContext | None) -> str:
+    if context is None:
+        return "unidentified"
+    return context.session_id or context.effective_client or "unidentified"
+
+
+def _rate_ok(
+    service: AccessService,
+    context: AccessContext | None,
+    *,
+    bucket: str,
+    limit: int,
+) -> bool:
+    return service.consume_request_budget(
+        bucket,
+        _rate_subject(context),
+        limit=limit,
+    )
+
+
+def _too_many_requests() -> JSONResponse:
+    response = _error(
+        429,
+        "rate_limited",
+        "Too many access requests. Wait before trying again.",
+    )
+    response.headers["Retry-After"] = "60"
+    return response
+
+
+def _payload_too_large() -> JSONResponse:
+    return _error(
+        413,
+        "request_too_large",
+        "The access request body is too large.",
+    )
+
+
 def _is_json_request(request: Request) -> bool:
     return (
         request.headers.get("content-type", "").lower().startswith("application/json")
     )
 
 
+class AccessPayloadTooLarge(ValueError):
+    """Raised before an access route buffers an oversized request body."""
+
+
 async def _payload(request: Request) -> dict[str, Any]:
+    declared = request.headers.get("content-length", "").strip()
+    if declared:
+        try:
+            declared_size = int(declared)
+        except ValueError:
+            return {}
+        if declared_size > ACCESS_REQUEST_BODY_LIMIT:
+            raise AccessPayloadTooLarge
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > ACCESS_REQUEST_BODY_LIMIT:
+            raise AccessPayloadTooLarge
+        chunks.append(bytes(chunk))
+    raw = b"".join(chunks)
     if _is_json_request(request):
         try:
-            value = await request.json()
+            value = json.loads(raw)
         except Exception:
             return {}
         return dict(value) if isinstance(value, Mapping) else {}
     try:
-        body = (await request.body()).decode("utf-8", errors="strict")
+        body = raw.decode("utf-8", errors="strict")
     except (UnicodeDecodeError, ValueError):
         return {}
     parsed = parse_qs(body, keep_blank_values=True)
@@ -197,7 +259,7 @@ def _available_connect_page(
     next_path: str,
 ) -> str:
     duration = "30 days" if lifetime is SessionLifetime.TRUSTED else "12 hours"
-    layout = "Compact" if next_path == "/?mobile=1" else "Desktop"
+    layout = "Responsive unified client"
     warning = (
         '<p class="warning">This authenticated browser receives full owner '
         "access to Row-Bot, including files, tools, providers, and settings.</p>"
@@ -334,7 +396,9 @@ def build_access_router(
                 status_code=_claim_status(inspection.status),
                 headers=CONNECT_PAGE_HEADERS,
             )
-        next_path = safe_relative_next(request.query_params.get("next"))
+        # Pairing always enters the independent responsive client. The root
+        # path remains the default NiceGUI client for ordinary local launches.
+        next_path = REMOTE_CLIENT_PATH
         return HTMLResponse(
             _available_connect_page(
                 token=token,
@@ -354,12 +418,22 @@ def build_access_router(
             )
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
-        payload = await _payload(request)
+        if not _rate_ok(
+            service,
+            context,
+            bucket="invitation_claim",
+            limit=_CLAIM_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
         token = str(payload.get("invitation") or "").strip()
         display_name = (
             str(payload.get("display_name") or "").strip() or "Connected browser"
         )
-        next_path = safe_relative_next(payload.get("next"))
+        next_path = REMOTE_CLIENT_PATH
         try:
             claim = service.claim_invitation(
                 token,
@@ -433,6 +507,13 @@ def build_access_router(
             return _error(401, "authentication_required", "Sign in required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="session_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
 
         current_token = cookies.extract_from_scope(
             dict(request.scope),
@@ -483,6 +564,15 @@ def build_access_router(
         context = _context(request)
         if context is None or not context.authenticated:
             response = _error(401, "authentication_required", "Sign in required.")
+        elif not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        elif not _rate_ok(
+            service,
+            context,
+            bucket="session_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
         else:
             revoked = bool(
                 context.session_id and service.revoke_session(context.session_id)
@@ -530,7 +620,17 @@ def build_access_router(
             return _error(403, "forbidden", "Owner access is required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
-        payload = await _payload(request)
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
         if "profile" in payload or "access_profile" in payload:
             return _error(
                 400,
@@ -560,7 +660,7 @@ def build_access_router(
             created = service.create_invitation(
                 intended_origin=intended_origin,
                 session_lifetime=lifetime,
-                next_path="/?mobile=1" if layout == "compact" else "/",
+                next_path=REMOTE_CLIENT_PATH,
                 created_by=context.device_id or "local_owner",
                 access_route=str(payload.get("access_route") or "")[:80] or None,
             )
@@ -601,6 +701,13 @@ def build_access_router(
             return _error(403, "forbidden", "Owner access is required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
         invitation_id = str(request.path_params.get("invitation_id") or "")
         cancelled = service.cancel_invitation(invitation_id)
         return _json(
@@ -627,6 +734,13 @@ def build_access_router(
             return _error(403, "forbidden", "Owner access is required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
         device_id = str(request.path_params.get("device_id") or "")
         revoked = service.revoke_device(device_id)
         response = _json(
@@ -634,6 +748,29 @@ def build_access_router(
             status_code=200 if revoked else 404,
         )
         if context.device_id == device_id:
+            cookies.clear(response)
+        return response
+
+    async def revoke_session(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        session_id = str(request.path_params.get("session_id") or "")
+        revoked = service.revoke_session(session_id)
+        response = _json(
+            {"ok": revoked, "revoked": revoked},
+            status_code=200 if revoked else 404,
+        )
+        if context.session_id == session_id:
             cookies.clear(response)
         return response
 
@@ -670,6 +807,11 @@ def build_access_router(
     router.add_api_route(
         "/api/access/devices/{device_id}/revoke",
         revoke_device,
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/api/access/sessions/{session_id}/revoke",
+        revoke_session,
         methods=["POST"],
     )
     return router

@@ -141,6 +141,54 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         return {key: value for key, value in metadata.items() if key != "sha256"}
 
 
+def read_native_selection(path: Path) -> tuple[str, bytes]:
+    """Read one explicitly selected native file without following replacements.
+
+    The path is supplied only by the trusted native host callback.  Renderer
+    payloads never reach this helper.  Identity is checked before and after the
+    bounded read so a chooser result cannot be swapped for a link, directory,
+    device, or a different file while it is being admitted.
+    """
+    selected = Path(path).absolute()
+    try:
+        if selected.is_symlink() or (
+            hasattr(selected, "is_junction") and selected.is_junction()
+        ):
+            raise AttachmentError("action_denied")
+        before = selected.stat()
+        if not stat.S_ISREG(before.st_mode) or not 1 <= before.st_size <= MAX_ATTACHMENT_BYTES:
+            raise AttachmentError("payload_too_large")
+        descriptor = os.open(
+            selected,
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(opened, before):
+                raise AttachmentError("action_denied")
+            with os.fdopen(descriptor, "rb") as source:
+                descriptor = -1
+                data = source.read(MAX_ATTACHMENT_BYTES + 1)
+            after = selected.stat()
+            if (
+                len(data) > MAX_ATTACHMENT_BYTES
+                or not os.path.samestat(opened, after)
+                or len(data) != opened.st_size
+            ):
+                raise AttachmentError("revision_conflict")
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+    except AttachmentError:
+        raise
+    except (OSError, ValueError):
+        raise AttachmentError("resource_unavailable") from None
+    return selected.name, data
+
+
 def _metadata(root: Path, folder: Path, attachment_id: str, reference: str) -> dict:
     try:
         with _open(root, folder / f"attachment_{attachment_id}.json") as source:

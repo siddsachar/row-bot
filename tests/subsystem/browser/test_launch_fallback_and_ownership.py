@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-from types import SimpleNamespace
 
 import playwright.sync_api
 
@@ -20,9 +19,19 @@ class _Context:
         self.browser = _Browser()
         self.pages = []
         self.handlers = {}
+        self.route_handler = None
+        self.websocket_handler = None
 
     def on(self, event, handler):
         self.handlers[event] = handler
+
+    def route(self, pattern, handler):
+        assert pattern == "**/*"
+        self.route_handler = handler
+
+    def route_web_socket(self, pattern, handler):
+        assert pattern == "**/*"
+        self.websocket_handler = handler
 
 
 class _Chromium:
@@ -51,6 +60,29 @@ class _Starter:
         return self.playwright
 
 
+class _Proxy:
+    def __init__(self, *_args, **_kwargs):
+        self.started = False
+
+    @property
+    def playwright_config(self):
+        assert self.started
+        return {
+            "server": "http://127.0.0.1:43123",
+            "username": "row-bot",
+            "password": "synthetic",
+        }
+
+    def start(self):
+        self.started = True
+
+    def close(self):
+        self.started = False
+
+    def approve_request(self, _url, _method):
+        return None
+
+
 def _ready(path="C:/synthetic/chrome.exe"):
     return BrowserRuntimeReadiness(
         True, "ready", "ready", path, "C:/synthetic", "1.62.0", "1234", "151"
@@ -64,13 +96,19 @@ def test_selected_installed_channel_succeeds_without_probe_launch(monkeypatch, t
     monkeypatch.setattr(service_module, "_installed_channel", lambda: "chrome")
     monkeypatch.setattr(service_module, "check_packaged_browser_runtime", lambda: _ready())
     monkeypatch.setattr(service_module, "ensure_profile_engine", lambda *args: None)
+    monkeypatch.setattr(service_module, "PinnedNetworkProxy", _Proxy)
     session = BrowserSession()
     session._launch_context()
     assert len(chromium.calls) == 1
     assert chromium.calls[0]["channel"] == "chrome"
     assert chromium.calls[0]["headless"] is False
     assert chromium.calls[0]["no_viewport"] is True
+    assert chromium.calls[0]["service_workers"] == "block"
+    assert chromium.calls[0]["proxy"]["server"] == "http://127.0.0.1:43123"
+    assert "--proxy-bypass-list=<-loopback>" in chromium.calls[0]["args"]
     assert "--start-maximized" in chromium.calls[0]["args"]
+    assert chromium.context.route_handler is not None
+    assert chromium.context.websocket_handler is not None
 
 
 def test_channel_failure_falls_back_once_to_ready_matching_managed_chromium(monkeypatch, tmp_path) -> None:
@@ -80,6 +118,7 @@ def test_channel_failure_falls_back_once_to_ready_matching_managed_chromium(monk
     monkeypatch.setattr(service_module, "_installed_channel", lambda: "chrome")
     monkeypatch.setattr(service_module, "check_packaged_browser_runtime", lambda: _ready())
     monkeypatch.setattr(service_module, "ensure_profile_engine", lambda *args: None)
+    monkeypatch.setattr(service_module, "PinnedNetworkProxy", _Proxy)
     session = BrowserSession()
     session._launch_context()
     assert len(chromium.calls) == 2

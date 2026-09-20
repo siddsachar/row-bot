@@ -1214,6 +1214,30 @@ export interface ClientTransport {
     file: File,
     signal?: AbortSignal,
   ): Promise<Wire.AttachmentView>;
+  attachmentMetadata(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AttachmentView>;
+  terminalRead(
+    terminal: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalOutput>;
+  terminalInput(
+    terminal: string,
+    data: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  terminalResize(
+    terminal: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  terminalDisconnect(
+    terminal: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalClosed>;
   download(reference: string, signal?: AbortSignal): Promise<Blob>;
   clearSession(preserveResumeIdentity?: boolean): void;
 }

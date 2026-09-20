@@ -1,0 +1,25 @@
+{
+  "id": "/app-v2/",
+  "name": "Row-Bot",
+  "short_name": "Row-Bot",
+  "description": "Your local-first Row-Bot workspace",
+  "start_url": "/app-v2/",
+  "scope": "/app-v2/",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#315f8f",
+  "icons": [
+    {
+      "src": "/app-v2/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app-v2/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "disconnected": {
+      "const": true,
+      "default": true,
+      "title": "Disconnected",
+      "type": "boolean"
+    }
+  },
+  "title": "NativeTerminalClosed",
+  "type": "object"
+}

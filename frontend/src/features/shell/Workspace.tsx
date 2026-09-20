@@ -52,7 +52,7 @@ import {
   type PanelPlacement,
 } from '../panels/model';
 import { PanelSubscriptions } from '../panels/subscriptions';
-import { useWorkspaceLayout } from './layout';
+import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import Commands from './Commands';
 import Navigation from './Navigation';
 import Home from './Home';
@@ -62,6 +62,7 @@ import Conversation from './Conversation';
 import ResourceSetup from './ResourceSetup';
 import ResourcePanel from '../panels/ResourcePanel';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
+import NativeTerminal from '../panels/NativeTerminal';
 import { WorkspaceActionsContext } from './workspace-actions';
 
 const subscriptions = new PanelSubscriptions();
@@ -166,6 +167,8 @@ function PanelContent({
     <ResourcePanel panel={panel} visible={visible} />
   ) : panel.descriptor.panel_kind === 'browser.live' ? (
     <BrowserPanel visible={visible} />
+  ) : panel.descriptor.panel_kind === 'native.terminal' ? (
+    <NativeTerminal visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -447,6 +450,7 @@ export default function Workspace() {
     visibility();
     return () => document.removeEventListener('visibilitychange', visibility);
   }, [controller]);
+  useEffect(() => bindVisualViewportState(document.documentElement), []);
   useEffect(() => {
     navRef.current?.resize(
       desktop ? (layout.navigation.collapsed ? 48 : layout.navigation.size) : 0,
@@ -786,6 +790,16 @@ export default function Workspace() {
                 resource_kind: resource.binding.kind,
                 resource_revision: resource.resource_revision,
               })),
+              ...(state.handshake?.application_capabilities?.includes(
+                'native:terminal',
+              )
+                ? [
+                    {
+                      panel_kind: 'native.terminal',
+                      title: 'Interactive terminal',
+                    },
+                  ]
+                : []),
               ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
                 ? samplePanels
                 : []),

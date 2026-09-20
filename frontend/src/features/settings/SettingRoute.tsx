@@ -6,6 +6,7 @@ import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 import { resolveSetting } from './model';
 import Preferences from './Preferences';
 import ProviderStatus from './ProviderStatus';
@@ -36,6 +37,7 @@ import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
 import SettingsShell from './SettingsShell';
+import AccessSessions from './AccessSessions';
 import {
   DocumentEmbeddingSnapshot,
   ToolConfigurationSnapshot,
@@ -257,13 +259,16 @@ export default function SettingRoute() {
               onSubscriptionOption={setSelectedSubscriptionOption}
             />
             {selectedSubscription && subscriptionAccountsOwner?.get() && (
-              <div className="settings-provider-dialog-backdrop">
-                <div
-                  className="settings-provider-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Manage subscription account"
-                >
+              <ModalTask
+                open
+                title="Manage subscription account"
+                description="Connect, inspect or disconnect this provider account."
+                ariaLabel="Manage subscription account"
+                onOpenChange={(open) => {
+                  if (!open) setSelectedSubscription(null);
+                }}
+              >
+                <div className="settings-provider-dialog-content">
                   <SubscriptionAccounts
                     compact
                     initialProvider={
@@ -283,16 +288,19 @@ export default function SettingRoute() {
                     onSaved={() => setProviderReload((value) => value + 1)}
                   />
                 </div>
-              </div>
+              </ModalTask>
             )}
             {selectedSubscriptionOption && subscriptionOptionsOwner?.get() && (
-              <div className="settings-provider-dialog-backdrop">
-                <div
-                  className="settings-provider-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Account options"
-                >
+              <ModalTask
+                open
+                title="Account options"
+                description="Review the account-specific model and runtime options."
+                ariaLabel="Account options"
+                onOpenChange={(open) => {
+                  if (!open) setSelectedSubscriptionOption('');
+                }}
+              >
+                <div className="settings-provider-dialog-content">
                   <SubscriptionOptions
                     compact
                     initialProvider={
@@ -308,7 +316,7 @@ export default function SettingRoute() {
                     onSaved={() => setProviderReload((value) => value + 1)}
                   />
                 </div>
-              </div>
+              </ModalTask>
             )}
             {providerConfigurationOwner?.get() && (
               <ProviderConfiguration
@@ -353,13 +361,16 @@ export default function SettingRoute() {
               />
             )}
             {selectedCustomCredential && providerSettingsSessions && (
-              <div className="settings-provider-dialog-backdrop">
-                <div
-                  className="settings-provider-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Custom endpoint API key"
-                >
+              <ModalTask
+                open
+                title="Custom endpoint API key"
+                description="Update the credential for this custom endpoint."
+                ariaLabel="Custom endpoint API key"
+                onOpenChange={(open) => {
+                  if (!open) setSelectedCustomCredential('');
+                }}
+              >
+                <div className="settings-provider-dialog-content">
                   <ProviderSettingsPanel
                     compact
                     owner={providerSettingsSessions}
@@ -378,7 +389,7 @@ export default function SettingRoute() {
                     onCancel={() => setSelectedCustomCredential('')}
                   />
                 </div>
-              </div>
+              </ModalTask>
             )}
           </>
         ) : leaf.id === 'models' && defaultModelOwner?.get() ? (
@@ -711,13 +722,20 @@ export default function SettingRoute() {
             leaf.id,
           ) ? (
           settingsSnapshot && mutation ? (
-            <Phase4RetainedSettings
-              setting={leaf.id as Phase4RetainedSetting}
-              snapshot={settingsSnapshot}
-              mutation={mutation}
-              selectedConversationId={state.selectedConversationId}
-              pickFolder={controller.pickFolder}
-            />
+            <>
+              <Phase4RetainedSettings
+                setting={leaf.id as Phase4RetainedSetting}
+                snapshot={settingsSnapshot}
+                mutation={mutation}
+                selectedConversationId={state.selectedConversationId}
+                pickFolder={controller.pickFolder}
+              />
+              {leaf.id === 'system' ? (
+                <AccessSessions
+                  currentSessionId={state.handshake?.client_session_id}
+                />
+              ) : null}
+            </>
           ) : (
             snapshotState
           )

@@ -2297,4 +2297,53 @@ export class HttpTransport implements ClientTransport {
   download(reference: string, signal?: AbortSignal) {
     return wire.readAttachment(this.base, this.session(), reference, signal);
   }
+  attachmentMetadata(reference: string, signal?: AbortSignal) {
+    return wire.getAttachmentMetadata(
+      this.base,
+      this.session(),
+      reference,
+      signal,
+    );
+  }
+  terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {
+    return wire.readNativeTerminal(
+      this.base,
+      this.session(),
+      terminal,
+      cursor,
+      65536,
+      signal,
+    );
+  }
+  terminalInput(terminal: string, data: string, signal?: AbortSignal) {
+    return wire.writeNativeTerminal(
+      this.base,
+      this.session(),
+      terminal,
+      { data },
+      signal,
+    );
+  }
+  terminalResize(
+    terminal: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.resizeNativeTerminal(
+      this.base,
+      this.session(),
+      terminal,
+      { cols, rows },
+      signal,
+    );
+  }
+  terminalDisconnect(terminal: string, signal?: AbortSignal) {
+    return wire.disconnectNativeTerminal(
+      this.base,
+      this.session(),
+      terminal,
+      signal,
+    );
+  }
 }

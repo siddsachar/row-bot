@@ -1,8 +1,14 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { useEffect, useState } from 'react';
-import { OverlayProvider, useOverlay } from './overlays';
+import { ModalTask, OverlayProvider, useOverlay } from './overlays';
 import { Button, Input, Skeleton } from './primitives';
 
 function Form({ confirmed }: { confirmed: () => void }) {
@@ -77,6 +83,115 @@ it('keeps the originating form mounted while confirmation cancels or confirms', 
   expect(screen.getByRole('textbox')).toBe(input);
   await user.click(screen.getByRole('button', { name: 'Close' }));
   expect(screen.getByRole('button', { name: 'Edit' })).toHaveFocus();
+});
+
+it('uses same-URL Back layers without changing the conversation task', async () => {
+  const push = vi
+    .spyOn(window.history, 'pushState')
+    .mockImplementation(() => undefined);
+  const back = vi
+    .spyOn(window.history, 'back')
+    .mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(
+    <OverlayProvider>
+      <Fixture confirmed={vi.fn()} />
+      <p data-testid="conversation-identity">conversation-a</p>
+    </OverlayProvider>,
+  );
+  await user.click(screen.getByRole('button', { name: 'Edit' }));
+  expect(push).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('button', { name: 'Reset example' }));
+  expect(push).toHaveBeenCalledTimes(2);
+  fireEvent.popState(window);
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('dialog')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Reset example' })).toHaveFocus();
+  fireEvent.popState(window);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByTestId('conversation-identity')).toHaveTextContent(
+    'conversation-a',
+  );
+  expect(back).not.toHaveBeenCalled();
+  push.mockRestore();
+  back.mockRestore();
+});
+
+it('does not unwind a newer route when navigation closes an overlay', async () => {
+  const originalUrl = window.location.href;
+  const back = vi
+    .spyOn(window.history, 'back')
+    .mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  try {
+    render(
+      <OverlayProvider>
+        <Fixture confirmed={vi.fn()} />
+      </OverlayProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    window.history.pushState(
+      { route: 'conversation-b' },
+      '',
+      '/app-v2/conversations/conversation-b',
+    );
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(back).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe(
+      '/app-v2/conversations/conversation-b',
+    );
+  } finally {
+    window.history.replaceState(null, '', originalUrl);
+    back.mockRestore();
+  }
+});
+
+function DeclarativeDialog() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>Manage provider</Button>
+      <ModalTask
+        open={open}
+        title="Manage provider"
+        description="Edit one provider without leaving the conversation."
+        onOpenChange={setOpen}
+      >
+        <Input aria-label="Provider name" data-initial-focus />
+        <Button onClick={() => setOpen(false)}>Cancel</Button>
+      </ModalTask>
+    </>
+  );
+}
+
+it('gives declarative settings tasks the shared focus, Escape and Back contract', async () => {
+  const back = vi
+    .spyOn(window.history, 'back')
+    .mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<DeclarativeDialog />);
+  const opener = screen.getByRole('button', { name: 'Manage provider' });
+  await user.click(opener);
+  expect(screen.getByTestId('shared-dialog-task')).toHaveAttribute(
+    'data-overlay-kind',
+    'dialog',
+  );
+  expect(screen.getByRole('textbox', { name: 'Provider name' })).toHaveFocus();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+  expect(back).toHaveBeenCalledTimes(1);
+  // Complete the mocked same-URL history traversal before opening again.
+  fireEvent.popState(window);
+  await user.click(opener);
+  fireEvent.popState(window);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  await waitFor(() => expect(opener).toHaveFocus());
+  await user.click(opener);
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  await waitFor(() => expect(opener).toHaveFocus());
+  back.mockRestore();
 });
 
 it('shows a stable loading announcement before delaying skeleton visuals', () => {

@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "file",
+        "folder"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "reference": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Reference",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference",
+    "kind"
+  ],
+  "title": "NativeSelectionView",
+  "type": "object"
+}

@@ -11,7 +11,7 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname)) {
 const evidence = path.resolve(
   process.env.ROW_BOT_BROWSER_EVIDENCE ??
     path.resolve(
-      '../.local/evidence/unified-client-platform/phase-3-visual-alignment/qa/playwright-local',
+      '../.local/evidence/unified-client-platform/phase-5/browser/playwright-local',
     ),
 );
 const sealedEvidence = path.resolve(
@@ -38,6 +38,98 @@ const selectedEngine = process.env.ROW_BOT_BROWSER_ENGINE;
 if (selectedEngine && !engines.some((engine) => engine === selectedEngine)) {
   throw new Error('Unknown ROW_BOT_BROWSER_ENGINE');
 }
+
+const chromiumLaunch = {
+  args: [
+    '--disable-background-networking',
+    '--disable-component-update',
+    '--js-flags=--expose-gc',
+  ],
+};
+const chromiumChannel = process.env.ROW_BOT_BROWSER_CHANNEL
+  ? { channel: process.env.ROW_BOT_BROWSER_CHANNEL }
+  : {};
+const phase5Projects =
+  selectedEngine && selectedEngine !== 'chromium'
+    ? []
+    : [
+        {
+          name: 'chromium-p5-localhost-desktop',
+          testMatch: /phase5-localhost-desktop\.spec\.ts/,
+          use: { viewport: { width: 1440, height: 900 } },
+        },
+        {
+          name: 'chromium-p5-authenticated-remote-desktop',
+          testMatch: /phase5-remote-desktop\.spec\.ts/,
+          use: { viewport: { width: 1440, height: 900 } },
+        },
+        {
+          name: 'chromium-p5-phone',
+          testMatch: /phase5-compact\.spec\.ts/,
+          use: {
+            viewport: { width: 390, height: 844 },
+            hasTouch: true,
+            isMobile: true,
+          },
+        },
+        {
+          name: 'chromium-p5-tablet',
+          testMatch: /phase5-compact\.spec\.ts/,
+          use: {
+            viewport: { width: 820, height: 1180 },
+            hasTouch: true,
+            isMobile: true,
+          },
+        },
+        {
+          name: 'chromium-p5-narrow',
+          testMatch: /phase5-compact\.spec\.ts/,
+          use: {
+            viewport: { width: 360, height: 800 },
+            hasTouch: true,
+            isMobile: true,
+          },
+        },
+        ...(['expired', 'revoked', 'unauthorized'] as const).map(
+          (scenario) => ({
+            name: `chromium-p5-${scenario}`,
+            testMatch: /phase5-auth-state\.spec\.ts/,
+            metadata: { phase5Scenario: scenario },
+            use: { viewport: { width: 1280, height: 720 } },
+          }),
+        ),
+        {
+          name: 'chromium-p5-offline-reconnect',
+          testMatch: /phase5-offline-reconnect\.spec\.ts/,
+          use: {
+            viewport: { width: 390, height: 844 },
+            hasTouch: true,
+            isMobile: true,
+          },
+        },
+        {
+          name: 'chromium-p5-old-pwa-update',
+          testMatch: /phase5-pwa-update\.spec\.ts/,
+          use: {
+            viewport: { width: 390, height: 844 },
+            hasTouch: true,
+            isMobile: true,
+          },
+        },
+        {
+          name: 'chromium-p5-remote-artifact-resource',
+          testMatch: /phase5-remote-resource\.spec\.ts/,
+          use: { viewport: { width: 1440, height: 900 } },
+        },
+      ].map((project) => ({
+        ...project,
+        use: {
+          browserName: 'chromium' as const,
+          ...chromiumChannel,
+          launchOptions: chromiumLaunch,
+          ...project.use,
+        },
+      }));
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -71,30 +163,23 @@ export default defineConfig({
     video: 'off',
     screenshot: 'only-on-failure',
   },
-  projects: engines
-    .filter((engine) => !selectedEngine || selectedEngine === engine)
-    .flatMap((engine) =>
-      viewports.map(({ name, width, height, touch }) => ({
-        name: `${engine}-${name}`,
-        use: {
-          browserName: engine,
-          viewport: { width, height },
-          hasTouch: touch,
-          isMobile: engine === 'firefox' ? false : touch,
-          ...(engine === 'chromium' && process.env.ROW_BOT_BROWSER_CHANNEL
-            ? { channel: process.env.ROW_BOT_BROWSER_CHANNEL }
-            : {}),
-          launchOptions:
-            engine === 'chromium'
-              ? {
-                  args: [
-                    '--disable-background-networking',
-                    '--disable-component-update',
-                    '--js-flags=--expose-gc',
-                  ],
-                }
-              : {},
-        },
-      })),
-    ),
+  projects: [
+    ...engines
+      .filter((engine) => !selectedEngine || selectedEngine === engine)
+      .flatMap((engine) =>
+        viewports.map(({ name, width, height, touch }) => ({
+          name: `${engine}-${name}`,
+          testIgnore: /phase5-.*\.spec\.ts/,
+          use: {
+            browserName: engine,
+            viewport: { width, height },
+            hasTouch: touch,
+            isMobile: engine === 'firefox' ? false : touch,
+            ...(engine === 'chromium' ? chromiumChannel : {}),
+            launchOptions: engine === 'chromium' ? chromiumLaunch : {},
+          },
+        })),
+      ),
+    ...phase5Projects,
+  ],
 });

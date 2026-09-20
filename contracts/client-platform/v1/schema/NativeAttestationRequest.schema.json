@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "attestation": {
+      "maxLength": 256,
+      "minLength": 32,
+      "title": "Attestation",
+      "type": "string"
+    },
+    "instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Instance Id",
+      "type": "string"
+    },
+    "window_epoch": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Window Epoch",
+      "type": "integer"
+    },
+    "window_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Window Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "attestation",
+    "instance_id",
+    "window_id",
+    "window_epoch"
+  ],
+  "title": "NativeAttestationRequest",
+  "type": "object"
+}

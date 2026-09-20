@@ -6,7 +6,13 @@ const root = resolve(process.argv[2] ?? 'dist');
 const build = JSON.parse(
   await readFile(resolve(root, '.vite/manifest.json'), 'utf8'),
 );
-const paths = new Set(['index.html']);
+const publicShell = [
+  'app.webmanifest',
+  'service-worker.js',
+  'icon-192.png',
+  'icon-512.png',
+];
+const paths = new Set(['index.html', ...publicShell]);
 for (const entry of Object.values(build)) {
   paths.add(entry.file);
   for (const file of [...(entry.css ?? []), ...(entry.assets ?? [])])
@@ -14,7 +20,11 @@ for (const entry of Object.values(build)) {
 }
 const files = {};
 for (const path of [...paths].sort()) {
-  if (!/^(index\.html|assets\/[A-Za-z0-9_.-]+)$/.test(path)) {
+  if (
+    !/^(index\.html|app\.webmanifest|service-worker\.js|icon-(?:192|512)\.png|assets\/[A-Za-z0-9_.-]+)$/.test(
+      path,
+    )
+  ) {
     throw new Error(`Invalid generated asset path: ${path}`);
   }
   const bytes = await readFile(resolve(root, path));

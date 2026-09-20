@@ -7,6 +7,7 @@ import { createClientController } from './api';
 import { selectClientPlatform } from './platform';
 import { RuntimeContext } from './runtime';
 import { bindPageLifecycle } from './page-lifecycle';
+import { PwaStatus } from './pwa';
 import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
@@ -183,7 +184,11 @@ async function start() {
     location.pathname.replace(/^\/app-v2(?:\/|$)/, '/') || '/',
     browserSessionStorage(),
   );
-  let platform = selectClientPlatform(controller, undefined);
+  await controller.start();
+  let platform = await selectClientPlatform(
+    controller,
+    controller.getSnapshot().handshake,
+  );
   const workspaceEditSessions = createWorkspaceEditSessions(controller, {
     capacity: 8,
   });
@@ -308,6 +313,7 @@ async function start() {
   }
   createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
+      <PwaStatus />
       <RenderBoundary>
         <RuntimeContext.Provider
           value={{
@@ -451,7 +457,6 @@ async function start() {
       controller.dispose();
     },
   });
-  void controller.start();
 }
 void start().catch(() => {
   const root = document.getElementById('root')!;

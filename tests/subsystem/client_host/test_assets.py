@@ -20,6 +20,10 @@ def build(tmp_path: Path) -> Path:
     (root / "assets").mkdir(parents=True)
     (root / ".vite").mkdir()
     files = {"index.html": b'<html><head><script>window.theme="dark";</script></head><body><script type="module" src="/app-v2/assets/index-abcdef12.js"></script></body></html>',
+             "app.webmanifest": b'{"name":"Row-Bot fixture"}',
+             "service-worker.js": b"self.addEventListener('fetch', () => {});",
+             "icon-192.png": b"fixture-192",
+             "icon-512.png": b"fixture-512",
              "assets/index-abcdef12.js": b"export const fixture = true;",
              "assets/index-abcdef12.css": b"body { color: black }"}
     for name, data in files.items():
@@ -110,7 +114,7 @@ def test_preloaded_bytes_remain_exact_after_disk_swap(build: Path) -> None:
         load_client_assets(build)
 
 
-@pytest.mark.parametrize("change", ["path", "hash", "size", "version", "unhashed", "missing_chunk", "missing_asset"])
+@pytest.mark.parametrize("change", ["path", "hash", "size", "version", "unhashed", "missing_chunk", "missing_asset", "missing_public_shell"])
 def test_rejects_manifest_and_vite_corruption(build: Path, change: str) -> None:
     path = build / "asset-manifest.json"
     manifest = json.loads(path.read_text())
@@ -124,6 +128,8 @@ def test_rejects_manifest_and_vite_corruption(build: Path, change: str) -> None:
         manifest["version"] = 2
     elif change == "unhashed":
         manifest["files"]["assets/plain.js"] = manifest["files"].pop("assets/index-abcdef12.js")
+    elif change == "missing_public_shell":
+        manifest["files"].pop("service-worker.js")
     else:
         vite = json.loads((build / ".vite/manifest.json").read_text())
         vite["index.html"]["imports" if change == "missing_chunk" else "css"] = ["missing"]

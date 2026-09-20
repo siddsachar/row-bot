@@ -908,12 +908,24 @@ export default function Conversation({
   async function attach() {
     if (!id) return;
     const target = id,
-      picked = await platform.selectFile();
-    if (picked.status !== 'ok' || !('files' in picked.value)) return;
+      picked = await platform.selectFile(undefined, {
+        intentId: crypto.randomUUID(),
+        intent: 'attachment',
+        conversationId: target,
+        destination: 'composer',
+      });
+    if (picked.status !== 'ok') return;
     setBusy(true);
     try {
-      for (const file of picked.value.files) {
-        const uploaded = await controller.upload(target, file);
+      const uploadedAttachments =
+        'files' in picked.value
+          ? await Promise.all(
+              picked.value.files.map((file) => controller.upload(target, file)),
+            )
+          : picked.value.kind === 'file'
+            ? [await controller.attachmentMetadata(picked.value.reference)]
+            : [];
+      for (const uploaded of uploadedAttachments) {
         const previous = controller.getDraft(target);
         controller.setDraft(target, {
           ...previous,

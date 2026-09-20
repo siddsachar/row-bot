@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from row_bot.access.config import AccessConfig
 from row_bot.access.middleware import AccessMiddleware
 from row_bot.access.routes import register_access_routes
+from row_bot.access import routes as access_routes
 from row_bot.access.service import AccessService
 from row_bot.access.store import AccessStore
 
@@ -71,7 +72,9 @@ def test_local_desktop_owner_can_create_desktop_invitation(tmp_path) -> None:
     assert "profile" not in response.json()["invitation"]
     assert response.json()["invitation"]["session_lifetime"] == "trusted"
     assert "token" not in response.json()
-    assert parse_qs(urlsplit(response.json()["invitation_url"]).query)["invitation"]
+    query = parse_qs(urlsplit(response.json()["invitation_url"]).query)
+    assert query["invitation"]
+    assert query["next"] == ["/app-v2/"]
 
 
 def test_remote_owner_can_list_status_invitations_devices_and_sessions(
@@ -207,6 +210,99 @@ def test_owner_revokes_device_and_its_sessions_immediately(tmp_path) -> None:
     assert phone_status.json()["authenticated"] is False
 
 
+def test_owner_revokes_one_session_without_revoking_its_device(tmp_path) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_device_id, _owner_session_id = _session_cookie(
+        service,
+        registration,
+        name="Owner",
+    )
+    phone_cookie, phone_device_id, phone_session_id = _session_cookie(
+        service,
+        registration,
+        name="Phone",
+    )
+
+    response = client.post(
+        f"/api/access/sessions/{phone_session_id}/revoke",
+        headers={
+            "cookie": owner_cookie,
+            "origin": "http://localhost:8080",
+        },
+    )
+
+    assert response.json() == {"ok": True, "revoked": True}
+    assert service.store.get_device(phone_device_id).revoked_at is None
+    assert client.get(
+        "/api/access/session",
+        headers={"cookie": phone_cookie},
+    ).json()["authenticated"] is False
+
+
+def test_self_session_revoke_clears_access_cookies(tmp_path) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_device_id, owner_session_id = _session_cookie(
+        service,
+        registration,
+        name="Owner",
+    )
+
+    response = client.post(
+        f"/api/access/sessions/{owner_session_id}/revoke",
+        headers={
+            "cookie": owner_cookie,
+            "origin": "http://localhost:8080",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "revoked": True}
+    assert len(response.headers.get_list("set-cookie")) == 4
+
+
+def test_access_management_body_bound_and_rate_limit(tmp_path, monkeypatch) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_device_id, _owner_session_id = _session_cookie(
+        service,
+        registration,
+        name="Owner",
+    )
+    headers = {
+        "cookie": owner_cookie,
+        "origin": "http://localhost:8080",
+        "content-type": "application/json",
+    }
+
+    oversized = client.post(
+        "/api/access/invitations",
+        content=b"x" * (access_routes.ACCESS_REQUEST_BODY_LIMIT + 1),
+        headers=headers,
+    )
+    monkeypatch.setattr(access_routes, "_MANAGEMENT_RATE_LIMIT", 2)
+    first = client.post(
+        "/api/access/invitations",
+        json={"layout": "invalid"},
+        headers=headers,
+    )
+    second = client.post(
+        "/api/access/invitations",
+        json={"layout": "invalid"},
+        headers=headers,
+    )
+    limited = client.post(
+        "/api/access/invitations",
+        json={"layout": "desktop"},
+        headers=headers,
+    )
+
+    assert oversized.status_code == 413
+    assert oversized.json()["error"] == "request_too_large"
+    assert first.status_code == 400
+    assert second.status_code == 429
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"
+
+
 def test_self_revoke_clears_current_instance_and_legacy_cookies(tmp_path) -> None:
     client, service, registration = _application(tmp_path)
     owner_cookie, owner_device_id, _owner_session_id = _session_cookie(
@@ -232,7 +328,7 @@ def test_self_revoke_clears_current_instance_and_legacy_cookies(tmp_path) -> Non
 
 def test_management_mutations_require_exact_same_origin(tmp_path) -> None:
     client, service, registration = _application(tmp_path)
-    owner_cookie, device_id, _session_id = _session_cookie(
+    owner_cookie, device_id, session_id = _session_cookie(
         service,
         registration,
         name="Owner",
@@ -250,11 +346,21 @@ def test_management_mutations_require_exact_same_origin(tmp_path) -> None:
             "origin": "https://attacker.example",
         },
     )
+    wrong_session = client.post(
+        f"/api/access/sessions/{session_id}/revoke",
+        headers={
+            "cookie": owner_cookie,
+            "origin": "https://attacker.example",
+        },
+    )
 
     assert missing.status_code == 403
     assert wrong.status_code == 403
+    assert wrong_session.status_code == 403
     assert missing.json()["error"] == "origin_required"
     assert wrong.json()["error"] == "origin_required"
+    assert wrong_session.json()["error"] == "origin_required"
+    assert service.store.get_session(session_id).revoked_at is None
 
 
 def test_invalid_invitation_options_fail_without_creating_records(tmp_path) -> None:

@@ -45,7 +45,7 @@ export default function ResourceSetup({
   onPanel: (panel: PanelDescriptor) => void;
   initialEntry?: ResourceSetupEntry;
 }) {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
   const client = useClientState();
   const overlay = useOverlay();
   const navigate = useNavigate();
@@ -323,7 +323,12 @@ export default function ResourceSetup({
     const initiating = capturePresentation();
     setFolder(null);
     try {
-      const result = await controller.pickFolder();
+      const result = await platform.selectFolder(undefined, {
+        intentId: crypto.randomUUID(),
+        intent: 'resource_setup',
+        conversationId,
+        destination: `${kind}:${workspaceMode}`,
+      });
       if (
         !alive.current ||
         initiating.session !== presentationContext.current.session ||
@@ -332,12 +337,16 @@ export default function ResourceSetup({
         initiating.version !== controller.getSelectionVersion()
       )
         return;
-      if (result.status === 'selected' && result.grant_id)
+      if (
+        result.status === 'ok' &&
+        'reference' in result.value &&
+        result.value.kind === 'folder'
+      )
         setFolder({
-          grant: result.grant_id,
-          name: result.name ?? 'Selected folder',
+          grant: result.value.reference,
+          name: 'Authorized folder',
         });
-      else if (result.status === 'unavailable')
+      else if (result.status === 'unavailable' || result.status === 'ok')
         setError('Folder selection requires the local desktop window.');
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);

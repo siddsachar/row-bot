@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "authority_grant": {
+      "maxLength": 256,
+      "minLength": 32,
+      "title": "Authority Grant",
+      "type": "string"
+    },
+    "instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Instance Id",
+      "type": "string"
+    },
+    "policy_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "session_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "window_epoch": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Window Epoch",
+      "type": "integer"
+    },
+    "window_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Window Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "policy_revision",
+    "authority_grant",
+    "instance_id",
+    "window_id",
+    "window_epoch"
+  ],
+  "title": "NativeGrantRequest",
+  "type": "object"
+}

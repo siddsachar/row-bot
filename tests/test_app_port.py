@@ -62,6 +62,11 @@ def test_launcher_local_url_and_browser_helper_use_explicit_loopback(monkeypatch
     monkeypatch.setattr(launcher.webbrowser, "open", opened.append)
 
     assert launcher._url_for_port(8123) == "http://127.0.0.1:8123"
+    assert launcher._client_url_for_port(8123) == "http://127.0.0.1:8123"
+    assert (
+        launcher._client_url_for_port(8123, client_v2=True)
+        == "http://127.0.0.1:8123/app-v2/"
+    )
     launcher._open_in_browser(8123)
 
     assert opened == ["http://127.0.0.1:8123"]
@@ -89,6 +94,33 @@ def test_launcher_native_window_helper_uses_explicit_loopback(monkeypatch):
 
     assert process is not None
     assert "http://127.0.0.1:8124" in captured["args"]
+
+
+def test_launcher_react_client_is_explicit_opt_in_and_uses_narrow_bridge(monkeypatch):
+    captured = {}
+
+    class _FakePopen:
+        pid = 4243
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(
+        launcher.subprocess,
+        "Popen",
+        lambda args, **kwargs: captured.update(args=args, **kwargs) or _FakePopen(),
+    )
+    monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
+
+    process = launcher._open_window(8124, client_v2=True)
+
+    assert process is not None
+    assert "http://127.0.0.1:8124/app-v2/" in captured["args"]
+    assert captured["args"][-1] == "1"
+    assert "attach_native_client" in launcher._WINDOW_SCRIPT
+    assert '**({} if _CLIENT_V2 else {"js_api": _JS_API})' in launcher._WINDOW_SCRIPT
+    assert launcher._build_arg_parser().parse_args(["--client-v2"]).client_v2 is True
 
 
 def test_launcher_selects_default_port_when_free(monkeypatch):

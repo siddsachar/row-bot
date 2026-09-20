@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "ok": {
+      "const": true,
+      "default": true,
+      "title": "Ok",
+      "type": "boolean"
+    }
+  },
+  "title": "NativeTerminalChanged",
+  "type": "object"
+}

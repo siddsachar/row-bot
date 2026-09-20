@@ -456,6 +456,54 @@ export class FixtureTransport implements ClientTransport {
     this.available(signal);
     return new Blob(['Synthetic fixture download']);
   }
+  async attachmentMetadata(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<wire.AttachmentView> {
+    this.available(signal);
+    return {
+      ...recorded<wire.AttachmentView>('F-P07', 'AttachmentView')[0],
+      attachment_ref: reference,
+    };
+  }
+  async terminalRead(
+    _terminal: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalOutput> {
+    this.available(signal);
+    return {
+      cursor,
+      latest: cursor,
+      truncated: false,
+      frames: [],
+      status: 'running',
+    };
+  }
+  async terminalInput(
+    _terminal: string,
+    _data: string,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalChanged> {
+    this.available(signal);
+    return { ok: true };
+  }
+  async terminalResize(
+    _terminal: string,
+    _cols: number,
+    _rows: number,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalChanged> {
+    this.available(signal);
+    return { ok: true };
+  }
+  async terminalDisconnect(
+    _terminal: string,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalClosed> {
+    this.available(signal);
+    return { disconnected: true };
+  }
   clearSession(_preserveResumeIdentity = false): void {
     /* No credential or durable data is retained by fixtures. */
   }

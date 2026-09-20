@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Instance Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "instance_id"
+  ],
+  "title": "NativeBootstrapView",
+  "type": "object"
+}

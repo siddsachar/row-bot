@@ -9,6 +9,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 import logging
+from pathlib import Path
+import secrets
 import threading
 from typing import Any
 from uuid import UUID, uuid4
@@ -48,6 +50,22 @@ HEADERS = {
     "X-Content-Type-Options": "nosniff",
 }
 logger = logging.getLogger(__name__)
+_APPLICATION_CAPABILITIES = (
+    "client:conversations",
+    "client:resources",
+    "client:artifacts",
+    "client:settings",
+    "client:tasks",
+    "client:voice",
+    "browser:upload",
+)
+_LOCAL_APPLICATION_CAPABILITIES = (
+    "native:bridge",
+    "native:filesystem",
+    "native:terminal",
+    "computer:interactive",
+)
+_PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
 _STATUS = {
     "not_found": 404,
     "cursor_expired": 410,
@@ -1044,6 +1062,8 @@ def create_router(
     runtime_installations = McpRuntimeInstallationService()
     voice_workers: set[asyncio.Task] = set()
     document_workers: set[asyncio.Task] = set()
+    terminal_clients: dict[str, Any] = {}
+    terminal_clients_lock = threading.RLock()
 
     def voice_worker_finished(worker: asyncio.Task) -> None:
         voice_workers.discard(worker)
@@ -1077,6 +1097,11 @@ def create_router(
             except asyncio.CancelledError:
                 pass
             uploads.close()
+            with terminal_clients_lock:
+                closing_terminals = tuple(terminal_clients.values())
+                terminal_clients.clear()
+            for terminal_client in closing_terminals:
+                terminal_client.disconnect()
             if not await asyncio.to_thread(runtime_installations.close):
                 logger.warning(
                     "Managed runtime shutdown has admitted work still stopping"
@@ -1168,6 +1193,17 @@ def create_router(
             or body.maximum_minor < body.minimum_minor
         ):
             raise ProtocolError("protocol_incompatible", 426)
+        build = body.client_build.strip().lower()
+        if build.startswith("row-bot-client-v"):
+            try:
+                build_major = int(build.removeprefix("row-bot-client-v").split("/", 1)[0])
+            except ValueError:
+                raise ProtocolError("protocol_incompatible", 426) from None
+            if build_major < 2:
+                raise ProtocolError("protocol_incompatible", 426)
+            compatibility = "current" if build_major == 2 else "newer"
+        else:
+            compatibility = "unknown"
         current = security.handshake(
             context,
             session_id=str(body.client_session_id) if body.client_session_id else None,
@@ -1175,6 +1211,24 @@ def create_router(
         )
         security.rate(current, "query")
         discovery = await call(choices)
+        local_owner = context.is_local_owner and context.direct_loopback
+        if not local_owner:
+            discovery = {
+                **discovery,
+                "capabilities": [
+                    {
+                        **item,
+                        "available": False,
+                        "unavailable_reason": "unavailable",
+                    }
+                    if item["id"] == "computer_use"
+                    else item
+                    for item in discovery["capabilities"]
+                ],
+            }
+        native_attestation = (
+            security.issue_native_attestation(current) if local_owner else None
+        )
         return await respond(
             request,
             dto.HandshakeView,
@@ -1187,12 +1241,319 @@ def create_router(
                 "client_group_id": current.group_id,
                 "csrf_token": current.csrf,
                 "authentication_kind": context.authentication_kind,
+                "client_compatibility": compatibility,
+                "application_capabilities": [
+                    *_APPLICATION_CAPABILITIES,
+                    *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                ],
+                "presentation_capabilities": sorted(
+                    set(body.presentation_features) & _PRESENTATION_FEATURES
+                ),
                 "policy_revision": security.policy_revision,
                 "session_ttl_seconds": max(0, int(current.expires - security.clock())),
-                "native_adapter": {"available": False},
+                "native_adapter": {
+                    "available": local_owner,
+                    "proof_required": True,
+                    "instance_id": security.instance_id if local_owner else None,
+                    "attestation": native_attestation,
+                },
                 "limits": dto.Limits().model_dump(),
                 **discovery,
             },
+        )
+
+    def require_native_local(request: Request, context: AccessContext) -> None:
+        if not context.is_local_owner or not context.direct_loopback:
+            raise ProtocolError("action_denied", 403)
+        if not request_origin_matches(context, request.scope):
+            raise ProtocolError("origin_rejected", 403)
+
+    @router.get("/native/bootstrap")
+    async def native_bootstrap(request: Request) -> JSONResponse:
+        """Expose only the process identity needed to compose a trusted shell.
+
+        This endpoint does not create a client session or native authority.  A
+        loaded React document must still perform the ordinary handshake and
+        exchange its one-shot attestation through the native bridge.
+        """
+        context = await _context(request)
+        require_native_local(request, context)
+        return await respond(
+            request,
+            dto.NativeBootstrapView,
+            {"instance_id": security.instance_id},
+        )
+
+    @router.post("/native/attest")
+    async def native_attest(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeAttestationRequest, 4096)
+        current, revision, grant = security.exchange_native_attestation(
+            body.attestation,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+        )
+        return await respond(
+            request,
+            dto.NativeAttestationView,
+            {
+                "session_id": current.id,
+                "policy_revision": revision,
+                "authority_grant": grant,
+            },
+        )
+
+    @router.post("/native/authorize")
+    async def native_authorize(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeGrantRequest, 4096)
+        if not security.authorize_native_grant(
+            body.authority_grant,
+            session_id=body.session_id,
+            policy_revision=body.policy_revision,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+        ):
+            raise ProtocolError("action_denied", 403)
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/native/revoke")
+    async def native_revoke(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeGrantRequest, 4096)
+        revoked = security.revoke_native_grant(
+            body.authority_grant,
+            session_id=body.session_id,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+        )
+        folder_selections.revoke_window(
+            instance_id=body.instance_id,
+            session_id=body.session_id,
+            window_id=body.window_id,
+        )
+        return await respond(
+            request,
+            dto.NativeRevocationView,
+            {"revoked": revoked},
+        )
+
+    @router.post("/native/selections/complete")
+    async def native_selection_complete(request: Request) -> JSONResponse:
+        """Admit one host-selected path and return only an opaque reference."""
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeSelectionCompleteRequest, 16384)
+
+        def authorized() -> None:
+            if not security.authorize_native_grant(
+                body.authority_grant,
+                session_id=body.session_id,
+                policy_revision=body.policy_revision,
+                instance_id=body.instance_id,
+                window_id=body.window_id,
+                window_epoch=body.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        authorized()
+        from row_bot.application.folder_selections import FolderSelectionScope
+
+        scope = FolderSelectionScope(
+            session_id=body.session_id,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+            intent=body.intent,
+            conversation_id=body.conversation_id,
+            destination=body.destination,
+            authority_grant=body.authority_grant,
+            policy_revision=body.policy_revision,
+        )
+        selected = Path(body.path)
+        if body.selection_kind == "folder":
+            native_intent = await call(folder_selections.begin_exact, scope)
+            value = await call(
+                folder_selections.complete_exact,
+                native_intent,
+                scope,
+                selected,
+                authorized,
+            )
+            if value.get("status") != "selected":
+                raise ProtocolError("action_denied", 403)
+            return await respond(
+                request,
+                dto.NativeSelectionView,
+                {"reference": value["grant_id"], "kind": "folder"},
+            )
+
+        if body.conversation_id is None or body.intent != "attachment":
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.attachments import read_native_selection
+
+        name, data = await call(read_native_selection, selected)
+        authorized()
+        identity = str(uuid4())
+        value = await call(
+            service.register_attachment,
+            owner_id=security.instance_id,
+            idempotency_key=identity,
+            command_id=identity,
+            client_session_id=body.session_id,
+            conversation_id=body.conversation_id,
+            name=name,
+            data=data,
+            mime_type="application/octet-stream",
+            validate=authorized,
+        )
+        return await respond(
+            request,
+            dto.NativeSelectionView,
+            {"reference": value["attachment_ref"], "kind": "file"},
+        )
+
+    @router.post("/native/terminal/open")
+    async def native_terminal_open(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeTerminalOpenRequest, 4096)
+
+        def authorize(authority: Any) -> bool:
+            return security.authorize_native_grant(
+                authority.authority_grant,
+                session_id=authority.session_id,
+                policy_revision=authority.policy_revision,
+                instance_id=authority.instance_id,
+                window_id=authority.window_id,
+                window_epoch=authority.window_epoch,
+            )
+
+        from row_bot.terminal_bridge import TerminalBridge, TerminalClientAuthority
+
+        authority = TerminalClientAuthority(
+            instance_id=body.instance_id,
+            session_id=body.session_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+            policy_revision=body.policy_revision,
+            authority_grant=body.authority_grant,
+            conversation_id=body.conversation_id,
+        )
+        bridge = TerminalBridge.get_instance()
+        if not bridge.is_running:
+            bridge.start()
+        client = bridge.open_native_client(
+            authority,
+            authorize=authorize,
+            local_owner=True,
+            direct_loopback=True,
+        )
+        with terminal_clients_lock:
+            if len(terminal_clients) >= 32:
+                client.disconnect()
+                raise ProtocolError("rate_limited", 429)
+            identifier = secrets.token_urlsafe(32)
+            terminal_clients[identifier] = client
+        return await respond(
+            request,
+            dto.NativeTerminalView,
+            {"terminal_id": identifier},
+        )
+
+    @router.post("/native/attachments/{reference}")
+    async def native_attachment_download(
+        reference: str, request: Request
+    ) -> Response:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeGrantRequest, 4096)
+
+        def authorize() -> None:
+            if not security.authorize_native_grant(
+                body.authority_grant,
+                session_id=body.session_id,
+                policy_revision=body.policy_revision,
+                instance_id=body.instance_id,
+                window_id=body.window_id,
+                window_epoch=body.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        authorize()
+        from row_bot.application.attachments import read_attachment
+        from urllib.parse import quote
+
+        metadata, data = await call(read_attachment, reference)
+        authorize()
+        return Response(
+            data,
+            media_type="application/octet-stream",
+            headers={
+                **HEADERS,
+                "Content-Disposition": "attachment; filename*=UTF-8''"
+                + quote(metadata["name"], safe=""),
+            },
+        )
+
+    def terminal_client(identifier: str, current: Any) -> Any:
+        with terminal_clients_lock:
+            client = terminal_clients.get(identifier)
+        if client is None or client.authority.session_id != current.id:
+            raise ProtocolError("not_found", 404)
+        return client
+
+    @router.get("/native/terminals/{terminal_id}")
+    async def native_terminal_read(
+        terminal_id: str,
+        request: Request,
+        cursor: int = 0,
+        max_bytes: int = 65536,
+    ) -> JSONResponse:
+        current = await session(request, lane="observation")
+        try:
+            value = await call(terminal_client(terminal_id, current).read, cursor, max_bytes)
+        except (ValueError, RuntimeError) as exc:
+            raise ProtocolError(str(exc), 403) from exc
+        return await respond(request, dto.NativeTerminalOutput, value)
+
+    @router.post("/native/terminals/{terminal_id}/input")
+    async def native_terminal_input(terminal_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.NativeTerminalInput, 32768)
+        try:
+            await call(terminal_client(terminal_id, current).input, body.data)
+        except (ValueError, RuntimeError) as exc:
+            raise ProtocolError(str(exc), 403) from exc
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/native/terminals/{terminal_id}/resize")
+    async def native_terminal_resize(terminal_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.NativeTerminalResize, 4096)
+        try:
+            await call(terminal_client(terminal_id, current).resize, body.cols, body.rows)
+        except (ValueError, RuntimeError) as exc:
+            raise ProtocolError(str(exc), 403) from exc
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.delete("/native/terminals/{terminal_id}")
+    async def native_terminal_disconnect(terminal_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        client = terminal_client(terminal_id, current)
+        with terminal_clients_lock:
+            terminal_clients.pop(terminal_id, None)
+        await call(client.disconnect)
+        return await respond(
+            request,
+            dto.NativeTerminalClosed,
+            {"disconnected": True},
         )
 
     def dictation_transport() -> Any:
@@ -2374,6 +2735,7 @@ def create_router(
         await _context(request)
         validate_access = dispatch_validation(request, current)
         folder = None
+        native_folder_scope = None
         if (
             body.type == "resource.setup"
             and body.payload.get("intent") == "new_conversation"
@@ -2390,9 +2752,31 @@ def create_router(
                 or not context.direct_loopback
             ):
                 raise ProtocolError("action_denied", 403)
-            folder = await call(
-                folder_selections.resolve, body.payload["folder_grant"], current.id
+            def validate_native_folder(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            exact = await call(
+                folder_selections.consume_exact_resource,
+                body.payload["folder_grant"],
+                current.id,
+                validate_native_folder,
             )
+            if exact is None:
+                folder = await call(
+                    folder_selections.resolve,
+                    body.payload["folder_grant"],
+                    current.id,
+                )
+            else:
+                folder, native_folder_scope = exact
 
         def validate_dispatch() -> None:
             validate_access()
@@ -2406,7 +2790,12 @@ def create_router(
                     str(body.command_id),
                 )
             if folder is not None:
-                folder_selections.resolve(body.payload["folder_grant"], current.id)
+                if native_folder_scope is not None:
+                    validate_native_folder(native_folder_scope)
+                    if not folder.path.is_dir():
+                        raise ProtocolError("resource_unavailable", 404)
+                else:
+                    folder_selections.resolve(body.payload["folder_grant"], current.id)
             if approval and (
                 not previous or previous.get("status") not in {"completed", "accepted"}
             ):
@@ -2930,6 +3319,11 @@ def create_router(
             command=wire,
             target=target,
             validate=validate_dispatch,
+            runtime_surface=(
+                "normal_chat"
+                if (await _context(request)).is_local_owner
+                else "remote_client"
+            ),
             **(
                 {"validate_approval": validate_task_approval}
                 if body.type == "task.approval"
@@ -7695,6 +8089,17 @@ def create_router(
         current = await session(request, lane="control")
         await call(uploads.cancel, current.id, upload_id)
         return await respond(request, dto.UploadCancelled, {"cancelled": True})
+
+    @router.get("/attachments/{reference}/metadata")
+    async def attachment_metadata(reference: str, request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.attachments import inspect_attachment
+
+        return await respond(
+            request,
+            dto.AttachmentView,
+            await call(inspect_attachment, reference),
+        )
 
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:

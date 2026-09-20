@@ -92,6 +92,8 @@ class ClientSecurity:
         self._subscriptions: dict[str, Subscription] = {}
         self._local_group = str(uuid4())
         self._nonces: dict[str, tuple] = {}
+        self._native_attestations: dict[str, tuple[str, float, str]] = {}
+        self._native_grants: dict[str, tuple[str, str, str, int, float, str]] = {}
         self._policy = policy
         self._policy_revision = "1"
 
@@ -161,6 +163,121 @@ class ClientSecurity:
         self._sessions = {k: v for k, v in self._sessions.items() if v.expires > now}
         self._subscriptions = {k: v for k, v in self._subscriptions.items() if v.session_id in self._sessions}
         self._nonces = {k: v for k, v in self._nonces.items() if v[4] > now and v[0] in self._sessions}
+        self._native_attestations = {
+            key: value
+            for key, value in self._native_attestations.items()
+            if value[1] > now and value[0] in self._sessions
+        }
+        self._native_grants = {
+            key: value
+            for key, value in self._native_grants.items()
+            if value[4] > now and value[0] in self._sessions
+        }
+
+    def issue_native_attestation(self, session: ClientSession) -> str:
+        """Issue a short-lived one-shot exchange token for a local native document."""
+        with self._lock:
+            self._prune()
+            if self._sessions.get(session.id) is not session or not session.binding.startswith("local:"):
+                raise ProtocolError("action_denied", 403)
+            if len(self._native_attestations) >= 256:
+                raise ProtocolError("rate_limited", 429)
+            token = secrets.token_urlsafe(32)
+            self._native_attestations[token] = (
+                session.id,
+                self.clock() + 60,
+                self.policy_revision,
+            )
+            return token
+
+    def exchange_native_attestation(
+        self,
+        token: str,
+        *,
+        instance_id: str,
+        window_id: str,
+        window_epoch: int,
+    ) -> tuple[ClientSession, str, str]:
+        """Consume a one-shot token and bind a revocable grant to one document."""
+        with self._lock:
+            self._prune()
+            value = self._native_attestations.pop(token, None)
+            if (
+                value is None
+                or instance_id != self.instance_id
+                or value[2] != self.policy_revision
+            ):
+                raise ProtocolError("action_denied", 403)
+            session = self._sessions.get(value[0])
+            if session is None or not session.binding.startswith("local:"):
+                raise ProtocolError("session_expired", 401)
+            grant = secrets.token_urlsafe(32)
+            self._native_grants[grant] = (
+                session.id,
+                window_id,
+                instance_id,
+                window_epoch,
+                min(session.expires, self.clock() + 1800),
+                value[2],
+            )
+            return session, value[2], grant
+
+    def authorize_native_grant(
+        self,
+        grant: str,
+        *,
+        session_id: str,
+        policy_revision: str,
+        instance_id: str,
+        window_id: str,
+        window_epoch: int,
+    ) -> bool:
+        """Revalidate session, policy and exact native document at every effect."""
+        with self._lock:
+            self._prune()
+            value = self._native_grants.get(grant)
+            expected = (
+                session_id,
+                window_id,
+                instance_id,
+                window_epoch,
+            )
+            if (
+                value is None
+                or value[:4] != expected
+                or value[5] != policy_revision
+                or policy_revision != self.policy_revision
+            ):
+                self._native_grants.pop(grant, None)
+                return False
+            session = self._sessions.get(session_id)
+            if session is None or not session.binding.startswith("local:"):
+                self._native_grants.pop(grant, None)
+                return False
+            return True
+
+    def revoke_native_grant(
+        self,
+        grant: str,
+        *,
+        session_id: str,
+        instance_id: str,
+        window_id: str,
+        window_epoch: int,
+    ) -> bool:
+        """Revoke exactly one native document grant without affecting peers."""
+        with self._lock:
+            self._prune()
+            value = self._native_grants.get(grant)
+            if value is None or value[:4] != (
+                session_id,
+                window_id,
+                instance_id,
+                window_epoch,
+            ):
+                return False
+            del self._native_grants[grant]
+            return True
 
     def handshake(self, context: AccessContext, *, session_id: str | None = None,
                   group_id: str | None = None) -> ClientSession:

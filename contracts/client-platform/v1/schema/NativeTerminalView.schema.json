@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "terminal_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Terminal Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "terminal_id"
+  ],
+  "title": "NativeTerminalView",
+  "type": "object"
+}

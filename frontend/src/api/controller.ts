@@ -574,6 +574,9 @@ export class ClientController {
         client_session_id: result.client_session_id,
         client_group_id: result.client_group_id,
         authentication_kind: result.authentication_kind,
+        client_compatibility: result.client_compatibility ?? 'unknown',
+        application_capabilities: result.application_capabilities ?? [],
+        presentation_capabilities: result.presentation_capabilities ?? [],
         policy_revision: result.policy_revision,
         session_ttl_seconds: result.session_ttl_seconds,
         native_adapter: result.native_adapter,
@@ -4078,6 +4081,41 @@ export class ClientController {
   upload(conversation: string, file: File, signal?: AbortSignal) {
     return this.authenticatedResult(
       (current) => this.transport.upload(conversation, file, current),
+      signal,
+    );
+  }
+  attachmentMetadata(reference: string, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.attachmentMetadata(reference, current),
+      signal,
+    );
+  }
+  terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalRead(terminal, cursor, current),
+      signal,
+    );
+  }
+  terminalInput(terminal: string, data: string, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalInput(terminal, data, current),
+      signal,
+    );
+  }
+  terminalResize(
+    terminal: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalResize(terminal, cols, rows, current),
+      signal,
+    );
+  }
+  terminalDisconnect(terminal: string, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalDisconnect(terminal, current),
       signal,
     );
   }

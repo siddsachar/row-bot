@@ -24,6 +24,10 @@ MODELS = {name: getattr(schemas, name) for name in (
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
+    "NativeBootstrapView", "NativeAttestationRequest", "NativeAttestationView",
+    "NativeGrantRequest", "NativeRevocationView", "NativeSelectionCompleteRequest", "NativeSelectionView",
+    "NativeTerminalOpenRequest", "NativeTerminalView", "NativeTerminalInput", "NativeTerminalResize",
+    "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "ToolCatalogPage",
@@ -298,7 +302,19 @@ OPERATIONS = (
     ("put", "/uploads/{upload_id}/chunks", "bytes", "UploadView"),
     ("post", "/uploads/{upload_id}/complete", "UploadCompletion", "AttachmentView"),
     ("delete", "/uploads/{upload_id}", None, "UploadCancelled"),
+    ("get", "/attachments/{reference}/metadata", None, "AttachmentView"),
     ("get", "/attachments/{reference}", None, "bytes"),
+    ("get", "/native/bootstrap", None, "NativeBootstrapView"),
+    ("post", "/native/attest", "NativeAttestationRequest", "NativeAttestationView"),
+    ("post", "/native/authorize", "NativeGrantRequest", "NativeTerminalChanged"),
+    ("post", "/native/revoke", "NativeGrantRequest", "NativeRevocationView"),
+    ("post", "/native/selections/complete", "NativeSelectionCompleteRequest", "NativeSelectionView"),
+    ("post", "/native/terminal/open", "NativeTerminalOpenRequest", "NativeTerminalView"),
+    ("post", "/native/attachments/{reference}", "NativeGrantRequest", "bytes"),
+    ("get", "/native/terminals/{terminal_id}", None, "NativeTerminalOutput"),
+    ("post", "/native/terminals/{terminal_id}/input", "NativeTerminalInput", "NativeTerminalChanged"),
+    ("post", "/native/terminals/{terminal_id}/resize", "NativeTerminalResize", "NativeTerminalChanged"),
+    ("delete", "/native/terminals/{terminal_id}", None, "NativeTerminalClosed"),
     ("get", "/search", None, "SearchPage"),
     ("get", "/conversations/{conversation_id}/history", None, "TranscriptPage"),
     ("get", "/conversations/{conversation_id}/workspace", None, "ConversationWorkspace"),
@@ -1005,6 +1021,16 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
   if (data.size > 26214400) throw new Error('protocol_incompatible');
   return data;
 }
+export const getAttachmentMetadata = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<AttachmentView> =>
+  jsonRequest(base, `/attachments/${id(reference)}/metadata`, 'AttachmentView', proof, 'GET', undefined, undefined, signal);
+export const readNativeTerminal = (base: string, proof: SessionProof, terminal: string, cursor = 0, maxBytes = 65536, signal?: AbortSignal): Promise<NativeTerminalOutput> =>
+  jsonRequest(base, `/native/terminals/${id(terminal)}` + query({cursor,max_bytes:maxBytes}), 'NativeTerminalOutput', proof, 'GET', undefined, undefined, signal);
+export const writeNativeTerminal = (base: string, proof: SessionProof, terminal: string, body: NativeTerminalInput, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
+  jsonRequest(base, `/native/terminals/${id(terminal)}/input`, 'NativeTerminalChanged', proof, 'POST', body, undefined, signal);
+export const resizeNativeTerminal = (base: string, proof: SessionProof, terminal: string, body: NativeTerminalResize, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
+  jsonRequest(base, `/native/terminals/${id(terminal)}/resize`, 'NativeTerminalChanged', proof, 'POST', body, undefined, signal);
+export const disconnectNativeTerminal = (base: string, proof: SessionProof, terminal: string, signal?: AbortSignal): Promise<NativeTerminalClosed> =>
+  jsonRequest(base, `/native/terminals/${id(terminal)}`, 'NativeTerminalClosed', proof, 'DELETE', undefined, undefined, signal);
 export const getArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactExport> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}`, 'ArtifactExport', proof, 'GET', undefined, undefined, signal);
 export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, signal?: AbortSignal): Promise<Blob> {
@@ -1238,7 +1264,16 @@ def outputs() -> dict[Path, str]:
         parameters = [{"name": name, "in": "path", "required": True,
                        "schema": {"type": "string", "minLength": 1, "maxLength": 256}}
                       for name in re.findall(r"\{([^}]+)\}", suffix)]
-        if suffix != "/handshake":
+        if suffix not in {
+            "/handshake",
+            "/native/bootstrap",
+            "/native/attest",
+            "/native/authorize",
+            "/native/revoke",
+            "/native/selections/complete",
+            "/native/terminal/open",
+            "/native/attachments/{reference}",
+        }:
             parameters += [{"name": name, "in": "header", "required": True,
                             "schema": {"type": "string", "maxLength": 256}}
                            for name in ("X-Client-Session", "X-CSRF-Token")]

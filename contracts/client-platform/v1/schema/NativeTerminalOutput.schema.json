@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "NativeTerminalFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "maxLength": 16384,
+          "title": "Data",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence",
+        "data"
+      ],
+      "title": "NativeTerminalFrame",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "minimum": 0,
+      "title": "Cursor",
+      "type": "integer"
+    },
+    "frames": {
+      "items": {
+        "$ref": "#/$defs/NativeTerminalFrame"
+      },
+      "maxItems": 16,
+      "title": "Frames",
+      "type": "array"
+    },
+    "latest": {
+      "minimum": 0,
+      "title": "Latest",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "stopped",
+        "restarting"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cursor",
+    "latest",
+    "truncated",
+    "frames",
+    "status"
+  ],
+  "title": "NativeTerminalOutput",
+  "type": "object"
+}

@@ -70,6 +70,13 @@ export const panelRegistry = {
     capabilities: ['browser_navigate'],
     compact: 'tab',
   },
+  'native.terminal': {
+    title: 'Interactive terminal',
+    resourceKinds: [],
+    requiresResource: false,
+    capabilities: [],
+    compact: 'tab',
+  },
   'fake.info': {
     title: 'Sample information',
     resourceKinds: [],

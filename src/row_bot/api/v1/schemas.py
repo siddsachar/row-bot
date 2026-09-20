@@ -5122,7 +5122,92 @@ class Choices(WireModel):
 
 
 class NativeAdapter(WireModel):
-    available: Literal[False] = False
+    available: bool = False
+    proof_required: Literal[True] = True
+    instance_id: OpaqueId | None = None
+    attestation: str | None = Field(default=None, min_length=32, max_length=256)
+
+
+class NativeAttestationRequest(WireModel):
+    attestation: str = Field(min_length=32, max_length=256)
+    instance_id: OpaqueId
+    window_id: OpaqueId
+    window_epoch: int = Field(ge=0, le=9223372036854775807)
+
+
+class NativeBootstrapView(WireModel):
+    instance_id: OpaqueId
+
+
+class NativeAttestationView(WireModel):
+    session_id: OpaqueId
+    policy_revision: Revision
+    authority_grant: str = Field(min_length=32, max_length=256)
+
+
+class NativeGrantRequest(WireModel):
+    session_id: OpaqueId
+    policy_revision: Revision
+    authority_grant: str = Field(min_length=32, max_length=256)
+    instance_id: OpaqueId
+    window_id: OpaqueId
+    window_epoch: int = Field(ge=0, le=9223372036854775807)
+
+
+class NativeSelectionCompleteRequest(NativeGrantRequest):
+    selection_kind: Literal["file", "folder"]
+    intent_id: OpaqueId
+    intent: OpaqueId
+    conversation_id: OpaqueId | None = None
+    destination: OpaqueId
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class NativeSelectionView(WireModel):
+    reference: Reference
+    kind: Literal["file", "folder"]
+
+
+class NativeTerminalOpenRequest(NativeGrantRequest):
+    conversation_id: OpaqueId | None = None
+
+
+class NativeTerminalView(WireModel):
+    terminal_id: OpaqueId
+
+
+class NativeTerminalInput(WireModel):
+    data: str = Field(min_length=1, max_length=16384)
+
+
+class NativeTerminalResize(WireModel):
+    cols: int = Field(ge=20, le=500)
+    rows: int = Field(ge=5, le=200)
+
+
+class NativeTerminalFrame(WireModel):
+    sequence: int = Field(ge=1)
+    data: str = Field(max_length=16384)
+
+
+class NativeTerminalOutput(WireModel):
+    cursor: int = Field(ge=0)
+    latest: int = Field(ge=0)
+    truncated: bool
+    frames: list[NativeTerminalFrame] = Field(max_length=16)
+    status: Literal["running", "stopped", "restarting"]
+
+
+class NativeTerminalClosed(WireModel):
+    disconnected: Literal[True] = True
+
+
+class NativeTerminalChanged(WireModel):
+    ok: Literal[True] = True
+
+
+class NativeRevocationView(WireModel):
+    revoked: bool
 
 
 class Limits(WireModel):
@@ -5149,6 +5234,9 @@ class HandshakeView(Choices):
     client_group_id: UUID
     csrf_token: str = Field(min_length=32, max_length=256)
     authentication_kind: Literal["local_owner", "session"]
+    client_compatibility: Literal["current", "newer", "unknown"] = "unknown"
+    application_capabilities: list[OpaqueId] = Field(default_factory=list, max_length=64)
+    presentation_capabilities: list[OpaqueId] = Field(default_factory=list, max_length=32)
     policy_revision: Revision
     session_ttl_seconds: int = Field(ge=0, le=43200)
     native_adapter: NativeAdapter

@@ -128,6 +128,10 @@ it('opens the credential dialog after creating an endpoint that needs a key', as
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add custom endpoint' }),
   );
+  expect(screen.getByTestId('shared-dialog-task')).toHaveAttribute(
+    'data-overlay-kind',
+    'dialog',
+  );
   fireEvent.change(screen.getByLabelText('Endpoint id'), {
     target: { value: 'keyed' },
   });

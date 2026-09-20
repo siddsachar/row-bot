@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type ReactNode,
@@ -23,6 +24,65 @@ type Overlay = {
 };
 type Task = Overlay & { opener: HTMLElement | null };
 type Notice = { id: number; message: string };
+let historyOwner = 0;
+
+/** Same-URL history entries let platform Back dismiss modal work first. */
+function useOverlayHistoryLevel(level: number, onBack: () => void) {
+  const [owner] = useState(() => `overlay-${++historyOwner}`);
+  const armed = useRef(0);
+  const programmatic = useRef(0);
+  const handleBack = useEffectEvent(onBack);
+  useEffect(() => {
+    const popstate = () => {
+      if (programmatic.current > 0) {
+        programmatic.current -= 1;
+        return;
+      }
+      if (armed.current === 0) return;
+      armed.current -= 1;
+      handleBack();
+    };
+    window.addEventListener('popstate', popstate);
+    return () => window.removeEventListener('popstate', popstate);
+  }, []);
+  useEffect(() => {
+    while (armed.current < level) {
+      armed.current += 1;
+      const existing = window.history.state;
+      const state =
+        existing && typeof existing === 'object' && !Array.isArray(existing)
+          ? { ...existing }
+          : {};
+      window.history.pushState(
+        {
+          ...state,
+          __row_bot_overlay: { owner, depth: armed.current },
+        },
+        '',
+        window.location.href,
+      );
+    }
+    while (armed.current > level) {
+      const marker = window.history.state?.__row_bot_overlay;
+      armed.current -= 1;
+      if (!marker || marker.owner !== owner) {
+        armed.current = level;
+        break;
+      }
+      programmatic.current += 1;
+      window.history.back();
+    }
+  }, [level, owner]);
+  return () => {
+    if (armed.current === 0) return;
+    const marker = window.history.state?.__row_bot_overlay;
+    armed.current -= 1;
+    if (!marker || marker.owner !== owner) return;
+    programmatic.current += 1;
+    window.history.back();
+  };
+}
+
 const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
   close: (returnFocusTo?: HTMLElement | null) => void;
@@ -40,6 +100,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const resumeFocus = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const current = confirmation ?? task;
+  const level = confirmation ? 2 : task ? 1 : 0;
   const activeElement = () =>
     document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -58,7 +119,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       });
     }
   }
-  function close(returnFocusTo?: HTMLElement | null) {
+  function closeInternal(returnFocusTo?: HTMLElement | null) {
     if (confirmation) {
       if (task) resumeFocus.current = confirmation.opener;
       else returningTo.current = confirmation.opener;
@@ -67,6 +128,11 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       returningTo.current = returnFocusTo ?? task?.opener ?? null;
       setTask(null);
     }
+  }
+  const releaseHistory = useOverlayHistoryLevel(level, () => closeInternal());
+  function close(returnFocusTo?: HTMLElement | null) {
+    releaseHistory();
+    closeInternal(returnFocusTo);
   }
   useEffect(() => {
     if (confirmation) cancelRef.current?.focus();
@@ -219,6 +285,114 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
         </div>
       </Toast.Provider>
     </OverlayContext.Provider>
+  );
+}
+
+type ModalTaskProps = {
+  open: boolean;
+  title: string;
+  description: string;
+  children: ReactNode;
+  onOpenChange: (open: boolean) => void;
+  ariaLabel?: string;
+  kind?: 'dialog' | 'sheet';
+  dismissible?: boolean;
+  returnFocusTo?: HTMLElement | null;
+};
+
+/** Declarative settings/setup task using the same Radix/back/focus contract. */
+export function ModalTask({
+  open,
+  title,
+  description,
+  children,
+  onOpenChange,
+  ariaLabel,
+  kind = 'dialog',
+  dismissible = true,
+  returnFocusTo,
+}: ModalTaskProps) {
+  const opener = useRef<HTMLElement | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(open);
+  const restoreFocus = () => {
+    const target = returnFocusTo ?? opener.current;
+    queueMicrotask(() => {
+      if (target?.isConnected) target.focus();
+    });
+  };
+  const restoreAfterClose = useEffectEvent(restoreFocus);
+  useEffect(() => {
+    if (wasOpen.current && !open) restoreAfterClose();
+    wasOpen.current = open;
+  }, [open]);
+  const releaseHistory = useOverlayHistoryLevel(open ? 1 : 0, () => {
+    if (dismissible) onOpenChange(false);
+  });
+  const close = () => {
+    if (!dismissible) return;
+    releaseHistory();
+    onOpenChange(false);
+  };
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(value) => {
+        if (!value) close();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="overlay-backdrop" />
+        <Dialog.Content
+          ref={contentRef}
+          className={`dialog shared-dialog-task ${kind === 'sheet' ? 'sheet' : ''}`}
+          aria-label={ariaLabel}
+          aria-modal="true"
+          data-testid="shared-dialog-task"
+          data-overlay-kind={kind}
+          onOpenAutoFocus={(event) => {
+            const active =
+              document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
+            if (active && !contentRef.current?.contains(active))
+              opener.current = active;
+            const initial = contentRef.current?.querySelector<HTMLElement>(
+              '[data-initial-focus]',
+            );
+            if (initial) {
+              event.preventDefault();
+              initial.focus();
+            }
+          }}
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusTo ?? opener.current;
+            if (!target?.isConnected) return;
+            event.preventDefault();
+            target.focus();
+          }}
+        >
+          <header className="dialog-header">
+            <div>
+              <Dialog.Title className="dialog-title">{title}</Dialog.Title>
+              <Dialog.Description className="dialog-description">
+                {description}
+              </Dialog.Description>
+            </div>
+            <Button
+              iconOnly
+              variant="ghost"
+              aria-label="Close dialog"
+              disabled={!dismissible}
+              onClick={close}
+            >
+              <X size={20} aria-hidden />
+            </Button>
+          </header>
+          <div className="dialog-body">{children}</div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 export function useOverlay() {

@@ -145,6 +145,7 @@ export function createBrowserPlatform(
       });
     },
     managedWindow: async () => unavailable('managed_windows_require_native'),
+    openTerminal: async () => unavailable('terminal_requires_native'),
     save: (reference, name, signal) => {
       if (!safeDownloadName(name))
         return Promise.resolve(unavailable('invalid_name'));

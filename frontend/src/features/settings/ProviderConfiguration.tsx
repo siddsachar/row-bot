@@ -16,6 +16,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 
 type Operation =
   | 'provider.endpoint.create'
@@ -651,20 +652,27 @@ export default function ProviderConfiguration(
           </button>
         )}
         {state.editing && (
-          <div className="settings-provider-dialog-backdrop">
-            <div
-              className="settings-provider-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-label={
-                state.existing ? 'Edit custom endpoint' : 'Add custom endpoint'
-              }
-            >
-              <h2>
-                {state.existing
-                  ? 'Edit Custom Endpoint'
-                  : 'Add custom endpoint'}
-              </h2>
+          <ModalTask
+            open
+            title={
+              state.existing ? 'Edit Custom Endpoint' : 'Add custom endpoint'
+            }
+            description="Review the endpoint details before saving local provider configuration."
+            ariaLabel={
+              state.existing ? 'Edit custom endpoint' : 'Add custom endpoint'
+            }
+            dismissible={!locked}
+            onOpenChange={(open) => {
+              if (!open)
+                session.update({
+                  editing: false,
+                  dirty: false,
+                  reviewed: null,
+                  fields: blank(),
+                });
+            }}
+          >
+            <div className="stack settings-provider-dialog-content">
               {!state.existing && (
                 <Field label="Endpoint id">
                   <Input
@@ -892,7 +900,7 @@ export default function ProviderConfiguration(
                 )}
               </div>
             </div>
-          </div>
+          </ModalTask>
         )}
         {pending && !state.editing && (
           <Button disabled={!!state.busy} onClick={() => void receipt()}>
@@ -900,14 +908,16 @@ export default function ProviderConfiguration(
           </Button>
         )}
         {probeDetails && (
-          <div className="settings-provider-dialog-backdrop">
-            <div
-              className="settings-provider-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Endpoint probe details"
-            >
-              <h2>{probeDetails.fields.display_name} probe</h2>
+          <ModalTask
+            open
+            title={`${probeDetails.fields.display_name} probe`}
+            description="Endpoint probe details"
+            ariaLabel="Endpoint probe details"
+            onOpenChange={(open) => {
+              if (!open) setProbeDetails(null);
+            }}
+          >
+            <div className="stack settings-provider-dialog-content">
               <p>{probeLabels[probeDetails.probe_state]}</p>
               <ul>
                 {probeDetails.probe_components?.map((check, index) => (
@@ -918,7 +928,7 @@ export default function ProviderConfiguration(
               </ul>
               <Button onClick={() => setProbeDetails(null)}>Close</Button>
             </div>
-          </div>
+          </ModalTask>
         )}
       </section>
     );

@@ -479,7 +479,7 @@ def _dispatch_invite(
     created = service.create_invitation(
         intended_origin=args.origin,
         session_lifetime=lifetime,
-        next_path="/?mobile=1" if layout == "compact" else "/",
+        next_path="/app-v2/",
         created_by="local_operator",
         access_route="cli",
         now=now,
