@@ -21,7 +21,7 @@ from tests.browser.client_workspace import fixture_app as workspace
 from tests.helpers.client_platform_fakes import fixture_id
 
 
-FIXTURE_REVISION = "core-surface-parity-v1"
+FIXTURE_REVISION = "react-chat-live-parity-v2"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -34,6 +34,8 @@ def _seed_core_surface_state() -> None:
     token = workspace.predecessor.TOKEN
     workspace.p4_tasks("populated", token)
     workspace.p4_knowledge("populated", token)
+    workspace.p4_setup_capability_settings(token)
+    workspace.p4_buddy(token)
 
     from row_bot import tasks
     from row_bot.threads import append_checkpoint_messages
@@ -87,6 +89,81 @@ def _seed_core_surface_state() -> None:
             AIMessage(
                 id=fixture_id("core-parity:assistant-final"),
                 content="The isolated comparison state is ready.",
+            ),
+        ],
+    )
+    trace_calls = [
+        ("trace-repeat-a", "fixture_repeat", "Synthetic first result."),
+        ("trace-repeat-b", "fixture_repeat", "Synthetic second result."),
+        ("trace-failed", "fixture_failure", "Error: synthetic failure."),
+        ("trace-blocked", "fixture_policy", "Blocked: synthetic fixture policy."),
+        ("trace-cancelled", "fixture_cancel", "Cancelled: synthetic fixture stop."),
+        ("trace-uncertain", "fixture_receipt", "Outcome uncertain: synthetic lost reply."),
+        ("trace-browser", "browser_navigate", "Synthetic browser step."),
+        (
+            "trace-skill",
+            "skill_load",
+            json.dumps(
+                {
+                    "ok": True,
+                    "kind": "skill_loaded",
+                    "skill_id": "p4_browser_skill",
+                    "display_name": "Synthetic browser skill",
+                    "source": "manual",
+                    "newly_active": True,
+                }
+            ),
+        ),
+        (
+            "trace-agent",
+            "agents",
+            json.dumps(
+                {
+                    "runs": [
+                        {
+                            "id": "synthetic-child-run",
+                            "display_name": "Synthetic delegated review",
+                            "status": "completed",
+                        }
+                    ]
+                }
+            ),
+        ),
+        ("trace-media", "fixture_image", "__IMAGE__:synthetic-public-reference"),
+        ("trace-large", "fixture_large", "L" * 70000),
+        ("trace-pending", "computer_use", None),
+    ]
+    append_checkpoint_messages(
+        "p1-browser-b",
+        [
+            HumanMessage(
+                id=fixture_id("core-traces:user"),
+                content="Show the deterministic trace matrix.",
+            ),
+            AIMessage(
+                id=fixture_id("core-traces:assistant"),
+                content="Synthetic trace states follow.",
+                tool_calls=[
+                    {
+                        "id": fixture_id(identity),
+                        "name": name,
+                        "args": {},
+                    }
+                    for identity, name, _content in trace_calls
+                ],
+            ),
+            *[
+                ToolMessage(
+                    id=fixture_id(identity + ":result"),
+                    tool_call_id=fixture_id(identity),
+                    content=content,
+                )
+                for identity, _name, content in trace_calls
+                if content is not None
+            ],
+            AIMessage(
+                id=fixture_id("core-traces:final"),
+                content="The deterministic trace matrix is ready.",
             ),
         ],
     )

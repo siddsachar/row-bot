@@ -8,42 +8,96 @@
     "base_commit": "5c0f2217074d5ca940d8443d8c05a83329bc9dc1",
     "files": {
       "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
-      "src/row_bot/api/v1/routes.py": "949496f944a1bd29b7aa1f45a46ae31f78b8077ad3ac24f05cb3117b52b1bfa5",
-      "src/row_bot/api/v1/schemas.py": "169f541f5040b4047bd26ab35575297fc8b336958f2c0f8e3ae0203667befdec",
-      "src/row_bot/api/v1/security.py": "706e0f188be59774f58882500529975c6243f1b0202b5132965bd4b99b638510",
+      "src/row_bot/api/v1/document_upload_stream.py": "9d7f480472630d5aa7298503af7b9451607b1856406caa115cb6578bbe700494",
+      "src/row_bot/api/v1/routes.py": "d9f1eec721632dcee9ea0a2d9acf500f886336168ba22ba9d2854f32acdd6950",
+      "src/row_bot/api/v1/schemas.py": "6d1151159e4f86bb19e6fcc030a797218897d9a1469e9d23e48b9c4af887d1d2",
+      "src/row_bot/api/v1/security.py": "b35f9aae3c08de4f05afc4295944962bf5952d14209b86f8f0ffdf066f8eb00a",
       "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
+      "src/row_bot/application/artifact_controls.py": "25f0f623e0cd0571d4808a7f3dcecedecf932754993ba45b28b0f968d9b82dac",
+      "src/row_bot/application/artifact_design_commands.py": "01aac0ce3e487e14b3aaab24a0f6a72016f3740b91eeaed04076ad5d2da63026",
+      "src/row_bot/application/artifact_exports.py": "5dd968ecdae8781ce89a6da55ea992aa0a938dd85316bb96ec43845a8ca1e4bf",
+      "src/row_bot/application/artifact_lifecycle_commands.py": "694074d072e8dc604aef574852944d995f581f774f48f5967487118ff8b8994d",
+      "src/row_bot/application/artifact_sharing.py": "4d07f16d5c14f6619c1ee49487569b2506ceffdbe1f078b27c2a4414025ef32f",
       "src/row_bot/application/attachment_context.py": "b8c463c9f8b599d203890b0bb9dabddc982333333f71d9262c4e453278c0f2ef",
-      "src/row_bot/application/attachments.py": "a97079f9daeecd7730f42981f164e93996ac5b3d6c27a8da9e6b9f5711d2c988",
-      "src/row_bot/application/client_platform.py": "3c54a93c91dfb18f044c9adc349d8557cafff1df1d5a0175cc25fc31b8c3bd6b",
-      "src/row_bot/application/client_queue.py": "070222e060b10c2e76ce2a3bf23cf85721da40f76035a4db530bf675389ed622",
-      "src/row_bot/application/context_status.py": "932a1dc0fff85fdacdfdfa79802d84540f1119434e9b2e3bd78adb846f0124cf",
-      "src/row_bot/application/conversation_drafts.py": "d56d012f515e221b44ad01ba9a959b475fa6d8a97e0fc055aad2734bb635d4be",
-      "src/row_bot/application/conversation_open.py": "e3099d6fba176c295b3ee134d49b44f7a15a1e7b18f267e3f2a76b1899853dd3",
-      "src/row_bot/application/conversation_search.py": "d8ddea22b6bbbc2cb6290cdac31c676e8851e37ab6f072e6b9af43cd0720f670",
-      "src/row_bot/application/delegated_activity.py": "c8647ec140f142858dde896fa46d5a90d121b92df423abeadcb497ee58ca7e19",
-      "src/row_bot/application/folder_selections.py": "1b419fa4a329035de3f6500e9c3b39bedb8e301b0db9f29f76387e96d1a2fa1e",
+      "src/row_bot/application/attachments.py": "8c6c705060d26cca53354675a7b43b375945ed2888822730af5d6393410bf2fe",
+      "src/row_bot/application/buddy_commands.py": "8a4fe09ee9926132cb20c148e8335dcb430b1b7afe79c0e8d4da23890944a0ac",
+      "src/row_bot/application/buddy_policy.py": "33cf424a5e1d7387e77635675ed01d5374f07de5ee78f72a3b2bfcb1fe105d4e",
+      "src/row_bot/application/capability_catalog_controls.py": "9e28bc7a9402e572138b2c53fd432e0e5fec7bfbec4ce644291973784df0d505",
+      "src/row_bot/application/capability_configuration_controls.py": "7a9fa2cc816abd333cde76d5c35848b3e017db80d6c042d462a3bc81021565a5",
+      "src/row_bot/application/capability_policy_controls.py": "5736161eddc01ccc50874c28d54e39a03c6ac3da42e7144653ced5c3218b85e3",
+      "src/row_bot/application/capability_runtime_controls.py": "44c01c4b86eeae85ec2e26a73b94f6e5d22e86aa188d069438b739be2d5329b0",
+      "src/row_bot/application/channel_controls.py": "90355e2d255f28ebb7ee6f5f6f04402e7feb468c485523611f9971ffa24fe5f9",
+      "src/row_bot/application/client_browser_controls.py": "8454ac0c312d2d4656909ef24013d972fe9ac436602c4cef8a9bee992442c431",
+      "src/row_bot/application/client_goal_profile_commands.py": "82c2913852f2dd1c1f55c7f5a9e83efd9498b7f6daade11a03f083dc3656b959",
+      "src/row_bot/application/client_models_settings.py": "749d2f2a2db9ddef3dba0428a42bebaba3a51aff0a8bbe7713ee8228ae493fa5",
+      "src/row_bot/application/client_monitor.py": "f9a1b1348d1ce13a81b01b31e535d601f9921dba715d15253a48b8484b2a66c6",
+      "src/row_bot/application/client_platform.py": "424116de14570e761fd1c7429b038443633844196e25f910bcff88c76273b220",
+      "src/row_bot/application/client_queue.py": "47e35e02a0782aea73cea6681bcc8bafe3191a4b758713ac26b3b104da5769b3",
+      "src/row_bot/application/client_voice.py": "8ffd69b8f00c7adeda2c468cdd1b10f8f1ba1c097b178771efba3d7b7bfa0e52",
+      "src/row_bot/application/context_status.py": "f9f01d3766b79efff84a691fc5178b2a125cc6b47d438774de7f82d8f729f0b4",
+      "src/row_bot/application/conversation_actions.py": "8bf65f5a55fd56e0932fbbe17db3b540a292128c2ee619d0ae4ce3a966fb5d80",
+      "src/row_bot/application/conversation_composer.py": "99e720c440b390c72dafd3fa34e85ee00269b9647b5a8676cbb6a7f88d8c1d36",
+      "src/row_bot/application/conversation_drafts.py": "9d8454572bb02b8ea1cc1c83c949f8281afe3cf7e2c56e8711f9102f527529f7",
+      "src/row_bot/application/conversation_open.py": "8a0404b261cece7a71cb0e8b88eb84330885ea71ddcf6ae71de9ac951ee34910",
+      "src/row_bot/application/conversation_search.py": "376b07c4f444ecd2ec42b9f6b8d81fac0639ec1a658efdce1e1dfe544bbc558c",
+      "src/row_bot/application/conversation_traces.py": "fc609a1594928a16adadf4c332b9af1d92d06cfc3599a1215819d5402e59b258",
+      "src/row_bot/application/delegated_activity.py": "6fc1433481abd449943941f3b69a033fe0e8dae4522c336064afc6c87db0004e",
+      "src/row_bot/application/developer_repository_commands.py": "b48e0e0e3e9033e650ee249977ac289a8af3ad32517539f56463d3d22d2f1197",
+      "src/row_bot/application/document_commands.py": "6047e599796ebfb1951a534b25f2c8d6ae9a0c6dac369cdb446ad8f8af07d984",
+      "src/row_bot/application/document_job_commands.py": "198970535973f514e39c6bdc16b43a0fab3a0a2f24b743b2a0fb94d54ec343e0",
+      "src/row_bot/application/document_processing.py": "aab0726a14517214355631179db991d1c56a5875995c7bdb2c43029fdc05363a",
+      "src/row_bot/application/document_upload_commands.py": "ea1d3319f33ef18492056e4281beffc6aec0c09c21510827c02513dcb71663bb",
+      "src/row_bot/application/folder_selections.py": "7def81a8d88687591dde2a099a312dd128415cea27cfc2ee64c2983db284757b",
       "src/row_bot/application/generated_media.py": "9f1168e932b4f11ad92e283c04358527e474252069b59c0fb3392d13108b6416",
-      "src/row_bot/application/lifecycle.py": "7c5fea18f048a181818ec36213fd315903333476bc9f3d1c4cf178cb62d387f6",
-      "src/row_bot/application/live_content.py": "c446f4b9a39b9a750cd6f9f48a6821d20e7c851ded15cbef036c4c17881080b1",
-      "src/row_bot/application/message_text.py": "4313b9344e8822ac0df0f3e1e554834519eccc8fa53d8d3a52899b5e734b0313",
-      "src/row_bot/application/profile_controls.py": "6d32c392ac97697774a0187e5e1cd140a339b3831ecb4c336cd120f48bdffc8c",
-      "src/row_bot/application/reasoning_controls.py": "fb5d9515ce034aaca9d4d8d2c0ed8d857f20ba21a6d0423837457f9a3b06c97c",
-      "src/row_bot/application/workspace_setup.py": "34f1a26012134dea9e03475cd7460307d66310d06126a75dcc2e24dfce26aa9f",
-      "src/row_bot/conversation_resources.py": "cb1eda58dbbd67a235d62c5da2950120f6969a2f22cd03754fa3e45e1f52c553",
+      "src/row_bot/application/knowledge_commands.py": "5788365d35c8ef745d590fd6465b32cca3c3238f963b9df022cf3795a13e28b9",
+      "src/row_bot/application/knowledge_relations.py": "bc39ea05577a1f2734e9f4736001573c4cebefe7bf4790b71f4e8a947abc3f87",
+      "src/row_bot/application/lifecycle.py": "b1146c887e1ff038d42f75b234d7b87d9bca27633be1172d9cd4dfa689dad088",
+      "src/row_bot/application/live_content.py": "dca7a8f564d3ea867f3e5b5b17a0fcbddaa193d959f167152941f3adcc89a0db",
+      "src/row_bot/application/mcp_runtime_installation.py": "939d6a0a150b3d225ec5d80993b46f97bc9123d3a5227d0aa837926a572850e6",
+      "src/row_bot/application/message_text.py": "5fea1c1fd8604557943ae8bffdd8ae3346f88f0e8d670355ce7e5192f72cbc26",
+      "src/row_bot/application/native_mcp_controls.py": "5f32841c3d72a6b8d94ed7635c6e7fc0c87939470505d8a908855daef8584d90",
+      "src/row_bot/application/plugin_commands.py": "d5cf6ed6cc059c52897434e3e37dff18c52f4a39cfce525b7de71a68b0ed9bca",
+      "src/row_bot/application/profile_controls.py": "79672aed6ebc722019782aac3293505261a51021896c5970814fdee762119e44",
+      "src/row_bot/application/provider_configuration_controls.py": "a2551644ccebbaff60f59f548da369e36fa6b086705c4356d7429e06a9c84309",
+      "src/row_bot/application/provider_custom_credentials.py": "f5608c9336eca015963d38fa603099377a55a3f8ef47a9d57e933caf4bfd8e8e",
+      "src/row_bot/application/provider_default_model.py": "11aeb20b0de472a2a6ac23bf31388a1a148d3a672d7e6f69c6a0b1dcc22f4059",
+      "src/row_bot/application/provider_settings_commands.py": "21ddc6d3194bc82f4c3b0e8f85dd8d77b1d38c9246181006b124624f271f5bd1",
+      "src/row_bot/application/provider_settings_controls.py": "73f9b6b7f65c76d3d17fbb067b3a2dfe049c2e42df3274844e430c2e05fc4355",
+      "src/row_bot/application/reasoning_controls.py": "3a9c5f172743df52a978bb444c4c18f11b96037ebdcc4ffc8d4e57bfd67f1b34",
+      "src/row_bot/application/settings_commands.py": "048005c87f487e29df53ee0616d7939897daa2a52448870960adf9c13426cc7f",
+      "src/row_bot/application/settings_snapshot.py": "cfe6413740de42d42dc8341558a6172b1b25ab158a8d5f4420cbd81f0b5a51d6",
+      "src/row_bot/application/skill_commands.py": "df6edc9aadefc54c643f60289040f590c8e902477d25f248d4b1347c3156b38a",
+      "src/row_bot/application/subscription_controls.py": "d6fc41d849c396135fd3f7617c43369358d4281fa1e7f6c331bcfbb469fb9c4e",
+      "src/row_bot/application/subscription_options.py": "b77a2b96ce9ceca38403348c454ec87b1afc5a7cd371970a659ba66c4020f63a",
+      "src/row_bot/application/subscription_probes.py": "791c59fee7f92aa7061863b4b4b1d4d3cf82adf1f7cf08ea79b3fcee994e9764",
+      "src/row_bot/application/task_commands.py": "1a326fd778cb9adb390c945f6a9f208722902cea9173b2cd6cf7e3a315510c44",
+      "src/row_bot/application/task_controls.py": "37861de8b8e70cf4c04a1cf8949c7fd88758ff124c6e570b2f91670e5e9e3f22",
+      "src/row_bot/application/task_delivery_controls.py": "34c0276dcaf0110754a12d20aa7c24f2e83027c682c526e707e0769fab7e6f98",
+      "src/row_bot/application/task_execution.py": "a9ddb5768259a105557c4f2036e9b2cf14210d20e4a2f9e60cc3b2c13d353099",
+      "src/row_bot/application/task_graph_controls.py": "4432afbc420e8c1af6b972796152b74ed160919efe21cd7c85f3a51cdf32d6b3",
+      "src/row_bot/application/task_run_commands.py": "7c5ae3bc287153bef451de6bd78a2bcf673a3f60506dc894ff725138e0e6d3f1",
+      "src/row_bot/application/task_settings_controls.py": "cce82e155def9770c04dfb29326a72a61925504a36f19d754a683d39ad427b51",
+      "src/row_bot/application/wiki_commands.py": "f2317a89b019a3437f682788cc966bfdab49c10f3cdff07fe285d71978b6f486",
+      "src/row_bot/application/workspace_edit_commands.py": "8610c1ba41dab554cfadb5e864b57895f25f395e92aa5da8083bcac8a0e4f536",
+      "src/row_bot/application/workspace_import_commands.py": "9629e80c491792ae737e011e4fea6ece484d628bc0dd8c15fb3fabbc6928668e",
+      "src/row_bot/application/workspace_process_commands.py": "0ac0605bfe258b6679dbae867df0f69e66fa857a9171a4ca6bb94a8353495d66",
+      "src/row_bot/application/workspace_setup.py": "ce5ec3ad0bc1d964928a4e69f805499e073415f887f50c9ad651f43576fc0442",
+      "src/row_bot/application/workspace_undo_commands.py": "8a78a585cac7d0c784b6b68bde4a15162cbc0b2f3eca5faa3e7aef236ef0277b",
+      "src/row_bot/conversation_resources.py": "10fa0ce5e2e7a055014a7aa720af199adc135616dda7baf4d9a7b44243939bcd",
       "src/row_bot/projection/__init__.py": "b13e25f65e14b5273db9d6de9da2149de0b0c62883b52e3379ec59c5a3ffb375",
       "src/row_bot/projection/canonical.py": "14a05e08289ccc6b9f431b5799c0c9d545cff7e5395d3f2f52b4a7c78073c8db",
       "src/row_bot/projection/conversation.py": "d403bfec5c9ce7a18e3ecd7d7a7df156195e7393f951e836301264fcb866c6cc",
       "src/row_bot/runtime/__init__.py": "dc07d08406de7b69a49a74ba25964c5ed928f062d84f2d04dfed184a9b87e5cf",
-      "src/row_bot/runtime/admissions.py": "e0d9da5b1ee281c2ec77c30f4b6b4ae1e2dd3ae439edcd3af317a380684ba927",
-      "src/row_bot/runtime/checkpoint_reader.py": "e9a67fe7bd03a36af813e4c6ebd9c1e1eb3a56ddf12cc55766d865f3a5afc3b0",
-      "src/row_bot/runtime/executions.py": "3e98f3b34d2583b9f1fdba07a8b8ed422b8acb33e3afc4351b14feecfda5b82e",
-      "src/row_bot/tasks.py": "f794fc537b27b326f811d823c0b96263f9c04553457d46683ca8319e8213e0db",
-      "src/row_bot/threads.py": "4298a8ecf3833abd1b6c93ce67d417cb0293e0dc5cda5cc197b909128c3d6944",
-      "tests/helpers/client_platform_fakes.py": "11719558a358b7e8b3511074a71d2d1d3c1a63b46e4f12c3f8c77718249786b5",
-      "src/row_bot/providers/reasoning.py": "a3085851270611feb558c4f9d6f8e7bfa301e26c806de922022c35df5564c0ba",
-      "tests/contracts/client_platform/test_reasoning_recording.py": "4561ce83651ae6e95d1fa1fae6ff8915836926387285e0c0c821b174010162b1"
+      "src/row_bot/runtime/admissions.py": "04a1d5ca21f23c6f84023d7736e2ce400d52d1276d642c096c76e76338495a59",
+      "src/row_bot/runtime/checkpoint_reader.py": "d22e6c8edd207ca6f30ab72f16166d1bfe64dd8ec861630053351bdc3170b96f",
+      "src/row_bot/runtime/executions.py": "3a8f3529394ac2c8f05b4f4942e997e73dea6794904b1b77d86f8f570075c609",
+      "src/row_bot/tasks.py": "bd8ee16ac38f42f23f5e173d56514fed85b778484dc4af47f33cb1e0c799e085",
+      "src/row_bot/threads.py": "32ff5ec97ac46e5ae66e87b66eda3df9361e991633e7951079a6258e85538889",
+      "tests/helpers/client_platform_fakes.py": "9942b74294d55f44f058b6e561047fb30b92527662bf56fdb59ea8512c0034c3",
+      "src/row_bot/providers/reasoning.py": "cf36cd71d6f7b0fb3100f9a864e31587e79c54f02c81a445912cb5be99563e10",
+      "tests/contracts/client_platform/test_reasoning_recording.py": "f9524251efa1ef442ae0ce224f7b640e8d60c1b2f93365cdff919656acfb6849"
     },
-    "sha256": "3e88a349750064192ebb9442f4a147e095f22082a9f58863fa47814eaac54e82"
+    "sha256": "678fed38df7ba308ca5605a1cfb7ab3a7a7f70de2b7f5f5efb0f8ce669397c6d"
   },
   "records": [
     {
@@ -223,6 +277,228 @@
           "budget_min": 1,
           "budget_max": 0,
           "stale": false
+        },
+        "composer": {
+          "schema_version": 1,
+          "conversation_id": "conversation-a",
+          "conversation_revision": "1",
+          "composer_revision": "2b114c9ff413b309ed61cb82acfe9c6546124fc1802d9a48b0bcff568c307490",
+          "library": {
+            "availability": "available",
+            "revision": "f-p12-empty-skills-v1"
+          },
+          "smart_skills_off": false,
+          "active_skills": [],
+          "suggestions": [],
+          "commands": [
+            {
+              "id": "skills",
+              "token": "/skills",
+              "aliases": [
+                "/skill"
+              ],
+              "label": "Skills",
+              "description": "Open the Skills picker for this chat.",
+              "icon": "auto_fix_high",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "open_skills",
+              "skill_id": null
+            },
+            {
+              "id": "skill-reset",
+              "token": "/skill-reset",
+              "aliases": [
+                "/skill reset"
+              ],
+              "label": "Reset Skills",
+              "description": "Reset Smart Skills for this chat.",
+              "icon": "restart_alt",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "skill_reset",
+              "skill_id": null
+            },
+            {
+              "id": "noskill",
+              "token": "/noskill",
+              "aliases": [],
+              "label": "Remove Skill",
+              "description": "Remove or prepare to disable a Smart Skill in this chat.",
+              "icon": "remove_circle",
+              "category": "Skills",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "noskill",
+              "skill_id": null
+            },
+            {
+              "id": "new",
+              "token": "/new",
+              "aliases": [],
+              "label": "New Chat",
+              "description": "Start a new conversation thread.",
+              "icon": "add_comment",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "new_thread",
+              "skill_id": null
+            },
+            {
+              "id": "stop",
+              "token": "/stop",
+              "aliases": [],
+              "label": "Stop",
+              "description": "Stop the current generation if one is running.",
+              "icon": "stop_circle",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "stop_generation",
+              "skill_id": null
+            },
+            {
+              "id": "reasoning",
+              "token": "/reasoning",
+              "aliases": [],
+              "label": "Reasoning",
+              "description": "Show or set reasoning for the active model in this chat.",
+              "icon": "psychology",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "reasoning",
+              "skill_id": null
+            },
+            {
+              "id": "profiles",
+              "token": "/profiles",
+              "aliases": [
+                "/agent-profiles"
+              ],
+              "label": "Agent Profiles",
+              "description": "List Agent Profiles available for this chat.",
+              "icon": "badge",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "profiles",
+              "skill_id": null
+            },
+            {
+              "id": "profile",
+              "token": "/profile",
+              "aliases": [
+                "/agent-profile"
+              ],
+              "label": "Agent Profile",
+              "description": "Show or set the Agent Profile for this chat.",
+              "icon": "person_pin",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "profile",
+              "skill_id": null
+            },
+            {
+              "id": "agents",
+              "token": "/agents",
+              "aliases": [],
+              "label": "Agents",
+              "description": "Show Agent Runs for this chat.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "agents",
+              "skill_id": null
+            },
+            {
+              "id": "agent",
+              "token": "/agent",
+              "aliases": [
+                "/subagent"
+              ],
+              "label": "Start Agent",
+              "description": "Start a child Agent with an optional profile or --worktree isolation.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "agent",
+              "skill_id": null
+            },
+            {
+              "id": "goal",
+              "token": "/goal",
+              "aliases": [],
+              "label": "Goal",
+              "description": "Start or control a durable thread goal.",
+              "icon": "flag",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "goal",
+              "skill_id": null
+            },
+            {
+              "id": "status",
+              "token": "/status",
+              "aliases": [],
+              "label": "Status",
+              "description": "Show a lightweight local status summary.",
+              "icon": "monitor_heart",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "status",
+              "skill_id": null
+            },
+            {
+              "id": "tools",
+              "token": "/tools",
+              "aliases": [],
+              "label": "Tools",
+              "description": "Show enabled tools read-only.",
+              "icon": "construction",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "tools",
+              "skill_id": null
+            },
+            {
+              "id": "export",
+              "token": "/export",
+              "aliases": [],
+              "label": "Export",
+              "description": "Open export for the current thread.",
+              "icon": "download",
+              "category": "App",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "export",
+              "skill_id": null
+            },
+            {
+              "id": "help",
+              "token": "/help",
+              "aliases": [],
+              "label": "Help",
+              "description": "Show available slash commands.",
+              "icon": "help",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "help",
+              "skill_id": null
+            }
+          ],
+          "command_total": 15,
+          "commands_truncated": false
         }
       }
     },
@@ -447,6 +723,228 @@
           "budget_min": 1,
           "budget_max": 0,
           "stale": false
+        },
+        "composer": {
+          "schema_version": 1,
+          "conversation_id": "conversation-a",
+          "conversation_revision": "2",
+          "composer_revision": "2b114c9ff413b309ed61cb82acfe9c6546124fc1802d9a48b0bcff568c307490",
+          "library": {
+            "availability": "available",
+            "revision": "f-p12-empty-skills-v1"
+          },
+          "smart_skills_off": false,
+          "active_skills": [],
+          "suggestions": [],
+          "commands": [
+            {
+              "id": "skills",
+              "token": "/skills",
+              "aliases": [
+                "/skill"
+              ],
+              "label": "Skills",
+              "description": "Open the Skills picker for this chat.",
+              "icon": "auto_fix_high",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "open_skills",
+              "skill_id": null
+            },
+            {
+              "id": "skill-reset",
+              "token": "/skill-reset",
+              "aliases": [
+                "/skill reset"
+              ],
+              "label": "Reset Skills",
+              "description": "Reset Smart Skills for this chat.",
+              "icon": "restart_alt",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "skill_reset",
+              "skill_id": null
+            },
+            {
+              "id": "noskill",
+              "token": "/noskill",
+              "aliases": [],
+              "label": "Remove Skill",
+              "description": "Remove or prepare to disable a Smart Skill in this chat.",
+              "icon": "remove_circle",
+              "category": "Skills",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "noskill",
+              "skill_id": null
+            },
+            {
+              "id": "new",
+              "token": "/new",
+              "aliases": [],
+              "label": "New Chat",
+              "description": "Start a new conversation thread.",
+              "icon": "add_comment",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "new_thread",
+              "skill_id": null
+            },
+            {
+              "id": "stop",
+              "token": "/stop",
+              "aliases": [],
+              "label": "Stop",
+              "description": "Stop the current generation if one is running.",
+              "icon": "stop_circle",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "stop_generation",
+              "skill_id": null
+            },
+            {
+              "id": "reasoning",
+              "token": "/reasoning",
+              "aliases": [],
+              "label": "Reasoning",
+              "description": "Show or set reasoning for the active model in this chat.",
+              "icon": "psychology",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "reasoning",
+              "skill_id": null
+            },
+            {
+              "id": "profiles",
+              "token": "/profiles",
+              "aliases": [
+                "/agent-profiles"
+              ],
+              "label": "Agent Profiles",
+              "description": "List Agent Profiles available for this chat.",
+              "icon": "badge",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "profiles",
+              "skill_id": null
+            },
+            {
+              "id": "profile",
+              "token": "/profile",
+              "aliases": [
+                "/agent-profile"
+              ],
+              "label": "Agent Profile",
+              "description": "Show or set the Agent Profile for this chat.",
+              "icon": "person_pin",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "profile",
+              "skill_id": null
+            },
+            {
+              "id": "agents",
+              "token": "/agents",
+              "aliases": [],
+              "label": "Agents",
+              "description": "Show Agent Runs for this chat.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "agents",
+              "skill_id": null
+            },
+            {
+              "id": "agent",
+              "token": "/agent",
+              "aliases": [
+                "/subagent"
+              ],
+              "label": "Start Agent",
+              "description": "Start a child Agent with an optional profile or --worktree isolation.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "agent",
+              "skill_id": null
+            },
+            {
+              "id": "goal",
+              "token": "/goal",
+              "aliases": [],
+              "label": "Goal",
+              "description": "Start or control a durable thread goal.",
+              "icon": "flag",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "goal",
+              "skill_id": null
+            },
+            {
+              "id": "status",
+              "token": "/status",
+              "aliases": [],
+              "label": "Status",
+              "description": "Show a lightweight local status summary.",
+              "icon": "monitor_heart",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "status",
+              "skill_id": null
+            },
+            {
+              "id": "tools",
+              "token": "/tools",
+              "aliases": [],
+              "label": "Tools",
+              "description": "Show enabled tools read-only.",
+              "icon": "construction",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "tools",
+              "skill_id": null
+            },
+            {
+              "id": "export",
+              "token": "/export",
+              "aliases": [],
+              "label": "Export",
+              "description": "Open export for the current thread.",
+              "icon": "download",
+              "category": "App",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "export",
+              "skill_id": null
+            },
+            {
+              "id": "help",
+              "token": "/help",
+              "aliases": [],
+              "label": "Help",
+              "description": "Show available slash commands.",
+              "icon": "help",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "help",
+              "skill_id": null
+            }
+          ],
+          "command_total": 15,
+          "commands_truncated": false
         }
       }
     },
@@ -625,6 +1123,228 @@
           "budget_min": 128,
           "budget_max": 4096,
           "stale": true
+        },
+        "composer": {
+          "schema_version": 1,
+          "conversation_id": "conversation-a",
+          "conversation_revision": "2",
+          "composer_revision": "2b114c9ff413b309ed61cb82acfe9c6546124fc1802d9a48b0bcff568c307490",
+          "library": {
+            "availability": "available",
+            "revision": "f-p12-empty-skills-v1"
+          },
+          "smart_skills_off": false,
+          "active_skills": [],
+          "suggestions": [],
+          "commands": [
+            {
+              "id": "skills",
+              "token": "/skills",
+              "aliases": [
+                "/skill"
+              ],
+              "label": "Skills",
+              "description": "Open the Skills picker for this chat.",
+              "icon": "auto_fix_high",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "open_skills",
+              "skill_id": null
+            },
+            {
+              "id": "skill-reset",
+              "token": "/skill-reset",
+              "aliases": [
+                "/skill reset"
+              ],
+              "label": "Reset Skills",
+              "description": "Reset Smart Skills for this chat.",
+              "icon": "restart_alt",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "skill_reset",
+              "skill_id": null
+            },
+            {
+              "id": "noskill",
+              "token": "/noskill",
+              "aliases": [],
+              "label": "Remove Skill",
+              "description": "Remove or prepare to disable a Smart Skill in this chat.",
+              "icon": "remove_circle",
+              "category": "Skills",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "noskill",
+              "skill_id": null
+            },
+            {
+              "id": "new",
+              "token": "/new",
+              "aliases": [],
+              "label": "New Chat",
+              "description": "Start a new conversation thread.",
+              "icon": "add_comment",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "new_thread",
+              "skill_id": null
+            },
+            {
+              "id": "stop",
+              "token": "/stop",
+              "aliases": [],
+              "label": "Stop",
+              "description": "Stop the current generation if one is running.",
+              "icon": "stop_circle",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "stop_generation",
+              "skill_id": null
+            },
+            {
+              "id": "reasoning",
+              "token": "/reasoning",
+              "aliases": [],
+              "label": "Reasoning",
+              "description": "Show or set reasoning for the active model in this chat.",
+              "icon": "psychology",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "reasoning",
+              "skill_id": null
+            },
+            {
+              "id": "profiles",
+              "token": "/profiles",
+              "aliases": [
+                "/agent-profiles"
+              ],
+              "label": "Agent Profiles",
+              "description": "List Agent Profiles available for this chat.",
+              "icon": "badge",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "profiles",
+              "skill_id": null
+            },
+            {
+              "id": "profile",
+              "token": "/profile",
+              "aliases": [
+                "/agent-profile"
+              ],
+              "label": "Agent Profile",
+              "description": "Show or set the Agent Profile for this chat.",
+              "icon": "person_pin",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "profile",
+              "skill_id": null
+            },
+            {
+              "id": "agents",
+              "token": "/agents",
+              "aliases": [],
+              "label": "Agents",
+              "description": "Show Agent Runs for this chat.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "agents",
+              "skill_id": null
+            },
+            {
+              "id": "agent",
+              "token": "/agent",
+              "aliases": [
+                "/subagent"
+              ],
+              "label": "Start Agent",
+              "description": "Start a child Agent with an optional profile or --worktree isolation.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "agent",
+              "skill_id": null
+            },
+            {
+              "id": "goal",
+              "token": "/goal",
+              "aliases": [],
+              "label": "Goal",
+              "description": "Start or control a durable thread goal.",
+              "icon": "flag",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "goal",
+              "skill_id": null
+            },
+            {
+              "id": "status",
+              "token": "/status",
+              "aliases": [],
+              "label": "Status",
+              "description": "Show a lightweight local status summary.",
+              "icon": "monitor_heart",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "status",
+              "skill_id": null
+            },
+            {
+              "id": "tools",
+              "token": "/tools",
+              "aliases": [],
+              "label": "Tools",
+              "description": "Show enabled tools read-only.",
+              "icon": "construction",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "tools",
+              "skill_id": null
+            },
+            {
+              "id": "export",
+              "token": "/export",
+              "aliases": [],
+              "label": "Export",
+              "description": "Open export for the current thread.",
+              "icon": "download",
+              "category": "App",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "export",
+              "skill_id": null
+            },
+            {
+              "id": "help",
+              "token": "/help",
+              "aliases": [],
+              "label": "Help",
+              "description": "Show available slash commands.",
+              "icon": "help",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "help",
+              "skill_id": null
+            }
+          ],
+          "command_total": 15,
+          "commands_truncated": false
         }
       }
     },
@@ -876,6 +1596,228 @@
           "budget_min": 128,
           "budget_max": 4096,
           "stale": false
+        },
+        "composer": {
+          "schema_version": 1,
+          "conversation_id": "conversation-a",
+          "conversation_revision": "3",
+          "composer_revision": "2b114c9ff413b309ed61cb82acfe9c6546124fc1802d9a48b0bcff568c307490",
+          "library": {
+            "availability": "available",
+            "revision": "f-p12-empty-skills-v1"
+          },
+          "smart_skills_off": false,
+          "active_skills": [],
+          "suggestions": [],
+          "commands": [
+            {
+              "id": "skills",
+              "token": "/skills",
+              "aliases": [
+                "/skill"
+              ],
+              "label": "Skills",
+              "description": "Open the Skills picker for this chat.",
+              "icon": "auto_fix_high",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "open_skills",
+              "skill_id": null
+            },
+            {
+              "id": "skill-reset",
+              "token": "/skill-reset",
+              "aliases": [
+                "/skill reset"
+              ],
+              "label": "Reset Skills",
+              "description": "Reset Smart Skills for this chat.",
+              "icon": "restart_alt",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "skill_reset",
+              "skill_id": null
+            },
+            {
+              "id": "noskill",
+              "token": "/noskill",
+              "aliases": [],
+              "label": "Remove Skill",
+              "description": "Remove or prepare to disable a Smart Skill in this chat.",
+              "icon": "remove_circle",
+              "category": "Skills",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "noskill",
+              "skill_id": null
+            },
+            {
+              "id": "new",
+              "token": "/new",
+              "aliases": [],
+              "label": "New Chat",
+              "description": "Start a new conversation thread.",
+              "icon": "add_comment",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "new_thread",
+              "skill_id": null
+            },
+            {
+              "id": "stop",
+              "token": "/stop",
+              "aliases": [],
+              "label": "Stop",
+              "description": "Stop the current generation if one is running.",
+              "icon": "stop_circle",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "stop_generation",
+              "skill_id": null
+            },
+            {
+              "id": "reasoning",
+              "token": "/reasoning",
+              "aliases": [],
+              "label": "Reasoning",
+              "description": "Show or set reasoning for the active model in this chat.",
+              "icon": "psychology",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "reasoning",
+              "skill_id": null
+            },
+            {
+              "id": "profiles",
+              "token": "/profiles",
+              "aliases": [
+                "/agent-profiles"
+              ],
+              "label": "Agent Profiles",
+              "description": "List Agent Profiles available for this chat.",
+              "icon": "badge",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "profiles",
+              "skill_id": null
+            },
+            {
+              "id": "profile",
+              "token": "/profile",
+              "aliases": [
+                "/agent-profile"
+              ],
+              "label": "Agent Profile",
+              "description": "Show or set the Agent Profile for this chat.",
+              "icon": "person_pin",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "profile",
+              "skill_id": null
+            },
+            {
+              "id": "agents",
+              "token": "/agents",
+              "aliases": [],
+              "label": "Agents",
+              "description": "Show Agent Runs for this chat.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "agents",
+              "skill_id": null
+            },
+            {
+              "id": "agent",
+              "token": "/agent",
+              "aliases": [
+                "/subagent"
+              ],
+              "label": "Start Agent",
+              "description": "Start a child Agent with an optional profile or --worktree isolation.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "agent",
+              "skill_id": null
+            },
+            {
+              "id": "goal",
+              "token": "/goal",
+              "aliases": [],
+              "label": "Goal",
+              "description": "Start or control a durable thread goal.",
+              "icon": "flag",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "goal",
+              "skill_id": null
+            },
+            {
+              "id": "status",
+              "token": "/status",
+              "aliases": [],
+              "label": "Status",
+              "description": "Show a lightweight local status summary.",
+              "icon": "monitor_heart",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "status",
+              "skill_id": null
+            },
+            {
+              "id": "tools",
+              "token": "/tools",
+              "aliases": [],
+              "label": "Tools",
+              "description": "Show enabled tools read-only.",
+              "icon": "construction",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "tools",
+              "skill_id": null
+            },
+            {
+              "id": "export",
+              "token": "/export",
+              "aliases": [],
+              "label": "Export",
+              "description": "Open export for the current thread.",
+              "icon": "download",
+              "category": "App",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "export",
+              "skill_id": null
+            },
+            {
+              "id": "help",
+              "token": "/help",
+              "aliases": [],
+              "label": "Help",
+              "description": "Show available slash commands.",
+              "icon": "help",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "help",
+              "skill_id": null
+            }
+          ],
+          "command_total": 15,
+          "commands_truncated": false
         }
       }
     },
@@ -1049,6 +1991,228 @@
           "budget_min": 128,
           "budget_max": 4096,
           "stale": false
+        },
+        "composer": {
+          "schema_version": 1,
+          "conversation_id": "conversation-a",
+          "conversation_revision": "4",
+          "composer_revision": "2b114c9ff413b309ed61cb82acfe9c6546124fc1802d9a48b0bcff568c307490",
+          "library": {
+            "availability": "available",
+            "revision": "f-p12-empty-skills-v1"
+          },
+          "smart_skills_off": false,
+          "active_skills": [],
+          "suggestions": [],
+          "commands": [
+            {
+              "id": "skills",
+              "token": "/skills",
+              "aliases": [
+                "/skill"
+              ],
+              "label": "Skills",
+              "description": "Open the Skills picker for this chat.",
+              "icon": "auto_fix_high",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "open_skills",
+              "skill_id": null
+            },
+            {
+              "id": "skill-reset",
+              "token": "/skill-reset",
+              "aliases": [
+                "/skill reset"
+              ],
+              "label": "Reset Skills",
+              "description": "Reset Smart Skills for this chat.",
+              "icon": "restart_alt",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "skill_reset",
+              "skill_id": null
+            },
+            {
+              "id": "noskill",
+              "token": "/noskill",
+              "aliases": [],
+              "label": "Remove Skill",
+              "description": "Remove or prepare to disable a Smart Skill in this chat.",
+              "icon": "remove_circle",
+              "category": "Skills",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "noskill",
+              "skill_id": null
+            },
+            {
+              "id": "new",
+              "token": "/new",
+              "aliases": [],
+              "label": "New Chat",
+              "description": "Start a new conversation thread.",
+              "icon": "add_comment",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "new_thread",
+              "skill_id": null
+            },
+            {
+              "id": "stop",
+              "token": "/stop",
+              "aliases": [],
+              "label": "Stop",
+              "description": "Stop the current generation if one is running.",
+              "icon": "stop_circle",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "stop_generation",
+              "skill_id": null
+            },
+            {
+              "id": "reasoning",
+              "token": "/reasoning",
+              "aliases": [],
+              "label": "Reasoning",
+              "description": "Show or set reasoning for the active model in this chat.",
+              "icon": "psychology",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "reasoning",
+              "skill_id": null
+            },
+            {
+              "id": "profiles",
+              "token": "/profiles",
+              "aliases": [
+                "/agent-profiles"
+              ],
+              "label": "Agent Profiles",
+              "description": "List Agent Profiles available for this chat.",
+              "icon": "badge",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "profiles",
+              "skill_id": null
+            },
+            {
+              "id": "profile",
+              "token": "/profile",
+              "aliases": [
+                "/agent-profile"
+              ],
+              "label": "Agent Profile",
+              "description": "Show or set the Agent Profile for this chat.",
+              "icon": "person_pin",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "profile",
+              "skill_id": null
+            },
+            {
+              "id": "agents",
+              "token": "/agents",
+              "aliases": [],
+              "label": "Agents",
+              "description": "Show Agent Runs for this chat.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "agents",
+              "skill_id": null
+            },
+            {
+              "id": "agent",
+              "token": "/agent",
+              "aliases": [
+                "/subagent"
+              ],
+              "label": "Start Agent",
+              "description": "Start a child Agent with an optional profile or --worktree isolation.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "agent",
+              "skill_id": null
+            },
+            {
+              "id": "goal",
+              "token": "/goal",
+              "aliases": [],
+              "label": "Goal",
+              "description": "Start or control a durable thread goal.",
+              "icon": "flag",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "goal",
+              "skill_id": null
+            },
+            {
+              "id": "status",
+              "token": "/status",
+              "aliases": [],
+              "label": "Status",
+              "description": "Show a lightweight local status summary.",
+              "icon": "monitor_heart",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "status",
+              "skill_id": null
+            },
+            {
+              "id": "tools",
+              "token": "/tools",
+              "aliases": [],
+              "label": "Tools",
+              "description": "Show enabled tools read-only.",
+              "icon": "construction",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "tools",
+              "skill_id": null
+            },
+            {
+              "id": "export",
+              "token": "/export",
+              "aliases": [],
+              "label": "Export",
+              "description": "Open export for the current thread.",
+              "icon": "download",
+              "category": "App",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "export",
+              "skill_id": null
+            },
+            {
+              "id": "help",
+              "token": "/help",
+              "aliases": [],
+              "label": "Help",
+              "description": "Show available slash commands.",
+              "icon": "help",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "help",
+              "skill_id": null
+            }
+          ],
+          "command_total": 15,
+          "commands_truncated": false
         }
       }
     },
@@ -1208,6 +2372,228 @@
           "budget_min": 0,
           "budget_max": 0,
           "stale": false
+        },
+        "composer": {
+          "schema_version": 1,
+          "conversation_id": "conversation-a",
+          "conversation_revision": "5",
+          "composer_revision": "2b114c9ff413b309ed61cb82acfe9c6546124fc1802d9a48b0bcff568c307490",
+          "library": {
+            "availability": "available",
+            "revision": "f-p12-empty-skills-v1"
+          },
+          "smart_skills_off": false,
+          "active_skills": [],
+          "suggestions": [],
+          "commands": [
+            {
+              "id": "skills",
+              "token": "/skills",
+              "aliases": [
+                "/skill"
+              ],
+              "label": "Skills",
+              "description": "Open the Skills picker for this chat.",
+              "icon": "auto_fix_high",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "open_skills",
+              "skill_id": null
+            },
+            {
+              "id": "skill-reset",
+              "token": "/skill-reset",
+              "aliases": [
+                "/skill reset"
+              ],
+              "label": "Reset Skills",
+              "description": "Reset Smart Skills for this chat.",
+              "icon": "restart_alt",
+              "category": "Skills",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "skill_reset",
+              "skill_id": null
+            },
+            {
+              "id": "noskill",
+              "token": "/noskill",
+              "aliases": [],
+              "label": "Remove Skill",
+              "description": "Remove or prepare to disable a Smart Skill in this chat.",
+              "icon": "remove_circle",
+              "category": "Skills",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "noskill",
+              "skill_id": null
+            },
+            {
+              "id": "new",
+              "token": "/new",
+              "aliases": [],
+              "label": "New Chat",
+              "description": "Start a new conversation thread.",
+              "icon": "add_comment",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "new_thread",
+              "skill_id": null
+            },
+            {
+              "id": "stop",
+              "token": "/stop",
+              "aliases": [],
+              "label": "Stop",
+              "description": "Stop the current generation if one is running.",
+              "icon": "stop_circle",
+              "category": "Chat",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "stop_generation",
+              "skill_id": null
+            },
+            {
+              "id": "reasoning",
+              "token": "/reasoning",
+              "aliases": [],
+              "label": "Reasoning",
+              "description": "Show or set reasoning for the active model in this chat.",
+              "icon": "psychology",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "reasoning",
+              "skill_id": null
+            },
+            {
+              "id": "profiles",
+              "token": "/profiles",
+              "aliases": [
+                "/agent-profiles"
+              ],
+              "label": "Agent Profiles",
+              "description": "List Agent Profiles available for this chat.",
+              "icon": "badge",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "profiles",
+              "skill_id": null
+            },
+            {
+              "id": "profile",
+              "token": "/profile",
+              "aliases": [
+                "/agent-profile"
+              ],
+              "label": "Agent Profile",
+              "description": "Show or set the Agent Profile for this chat.",
+              "icon": "person_pin",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "profile",
+              "skill_id": null
+            },
+            {
+              "id": "agents",
+              "token": "/agents",
+              "aliases": [],
+              "label": "Agents",
+              "description": "Show Agent Runs for this chat.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "optional",
+              "argument_hint": "Optional argument",
+              "handler_kind": "agents",
+              "skill_id": null
+            },
+            {
+              "id": "agent",
+              "token": "/agent",
+              "aliases": [
+                "/subagent"
+              ],
+              "label": "Start Agent",
+              "description": "Start a child Agent with an optional profile or --worktree isolation.",
+              "icon": "hub",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "agent",
+              "skill_id": null
+            },
+            {
+              "id": "goal",
+              "token": "/goal",
+              "aliases": [],
+              "label": "Goal",
+              "description": "Start or control a durable thread goal.",
+              "icon": "flag",
+              "category": "Agents",
+              "argument_mode": "prefix",
+              "argument_hint": "Type details after the command",
+              "handler_kind": "goal",
+              "skill_id": null
+            },
+            {
+              "id": "status",
+              "token": "/status",
+              "aliases": [],
+              "label": "Status",
+              "description": "Show a lightweight local status summary.",
+              "icon": "monitor_heart",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "status",
+              "skill_id": null
+            },
+            {
+              "id": "tools",
+              "token": "/tools",
+              "aliases": [],
+              "label": "Tools",
+              "description": "Show enabled tools read-only.",
+              "icon": "construction",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "tools",
+              "skill_id": null
+            },
+            {
+              "id": "export",
+              "token": "/export",
+              "aliases": [],
+              "label": "Export",
+              "description": "Open export for the current thread.",
+              "icon": "download",
+              "category": "App",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "export",
+              "skill_id": null
+            },
+            {
+              "id": "help",
+              "token": "/help",
+              "aliases": [],
+              "label": "Help",
+              "description": "Show available slash commands.",
+              "icon": "help",
+              "category": "Info",
+              "argument_mode": "none",
+              "argument_hint": "",
+              "handler_kind": "help",
+              "skill_id": null
+            }
+          ],
+          "command_total": 15,
+          "commands_truncated": false
         }
       }
     }

@@ -324,6 +324,7 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     from row_bot.conversation_resources import list_bindings, describe
     from row_bot.providers.selection import parse_model_ref, model_choice_value
     from row_bot.models import get_current_model
+    from row_bot.application.conversation_composer import read_conversation_composer
     row = service._metadata(identity)
     model = model_choice_value(row.get("model_override") or get_current_model())
     parsed = parse_model_ref(model)
@@ -344,6 +345,15 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     return {"conversation_id": identity, "revision": str(row["client_revision"]), "controls": controls,
             "context_usage": read_usage(service, identity, controls),
             "reasoning": reasoning_view(identity, model),
+            "composer": read_conversation_composer(
+                identity,
+                context={
+                    "skills_override": row.get("skills_override"),
+                    "agent_profile_id": str(row.get("agent_profile_id") or ""),
+                    "agent_profile_slug": str(row.get("agent_profile_slug") or ""),
+                    "client_revision": int(row["client_revision"]),
+                },
+            ),
             "profiles": [{"id": p["id"], "label": p["display_name"]} for p in list_agent_profiles(enabled_only=True)][:256],
             "resources": resources, "actions": [
                 {"action": action, "ready": ready, "code": None if ready else "model_configuration_required"}

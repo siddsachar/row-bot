@@ -28,7 +28,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeGrantRequest", "NativeRevocationView", "NativeSelectionCompleteRequest", "NativeSelectionView",
     "NativeTerminalOpenRequest", "NativeTerminalView", "NativeTerminalInput", "NativeTerminalResize",
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
-    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
+    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
@@ -326,6 +326,8 @@ OPERATIONS = (
     ("get", "/search", None, "SearchPage"),
     ("get", "/conversations/{conversation_id}/history", None, "TranscriptPage"),
     ("get", "/conversations/{conversation_id}/workspace", None, "ConversationWorkspace"),
+    ("post", "/conversations/{conversation_id}/composer/query", "ConversationComposerQuery", "ConversationComposer"),
+    ("post", "/conversations/{conversation_id}/composer/command", "SlashCommandRead", "SlashCommandResult"),
     ("get", "/conversations/{conversation_id}/open", None, "ConversationOpenView"),
     ("get", "/conversations/{conversation_id}/delegated", None, "DelegatedActivityView"),
     ("get", "/conversations/{conversation_id}/delegated/{run_id}", None, "DelegatedRun"),
@@ -529,6 +531,10 @@ export const getHistory = (base: string, proof: SessionProof, conversation: stri
   jsonRequest(base, `/conversations/${id(conversation)}/history` + query({message_id,cursor}), 'TranscriptPage', proof, 'GET', undefined, undefined, signal);
 export const getWorkspace = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationWorkspace> =>
   jsonRequest(base, `/conversations/${id(conversation)}/workspace`, 'ConversationWorkspace', proof, 'GET', undefined, undefined, signal);
+export const queryComposer = (base: string, proof: SessionProof, conversation: string, body: ConversationComposerQuery, signal?: AbortSignal): Promise<ConversationComposer> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/composer/query`, 'ConversationComposer', proof, 'POST', body, undefined, signal);
+export const readComposerCommand = (base: string, proof: SessionProof, conversation: string, body: SlashCommandRead, signal?: AbortSignal): Promise<SlashCommandResult> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/composer/command`, 'SlashCommandResult', proof, 'POST', body, undefined, signal);
 export const openConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationOpenView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/open`, 'ConversationOpenView', proof, 'GET', undefined, undefined, signal);
 export const getDraft = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<DraftView> =>

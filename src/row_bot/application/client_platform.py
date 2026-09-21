@@ -35,6 +35,21 @@ class ClientPlatformError(ValueError):
 _COMMAND_LOCK = threading.RLock()
 
 
+def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, maximum: int = 128 * 1024) -> list[tuple[int, dict]]:
+    """Project public checkpoint rows and bounded canonical tool traces."""
+
+    from row_bot.application.conversation_traces import project_assistant_row_traces
+
+    projected = project_assistant_row_traces([
+        {
+            "row": reader.public_row(record, maximum=maximum),
+            "tool_calls": record.get("tool_calls", []),
+        }
+        for _, record in records
+    ])
+    return [(indexed[0], row) for indexed, row in zip(records, projected)]
+
+
 class ClientPlatformService:
     def __init__(self, stream_factory: Callable | None = None,
                  resume_factory: Callable | None = None,
@@ -262,7 +277,8 @@ class ClientPlatformService:
             threads.migrate_checkpoint_message_ids(conversation_id)
             with open_checkpoint(conversation_id) as reader:
                 if reader and reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]:
-                    rows = [reader.public_row(record) for _, record in reader.records(start=-100)]
+                    records = list(reader.records(start=-100))
+                    rows = [row for _, row in project_checkpoint_records(reader, records)]
                     self.projection.install_rows(conversation_id, reader.revision, rows)
 
     def snapshot(self, conversation_id: str) -> dict:
@@ -300,8 +316,10 @@ class ClientPlatformService:
         more, end = False, offset
         with open_checkpoint(conversation_id, snap["checkpoint_revision"]) as reader:
             if reader:
-                for index, record in reader.records(start=offset):
-                    row = reader.public_row(record)
+                records = list(reader.records(start=max(0, offset - 256)))
+                for index, row in project_checkpoint_records(reader, records):
+                    if index < offset:
+                        continue
                     encoded_size = len(json.dumps(row, ensure_ascii=False).encode())
                     if len(bounded) >= min(100, max(1, limit)) or (bounded and size + encoded_size > 256 * 1024):
                         more = True
@@ -528,6 +546,21 @@ class ClientPlatformService:
                 clear_reasoning_suppression(target, model)
             self.projection.publish(target, "resource.changed", {"revision": str(row["client_revision"] + 1)})
             return {"conversation_id": target, "revision": str(row["client_revision"] + 1), "status": "completed"}
+        if kind == "conversation.skills":
+            if self.registry.active(target):
+                raise ClientPlatformError("generation_active")
+            from row_bot.application.conversation_composer import apply_conversation_skill_command
+
+            changed = apply_conversation_skill_command(
+                target,
+                payload["action"],
+                composer_revision=payload["composer_revision"],
+                skill_id=payload.get("skill_id", ""),
+                draft=payload.get("draft", ""),
+            )
+            revision = str(changed["conversation_revision"])
+            self.projection.publish(target, "resource.changed", {"revision": revision})
+            return {"conversation_id": target, "revision": revision, "status": "completed"}
         if kind in {"conversation.bind", "conversation.unbind"}:
             from row_bot.conversation_resources import bind, unbind, ResourceError
             try:
@@ -836,11 +869,40 @@ class ClientPlatformService:
             discard(conversation_id, f"live:{handle.pass_id}:{target_segment}")
         elif kind in {"tool_call", "tool_done"}:
             getter = getattr(payload, "get", lambda key, default="": default)
+            from row_bot.application.conversation_traces import (
+                build_trace_item,
+                canonical_group,
+                canonical_tool_name,
+            )
+
+            tool_name = canonical_tool_name(getter("name") or getter("tool_name"))
+            call_id = str(getter("tool_call_id") or getter("id") or "")
+            if not call_id:
+                call_id = hashlib.sha256(
+                    f"{handle.pass_id}:{handle.segment_id}:{getter('message_id')}:{tool_name}".encode()
+                ).hexdigest()[:32]
+            group_name, group_kind = canonical_group(tool_name)
+            group_id = f"{handle.segment_id}:{group_kind}:{group_name}"[:256]
+            item = build_trace_item(
+                item_id=call_id,
+                group_id=group_id,
+                call_id=call_id,
+                call_order=0,
+                group_order=0,
+                tool_name=tool_name,
+                result={"name": tool_name, "content": getter("content") or ""},
+                result_message_id=str(getter("message_id") or ""),
+                pending=kind == "tool_call",
+                external_outcome=str(getter("external_outcome") or ""),
+            )
             self.projection.publish(conversation_id, "tool.activity", {
-                **({"tool_name": str(getter("name") or getter("tool_name"))[:128]} if getter("name") or getter("tool_name") else {}),
-                "state": kind, "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
+                "tool_name": tool_name[:128],
+                "state": kind, "tool_call_id": call_id,
                 "message_id": str(getter("message_id") or ""),
-                "pass_id": handle.pass_id, "segment_id": handle.segment_id})
+                "pass_id": handle.pass_id, "segment_id": handle.segment_id,
+                "item_id": item.item_id, "group_id": item.group_id,
+                "group_name": group_name, "group_kind": group_kind,
+                "status": item.status})
             if kind == "tool_done":
                 for metadata in getter("media", []) or []:
                     self.projection.publish(conversation_id, metadata["type"], {

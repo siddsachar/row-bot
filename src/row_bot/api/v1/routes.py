@@ -1671,6 +1671,12 @@ def create_router(
                 "reason": "host_unavailable",
             }
         )
+        value.update(
+            talk_available=getattr(service, "talk", None) is not None,
+            realtime_available=getattr(service, "realtime", None) is not None,
+            talk_reason="available" if getattr(service, "talk", None) is not None else "host_unavailable",
+            realtime_reason="available" if getattr(service, "realtime", None) is not None else "host_unavailable",
+        )
         return await respond(request, dto.DictationCapability, value)
 
     @router.post("/conversations/{conversation_id}/voice/dictation")
@@ -2525,6 +2531,54 @@ def create_router(
         result = await call(conversation_workspace, service, conversation_id)
         await readable_conversation(conversation_id)
         return await respond(request, dto.ConversationWorkspace, result)
+
+    @router.post("/conversations/{conversation_id}/composer/query")
+    async def composer_query(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        body = await _body(request, dto.ConversationComposerQuery, 20 * 1024)
+        from row_bot.application.conversation_composer import read_conversation_composer
+
+        validate = dictation_validation(request, current, conversation_id)
+        result = await call(
+            read_conversation_composer,
+            conversation_id,
+            draft=body.draft,
+            command_query=body.command_query,
+            command_limit=body.command_limit,
+            validate=validate,
+        )
+        await readable_conversation(conversation_id)
+        return await respond(request, dto.ConversationComposer, result)
+
+    @router.post("/conversations/{conversation_id}/composer/command")
+    async def composer_command(conversation_id: str, request: Request) -> JSONResponse:
+        await session(request, lane="view")
+        body = await _body(request, dto.SlashCommandRead, 1024)
+        await readable_conversation(conversation_id)
+        if body.command_id in {"status", "tools"}:
+            from row_bot.tools.row_bot_status_tool import _row_bot_status
+
+            text = _row_bot_status("overview" if body.command_id == "status" else "tools")
+            title = "Status" if body.command_id == "status" else "Tools"
+        elif body.command_id == "profiles":
+            from row_bot.agent_commands import format_agent_profiles
+
+            title, text = "Agent Profiles", format_agent_profiles()
+        elif body.command_id == "agents":
+            from row_bot.agent_commands import format_agents_status
+
+            title = "Agents"
+            text = format_agents_status(parent_thread_id=conversation_id)
+        else:
+            from row_bot.slash_commands import help_text
+
+            title, text = "Slash Commands", help_text(include_skills=True)
+        await readable_conversation(conversation_id)
+        return await respond(
+            request,
+            dto.SlashCommandResult,
+            {"command_id": body.command_id, "title": title, "text": str(text)[:16384]},
+        )
 
     @router.get("/conversations/{conversation_id}/delegated")
     async def delegated_activity(
@@ -6058,7 +6112,31 @@ def create_router(
         result = await call(
             read_buddy, validate=dictation_validation(request, current, conversation_id)
         )
-        return await respond(request, dto.BuddySnapshot, asdict(result))
+        value = asdict(result)
+        snapshot = service.projection.snapshot(conversation_id)
+        generation = snapshot.get("generation") or {}
+        status = generation.get("status")
+        if status == "waiting_approval":
+            activity = "approval"
+        elif status == "stopping":
+            activity = "stopping"
+        elif status in {"stopped", "interrupted"}:
+            activity = "stopped"
+        elif status == "completed":
+            activity = "completed"
+        elif status == "running":
+            cursor = str(max(0, int(snapshot.get("projection_revision") or 0) - 8))
+            recent = service.projection.events_since(conversation_id, cursor).get("events", [])
+            event_type = recent[-1]["type"] if recent else ""
+            activity = {
+                "tool.activity": "tool",
+                "transcript.delta": "streaming",
+                "generation.error": "error",
+            }.get(event_type, "thinking")
+        else:
+            activity = "idle"
+        value.update(conversation_id=conversation_id, activity=activity)
+        return await respond(request, dto.BuddySnapshot, value)
 
     @router.get("/conversations/{conversation_id}/buddy/packs")
     async def buddy_packs(

@@ -19,10 +19,29 @@ MODEL = "model:fixture:fixture/model"
 pytestmark = pytest.mark.contract
 
 
-def test_record_f_p12_exact_model_thinking_http_roundtrip(platform, client, monkeypatch):
-    from row_bot import threads
+def test_record_f_p12_exact_model_thinking_http_roundtrip(
+    platform, client, monkeypatch, tmp_path
+):
+    from row_bot import skills, skills_activation, threads
     from row_bot.api.v1.schemas import ConversationWorkspace
+    from row_bot.plugins import state as plugin_state
     from row_bot.providers import reasoning
+
+    monkeypatch.setattr(skills_activation, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        skills_activation, "STATE_PATH", tmp_path / "skills_activation.json"
+    )
+    monkeypatch.setattr(
+        skills,
+        "read_client_skills",
+        lambda: {
+            "revision": "f-p12-empty-skills-v1",
+            "items": {},
+            "enabled": {},
+            "pinned": [],
+        },
+    )
+    monkeypatch.setattr(plugin_state, "get_cached_plugin_enablement", lambda: None)
 
     current = {MODEL: reasoning.ReasoningCapabilities(
         supported_efforts=("low", "high"), request_style="openai", revision="synthetic-effort-1")}

@@ -30,6 +30,18 @@ export type BuddySnapshot = {
   };
   placement: 'docked';
   native_placement_retained: boolean;
+  conversation_id?: string | null;
+  activity?:
+    | 'idle'
+    | 'thinking'
+    | 'streaming'
+    | 'tool'
+    | 'approval'
+    | 'stopping'
+    | 'completed'
+    | 'stopped'
+    | 'error'
+    | 'disconnected';
 };
 export type BuddyPack = {
   id: string;

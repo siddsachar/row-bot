@@ -104,3 +104,13 @@ it('stores only Resume command identity with a strict null submission and shares
   receipts.clear(key, value.commandId);
   expect(receipts.read(key)).toBeNull();
 });
+
+it('isolates a Smart Skills mutation receipt without retaining its payload', () => {
+  const key = receipts.scope('host', 'a', 'skill');
+  const value = { commandId: crypto.randomUUID(), steeringId: null };
+  expect(() => receipts.reserve(key, claim())).toThrow(ReceiptStorageError);
+  receipts.reserve(key, value);
+  expect(receipts.read(key)).toEqual(value);
+  expect(sessionStorage.getItem(key)).not.toContain('skill');
+  expect(receipts.read(receipts.scope('host', 'a', 'submit'))).toBeNull();
+});

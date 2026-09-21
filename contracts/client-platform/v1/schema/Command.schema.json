@@ -2018,6 +2018,82 @@
       "title": "ConversationResumeCommand",
       "type": "object"
     },
+    "ConversationSkillPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "remove",
+            "dismiss",
+            "reset"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "composer_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Composer Revision",
+          "type": "string"
+        },
+        "draft": {
+          "default": "",
+          "maxLength": 200000,
+          "title": "Draft",
+          "type": "string"
+        },
+        "skill_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Skill Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "composer_revision"
+      ],
+      "title": "ConversationSkillPayload",
+      "type": "object"
+    },
+    "ConversationSkillsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationSkillPayload"
+        },
+        "type": {
+          "const": "conversation.skills",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationSkillsCommand",
+      "type": "object"
+    },
     "ConversationSteerCommand": {
       "additionalProperties": false,
       "properties": {
@@ -10098,6 +10174,7 @@
       "conversation.queue.remove": "#/$defs/ConversationQueueRemoveCommand",
       "conversation.rename": "#/$defs/ConversationRenameCommand",
       "conversation.resume": "#/$defs/ConversationResumeCommand",
+      "conversation.skills": "#/$defs/ConversationSkillsCommand",
       "conversation.steer": "#/$defs/ConversationSteerCommand",
       "conversation.stop": "#/$defs/ConversationStopCommand",
       "conversation.submit": "#/$defs/ConversationSubmitCommand",
@@ -10249,6 +10326,9 @@
     },
     {
       "$ref": "#/$defs/ConversationControlsCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationSkillsCommand"
     },
     {
       "$ref": "#/$defs/ResourceSetupCommand"

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import copy
+import os
 import pathlib
 from typing import TYPE_CHECKING
 
@@ -160,7 +161,13 @@ def get_all_tools() -> list["BaseTool"]:
 
 def get_enabled_tools() -> list["BaseTool"]:
     """Return only the tools the user has enabled."""
-    return [t for t in get_all_tools() if is_enabled(t.name)]
+    enabled = [t for t in get_all_tools() if is_enabled(t.name)]
+    if os.environ.get("ROW_BOT_LIVE_CHAT_PARITY") == "1":
+        # The owner-profile parity run is authorized to exercise only the
+        # statically verified, local, read-only calculator.  This ephemeral
+        # restriction never rewrites the owner's saved tool configuration.
+        return [tool for tool in enabled if tool.name == "calculator"]
+    return enabled
 
 
 def is_enabled(name: str) -> bool:

@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "enum": [
+        "status",
+        "tools",
+        "profiles",
+        "agents",
+        "help"
+      ],
+      "title": "Command Id",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 16384,
+      "title": "Text",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 128,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "title",
+    "text"
+  ],
+  "title": "SlashCommandResult",
+  "type": "object"
+}

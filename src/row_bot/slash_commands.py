@@ -149,18 +149,29 @@ def _skill_aliases(skill) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _generated_skill_commands(reserved: set[str]) -> list[SlashCommandSpec]:
+def _passive_manual_skills() -> list:
+    """Read enabled manual skills without populating or migrating runtime state."""
+
     try:
         import row_bot.skills as skills
 
-        if not skills.skills_loaded():
-            skills.load_skills()
+        snapshot = skills.read_client_skills()
         manual = [
-            skill for skill in skills.get_manual_skills()
-            if skills.is_enabled(skill.name) and not skills.is_tool_guide(skill)
+            item["skill"]
+            for name, item in snapshot["items"].items()
+            if snapshot["enabled"].get(name, False)
+            and not skills.is_tool_guide(item["skill"])
         ]
+        return sorted(manual, key=lambda skill: (skill.display_name.casefold(), skill.name))
     except Exception:
         return []
+
+
+def _generated_skill_commands(
+    reserved: set[str],
+    manual_skills: Iterable | None = None,
+) -> list[SlashCommandSpec]:
+    manual = list(manual_skills) if manual_skills is not None else _passive_manual_skills()
 
     specs: list[SlashCommandSpec] = []
     used = set(reserved)
@@ -190,12 +201,18 @@ def get_builtin_commands() -> list[SlashCommandSpec]:
     return list(BUILTIN_COMMANDS)
 
 
-def get_command_specs(*, include_skills: bool = True) -> list[SlashCommandSpec]:
+def get_command_specs(
+    *,
+    include_skills: bool = True,
+    manual_skills: Iterable | None = None,
+) -> list[SlashCommandSpec]:
+    """Return canonical commands, using a passive skill snapshot by default."""
+
     builtins = get_builtin_commands()
     reserved = {normalize_slash(name) for spec in builtins for name in spec.all_names}
     if not include_skills:
         return builtins
-    return [*builtins, *_generated_skill_commands(reserved)]
+    return [*builtins, *_generated_skill_commands(reserved, manual_skills)]
 
 
 def build_lookup(*, include_skills: bool = True) -> dict[str, SlashCommandSpec]:

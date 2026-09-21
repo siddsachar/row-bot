@@ -129,9 +129,7 @@ it('dismisses the owned review as well as its visible card so a clean session is
       session={session}
       scopeKey="conversation"
       settingsOpen
-      currentRunId={null}
       onSettings={() => {}}
-      stop={async () => {}}
     />,
   );
   await screen.findByLabelText('Describe your Buddy');
@@ -254,9 +252,7 @@ it('keeps the visible Stop Hatch enabled during a blocked refresh and coalesces 
       session={session}
       scopeKey="conversation"
       settingsOpen
-      currentRunId={null}
       onSettings={() => {}}
-      stop={async () => {}}
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Hatch status' }));

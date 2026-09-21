@@ -429,9 +429,18 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
     try:
         yield "thinking", None
+        yield "token", "Synthetic tools and media are ready."
         append_checkpoint_messages(thread_id, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
             tool_calls=[{"id": tool_id, "name": "fixture_image", "args": {}}])])
-        yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message}
+        yield "tool_call", {
+            "tool_call_id": tool_id,
+            "message_id": tool_message,
+            "name": "fixture_image",
+        }
+        if not predecessor._barriers[call["barrier_id"]].wait(180):
+            raise TimeoutError("Phase 3 tools/media producer was not released")
+        if stop_event is not None and stop_event.is_set():
+            return
         caches = current_caches()
         if caches is None or caches.conversation_id != thread_id:
             raise AssertionError("Phase 3 media fixture must use the real execution attachment scope")
@@ -444,12 +453,12 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         media = capture_generated_media(thread_id, caches)
         append_checkpoint_messages(thread_id, [ToolMessage(id=tool_message, tool_call_id=tool_id,
                                                           content="Synthetic image created.")])
-        yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message, "media": media}
-        yield "token", "Synthetic tools and media are ready."
-        if not predecessor._barriers[call["barrier_id"]].wait(180):
-            raise TimeoutError("Phase 3 tools/media producer was not released")
-        if stop_event is not None and stop_event.is_set():
-            return
+        yield "tool_done", {
+            "tool_call_id": tool_id,
+            "message_id": tool_message,
+            "name": "fixture_image",
+            "media": media,
+        }
         final = "Synthetic tools and media are ready.\n\n```python\nprint('local fixture')\n```"
         yield "token", "\n\n```python\nprint('local fixture')\n```"
         native_id = fixture_id(identity + ":final")

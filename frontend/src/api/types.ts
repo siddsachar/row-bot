@@ -425,6 +425,16 @@ export interface ClientTransport {
     conversation: string,
     signal?: AbortSignal,
   ): Promise<Wire.ConversationWorkspace>;
+  composer?(
+    conversation: string,
+    body: Wire.ConversationComposerQuery,
+    signal?: AbortSignal,
+  ): Promise<Wire.ConversationComposer>;
+  composerCommand?(
+    conversation: string,
+    body: Wire.SlashCommandRead,
+    signal?: AbortSignal,
+  ): Promise<Wire.SlashCommandResult>;
   library?(
     kind: 'artifact' | 'workspace',
     cursor?: string,

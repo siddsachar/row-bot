@@ -1727,6 +1727,34 @@
     "ToolActivity": {
       "additionalProperties": false,
       "properties": {
+        "group_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Group Id",
+          "type": "string"
+        },
+        "group_kind": {
+          "default": "generic",
+          "enum": [
+            "generic",
+            "browser",
+            "computer"
+          ],
+          "title": "Group Kind",
+          "type": "string"
+        },
+        "group_name": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Group Name",
+          "type": "string"
+        },
+        "item_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Item Id",
+          "type": "string"
+        },
         "message_id": {
           "default": "",
           "maxLength": 256,
@@ -1769,6 +1797,19 @@
             "tool_done"
           ],
           "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "succeeded",
+            "failed",
+            "blocked",
+            "cancelled",
+            "uncertain"
+          ],
+          "title": "Status",
           "type": "string"
         },
         "tool_call_id": {

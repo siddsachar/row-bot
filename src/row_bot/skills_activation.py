@@ -14,9 +14,10 @@ import pathlib
 import re
 import tempfile
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from row_bot.data_paths import get_row_bot_data_dir
 
@@ -167,8 +168,33 @@ def _thread_state(store: dict, thread_id: str) -> dict:
     state.setdefault("disabled", [])
     state.setdefault("dismissed", [])
     state.setdefault("auto_loaded", [])
+    state.setdefault("default_seeded", [])
     state.setdefault("smart_off", False)
     return state
+
+
+def _read_thread_state(store: dict, thread_id: str) -> dict:
+    """Return normalized activation state without changing the loaded document."""
+
+    raw = store.get("threads", {}).get(str(thread_id or "default"), {})
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "pinned": _ordered_unique(raw.get("pinned", [])),
+        "disabled": _ordered_unique(raw.get("disabled", [])),
+        "dismissed": _ordered_unique(raw.get("dismissed", [])),
+        "auto_loaded": _ordered_unique(raw.get("auto_loaded", [])),
+        "default_seeded": _ordered_unique(raw.get("default_seeded", [])),
+        "smart_off": bool(raw.get("smart_off", False)),
+    }
+
+
+@contextmanager
+def activation_state_lock() -> Iterator[None]:
+    """Serialize a revision check with one canonical activation mutation."""
+
+    with _state_lock:
+        yield
 
 
 def _ordered_unique(names: Iterable[str]) -> list[str]:
@@ -694,35 +720,41 @@ def apply_skill_command(
 
 
 def pin_skill(thread_id: str, skill_name: str) -> None:
-    store = _load_store()
-    state = _thread_state(store, thread_id)
-    state["pinned"] = _ordered_unique([*state.get("pinned", []), skill_name])
-    state["disabled"] = [n for n in state.get("disabled", []) if n != skill_name]
-    state["dismissed"] = [n for n in state.get("dismissed", []) if n != skill_name]
-    _save_store(store)
+    with _state_lock:
+        store = _load_store()
+        state = _thread_state(store, thread_id)
+        state["pinned"] = _ordered_unique([*state.get("pinned", []), skill_name])
+        state["default_seeded"] = [n for n in state.get("default_seeded", []) if n != skill_name]
+        state["disabled"] = [n for n in state.get("disabled", []) if n != skill_name]
+        state["dismissed"] = [n for n in state.get("dismissed", []) if n != skill_name]
+        _save_store(store)
 
 
 def disable_skill(thread_id: str, skill_name: str) -> None:
-    store = _load_store()
-    state = _thread_state(store, thread_id)
-    state["disabled"] = _ordered_unique([*state.get("disabled", []), skill_name])
-    state["pinned"] = [n for n in state.get("pinned", []) if n != skill_name]
-    state["auto_loaded"] = [n for n in state.get("auto_loaded", []) if n != skill_name]
-    _save_store(store)
+    with _state_lock:
+        store = _load_store()
+        state = _thread_state(store, thread_id)
+        state["disabled"] = _ordered_unique([*state.get("disabled", []), skill_name])
+        state["pinned"] = [n for n in state.get("pinned", []) if n != skill_name]
+        state["default_seeded"] = [n for n in state.get("default_seeded", []) if n != skill_name]
+        state["auto_loaded"] = [n for n in state.get("auto_loaded", []) if n != skill_name]
+        _save_store(store)
 
 
 def dismiss_suggestion(thread_id: str, skill_name: str) -> None:
-    store = _load_store()
-    state = _thread_state(store, thread_id)
-    state["dismissed"] = _ordered_unique([*state.get("dismissed", []), skill_name])
-    _save_store(store)
-    record_dismiss(thread_id, skill_name, source="ui")
+    with _state_lock:
+        store = _load_store()
+        state = _thread_state(store, thread_id)
+        state["dismissed"] = _ordered_unique([*state.get("dismissed", []), skill_name])
+        _save_store(store)
+        record_dismiss(thread_id, skill_name, source="ui")
 
 
 def set_smart_off(thread_id: str, value: bool) -> None:
-    store = _load_store()
-    _thread_state(store, thread_id)["smart_off"] = bool(value)
-    _save_store(store)
+    with _state_lock:
+        store = _load_store()
+        _thread_state(store, thread_id)["smart_off"] = bool(value)
+        _save_store(store)
 
 
 def is_smart_off(thread_id: str) -> bool:
@@ -815,27 +847,47 @@ def seed_thread_default_skills(
     import row_bot.skills as skills
 
     defaults = skills.get_default_active_skill_names(surface)
-    store = _load_store()
-    state = _thread_state(store, thread_id)
-    has_state = any(
-        state.get(key)
-        for key in ("pinned", "disabled", "dismissed", "auto_loaded")
-    ) or bool(state.get("smart_off"))
-    if has_state and not replace:
-        return resolve_active_skill_names(thread_id)
-    state["pinned"] = _ordered_unique(defaults)
-    state["disabled"] = []
-    state["dismissed"] = []
-    state["smart_off"] = False
-    _save_store(store)
-    return list(state["pinned"])
+    with _state_lock:
+        store = _load_store()
+        state = _thread_state(store, thread_id)
+        has_state = any(
+            state.get(key)
+            for key in ("pinned", "disabled", "dismissed", "auto_loaded")
+        ) or bool(state.get("smart_off"))
+        if has_state and not replace:
+            return resolve_active_skill_names(thread_id)
+        state["pinned"] = _ordered_unique(defaults)
+        state["default_seeded"] = list(state["pinned"])
+        state["disabled"] = []
+        state["dismissed"] = []
+        state["smart_off"] = False
+        _save_store(store)
+        return list(state["pinned"])
 
 
 def reset_thread(thread_id: str, *, surface: str = "chat") -> None:
-    store = _load_store()
-    store.setdefault("threads", {}).pop(str(thread_id or "default"), None)
-    _save_store(store)
-    seed_thread_default_skills(thread_id, surface=surface, replace=True)
+    import row_bot.skills as skills
+
+    reset_thread_to_defaults(
+        thread_id,
+        skills.get_default_active_skill_names(surface),
+    )
+
+
+def reset_thread_to_defaults(thread_id: str, default_skill_names: Iterable[str]) -> None:
+    """Reset one thread to a caller's canonical passive default snapshot."""
+
+    with _state_lock:
+        store = _load_store()
+        state = _thread_state(store, thread_id)
+        defaults = _ordered_unique(default_skill_names)
+        state["pinned"] = defaults
+        state["default_seeded"] = list(defaults)
+        state["disabled"] = []
+        state["dismissed"] = []
+        state["auto_loaded"] = []
+        state["smart_off"] = False
+        _save_store(store)
 
 
 def resolve_active_skill_names(
@@ -1079,6 +1131,66 @@ def suggest_skills(
     return suggestions
 
 
+def suggest_skills_from_snapshot(
+    thread_id: str,
+    current_text: str,
+    available_skills: Iterable,
+    *,
+    active_skill_ids: Iterable[str] = (),
+    extra_excluded: Iterable[str] | None = None,
+    limit: int = 3,
+) -> list[SuggestedSkill]:
+    """Rank a passive library snapshot without loading it or writing traces."""
+
+    with _state_lock:
+        store = _load_store()
+        state = _read_thread_state(store, thread_id)
+    if state["smart_off"]:
+        return []
+    query_norm = _normalize(current_text)
+    query_tokens = _tokens(current_text)
+    if not query_tokens or _is_generic_query(query_tokens):
+        return []
+    excluded = (
+        set(active_skill_ids)
+        | set(state["disabled"])
+        | set(state["dismissed"])
+        | set(extra_excluded or [])
+    )
+    manual = list(available_skills)
+    corpus = _build_skill_search_corpus(manual)
+    ranked: list[SuggestedSkill] = []
+    for skill in manual:
+        if skill.name in excluded:
+            continue
+        score, reason = _skill_score(
+            skill,
+            query_norm,
+            query_tokens,
+            store.get("telemetry", {}),
+            corpus,
+        )
+        if score < SUGGESTION_MIN_SCORE:
+            continue
+        ranked.append(SuggestedSkill(
+            name=skill.name,
+            display_name=skill.display_name,
+            icon=skill.icon,
+            description=skill.description,
+            reason=reason,
+            score=round(score, 2),
+        ))
+    ranked.sort(key=lambda item: (-item.score, item.display_name.lower()))
+    if not ranked:
+        return []
+    threshold = max(
+        SUGGESTION_MIN_SCORE,
+        round(ranked[0].score * ADDITIONAL_SUGGESTION_MIN_RATIO, 2),
+    )
+    bounded_limit = max(0, min(int(limit), 10))
+    return [item for item in ranked if item.score >= threshold][:bounded_limit]
+
+
 def get_activation_snapshot(
     thread_id: str,
     *,
@@ -1160,5 +1272,5 @@ def get_skill_telemetry() -> dict[str, dict]:
 
 
 def get_thread_activation_state(thread_id: str) -> dict:
-    store = _load_store()
-    return dict(_thread_state(store, thread_id))
+    with _state_lock:
+        return _read_thread_state(_load_store(), thread_id)

@@ -135,6 +135,7 @@ class BlobReader:
         if not identity:
             raise ValueError("checkpoint_identity_migration_required")
         tool_ids = []
+        tool_calls = []
         tool_ids_lazy = False
         tool_id_bytes = 0
         if "tool_calls" in fields:
@@ -142,17 +143,22 @@ class BlobReader:
             current = calls.body
             if calls.kind == "array":
                 for _ in range(calls.size):
-                    call = self.fields(current, {"id"})
+                    call = self.fields(current, {"id", "name"})
                     if "id" in call:
                         identity_text = self.text(call["id"])
                         tool_ids.append(identity_text)
+                        tool_calls.append({
+                            "id": identity_text,
+                            "name": self.text(call["name"])[:180] if "name" in call else "tool",
+                        })
                         tool_id_bytes += len(identity_text.encode())
                         if len(tool_ids) > 128 or tool_id_bytes > 8192:
-                            tool_ids, tool_ids_lazy = [], True
+                            tool_ids, tool_calls, tool_ids_lazy = [], [], True
                             break
                     current = self.end(current)
         return {"message_id": identity, "role": roles[name], "content_position": fields.get("content"),
-                "tool_call_ids": tool_ids, "tool_calls_position": fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
+                "tool_call_ids": tool_ids, "tool_calls": tool_calls,
+                "tool_calls_position": fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
                 "tool_call_id": self.text(fields["tool_call_id"]) if "tool_call_id" in fields else ""}
 
     def _json_string(self, position: int) -> Iterator[bytes]:

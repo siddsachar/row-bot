@@ -1,4 +1,9 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import { Button, EmptyState } from '../../ui/primitives';
@@ -7,40 +12,93 @@ import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import glyph from '../../assets/row_bot_glyph_256.png';
 
-function Avatar({
+export type BuddyMediaLoader = (
+  conversation: string,
+  packId: string,
+  assetId: string,
+  revision: string,
+  signal: AbortSignal,
+) => Promise<Blob>;
+
+function useReducedMotion() {
+  const query = '(prefers-reduced-motion: reduce)';
+  const read = () =>
+    typeof matchMedia === 'function' ? matchMedia(query).matches : false;
+  const [reduced, setReduced] = useState(read);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const media = matchMedia(query);
+    const changed = () => setReduced(media.matches);
+    media.addEventListener('change', changed);
+    changed();
+    return () => media.removeEventListener('change', changed);
+  }, []);
+  return reduced;
+}
+
+const percentage = (value: number) => Math.max(0, Math.min(100, value));
+
+export function BuddyAvatar({
   conversation,
   pack,
   snapshot,
+  loadMedia,
   preview = false,
 }: {
   conversation: string;
   pack: BuddyPack | null;
   snapshot: BuddySnapshot;
+  loadMedia: BuddyMediaLoader;
   preview?: boolean;
 }) {
-  const { controller } = useRuntime();
   const [still, setStill] = useState('');
   const [motion, setMotion] = useState('');
-  const [reduced, setReduced] = useState(
-    () => matchMedia('(prefers-reduced-motion: reduce)').matches,
-  );
-  useEffect(() => {
-    const media = matchMedia('(prefers-reduced-motion: reduce)');
-    const changed = () => setReduced(media.matches);
-    media.addEventListener('change', changed);
-    return () => media.removeEventListener('change', changed);
-  }, []);
+  const [phase, setPhase] = useState<
+    'loading' | 'motion' | 'still' | 'fallback' | 'unavailable'
+  >('loading');
+  const reduced = useReducedMotion();
+  const activity = snapshot.activity ?? 'idle';
+  const activityAnimation = {
+    idle: snapshot.status.animation,
+    thinking: 'thinking',
+    streaming: 'talking',
+    tool: 'working',
+    approval: 'alert',
+    stopping: 'alert',
+    completed: 'celebrate',
+    stopped: 'idle',
+    error: 'alert',
+    disconnected: 'alert',
+  }[activity];
   const clip =
-    pack?.animation_map[snapshot.status.animation] ?? snapshot.status.animation;
+    pack?.animation_map[activityAnimation] ??
+    pack?.animation_map[snapshot.status.animation] ??
+    activityAnimation;
   useEffect(() => {
-    const abort = new AbortController(),
-      urls: string[] = [];
+    const abort = new AbortController();
+    const urls = new Set<string>();
     setStill('');
     setMotion('');
-    if (pack?.available) {
-      const load = async (asset: string, apply: (url: string) => void) => {
+    if (!pack) setPhase('fallback');
+    else if (!pack.available) setPhase('unavailable');
+    else {
+      const stillAsset = pack.assets.find((asset) => asset.id === 'preview');
+      const active = pack.assets.find(
+        (asset) => asset.id === clip && asset.content_type === 'video/mp4',
+      );
+      const motionAllowed =
+        !!active &&
+        !preview &&
+        !reduced &&
+        snapshot.preferences.animation_intensity !== 'quiet';
+      setPhase(stillAsset || motionAllowed ? 'loading' : 'fallback');
+      const load = async (
+        asset: string,
+        apply: (url: string) => void,
+        loadedPhase: 'motion' | 'still',
+      ) => {
         try {
-          const blob = await controller.buddyMedia(
+          const blob = await loadMedia(
             conversation,
             pack.id,
             asset,
@@ -49,31 +107,31 @@ function Avatar({
           );
           if (abort.signal.aborted) return;
           const url = URL.createObjectURL(blob);
-          urls.push(url);
+          urls.add(url);
           apply(url);
+          setPhase((current) =>
+            current === 'motion' && loadedPhase === 'still'
+              ? current
+              : loadedPhase,
+          );
         } catch {
-          /* The saved still/familiar remains available when a clip fails. */
+          if (!abort.signal.aborted)
+            setPhase((current) =>
+              current === 'motion' || current === 'still'
+                ? current
+                : 'fallback',
+            );
         }
       };
-      if (pack.assets.some((asset) => asset.id === 'preview'))
-        void load('preview', setStill);
-      const active = pack.assets.find(
-        (asset) => asset.id === clip && asset.content_type === 'video/mp4',
-      );
-      if (
-        active &&
-        !preview &&
-        !reduced &&
-        snapshot.preferences.animation_intensity !== 'quiet'
-      )
-        void load(active.id, setMotion);
+      if (stillAsset) void load(stillAsset.id, setStill, 'still');
+      if (motionAllowed) void load(active.id, setMotion, 'motion');
     }
     return () => {
       abort.abort();
       urls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [
-    controller,
+    loadMedia,
     conversation,
     pack,
     clip,
@@ -81,21 +139,66 @@ function Avatar({
     preview,
     snapshot.preferences.animation_intensity,
   ]);
-  return motion ? (
-    <video
-      className="buddy-avatar"
-      src={motion}
-      poster={still || glyph}
-      autoPlay
-      muted
-      loop
-      playsInline
-      aria-hidden
-      onError={() => setMotion('')}
-    />
-  ) : (
-    <img className="buddy-avatar" src={still || glyph} alt="" />
+  const style = {
+    '--buddy-energy': `${percentage(snapshot.status.energy)}%`,
+    '--buddy-focus': `${percentage(snapshot.status.focus)}%`,
+    '--buddy-alert': `${percentage(snapshot.status.alert)}%`,
+  } as CSSProperties;
+  return (
+    <span
+      className="buddy-avatar-frame"
+      data-state={activity}
+      data-buddy-mood={snapshot.status.mood}
+      data-buddy-animation={snapshot.status.animation}
+      data-media={phase}
+      data-collapsed={snapshot.preferences.collapsed ? 'true' : 'false'}
+      data-animation-intensity={snapshot.preferences.animation_intensity}
+      data-reduced-motion={reduced ? 'true' : 'false'}
+      data-energy={percentage(snapshot.status.energy)}
+      data-focus={percentage(snapshot.status.focus)}
+      data-alert={percentage(snapshot.status.alert)}
+      style={style}
+      aria-hidden="true"
+    >
+      {motion ? (
+        <video
+          className="buddy-avatar"
+          src={motion}
+          poster={still || glyph}
+          autoPlay
+          muted
+          loop
+          playsInline
+          onError={() => {
+            setMotion('');
+            setPhase(still ? 'still' : 'fallback');
+          }}
+        />
+      ) : (
+        <img
+          className="buddy-avatar"
+          src={still || glyph}
+          alt=""
+          onError={
+            still
+              ? () => {
+                  setStill('');
+                  setPhase('fallback');
+                }
+              : undefined
+          }
+        />
+      )}
+      {phase === 'unavailable' && (
+        <span className="buddy-media-note">Pack unavailable</span>
+      )}
+    </span>
   );
+}
+
+function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
+  const { controller } = useRuntime();
+  return <BuddyAvatar {...props} loadMedia={controller.buddyMedia} />;
 }
 
 function OwnedBuddy({
@@ -109,16 +212,10 @@ function OwnedBuddy({
   settings: boolean;
   initialPrompt?: string;
 }) {
-  const { controller } = useRuntime();
   const navigate = useNavigate();
   const overlay = useOverlay();
-  const state = useClientState();
   const view = useSyncExternalStore(session.subscribe, session.getSnapshot);
   useEffect(() => session.observe(), [session]);
-  const run =
-    state.conversation?.id === conversation
-      ? state.conversation.generation_state?.[0]
-      : undefined;
   return (
     <BuddyPanel
       scopeKey={conversation}
@@ -130,23 +227,6 @@ function OwnedBuddy({
         overlay.close();
         navigate(
           `/settings/buddy?conversation=${encodeURIComponent(conversation)}`,
-        );
-      }}
-      currentRunId={run?.generation_id ?? null}
-      stop={async (id) => {
-        const current = controller.getSnapshot();
-        if (
-          current.selectedConversationId !== conversation ||
-          !current.conversation?.generation_state?.some(
-            (value) => value.generation_id === id,
-          )
-        )
-          throw new Error('generation_changed');
-        await controller.intent(
-          conversation,
-          'conversation.stop',
-          { generation_id: id },
-          current.conversation!.revision,
         );
       }}
       renderAvatar={(snapshot) => (
@@ -191,23 +271,54 @@ export default function BuddySurface({
     }
   }, [settings, conversation, search, setSearch]);
   const [, refresh] = useState(0);
-  if (!buddyOwner?.get() || !conversation)
+  if (!conversation)
     return settings ? (
       <EmptyState title="Open a conversation for Buddy">
         Buddy uses that conversation’s current profile and approvals.
       </EmptyState>
     ) : null;
+  if (!buddyOwner?.get())
+    return settings ? (
+      <EmptyState title="Buddy is reconnecting">
+        The authenticated Buddy session is not available yet.
+        <Button onClick={() => refresh((value) => value + 1)}>
+          Check Buddy connection
+        </Button>
+      </EmptyState>
+    ) : (
+      <aside
+        className="buddy-companion buddy-companion-state"
+        aria-label="Buddy companion"
+        aria-busy="true"
+        data-state="unavailable"
+      >
+        <img className="buddy-state-glyph" src={glyph} alt="" />
+        <p>Buddy is reconnecting…</p>
+      </aside>
+    );
   let session: BuddyPanelSession;
   try {
     session = buddyOwner.get()!.get(conversation);
   } catch {
-    return (
+    return settings ? (
       <EmptyState title="Buddy sessions need attention">
         Finish or discard retained Buddy edits before opening another session.
         <Button onClick={() => refresh((value) => value + 1)}>
           Check Buddy sessions
         </Button>
       </EmptyState>
+    ) : (
+      <aside
+        className="buddy-companion buddy-companion-state"
+        aria-label="Buddy companion"
+        data-state="unavailable"
+      >
+        <img className="buddy-state-glyph" src={glyph} alt="" />
+        <p>Buddy needs attention.</p>
+        <Button onClick={() => refresh((value) => value + 1)}>
+          Retry Buddy
+        </Button>
+      </aside>
     );
   }
   return (

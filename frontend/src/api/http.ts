@@ -1223,6 +1223,32 @@ export class HttpTransport implements ClientTransport {
   workspace(conversation: string, signal?: AbortSignal) {
     return wire.getWorkspace(this.base, this.session(), conversation, signal);
   }
+  composer(
+    conversation: string,
+    body: wire.ConversationComposerQuery,
+    signal?: AbortSignal,
+  ) {
+    return wire.queryComposer(
+      this.base,
+      this.session(),
+      conversation,
+      body,
+      signal,
+    );
+  }
+  composerCommand(
+    conversation: string,
+    body: wire.SlashCommandRead,
+    signal?: AbortSignal,
+  ) {
+    return wire.readComposerCommand(
+      this.base,
+      this.session(),
+      conversation,
+      body,
+      signal,
+    );
+  }
   draft(conversation: string, signal?: AbortSignal) {
     return wire.getDraft(this.base, this.session(), conversation, signal);
   }

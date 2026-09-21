@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_limit": {
+      "default": 50,
+      "maximum": 256,
+      "minimum": 1,
+      "title": "Command Limit",
+      "type": "integer"
+    },
+    "command_query": {
+      "default": "",
+      "maxLength": 180,
+      "title": "Command Query",
+      "type": "string"
+    },
+    "draft": {
+      "default": "",
+      "maxLength": 16000,
+      "title": "Draft",
+      "type": "string"
+    }
+  },
+  "title": "ConversationComposerQuery",
+  "type": "object"
+}

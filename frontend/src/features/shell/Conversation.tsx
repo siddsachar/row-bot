@@ -2,8 +2,10 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type {
   ApprovalView,
+  ConversationComposer,
   PanelDescriptor,
   ResourceView,
+  SlashCommandSpec,
   TranscriptRow,
   WriteTarget,
 } from '../../api/types';
@@ -18,7 +20,7 @@ import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
 import ConversationVoice from './ConversationVoice';
 import ResourceTargets from './ResourceTargets';
-import { Paperclip, ArrowUp } from 'lucide-react';
+import { Paperclip, ArrowUp, Square } from 'lucide-react';
 import SearchConversations from './SearchConversations';
 import SteeringQueue from './SteeringQueue';
 import ConversationActions from '../settings/ConversationActions';
@@ -32,6 +34,9 @@ import {
   type PendingCommand,
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
+import TranscriptTrace from './TranscriptTrace';
+import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
+import { ComposerSkillChips } from './ComposerSkills';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 
@@ -128,6 +133,9 @@ const Message = memo(function Message({
         <div className="message-text">
           <SafeMarkdown text={visibleText} />
         </div>
+        {!!row.traces?.length && conversationId && (
+          <TranscriptTrace conversation={conversationId} groups={row.traces} />
+        )}
         <div className="message-actions">
           <Button variant="ghost" onClick={() => void copy()}>
             {copied ? 'Copied' : 'Copy visible message'}
@@ -227,10 +235,12 @@ function Approval({ id }: { id: string }) {
 
 export default function Conversation({
   onPanel,
+  onNewChat = () => undefined,
   focusConversationId,
   onComposerFocused,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
+  onNewChat?: () => void;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
 }) {
@@ -247,7 +257,11 @@ export default function Conversation({
   const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
   const [voiceExposure, setVoiceExposure] = useState({
     key: '',
-    available: false,
+    dictate: false,
+    talk: false,
+    realtime: false,
+    dictateReason: 'Voice capability is unavailable.',
+    talkReason: 'Voice capability is unavailable.',
   });
   useEffect(() => {
     if (!state.handshake) return;
@@ -258,12 +272,29 @@ export default function Conversation({
         if (!abort.signal.aborted)
           setVoiceExposure({
             key: voiceHostKey,
-            available: value.browser_dictation_available,
+            dictate: value.browser_dictation_available,
+            talk: value.talk_available ?? false,
+            realtime: value.realtime_available ?? false,
+            dictateReason:
+              value.reason === 'available'
+                ? 'Dictate'
+                : 'Dictation is unavailable on this host.',
+            talkReason:
+              value.talk_reason === 'available'
+                ? 'Talk'
+                : 'Talk is unavailable on this host.',
           });
       })
       .catch(() => {
         if (!abort.signal.aborted)
-          setVoiceExposure({ key: voiceHostKey, available: false });
+          setVoiceExposure({
+            key: voiceHostKey,
+            dictate: false,
+            talk: false,
+            realtime: false,
+            dictateReason: 'Voice capability could not be read.',
+            talkReason: 'Voice capability could not be read.',
+          });
       });
     return () => abort.abort();
   }, [controller, voiceHostKey, state.handshake]);
@@ -284,6 +315,10 @@ export default function Conversation({
     claim: PendingCommand;
   } | null>(null);
   const [steeringClaim, setSteeringClaim] = useState<{
+    key: string;
+    claim: PendingCommand;
+  } | null>(null);
+  const [skillClaim, setSkillClaim] = useState<{
     key: string;
     claim: PendingCommand;
   } | null>(null);
@@ -352,6 +387,25 @@ export default function Conversation({
   }, [resumeKey]);
   const pendingResume =
     resumeClaim?.key === resumeKey ? resumeClaim.claim : null;
+  const skillKey =
+    state.handshake && id
+      ? commandReceipts.scope(state.handshake.instance_id, id, 'skill')
+      : '';
+  useEffect(() => {
+    setSkillClaim(null);
+    if (!skillKey) return;
+    try {
+      const claim = commandReceipts.read(skillKey);
+      if (claim) setSkillClaim({ key: skillKey, claim });
+    } catch (cause) {
+      setError(
+        cause instanceof ReceiptStorageError
+          ? cause.message
+          : clientError(cause).message,
+      );
+    }
+  }, [skillKey]);
+  const pendingSkill = skillClaim?.key === skillKey ? skillClaim.claim : null;
   useEffect(() => {
     setSteeringClaim(null);
     setMissingReceipt(null);
@@ -378,6 +432,18 @@ export default function Conversation({
   const wasHistory = useRef(false);
   const [showLatest, setShowLatest] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const slashPaletteRef = useRef<SlashPaletteHandle>(null);
+  const [composerCursor, setComposerCursor] = useState(0);
+  const [composerSnapshot, setComposerSnapshot] =
+    useState<ConversationComposer | null>(null);
+  const [composerBusy, setComposerBusy] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.style.height = 'auto';
+    composer.style.height = `${Math.min(144, Math.max(54, composer.scrollHeight))}px`;
+  }, [draft.text, id]);
   const generation = state.projection?.generation;
   const running = generation && !generation.quiesced;
   const controls = state.workspace?.controls;
@@ -391,18 +457,232 @@ export default function Conversation({
       ? 'Checking the message receipt before another message can be sent.'
       : pendingResume
         ? 'Checking the resume receipt before another action can start.'
-        : talkBusy
-          ? 'Voice controls are finishing before another message can be sent.'
-          : busy
-            ? 'Finishing the current conversation action.'
-            : running
-              ? 'A response is in progress. Add text to queue guidance, or stop the run.'
-              : state.status !== 'ready'
-                ? 'Reconnect to send. Your draft remains on this device.'
-                : !sendActionReady
-                  ? 'Choose a configured model to send. You can still create or open resources.'
-                  : '';
+        : pendingSkill
+          ? 'Checking the Smart Skills receipt before another change can start.'
+          : talkBusy
+            ? 'Voice controls are finishing before another message can be sent.'
+            : busy
+              ? 'Finishing the current conversation action.'
+              : running
+                ? 'A response is in progress. Add text to queue guidance, or stop the run.'
+                : state.status !== 'ready'
+                  ? 'Reconnect to send. Your draft remains on this device.'
+                  : !sendActionReady
+                    ? 'Choose a configured model to send. You can still create or open resources.'
+                    : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
+  const visibleRows = rows.filter(
+    (row) => row.role !== 'tool' || !row.trace_parent_id,
+  );
+  const settledTraceCalls = new Set(
+    rows.flatMap((row) =>
+      (row.traces ?? []).flatMap((group) =>
+        group.items.map((item) => item.call_id),
+      ),
+    ),
+  );
+  const liveTraceEvents = new Map(
+    state.activity.flatMap((record) =>
+      record.event.type === 'tool.activity'
+        ? [
+            [
+              record.event.payload.tool_call_id ?? record.event.event_id,
+              record,
+            ] as const,
+          ]
+        : [],
+    ),
+  );
+  const thinkingActive =
+    Boolean(running) &&
+    state.activity.at(-1)?.event.type === 'generation.activity';
+  useEffect(() => {
+    const composer = state.workspace?.composer;
+    if (composer?.conversation_id === id) setComposerSnapshot(composer);
+    else setComposerSnapshot(null);
+  }, [id, state.workspace?.composer]);
+  useEffect(() => {
+    if (
+      !id ||
+      !state.workspace?.composer ||
+      state.status !== 'ready' ||
+      draft.text.length > 16000
+    )
+      return;
+    const selection = controller.getSelectionVersion();
+    const abort = new AbortController();
+    const timer = setTimeout(() => {
+      void controller
+        .composer(id, { draft: draft.text, command_limit: 256 }, abort.signal)
+        .then((value) => {
+          if (
+            !abort.signal.aborted &&
+            selection === controller.getSelectionVersion() &&
+            controller.getSnapshot().selectedConversationId === id
+          )
+            setComposerSnapshot(value);
+        })
+        .catch((cause) => {
+          if (!abort.signal.aborted) setError(clientError(cause).message);
+        });
+    }, 240);
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
+  }, [controller, draft.text, id, state.status, state.workspace?.composer]);
+
+  function replaceSlashToken(
+    token: { start: number; end: number },
+    replacement = '',
+  ) {
+    if (!id) return;
+    const current = controller.getDraft(id);
+    const next =
+      current.text.slice(0, token.start) +
+      replacement +
+      current.text.slice(token.end);
+    const cursor = token.start + replacement.length;
+    controller.setDraft(id, { ...current, text: next });
+    setComposerCursor(cursor);
+    requestAnimationFrame(() => {
+      composerRef.current?.focus({ preventScroll: true });
+      composerRef.current?.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  async function skillAction(
+    skillActionName: 'activate' | 'remove' | 'dismiss' | 'reset',
+    skillId = '',
+  ) {
+    if (
+      !id ||
+      !composerSnapshot ||
+      !state.conversation ||
+      composerBusy ||
+      running
+    )
+      return;
+    setComposerBusy(true);
+    try {
+      let claim: PendingCommand | null = commandReceipts.read(skillKey);
+      const checking = Boolean(claim);
+      if (!claim) {
+        claim = { commandId: crypto.randomUUID(), steeringId: null };
+        commandReceipts.reserve(skillKey, claim);
+        setSkillClaim({ key: skillKey, claim });
+      }
+      const receipt = checking
+        ? await controller.receipt(claim.commandId)
+        : await controller.intent(
+            id,
+            'conversation.skills',
+            {
+              action: skillActionName,
+              composer_revision: composerSnapshot.composer_revision,
+              skill_id: skillId,
+              draft: draft.text.slice(0, 16000),
+            },
+            state.conversation.revision,
+            claim.commandId,
+          );
+      if (receipt.command_id !== claim.commandId)
+        throw { code: 'operation_uncertain' };
+      if (receipt.status !== 'completed' && receipt.status !== 'accepted') {
+        if (receipt.status === 'rejected') {
+          commandReceipts.clear(skillKey, claim.commandId);
+          setSkillClaim(null);
+        }
+        throw { code: receipt.code || 'operation_uncertain' };
+      }
+      commandReceipts.clear(skillKey, claim.commandId);
+      setSkillClaim(null);
+      await controller.refreshWorkspace();
+      const fresh = await controller.composer(id, {
+        draft: controller.getDraft(id).text.slice(0, 16000),
+        command_limit: 256,
+      });
+      if (controller.getSnapshot().selectedConversationId === id)
+        setComposerSnapshot(fresh);
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+      await controller.refreshWorkspace();
+    } finally {
+      setComposerBusy(false);
+    }
+  }
+
+  async function chooseSlash(
+    command: SlashCommandSpec,
+    token: { start: number; end: number },
+  ) {
+    if (!id) return;
+    if (command.handler_kind === 'open_skills') {
+      replaceSlashToken(token);
+      setSkillsOpen(true);
+      return;
+    }
+    if (command.handler_kind === 'activate_skill' && command.skill_id) {
+      replaceSlashToken(token);
+      await skillAction('activate', command.skill_id);
+      return;
+    }
+    if (command.handler_kind === 'skill_reset') {
+      replaceSlashToken(token);
+      await skillAction('reset');
+      return;
+    }
+    if (command.handler_kind === 'noskill') {
+      const removable =
+        composerSnapshot?.active_skills.filter((skill) => skill.removable) ??
+        [];
+      if (removable.length === 1) {
+        replaceSlashToken(token);
+        await skillAction('remove', removable[0].id);
+      } else replaceSlashToken(token, '/noskill ');
+      return;
+    }
+    if (command.handler_kind === 'new_thread') {
+      replaceSlashToken(token);
+      onNewChat();
+      return;
+    }
+    if (command.handler_kind === 'stop_generation') {
+      replaceSlashToken(token);
+      if (running) await action('conversation.stop');
+      else overlay.notify('No response is currently running.');
+      return;
+    }
+    if (command.handler_kind === 'export') {
+      replaceSlashToken(token);
+      manageConversation();
+      return;
+    }
+    if (
+      ['status', 'tools', 'profiles', 'agents', 'help'].includes(
+        command.handler_kind,
+      )
+    ) {
+      replaceSlashToken(token);
+      try {
+        const result = await controller.composerCommand(
+          id,
+          command.handler_kind as
+            'status' | 'tools' | 'profiles' | 'agents' | 'help',
+        );
+        overlay.open({
+          title: result.title,
+          description: command.description,
+          content: <SafeMarkdown text={result.text} />,
+        });
+      } catch (cause) {
+        setError(clientError(cause).message);
+      }
+      return;
+    }
+    replaceSlashToken(token, `${command.token} `);
+  }
   function scrollToLatest() {
     const transcript = transcriptRef.current;
     if (!transcript) return;
@@ -616,6 +896,20 @@ export default function Conversation({
       !sendActionReady
     )
       return;
+    const commandText = draft.text.trim().toLocaleLowerCase();
+    const exactCommand = composerSnapshot?.commands.find((command) =>
+      [command.token, ...command.aliases].some(
+        (token) => token.toLocaleLowerCase() === commandText,
+      ),
+    );
+    if (exactCommand) {
+      const start = draft.text.indexOf(draft.text.trim());
+      void chooseSlash(exactCommand, {
+        start,
+        end: start + draft.text.trim().length,
+      });
+      return;
+    }
     try {
       if (steeringKey && commandReceipts.read(steeringKey)) {
         setSteeringClaim({
@@ -1224,8 +1518,8 @@ export default function Conversation({
           >
             {state.loadingConversation ? (
               <Skeleton label="Opening conversation" />
-            ) : rows.length ? (
-              rows.map((row) => (
+            ) : visibleRows.length ? (
+              visibleRows.map((row) => (
                 <Message
                   key={`${id}:${row.id}`}
                   row={row}
@@ -1244,6 +1538,50 @@ export default function Conversation({
                 them.
               </EmptyState>
             )}
+            {thinkingActive && (
+              <details className="trace-group thinking-stub">
+                <summary>Thinking</summary>
+                <p>Row-Bot is working. Private reasoning is not shown.</p>
+              </details>
+            )}
+            {id &&
+              [...liveTraceEvents.values()]
+                .filter(
+                  (record) =>
+                    record.event.type === 'tool.activity' &&
+                    !settledTraceCalls.has(
+                      record.event.payload.tool_call_id ?? '',
+                    ),
+                )
+                .map((record) =>
+                  record.event.type === 'tool.activity' ? (
+                    <details
+                      className="trace-group trace-live"
+                      data-trace-status={record.event.payload.status}
+                      key={
+                        record.event.payload.item_id || record.event.event_id
+                      }
+                    >
+                      <summary>
+                        {record.event.payload.status === 'pending'
+                          ? 'Using'
+                          : [
+                                'failed',
+                                'blocked',
+                                'cancelled',
+                                'uncertain',
+                              ].includes(
+                                record.event.payload.status ?? 'pending',
+                              )
+                            ? 'Needs attention'
+                            : 'Done'}{' '}
+                        {record.event.payload.group_name ||
+                          record.event.payload.tool_name ||
+                          'tool'}
+                      </summary>
+                    </details>
+                  ) : null,
+                )}
             {pending?.conversation === id &&
               !rows.some((row) => row.message_id === pending.id) && (
                 <article
@@ -1338,35 +1676,45 @@ export default function Conversation({
             )}
           </details>
         )}
-        {!!state.activity.length && (
+        {!!state.activity.filter(
+          (record) => record.event.type !== 'tool.activity',
+        ).length && (
           <details className="activity activity-feed">
-            <summary>Activity ({state.activity.length})</summary>
+            <summary>
+              Activity (
+              {
+                state.activity.filter(
+                  (record) => record.event.type !== 'tool.activity',
+                ).length
+              }
+              )
+            </summary>
             <ol className="activity-list">
-              {state.activity.map((record) => (
-                <li className="activity-item" key={record.event.event_id}>
-                  {record.event.type === 'tool.activity' ? (
-                    `${record.event.payload.state === 'tool_call' ? 'Using' : 'Completed'} ${record.event.payload.tool_name || 'tool'}`
-                  ) : record.event.type === 'media.available' ? (
-                    <Media
-                      reference={record.event.payload.media_ref}
-                      mime={record.event.payload.mime_type}
-                    />
-                  ) : record.event.type === 'agent.activity' ? (
-                    <details>
-                      <summary>
-                        Delegated task: {record.event.payload.status}
-                      </summary>
-                      <p>Task reference: {record.event.payload.run_id}</p>
-                    </details>
-                  ) : record.event.type === 'generation.error' ? (
-                    'The response was interrupted.'
-                  ) : record.event.type === 'queue.updated' ? (
-                    `${record.event.payload.submission_ids.length} queued submissions`
-                  ) : (
-                    record.event.type.replaceAll('.', ' ')
-                  )}
-                </li>
-              ))}
+              {state.activity
+                .filter((record) => record.event.type !== 'tool.activity')
+                .map((record) => (
+                  <li className="activity-item" key={record.event.event_id}>
+                    {record.event.type === 'media.available' ? (
+                      <Media
+                        reference={record.event.payload.media_ref}
+                        mime={record.event.payload.mime_type}
+                      />
+                    ) : record.event.type === 'agent.activity' ? (
+                      <details>
+                        <summary>
+                          Delegated task: {record.event.payload.status}
+                        </summary>
+                        <p>Task reference: {record.event.payload.run_id}</p>
+                      </details>
+                    ) : record.event.type === 'generation.error' ? (
+                      'The response was interrupted.'
+                    ) : record.event.type === 'queue.updated' ? (
+                      `${record.event.payload.submission_ids.length} queued submissions`
+                    ) : (
+                      record.event.type.replaceAll('.', ' ')
+                    )}
+                  </li>
+                ))}
             </ol>
           </details>
         )}
@@ -1458,6 +1806,13 @@ export default function Conversation({
               ))}
             </ul>
           )}
+          {composerSnapshot && (
+            <ComposerSkillChips
+              composer={composerSnapshot}
+              disabled={Boolean(running) || busy || composerBusy}
+              action={skillAction}
+            />
+          )}
           <label className="sr-only" htmlFor="message-composer">
             Message
           </label>
@@ -1471,10 +1826,23 @@ export default function Conversation({
             aria-describedby={
               composerStateReason ? 'message-composer-state' : undefined
             }
-            onChange={(e) =>
-              controller.setDraft(id, { ...draft, text: e.target.value })
+            onChange={(e) => {
+              controller.setDraft(id, { ...draft, text: e.target.value });
+              setComposerCursor(
+                e.target.selectionStart ?? e.target.value.length,
+              );
+            }}
+            onSelect={(e) =>
+              setComposerCursor(e.currentTarget.selectionStart ?? 0)
             }
             onKeyDown={(e) => {
+              if (
+                !e.nativeEvent.isComposing &&
+                slashPaletteRef.current?.key(e)
+              ) {
+                e.preventDefault();
+                return;
+              }
               if (
                 e.key === 'Enter' &&
                 !e.shiftKey &&
@@ -1486,20 +1854,80 @@ export default function Conversation({
               }
             }}
           />
+          {composerSnapshot && (
+            <SlashPalette
+              ref={slashPaletteRef}
+              text={draft.text}
+              cursor={composerCursor}
+              commands={composerSnapshot.commands}
+              disabled={Boolean(running) || busy || composerBusy}
+              onChoose={(command, token) => void chooseSlash(command, token)}
+            />
+          )}
           <div className="composer-toolbar">
             <ComposerControls
               key={id}
-              disabled={Boolean(running) || busy || talkBusy}
+              composer={composerSnapshot ?? undefined}
+              onSkillAction={skillAction}
+              skillsOpen={skillsOpen}
+              onSkillsOpenChange={setSkillsOpen}
+              disabled={Boolean(running) || busy || talkBusy || composerBusy}
               onError={setError}
             />
             <div className="composer-actions">
               {voiceScope && (
-                <VoiceControls
+                <ConversationVoice
+                  key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
+                  compact
+                  controller={controller}
                   scope={voiceScope}
                   available={
                     voiceExposure.key === voiceHostKey &&
-                    voiceExposure.available
+                    (voiceExposure.talk || voiceExposure.realtime)
                   }
+                  unavailableReason={voiceExposure.talkReason}
+                  disabled={busy}
+                  running={Boolean(running)}
+                  onBusy={setTalkBusy}
+                  context={
+                    controls?.model_selection && state.conversation
+                      ? {
+                          conversation_revision: state.conversation.revision,
+                          model_selection: controls.model_selection,
+                          write_targets: resources
+                            .filter((resource) =>
+                              (targetSelection[id ?? ''] ?? []).includes(
+                                resource.binding.binding_id,
+                              ),
+                            )
+                            .map((resource) => ({
+                              kind: resource.binding.kind as
+                                'artifact' | 'workspace',
+                              binding_id: resource.binding.binding_id,
+                              resource_id: resource.binding.resource_id,
+                              binding_revision: resource.binding.revision,
+                              resource_revision: resource.resource_revision,
+                            })),
+                        }
+                      : null
+                  }
+                  targets={resources
+                    .filter((resource) =>
+                      (targetSelection[id ?? ''] ?? []).includes(
+                        resource.binding.binding_id,
+                      ),
+                    )
+                    .map((resource) => resource.title)}
+                />
+              )}
+              {voiceScope && (
+                <VoiceControls
+                  compact
+                  scope={voiceScope}
+                  available={
+                    voiceExposure.key === voiceHostKey && voiceExposure.dictate
+                  }
+                  unavailableReason={voiceExposure.dictateReason}
                   disabled={busy || talkBusy}
                   start={(request, signal) =>
                     controller.startDictation(voiceScope, request, signal)
@@ -1545,31 +1973,34 @@ export default function Conversation({
                   Check queued message
                 </Button>
               )}
-              {running ? (
-                <>
-                  <Button
-                    disabled={
-                      !draft.text.trim() ||
-                      draft.text.length > 16000 ||
-                      busy ||
-                      Boolean(pendingSteering) ||
-                      Boolean(pendingSubmit) ||
-                      Boolean(pendingResume)
-                    }
-                    onClick={() => void action('conversation.steer')}
-                  >
-                    Queue message
-                  </Button>
+              {running && (
+                <Button
+                  disabled={
+                    !draft.text.trim() ||
+                    draft.text.length > 16000 ||
+                    busy ||
+                    Boolean(pendingSteering) ||
+                    Boolean(pendingSubmit) ||
+                    Boolean(pendingResume)
+                  }
+                  onClick={() => void action('conversation.steer')}
+                >
+                  Queue message
+                </Button>
+              )}
+              <span className="composer-primary-slot">
+                {running ? (
                   <Button
                     variant="danger"
+                    iconOnly
+                    aria-label="Stop"
+                    title="Stop"
                     disabled={!generation.can_stop}
                     onClick={() => void action('conversation.stop')}
                   >
-                    Stop
+                    <Square size={16} aria-hidden />
                   </Button>
-                </>
-              ) : (
-                <>
+                ) : (
                   <Button
                     type="submit"
                     variant="primary"
@@ -1591,20 +2022,20 @@ export default function Conversation({
                   >
                     <ArrowUp size={20} aria-hidden />
                   </Button>
-                  {generation?.status === 'interrupted' && (
-                    <Button
-                      disabled={
-                        busy ||
-                        Boolean(pendingSubmit) ||
-                        Boolean(pendingSteering) ||
-                        Boolean(pendingResume)
-                      }
-                      onClick={() => void action('conversation.resume')}
-                    >
-                      Resume
-                    </Button>
-                  )}
-                </>
+                )}
+              </span>
+              {!running && generation?.status === 'interrupted' && (
+                <Button
+                  disabled={
+                    busy ||
+                    Boolean(pendingSubmit) ||
+                    Boolean(pendingSteering) ||
+                    Boolean(pendingResume)
+                  }
+                  onClick={() => void action('conversation.resume')}
+                >
+                  Resume
+                </Button>
               )}
             </div>
           </div>
@@ -1647,48 +2078,6 @@ export default function Conversation({
               </Button>
             )}
           </div>
-          {voiceScope && (
-            <ConversationVoice
-              key={`${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
-              controller={controller}
-              scope={voiceScope}
-              available={
-                voiceExposure.key === voiceHostKey && voiceExposure.available
-              }
-              disabled={busy}
-              running={Boolean(running)}
-              onBusy={setTalkBusy}
-              context={
-                controls?.model_selection && state.conversation
-                  ? {
-                      conversation_revision: state.conversation.revision,
-                      model_selection: controls.model_selection,
-                      write_targets: resources
-                        .filter((resource) =>
-                          (targetSelection[id ?? ''] ?? []).includes(
-                            resource.binding.binding_id,
-                          ),
-                        )
-                        .map((resource) => ({
-                          kind: resource.binding.kind as
-                            'artifact' | 'workspace',
-                          binding_id: resource.binding.binding_id,
-                          resource_id: resource.binding.resource_id,
-                          binding_revision: resource.binding.revision,
-                          resource_revision: resource.resource_revision,
-                        })),
-                    }
-                  : null
-              }
-              targets={resources
-                .filter((resource) =>
-                  (targetSelection[id ?? ''] ?? []).includes(
-                    resource.binding.binding_id,
-                  ),
-                )
-                .map((resource) => resource.title)}
-            />
-          )}
           <ContextUsage usage={state.workspace?.context_usage} />
         </form>
       )}

@@ -789,16 +789,31 @@ async def _run_startup_sequence():
         _safe_console_print("[startup] Authorized real-data capture - startup writes suppressed")
         _app_boot_event("startup_real_data_capture_ready")
         return
+    live_chat_parity = os.environ.get("ROW_BOT_LIVE_CHAT_PARITY") == "1"
     install_asyncio_exception_handler()
     start_performance_monitor()
-    # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
-    from row_bot.logging_config import setup_file_logging
-    with _startup_phase("file_logging"):
-        setup_file_logging()
+    # The explicitly authorized owner-profile parity run must not retain a
+    # prompt-bearing app log outside its redacted evidence pack.
+    if not live_chat_parity:
+        # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
+        from row_bot.logging_config import setup_file_logging
+        with _startup_phase("file_logging"):
+            setup_file_logging()
 
     from row_bot.application.lifecycle import application_lifecycle
     with _startup_phase("client_platform_recovery"):
         await application_lifecycle.startup()
+
+    if live_chat_parity:
+        import row_bot.ui.state as _st
+
+        _st.startup_status = "Live chat parity validation ready"
+        _st.startup_ready = True
+        _safe_console_print(
+            "[startup] Live chat parity mode - unrelated background and autostart activity skipped"
+        )
+        _app_boot_event("startup_live_chat_parity_ready")
+        return
 
     if docs_capture_disable_autostart():
         import row_bot.ui.state as _st
@@ -2907,9 +2922,54 @@ async def index():
             with _projection_client:
                 ui.notify("Conversation refresh unavailable. Reopen the conversation to retry.", type="warning")
 
+    def _apply_projected_live(tid: str, snapshot: dict, events: list[dict]) -> None:
+        """Render an execution owned by React without taking producer ownership."""
+        if tid != state.thread_id or p.chat_container is None:
+            return
+        from row_bot.ui.legacy_adapter.live_projection import build_live_projection_view
+
+        view = build_live_projection_view(snapshot, events)
+        with _projection_client:
+            current = p.external_generation_container
+            current_slot = getattr(current, "parent_slot", None)
+            if current is not None and getattr(current_slot, "parent", None) is not p.chat_container:
+                current = p.external_generation_container = None
+            if not view.active:
+                if current is not None:
+                    current.delete()
+                    p.external_generation_container = None
+                return
+            if current is None:
+                with p.chat_container:
+                    current = ui.element("div").classes("row-bot-msg-row").props(
+                        "data-external-generation"
+                    )
+                p.external_generation_container = current
+            current.clear()
+            with current:
+                with ui.column().classes("row-bot-msg-body gap-1 w-full"):
+                    ui.label("Row-Bot · live from another client").classes(
+                        "row-bot-msg-header text-grey-6"
+                    )
+                    if view.thinking:
+                        with ui.expansion("Thinking", icon="psychology").classes("w-full"):
+                            ui.label("Row-Bot is working. Private reasoning is not shown.")
+                    for trace in view.traces:
+                        with ui.expansion(trace.label, icon="build").classes("w-full").props(
+                            f'data-trace-status="{trace.status}"'
+                        ):
+                            ui.label("Tool details become available in the durable transcript.")
+                    if view.text:
+                        ui.label(view.text).classes("row-bot-msg w-full whitespace-pre-wrap")
+                    elif view.stopping:
+                        ui.label("Stopping…").classes("text-grey-6")
+            if p.chat_scroll:
+                p.chat_scroll.scroll_to(percent=1.0)
+
     _view_subscription = LegacyViewSubscription(
         conversation_projection, load_thread_messages, _apply_projected_checkpoint,
         ready=lambda tid: tid not in _legacy_renderers,
+        apply_live=_apply_projected_live,
         on_error=_projection_view_error,
     )
     _view_subscription.observe(state.thread_id)

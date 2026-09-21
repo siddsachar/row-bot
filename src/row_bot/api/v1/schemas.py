@@ -89,6 +89,21 @@ class ConversationControls(WireModel):
     reasoning: ReasoningControl | None = None
 
 
+class ConversationSkillPayload(WireModel):
+    action: Literal["activate", "remove", "dismiss", "reset"]
+    composer_revision: str = Field(min_length=1, max_length=128)
+    skill_id: str = Field(default="", max_length=256)
+    draft: str = Field(default="", max_length=200000)
+
+    @model_validator(mode="after")
+    def valid_skill_action(self) -> ConversationSkillPayload:
+        if self.action in {"activate", "remove", "dismiss"} and not self.skill_id:
+            raise ValueError("A skill is required for this action")
+        if self.action == "reset" and self.skill_id:
+            raise ValueError("Reset does not accept a skill")
+        return self
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -4460,6 +4475,19 @@ class BuddySnapshot(WireModel):
     status: BuddyStatus
     placement: Literal["docked"]
     native_placement_retained: bool
+    conversation_id: OpaqueId | None = None
+    activity: Literal[
+        "idle",
+        "thinking",
+        "streaming",
+        "tool",
+        "approval",
+        "stopping",
+        "completed",
+        "stopped",
+        "error",
+        "disconnected",
+    ] = "idle"
 
 
 class BuddyAsset(WireModel):
@@ -4568,6 +4596,7 @@ class Command(WireModel):
         "conversation.unbind",
         "approval.resolve",
         "conversation.controls",
+        "conversation.skills",
         "resource.setup",
         "resource.continue",
         "conversation.queue.edit",
@@ -4733,6 +4762,7 @@ COMMAND_PAYLOADS = {
     "conversation.unbind": UnbindPayload,
     "approval.resolve": ApprovalPayload,
     "conversation.controls": ConversationControls,
+    "conversation.skills": ConversationSkillPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
     "conversation.queue.edit": QueueEditPayload,
@@ -4919,6 +4949,13 @@ class ToolActivity(WireModel):
     message_id: str = Field(default="", max_length=256)
     pass_id: OpaqueId | None = None
     segment_id: OpaqueId | None = None
+    item_id: str = Field(default="", max_length=256)
+    group_id: str = Field(default="", max_length=256)
+    group_name: str = Field(default="", max_length=180)
+    group_kind: Literal["generic", "browser", "computer"] = "generic"
+    status: Literal[
+        "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
+    ] = "pending"
 
 
 class GenerationActivity(WireModel):
@@ -5274,6 +5311,63 @@ class TextBlock(WireModel):
     text: str = Field(max_length=2097152)
 
 
+class TraceAgentReference(WireModel):
+    run_id: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(max_length=256)
+    status: str = Field(max_length=64)
+
+
+class TraceMediaReference(WireModel):
+    media_ref: Reference
+    mime_type: str = Field(max_length=128)
+
+
+class TraceSpecialization(WireModel):
+    kind: Literal["skill_load", "delegated_agent", "media"]
+    skill_id: str = Field(default="", max_length=180)
+    display_name: str = Field(default="", max_length=180)
+    source: str = Field(default="", max_length=180)
+    newly_active: bool | None = None
+    evicted_skill_id: str = Field(default="", max_length=180)
+    agent_runs: list[TraceAgentReference] = Field(default_factory=list, max_length=16)
+    media_kind: str = Field(default="", max_length=64)
+    media: list[TraceMediaReference] = Field(default_factory=list, max_length=8)
+
+
+class TranscriptTraceItem(WireModel):
+    item_id: str = Field(min_length=1, max_length=256)
+    group_id: str = Field(min_length=1, max_length=256)
+    call_id: str = Field(min_length=1, max_length=256)
+    result_message_id: str = Field(default="", max_length=256)
+    call_order: int = Field(ge=0, le=255)
+    group_order: int = Field(ge=0, le=255)
+    canonical_name: str = Field(min_length=1, max_length=180)
+    group_name: str = Field(min_length=1, max_length=180)
+    group_kind: Literal["generic", "browser", "computer"]
+    status: Literal[
+        "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
+    ]
+    safe_summary: str = Field(max_length=512)
+    summary_truncated: bool
+    content_ref: str = Field(default="", max_length=256)
+    specialization: TraceSpecialization | None = None
+
+
+class TranscriptTraceGroup(WireModel):
+    group_id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=180)
+    kind: Literal["generic", "browser", "computer"]
+    group_order: int = Field(ge=0, le=255)
+    status: Literal[
+        "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
+    ]
+    items: list[TranscriptTraceItem] = Field(max_length=256)
+    counts: dict[
+        Literal["pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"],
+        int,
+    ]
+
+
 class TranscriptRow(WireModel):
     id: str = Field(min_length=1, max_length=1024)
     message_id: str | None = Field(default=None, max_length=256)
@@ -5285,6 +5379,8 @@ class TranscriptRow(WireModel):
     render_revision: Revision | None = None
     content_status: Literal["inline", "lazy", "oversized"] | None = None
     content_ref: str | None = Field(default=None, max_length=256)
+    traces: list[TranscriptTraceGroup] = Field(default_factory=list, max_length=256)
+    trace_parent_id: str | None = Field(default=None, max_length=1024)
 
 
 class Snapshot(WireModel):
@@ -5536,6 +5632,91 @@ class ContextUsageView(WireModel):
     model_ref: str | None = Field(default=None, max_length=256)
 
 
+class ComposerLibrary(WireModel):
+    availability: Literal["available", "unavailable"]
+    revision: str = Field(max_length=128)
+
+
+class ComposerSkill(WireModel):
+    id: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(max_length=256)
+    icon: str = Field(max_length=64)
+    description: str = Field(max_length=1024)
+    library_source: str = Field(max_length=256)
+    source: Literal["default", "pinned", "thread", "auto"]
+    removable: bool
+
+
+class ComposerSuggestion(WireModel):
+    id: str = Field(min_length=1, max_length=256)
+    skill_id: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(max_length=256)
+    icon: str = Field(max_length=64)
+    description: str = Field(max_length=1024)
+    reason: str = Field(max_length=512)
+
+
+class SlashCommandSpec(WireModel):
+    id: str = Field(min_length=1, max_length=180)
+    token: str = Field(min_length=1, max_length=180)
+    aliases: list[str] = Field(max_length=16)
+    label: str = Field(max_length=256)
+    description: str = Field(max_length=1024)
+    icon: str = Field(max_length=64)
+    category: str = Field(max_length=80)
+    argument_mode: Literal["none", "optional", "required", "prefix"]
+    argument_hint: str = Field(max_length=256)
+    handler_kind: Literal[
+        "open_skills",
+        "skill_reset",
+        "noskill",
+        "new_thread",
+        "stop_generation",
+        "reasoning",
+        "profiles",
+        "profile",
+        "agents",
+        "agent",
+        "goal",
+        "status",
+        "tools",
+        "export",
+        "help",
+        "activate_skill",
+    ]
+    skill_id: str | None = Field(default=None, max_length=256)
+
+
+class ConversationComposer(WireModel):
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    conversation_revision: Revision
+    composer_revision: str = Field(min_length=1, max_length=128)
+    library: ComposerLibrary
+    smart_skills_off: bool
+    active_skills: list[ComposerSkill] = Field(max_length=64)
+    suggestions: list[ComposerSuggestion] = Field(max_length=12)
+    commands: list[SlashCommandSpec] = Field(max_length=256)
+    command_total: int = Field(ge=0, le=4096)
+    commands_truncated: bool
+
+
+class ConversationComposerQuery(WireModel):
+    draft: str = Field(default="", max_length=16000)
+    command_query: str = Field(default="", max_length=180)
+    command_limit: int = Field(default=50, ge=1, le=256)
+
+
+class SlashCommandRead(WireModel):
+    command_id: Literal["status", "tools", "profiles", "agents", "help"]
+
+
+class SlashCommandResult(WireModel):
+    command_id: Literal["status", "tools", "profiles", "agents", "help"]
+    title: str = Field(max_length=128)
+    text: str = Field(max_length=16384)
+
+
 class ConversationWorkspace(WireModel):
     conversation_id: OpaqueId
     revision: Revision
@@ -5545,6 +5726,7 @@ class ConversationWorkspace(WireModel):
     actions: list[ActionReadiness] = Field(max_length=6)
     context_usage: ContextUsageView | None = None
     reasoning: ReasoningView | None = None
+    composer: ConversationComposer | None = None
 
 
 class DelegatedRun(WireModel):
@@ -5876,6 +6058,10 @@ class DictationCapability(WireModel):
     browser_dictation_available: bool
     native_capture_available: Literal[False] = False
     reason: Literal["available", "host_unavailable"]
+    talk_available: bool = False
+    realtime_available: bool = False
+    talk_reason: str = Field(default="host_unavailable", max_length=128)
+    realtime_reason: str = Field(default="host_unavailable", max_length=128)
 
 
 class DictationStart(WireModel):

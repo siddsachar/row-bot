@@ -4,6 +4,7 @@ export type PendingCommand = { commandId: string; steeringId: string | null };
 const steeringPrefix = 'row-bot:steering-receipt:v1:';
 const submitPrefix = 'row-bot:submit-receipt:v1:';
 const resumePrefix = 'row-bot:resume-receipt:v1:';
+const skillPrefix = 'row-bot:skill-receipt:v1:';
 const newChatPrefix = 'row-bot.new-chat.'; // Preserve already-reserved New chat IDs.
 const uuid = (value: unknown): value is string =>
   typeof value === 'string' &&
@@ -22,7 +23,7 @@ export class CommandReceipts {
   scope(
     instance: string,
     conversation: string | null = null,
-    kind: 'steering' | 'submit' | 'resume' = 'steering',
+    kind: 'steering' | 'submit' | 'resume' | 'skill' = 'steering',
   ): string {
     if (
       !instance ||
@@ -36,7 +37,9 @@ export class CommandReceipts {
           ? submitPrefix
           : kind === 'resume'
             ? resumePrefix
-            : steeringPrefix) +
+            : kind === 'skill'
+              ? skillPrefix
+              : steeringPrefix) +
           encodeURIComponent(instance) +
           ':' +
           encodeURIComponent(conversation);
@@ -48,7 +51,8 @@ export class CommandReceipts {
         (!key.startsWith(newChatPrefix) &&
           !key.startsWith(steeringPrefix) &&
           !key.startsWith(submitPrefix) &&
-          !key.startsWith(resumePrefix))
+          !key.startsWith(resumePrefix) &&
+          !key.startsWith(skillPrefix))
       )
         throw new ReceiptStorageError();
       const raw = this.storage().getItem(key);
@@ -62,7 +66,7 @@ export class CommandReceipts {
       if (
         !value ||
         !uuid(value.commandId) ||
-        (key.startsWith(resumePrefix)
+        (key.startsWith(resumePrefix) || key.startsWith(skillPrefix)
           ? value.steeringId !== null
           : !uuid(value.steeringId)) ||
         Object.keys(value).length !== 2
@@ -79,7 +83,7 @@ export class CommandReceipts {
       const isNew = key.startsWith(newChatPrefix);
       if (
         !uuid(value.commandId) ||
-        (isNew || key.startsWith(resumePrefix)
+        (isNew || key.startsWith(resumePrefix) || key.startsWith(skillPrefix)
           ? value.steeringId !== null
           : !uuid(value.steeringId))
       )
@@ -92,6 +96,7 @@ export class CommandReceipts {
           stored?.startsWith(steeringPrefix) ||
           stored?.startsWith(submitPrefix) ||
           stored?.startsWith(resumePrefix) ||
+          stored?.startsWith(skillPrefix) ||
           stored?.startsWith(newChatPrefix)
         )
           count++;

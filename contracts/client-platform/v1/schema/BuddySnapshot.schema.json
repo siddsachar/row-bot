@@ -128,6 +128,38 @@
   },
   "additionalProperties": false,
   "properties": {
+    "activity": {
+      "default": "idle",
+      "enum": [
+        "idle",
+        "thinking",
+        "streaming",
+        "tool",
+        "approval",
+        "stopping",
+        "completed",
+        "stopped",
+        "error",
+        "disconnected"
+      ],
+      "title": "Activity",
+      "type": "string"
+    },
+    "conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conversation Id"
+    },
     "native_placement_retained": {
       "title": "Native Placement Retained",
       "type": "boolean"

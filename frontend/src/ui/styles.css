@@ -4766,7 +4766,7 @@ details[open] > summary > .settings-disclosure-chevron {
   border-radius: 10px;
   background: transparent;
   padding: 8px;
-  resize: vertical;
+  resize: none;
   box-shadow: none;
   font-size: 15.2px;
   line-height: 21px;
@@ -4802,6 +4802,44 @@ details[open] > summary > .settings-disclosure-chevron {
 .composer-actions {
   gap: 2px;
   margin-inline-start: auto;
+  position: relative;
+}
+.composer-primary-slot {
+  display: inline-flex;
+  min-width: var(--control-size);
+  min-height: var(--control-size);
+  margin-inline-start: 4px;
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--border-subtle);
+}
+.conversation-voice-surface {
+  position: absolute;
+  z-index: 20;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 40px));
+  overflow: auto;
+  box-shadow: var(--shadow-shell);
+}
+.dictation-controls-compact,
+.dictation-controls-compact .actions {
+  display: inline-flex;
+  align-items: center;
+}
+.dictation-controls-compact > .voice-state-reason,
+.dictation-controls-compact > .voice-error,
+.dictation-controls-compact > .voice-recovery {
+  position: absolute;
+  z-index: 21;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  width: min(360px, calc(100vw - 24px));
+  padding: 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-shell);
 }
 .composer-control {
   gap: 5px;
@@ -4820,11 +4858,136 @@ details[open] > summary > .settings-disclosure-chevron {
 .composer-overflow {
   color: var(--text-muted);
 }
+.transcript-traces,
+.trace-items {
+  display: grid;
+  gap: 6px;
+}
+.transcript-traces {
+  margin-block: 8px;
+}
+.trace-group,
+.trace-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+  overflow: clip;
+}
+.trace-group > summary,
+.trace-item > summary {
+  cursor: pointer;
+  padding: 7px 10px;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+}
+.trace-group[data-trace-status='failed'],
+.trace-group[data-trace-status='blocked'],
+.trace-group[data-trace-status='cancelled'],
+.trace-group[data-trace-status='uncertain'] {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-subtle));
+}
+.trace-items {
+  padding: 0 8px 8px;
+}
+.trace-output {
+  margin: 0 8px 8px;
+  padding: 8px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: var(--canvas);
+}
+.trace-specialization {
+  margin: 0 8px 8px;
+  color: var(--text-muted);
+}
+.trace-live {
+  margin-block: 6px;
+}
 .thinking-menu {
   display: grid;
   gap: 4px;
   min-width: 220px;
   max-width: calc(100vw - 24px);
+}
+.skills-menu {
+  display: grid;
+  gap: 6px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(560px, calc(100vh - 32px));
+  overflow: auto;
+}
+.composer-skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-inline: 4px;
+}
+.composer-skill-chip,
+.composer-skill-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding-inline-start: 8px;
+  background: var(--surface-soft);
+  font-size: var(--type-size-metadata);
+}
+.composer-skill-chip small {
+  color: var(--text-muted);
+}
+.composer-skill-chip .button,
+.composer-skill-suggestion .button {
+  min-height: 28px;
+  padding: 2px 6px;
+  border-color: transparent;
+}
+.slash-palette {
+  display: grid;
+  gap: 2px;
+  max-height: min(420px, 50vh);
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border-control);
+  border-radius: 12px;
+}
+.slash-palette-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  color: inherit;
+  text-align: start;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.slash-palette-row[aria-selected='true'] {
+  background: var(--accent-subtle);
+}
+.slash-palette-copy {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  min-width: 0;
+}
+.slash-palette-copy small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.slash-palette-category {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
 }
 .thinking-menu > .button {
   justify-content: flex-start;

@@ -1005,6 +1005,7 @@ export default function Workspace() {
                   ) : null}
                   <Conversation
                     onPanel={showPanel}
+                    onNewChat={() => void creation.newChat()}
                     focusConversationId={creation.focusConversationId}
                     onComposerFocused={creation.onComposerFocused}
                   />

@@ -11,7 +11,13 @@ const baseURL = process.env.ROW_BOT_BROWSER_BASE_URL;
 const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
 if (!baseURL || !token) throw new Error("Use the isolated core-surface runner");
 const origin = new URL(baseURL).origin;
-const surfaceNames = ["workflows", "knowledge", "monitor", "chat"];
+const surfaceNames = [
+  "workflows",
+  "knowledge",
+  "monitor",
+  "chat",
+  "chat-traces",
+];
 
 function httpOrigin(value) {
   const url = new URL(value);
@@ -37,15 +43,26 @@ async function writeJson(testInfo, name, value) {
 async function settle(page) {
   await page.waitForLoadState("domcontentloaded");
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(300);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
 }
 
 async function openNiceGui(page, surface) {
   await page.goto("/");
   await settle(page);
-  if (surface === "chat") {
+  if (surface === "chat" || surface === "chat-traces") {
+    const title =
+      surface === "chat" ? "Phase 1 conversation A" : "Phase 1 conversation B";
+    const expected =
+      surface === "chat"
+        ? "Show the deterministic fixture summary."
+        : "Show the deterministic trace matrix.";
     const conversation = page
-      .getByText("Phase 1 conversation A", { exact: true })
+      .getByText(title, { exact: true })
       .last();
     if (!(await conversation.isVisible())) {
       await page
@@ -55,7 +72,7 @@ async function openNiceGui(page, surface) {
     await expect(conversation).toBeVisible();
     await conversation.click();
     await expect(
-      page.getByText("Show the deterministic fixture summary."),
+      page.getByText(expected),
     ).toBeVisible();
     return;
   }
@@ -69,13 +86,19 @@ async function openNiceGui(page, surface) {
 }
 
 async function openReact(page, surface) {
-  if (surface === "chat") {
-    await page.goto("/app-v2/conversations/p1-browser-a");
+  if (surface === "chat" || surface === "chat-traces") {
+    const conversation =
+      surface === "chat" ? "p1-browser-a" : "p1-browser-b";
+    const expected =
+      surface === "chat"
+        ? "Show the deterministic fixture summary."
+        : "Show the deterministic trace matrix.";
+    await page.goto(`/app-v2/conversations/${conversation}`);
     await expect(
       page.getByRole("textbox", { name: "Message", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText("Show the deterministic fixture summary."),
+      page.getByText(expected),
     ).toBeVisible();
     return;
   }
@@ -320,7 +343,7 @@ test("paired core surfaces share one deterministic fixture and remain observable
   });
   expect(fixture.ok(), await fixture.text()).toBe(true);
   expect(await fixture.json()).toMatchObject({
-    revision: "core-surface-parity-v1",
+    revision: "react-chat-live-parity-v2",
     external_calls: 0,
     data_scope: "disposable",
   });
@@ -387,4 +410,168 @@ test("paired core surfaces share one deterministic fixture and remain observable
   });
   expect(finalFixture.ok()).toBe(true);
   expect(await finalFixture.json()).toMatchObject({ external_calls: 0 });
+});
+
+test("paired chat composer, Buddy, trace, stream, stop and reconnect remain one shared runtime", async ({
+  context,
+  page: nicegui,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "core-desktop",
+    "One shared deterministic generation sequence is captured by the primary desktop project.",
+  );
+  const react = await context.newPage();
+  const timeline = [];
+  const started = Date.now();
+  const mark = async (event, details = {}) => {
+    timeline.push({
+      event,
+      elapsed_ms: Date.now() - started,
+      ...details,
+    });
+  };
+  const fixtureState = async () => {
+    const response = await react.request.get("/__p1_fixture/state", {
+      headers: { "X-Fixture-Token": token, Origin: origin },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    return response.json();
+  };
+  const release = async (barrierId) => {
+    const response = await react.request.post(
+      `/__p1_fixture/release/${barrierId}`,
+      { headers: { "X-Fixture-Token": token, Origin: origin } },
+    );
+    expect(response.ok(), await response.text()).toBe(true);
+  };
+
+  await openNiceGui(nicegui, "chat");
+  await openReact(react, "chat");
+  await expect(nicegui.locator("[data-buddy-in-app-shell]")).toBeVisible();
+  await expect(
+    react.getByRole("complementary", { name: "Buddy companion" }),
+  ).toBeVisible();
+  await expect(react.getByRole("button", { name: "Talk" })).toBeVisible();
+  await expect(react.getByRole("button", { name: "Dictate" })).toBeVisible();
+  await expect(react.getByRole("button", { name: "Send" })).toBeVisible();
+  await mark("initial-shared-chat");
+
+  const draft = react.getByRole("textbox", { name: "Message", exact: true });
+  await draft.fill("/status");
+  const palette = react.getByRole("listbox", { name: "Slash commands" });
+  await expect(palette).toBeVisible();
+  expect(await palette.getByRole("option").count()).toBeGreaterThanOrEqual(1);
+  await draft.press("ArrowDown");
+  await draft.press("ArrowUp");
+  await draft.press("Enter");
+  await expect(react.getByRole("dialog", { name: "Status" })).toBeVisible();
+  await react.getByRole("button", { name: "Close", exact: true }).click();
+  await mark("canonical-slash-status");
+
+  await react.getByRole("button", { name: /Skills: \d+ active/ }).click();
+  const skills = react.getByRole("dialog", { name: "Smart Skills" });
+  await expect(skills).toBeVisible();
+  await skills.getByRole("button", { name: /Synthetic browser skill/ }).click();
+  await expect(
+    react.getByRole("button", {
+      name: "Remove Synthetic browser skill from this chat",
+    }),
+  ).toBeVisible();
+  await nicegui.reload();
+  await openNiceGui(nicegui, "chat");
+  await expect(
+    nicegui.getByText("Synthetic browser skill", { exact: false }),
+  ).toBeVisible();
+  await react.reload();
+  await expect(
+    react.getByRole("button", {
+      name: "Remove Synthetic browser skill from this chat",
+    }),
+  ).toBeVisible();
+  await mark("skill-activation-reload");
+
+  await draft.fill("rich fixture");
+  await react.getByRole("button", { name: "Send" }).click();
+  await expect(react.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(
+    react.getByText("Synthetic tools and media are ready.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    nicegui.getByText("Synthetic tools and media are ready.", { exact: false }),
+  ).toBeVisible();
+  await expect(react.getByText(/Using fixture_image/)).toBeVisible();
+  await mark("tool-stream-pending");
+  await nicegui.screenshot({
+    path: testInfo.outputPath("chat-stream-pending--nicegui.png"),
+    animations: "disabled",
+  });
+  await react.screenshot({
+    path: testInfo.outputPath("chat-stream-pending--react.png"),
+    animations: "disabled",
+  });
+  const pendingState = await fixtureState();
+  const richCall = pendingState.calls.findLast(
+    (call) => call.case === "tools-media" && !call.quiesced,
+  );
+  expect(richCall).toBeTruthy();
+  await release(richCall.barrier_id);
+  await expect(react.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(react.getByText(/Done fixture_image/)).toBeVisible();
+  await expect(
+    nicegui.getByRole("button", { name: /Done fixture_image · 1 call/ }),
+  ).toBeVisible();
+  await mark("tool-stream-settled");
+
+  await react.reload();
+  await expect(react.getByText(/Done fixture_image/)).toBeVisible();
+  await expect(
+    react.getByText("Synthetic tools and media are ready.", { exact: false }),
+  ).toHaveCount(1);
+  await mark("reload-reconciled");
+
+  const reloadedDraft = react.getByRole("textbox", {
+    name: "Message",
+    exact: true,
+  });
+  await reloadedDraft.fill("burst fixture");
+  await react.getByRole("button", { name: "Send" }).click();
+  await expect(
+    react.getByText("Burst complete; waiting for Stop.", { exact: false }),
+  ).toBeVisible();
+  await react.getByRole("button", { name: "Stop" }).click();
+  await expect(react.getByRole("button", { name: "Send" })).toBeVisible();
+  await mark("stop-quiesced");
+
+  await context.setOffline(true);
+  await expect(react.getByText(/Reconnecting|Disconnected/)).toBeVisible();
+  await mark("offline");
+  await context.setOffline(false);
+  await expect(react.locator(".connection-status")).toContainText("Connected");
+  await expect(
+    react.getByText("burst fixture", { exact: true }),
+  ).toHaveCount(1);
+  await expect(react.getByText("Work stopped.", { exact: true })).toBeVisible();
+  await expect(
+    react.getByText("Burst complete; waiting for Stop.", { exact: false }),
+  ).toHaveCount(0);
+  await mark("reconnected");
+
+  await openReact(react, "chat-traces");
+  await expect(react.getByText(/Needs attention fixture_failure/)).toBeVisible();
+  await expect(react.getByText(/Needs attention fixture_policy/)).toBeVisible();
+  await expect(react.getByText(/Needs attention fixture_cancel/)).toBeVisible();
+  await expect(react.getByText(/Needs attention fixture_receipt/)).toBeVisible();
+  await expect(react.getByText(/Using Computer activity/)).toBeVisible();
+  await expect(react.getByText(/Done fixture_repeat · 2/)).toBeVisible();
+  await mark("settled-trace-matrix");
+  await openNiceGui(nicegui, "chat-traces");
+  await capture(nicegui, testInfo, "nicegui", "chat-live-final");
+  await capture(react, testInfo, "react", "chat-live-final");
+  await writeJson(testInfo, "chat-stream-timeline", timeline);
+
+  const final = await fixtureState();
+  expect(final.external_calls).toBe(0);
+  expect(final.calls.filter((call) => call.case === "tools-media")).toHaveLength(1);
+  expect(final.calls.filter((call) => call.case === "burst")).toHaveLength(1);
+  await react.close();
 });

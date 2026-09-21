@@ -186,6 +186,10 @@ export class ClientController {
         browser_dictation_available: false,
         native_capture_available: false as const,
         reason: 'host_unavailable' as const,
+        talk_available: false,
+        realtime_available: false,
+        talk_reason: 'host_unavailable',
+        realtime_reason: 'host_unavailable',
       }
     );
   }
@@ -1346,6 +1350,19 @@ export class ClientController {
         this.failed(error);
     }
   }
+  composer = (
+    conversation: string,
+    body: import('./types').ConversationComposerQuery,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.composer?.(conversation, body, signal));
+  composerCommand = (
+    conversation: string,
+    command_id: import('./types').SlashCommandRead['command_id'],
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.composerCommand?.(conversation, { command_id }, signal),
+    );
   private setDraftStatus(id: string, status: ClientState['draftStatus']): void {
     this.draftStates.set(id, status);
     if (this.state.selectedConversationId === id)

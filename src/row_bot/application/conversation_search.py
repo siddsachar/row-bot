@@ -166,9 +166,13 @@ def history_window(service: Any, conversation_id: str, *, message_id: str | None
                 if match is None:
                     raise ClientPlatformError("not_found")
                 start = max(0, match - limit // 2)
+            from row_bot.application.client_platform import project_checkpoint_records
+
+            records = list(reader.records(start=max(0, start - 256) if start >= 0 else start))
             size = 0
-            for index, record in reader.records(start=start):
-                public = reader.public_row(record)
+            for index, public in project_checkpoint_records(reader, records):
+                if start >= 0 and index < start:
+                    continue
                 encoded = len(json.dumps(public, ensure_ascii=False).encode())
                 if len(rows) >= limit or (rows and size + encoded > 256 * 1024):
                     more = True
