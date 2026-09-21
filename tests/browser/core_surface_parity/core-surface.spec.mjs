@@ -61,9 +61,7 @@ async function openNiceGui(page, surface) {
       surface === "chat"
         ? "Show the deterministic fixture summary."
         : "Show the deterministic trace matrix.";
-    const conversation = page
-      .getByText(title, { exact: true })
-      .last();
+    const conversation = page.getByText(title, { exact: true }).last();
     if (!(await conversation.isVisible())) {
       await page
         .getByRole("button", { name: "Toggle navigation", exact: true })
@@ -71,9 +69,7 @@ async function openNiceGui(page, surface) {
     }
     await expect(conversation).toBeVisible();
     await conversation.click();
-    await expect(
-      page.getByText(expected),
-    ).toBeVisible();
+    await expect(page.getByText(expected)).toBeVisible();
     return;
   }
   const tab = page.locator(`[data-docs-id="home-tab-${surface}"]`);
@@ -87,8 +83,7 @@ async function openNiceGui(page, surface) {
 
 async function openReact(page, surface) {
   if (surface === "chat" || surface === "chat-traces") {
-    const conversation =
-      surface === "chat" ? "p1-browser-a" : "p1-browser-b";
+    const conversation = surface === "chat" ? "p1-browser-a" : "p1-browser-b";
     const expected =
       surface === "chat"
         ? "Show the deterministic fixture summary."
@@ -97,9 +92,7 @@ async function openReact(page, surface) {
     await expect(
       page.getByRole("textbox", { name: "Message", exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByText(expected),
-    ).toBeVisible();
+    await expect(page.getByText(expected)).toBeVisible();
     return;
   }
   await page.goto(`/app-v2/?tab=${surface}`);
@@ -343,7 +336,7 @@ test("paired core surfaces share one deterministic fixture and remain observable
   });
   expect(fixture.ok(), await fixture.text()).toBe(true);
   expect(await fixture.json()).toMatchObject({
-    revision: "react-chat-live-parity-v2",
+    revision: "react-default-rich-parity-v3",
     external_calls: 0,
     data_scope: "disposable",
   });
@@ -395,7 +388,21 @@ test("paired core surfaces share one deterministic fixture and remain observable
     external,
     sockets,
   });
-  expect(consoleErrors, "Unexpected browser console errors").toEqual([]);
+  const expectedExpiredResourceErrors = consoleErrors.filter(
+    (message) =>
+      message ===
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+  );
+  expect(
+    expectedExpiredResourceErrors,
+    "The seeded expired attachment must exercise exactly one handled 404",
+  ).toHaveLength(1);
+  expect(
+    consoleErrors.filter(
+      (message) => !expectedExpiredResourceErrors.includes(message),
+    ),
+    "Unexpected browser console errors",
+  ).toEqual([]);
   expect(pageErrors, "Unexpected uncaught page errors").toEqual([]);
   expect(requestErrors, "Unexpected same-origin request failures").toEqual([]);
   expect(external, "Off-origin requests are forbidden").toEqual([]);
@@ -410,6 +417,92 @@ test("paired core surfaces share one deterministic fixture and remain observable
   });
   expect(finalFixture.ok()).toBe(true);
   expect(await finalFixture.json()).toMatchObject({ external_calls: 0 });
+});
+
+test("React rich transcript, durable media, context and functional graph remain local and recoverable", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "core-desktop",
+    "The complete rich-state matrix is captured once at the primary desktop viewport.",
+  );
+
+  await openReact(page, "chat");
+  await expect(
+    page.getByText("private model-only fixture context"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Rich fixture" }),
+  ).toBeVisible();
+  await expect(page.getByRole("table")).toContainText("Durable blocks");
+  await expect(page.getByText("python", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy code" }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Download code" }).first(),
+  ).toBeVisible();
+  await expect(page.locator(".rich-mermaid figcaption")).toHaveText(
+    "Mermaid diagram",
+  );
+  await expect(page.locator(".rich-chart")).toContainText("Synthetic chart");
+  await expect(page.locator(".rich-youtube iframe")).toHaveCount(0);
+  await expect(page.getByText(/contacts YouTube/)).toBeVisible();
+
+  for (const name of [
+    "synthetic.png",
+    "synthetic.wav",
+    "synthetic.mp4",
+    "synthetic.txt",
+  ]) {
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await expect(page.getByRole("group", { name })).toBeVisible();
+  }
+  await expect(page.getByText("expired.png", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator("figure")
+      .filter({ hasText: "expired.png" })
+      .locator(".media-preview-error"),
+  ).toContainText(/not found|unavailable|no longer available/i);
+  await expect(page.locator(".context-meter")).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("rich-content-matrix--react.png"),
+    animations: "disabled",
+  });
+
+  await openReact(page, "chat-traces");
+  const mediaGroup = page.locator(".trace-group").filter({
+    has: page.getByText(/Done fixture_image/),
+  });
+  await mediaGroup.locator(":scope > summary").click();
+  const mediaItems = mediaGroup.locator(".trace-item");
+  await expect(mediaItems).toHaveCount(2);
+  await mediaItems.nth(0).locator(":scope > summary").click();
+  await mediaItems.nth(1).locator(":scope > summary").click();
+  await expect(mediaGroup.getByAltText("Generated result")).toBeVisible();
+  await expect(
+    mediaGroup.getByText(/generated media is unavailable/i),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("durable-media-traces--react.png"),
+    animations: "disabled",
+  });
+
+  await openReact(page, "knowledge");
+  await expect(
+    page.getByRole("img", { name: /Interactive knowledge graph/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await page.getByRole("button", { name: "Zoom out" }).click();
+  await page.getByRole("button", { name: "Fit" }).click();
+  await expect(
+    page.getByLabel("Knowledge graph semantic fallback"),
+  ).toBeAttached();
+  await page.screenshot({
+    path: testInfo.outputPath("functional-knowledge-graph--react.png"),
+    animations: "disabled",
+  });
 });
 
 test("paired chat composer, Buddy, trace, stream, stop and reconnect remain one shared runtime", async ({
@@ -547,20 +640,63 @@ test("paired chat composer, Buddy, trace, stream, stop and reconnect remain one 
   await mark("offline");
   await context.setOffline(false);
   await expect(react.locator(".connection-status")).toContainText("Connected");
-  await expect(
-    react.getByText("burst fixture", { exact: true }),
-  ).toHaveCount(1);
+  await expect(react.getByText("burst fixture", { exact: true })).toHaveCount(
+    1,
+  );
   await expect(react.getByText("Work stopped.", { exact: true })).toBeVisible();
   await expect(
     react.getByText("Burst complete; waiting for Stop.", { exact: false }),
   ).toHaveCount(0);
   await mark("reconnected");
 
+  await reloadedDraft.fill("approval fixture");
+  await react.getByRole("button", { name: "Send" }).click();
+  const approval = react.locator(".approval-bar");
+  await expect(approval).toContainText("Approve the synthetic fixture action");
+  await expect(
+    approval.getByRole("button", { name: "Approve", exact: true }),
+  ).toBeVisible();
+  await expect(
+    approval.getByRole("button", { name: "Reject", exact: true }),
+  ).toBeVisible();
+  await approval.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(
+    react.getByRole("dialog", { name: "Approval details" }),
+  ).toBeVisible();
+  await react.getByRole("button", { name: "Close", exact: true }).click();
+  await nicegui.reload();
+  await openNiceGui(nicegui, "chat");
+  await expect(
+    nicegui.getByText("approval fixture", { exact: true }),
+  ).toBeVisible();
+  await nicegui.screenshot({
+    path: testInfo.outputPath("approval-pending--nicegui.png"),
+    animations: "disabled",
+  });
+  await react.screenshot({
+    path: testInfo.outputPath("approval-pending--react.png"),
+    animations: "disabled",
+  });
+  await approval.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect(
+    react.getByText("Synthetic approval rejected.", { exact: true }),
+  ).toBeVisible();
+  await nicegui.reload();
+  await openNiceGui(nicegui, "chat");
+  await expect(
+    nicegui.getByText("Synthetic approval rejected.", { exact: true }),
+  ).toBeVisible();
+  await mark("approval-rejected-and-converged");
+
   await openReact(react, "chat-traces");
-  await expect(react.getByText(/Needs attention fixture_failure/)).toBeVisible();
+  await expect(
+    react.getByText(/Needs attention fixture_failure/),
+  ).toBeVisible();
   await expect(react.getByText(/Needs attention fixture_policy/)).toBeVisible();
   await expect(react.getByText(/Needs attention fixture_cancel/)).toBeVisible();
-  await expect(react.getByText(/Needs attention fixture_receipt/)).toBeVisible();
+  await expect(
+    react.getByText(/Needs attention fixture_receipt/),
+  ).toBeVisible();
   await expect(react.getByText(/Using Computer activity/)).toBeVisible();
   await expect(react.getByText(/Done fixture_repeat · 2/)).toBeVisible();
   await mark("settled-trace-matrix");
@@ -571,7 +707,12 @@ test("paired chat composer, Buddy, trace, stream, stop and reconnect remain one 
 
   const final = await fixtureState();
   expect(final.external_calls).toBe(0);
-  expect(final.calls.filter((call) => call.case === "tools-media")).toHaveLength(1);
+  expect(
+    final.calls.filter((call) => call.case === "tools-media"),
+  ).toHaveLength(1);
   expect(final.calls.filter((call) => call.case === "burst")).toHaveLength(1);
+  expect(final.calls.filter((call) => call.case === "approval")).toHaveLength(
+    2,
+  );
   await react.close();
 });

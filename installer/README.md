@@ -317,7 +317,7 @@ The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirement
 1. Run `Row-Bot-4.9.1-Windows-x64.exe`
 2. Follow the wizard â€” the app payload is already bundled; optional model/runtime assets download only when a feature needs them
 3. Launch Row-Bot from Start Menu or Desktop shortcut
-4. The system tray icon appears; the app opens on the first available local port, normally `http://localhost:8080`
+4. The system tray icon appears; the React app opens on the first available local port, normally `http://localhost:8080/app-v2/` (`--legacy-ui` retains the local NiceGUI fallback at `/`)
 5. First launch shows a setup wizard â€” choose **Local** (download an Ollama model), **Providers** (enter an API key and pick a provider model), or **Custom/Self-hosted** (enter an OpenAI-compatible endpoint such as LM Studio, fetch models, and pick a default)
 
 ## Notes

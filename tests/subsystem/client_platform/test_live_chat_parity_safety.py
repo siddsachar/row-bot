@@ -265,6 +265,44 @@ def test_prior_evidence_counts_attempts_and_selects_latest_validation_chat(tmp_p
     }
 
 
+def test_prior_uncertain_attempt_forbids_live_continuation(tmp_path: Path) -> None:
+    from tests.e2e.live_chat_parity.run_live import _recorded_live_state
+
+    directory = tmp_path / "live-1"
+    directory.mkdir()
+    (directory / "live-report.json").write_text(
+        json.dumps(
+            {
+                "attempt_count": 1,
+                "uncertain_attempts": 1,
+                "conversation_title": "React Chat Live Parity Validation 20260921T100000Z",
+                "conversation_hash": "1" * 16,
+                "conversation_created_at": "2026-09-21T10:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LiveParitySafetyError, match="uncertain live attempt"):
+        _recorded_live_state(tmp_path)
+
+
+def test_live_shape_hashes_canonical_semantic_blocks_without_control_chrome() -> None:
+    source = (ROOT / "tests/e2e/live_chat_parity/run_live.py").read_text(
+        encoding="utf-8"
+    )
+    start = source.index("def _react_shape")
+    body = source[start : source.index("def _capture", start)]
+
+    assert body.count("const selector = 'h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,th,td'") == 2
+    assert body.count(".filter(node => !node.querySelector(selector))") == 2
+    assert body.count("return clone.textContent || ''") == 4
+    assert body.count("button,[role=\"status\"],figcaption") == 4
+    assert body.count("return values.join('\\\\n')") == 2
+    assert "text: semanticText(row.querySelector('.message-text'))" in body
+    assert "text: semanticText(row.querySelector('.row-bot-msg'))" in body
+
+
 def test_nicegui_stop_probe_requires_computed_visibility_and_enabled_state() -> None:
     source = (ROOT / "tests/e2e/live_chat_parity/run_live.py").read_text(
         encoding="utf-8"

@@ -27,7 +27,12 @@ from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 
 import psutil
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
+from playwright.sync_api import (
+    Error as PlaywrightError,
+    Page,
+    TimeoutError as PlaywrightTimeout,
+    sync_playwright,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -70,6 +75,13 @@ def _recorded_live_state(evidence: Path) -> tuple[int, dict[str, str] | None]:
             count = document.get("attempt_count", 0)
             if type(count) is not int or not 0 <= count <= MAX_GENERATION_ATTEMPTS:
                 raise ValueError
+            uncertain = document.get("uncertain_attempts", 0)
+            if type(uncertain) is not int or not 0 <= uncertain <= count:
+                raise ValueError
+            if uncertain:
+                raise LiveParitySafetyError(
+                    "prior uncertain live attempt forbids continuation"
+                )
             attempts += count
             title = document.get("conversation_title")
             identity_hash = document.get("conversation_hash")
@@ -249,12 +261,28 @@ def _message_metric(role: str, identity: str, text: str, structure: dict[str, in
 
 def _react_shape(page: Page) -> dict[str, Any]:
     raw = page.evaluate(
-        """() => ({
+        """() => {
+          const semanticText = (root) => {
+            if (!root) return '';
+            const selector = 'h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,th,td';
+            const blocks = [...root.querySelectorAll(selector)]
+              .filter(node => !node.querySelector(selector));
+            const values = blocks.map(node => {
+              const clone = node.cloneNode(true);
+              clone.querySelectorAll('button,[role="status"],figcaption').forEach(child => child.remove());
+              return clone.textContent || '';
+            });
+            if (values.length) return values.join('\\n');
+            const clone = root.cloneNode(true);
+            clone.querySelectorAll('button,[role="status"],figcaption').forEach(child => child.remove());
+            return clone.textContent || '';
+          };
+          return ({
           rows: [...document.querySelectorAll('article.message')].map((row, index) => ({
             role: row.classList.contains('message-user') ? 'user' :
                   row.classList.contains('message-assistant') ? 'assistant' : 'tool',
             identity: row.getAttribute('data-message-id') || row.getAttribute('data-row-id') || String(index),
-            text: row.querySelector('.message-text')?.innerText || '',
+            text: semanticText(row.querySelector('.message-text')),
             headings: row.querySelectorAll('.message-text h1,.message-text h2,.message-text h3').length,
             lists: row.querySelectorAll('.message-text ul,.message-text ol').length,
             code: row.querySelectorAll('.message-text pre').length,
@@ -268,7 +296,8 @@ def _react_shape(page: Page) -> dict[str, Any]:
           connected: (document.querySelector('.connection-status')?.textContent || '').includes('Connected'),
           stop_visible: !![...document.querySelectorAll('button')].find(node => node.getAttribute('aria-label') === 'Stop'),
           has_alert: document.querySelectorAll('[role="alert"]').length > 0,
-        })"""
+          });
+        }"""
     )
     rows = [
         _message_metric(
@@ -288,11 +317,27 @@ def _react_shape(page: Page) -> dict[str, Any]:
 
 def _nicegui_shape(page: Page) -> dict[str, Any]:
     raw = page.evaluate(
-        """() => ({
+        """() => {
+          const semanticText = (root) => {
+            if (!root) return '';
+            const selector = 'h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,th,td';
+            const blocks = [...root.querySelectorAll(selector)]
+              .filter(node => !node.querySelector(selector));
+            const values = blocks.map(node => {
+              const clone = node.cloneNode(true);
+              clone.querySelectorAll('button,[role="status"],figcaption').forEach(child => child.remove());
+              return clone.textContent || '';
+            });
+            if (values.length) return values.join('\\n');
+            const clone = root.cloneNode(true);
+            clone.querySelectorAll('button,[role="status"],figcaption').forEach(child => child.remove());
+            return clone.textContent || '';
+          };
+          return ({
           rows: [...document.querySelectorAll('.row-bot-msg-row')].map((row, index) => ({
             role: row.classList.contains('row-bot-msg-row-user') ? 'user' : 'assistant',
             identity: row.getAttribute('data-message-id') || row.getAttribute('data-row-id') || String(index),
-            text: row.querySelector('.row-bot-msg')?.innerText || '',
+            text: semanticText(row.querySelector('.row-bot-msg')),
             headings: row.querySelectorAll('.row-bot-msg h1,.row-bot-msg h2,.row-bot-msg h3').length,
             lists: row.querySelectorAll('.row-bot-msg ul,.row-bot-msg ol').length,
             code: row.querySelectorAll('.row-bot-msg pre').length,
@@ -313,7 +358,8 @@ def _nicegui_shape(page: Page) -> dict[str, Any]:
           })(),
           external_live: !!document.querySelector('[data-external-generation]'),
           has_alert: document.querySelectorAll('[role="alert"]').length > 0,
-        })"""
+          });
+        }"""
     )
     rows = [
         _message_metric(
@@ -552,6 +598,60 @@ def _run_final_calculator_stop(
     return final_react, final_nicegui
 
 
+def _run_shared_markdown(
+    *,
+    react: Page,
+    nicegui: Page,
+    run: Path,
+    budget: AttemptBudget,
+    mark: Callable[[str, str, Page, Page], None],
+    screenshots: list[str],
+) -> None:
+    """Run the first generation and prove paired settlement after React reload."""
+
+    budget.admit("shared_markdown")
+    composer = react.get_by_role("textbox", name="Message", exact=True)
+    composer.fill(SCENARIO_PROMPTS["shared_markdown"])
+    react.get_by_role("button", name="Send", exact=True).click()
+    try:
+        react.get_by_role("button", name="Stop", exact=True).wait_for(timeout=120_000)
+        _wait_until(
+            lambda: bool(
+                (_last_metric(_react_shape(react), "assistant") or {}).get("characters")
+            ),
+            timeout=180,
+            label="React first token",
+        )
+        _wait_until(
+            lambda: _nicegui_shape(nicegui).get("external_live") is True,
+            timeout=30,
+            label="NiceGUI shared live row",
+        )
+        mark("shared_markdown", "first_token", react, nicegui)
+        screenshots.append(_capture(react, "react", run / "shared-first-token-react.png"))
+        screenshots.append(_capture(nicegui, "nicegui", run / "shared-first-token-nicegui.png"))
+    except (PlaywrightTimeout, LiveParitySafetyError):
+        budget.mark_uncertain("shared_markdown")
+        raise
+
+    react.reload(wait_until="domcontentloaded", timeout=120_000)
+    react.get_by_role("textbox", name="Message", exact=True).wait_for(timeout=60_000)
+    mark("shared_markdown", "react_reattached", react, nicegui)
+    react.get_by_role("button", name="Send", exact=True).wait_for(timeout=300_000)
+    _wait_until(
+        lambda: not _nicegui_shape(nicegui).get("external_live"),
+        timeout=60,
+        label="NiceGUI checkpoint settlement",
+    )
+    first_react = _react_shape(react)
+    first_nicegui = _nicegui_shape(nicegui)
+    if not _structurally_same_assistant(first_react, first_nicegui):
+        raise LiveParitySafetyError(
+            "paired clients did not settle on the same assistant structure"
+        )
+    mark("shared_markdown", "checkpointed", react, nicegui)
+
+
 def _run_browser_lane(
     *,
     base: str,
@@ -561,6 +661,8 @@ def _run_browser_lane(
     budget: AttemptBudget,
     channel: str,
     resume_target: dict[str, str] | None = None,
+    resume_after_markdown: bool = False,
+    final_combined: bool = False,
 ) -> None:
     external_count = 0
     console_errors = 0
@@ -694,7 +796,7 @@ def _run_browser_lane(
         print(f"Local clients: {base}/ and {base}/app-v2/")
         print("Privacy: synthetic prompts only; no bodies, credentials, storage, or profile paths retained")
 
-        if resume_target:
+        if final_combined:
             report["last_stage"] = "safe_calculator_stop"
             final_react, final_nicegui = _run_final_calculator_stop(
                 react=react,
@@ -741,43 +843,24 @@ def _run_browser_lane(
 
         # Scenario 1: React-owned Markdown stream plus reload/reattach.
         report["last_stage"] = "shared_markdown"
-        budget.admit("shared_markdown")
-        composer = react.get_by_role("textbox", name="Message", exact=True)
-        composer.fill(SCENARIO_PROMPTS["shared_markdown"])
-        react.get_by_role("button", name="Send", exact=True).click()
-        try:
-            react.get_by_role("button", name="Stop", exact=True).wait_for(timeout=120_000)
-            _wait_until(
-                lambda: bool((_last_metric(_react_shape(react), "assistant") or {}).get("characters")),
-                timeout=180,
-                label="React first token",
+        if resume_after_markdown:
+            if not _structurally_same_assistant(
+                _react_shape(react),
+                _nicegui_shape(nicegui),
+            ):
+                raise LiveParitySafetyError(
+                    "paired clients did not settle on the same assistant structure"
+                )
+            mark("shared_markdown", "checkpointed_resume", react, nicegui)
+        else:
+            _run_shared_markdown(
+                react=react,
+                nicegui=nicegui,
+                run=run,
+                budget=budget,
+                mark=mark,
+                screenshots=screenshots,
             )
-            _wait_until(
-                lambda: _nicegui_shape(nicegui).get("external_live") is True,
-                timeout=30,
-                label="NiceGUI shared live row",
-            )
-            mark("shared_markdown", "first_token", react, nicegui)
-            screenshots.append(_capture(react, "react", run / "shared-first-token-react.png"))
-            screenshots.append(_capture(nicegui, "nicegui", run / "shared-first-token-nicegui.png"))
-        except (PlaywrightTimeout, LiveParitySafetyError):
-            budget.mark_uncertain("shared_markdown")
-            raise
-
-        react.reload(wait_until="domcontentloaded", timeout=120_000)
-        react.get_by_role("textbox", name="Message", exact=True).wait_for(timeout=60_000)
-        mark("shared_markdown", "react_reattached", react, nicegui)
-        react.get_by_role("button", name="Send", exact=True).wait_for(timeout=300_000)
-        _wait_until(
-            lambda: not _nicegui_shape(nicegui).get("external_live"),
-            timeout=60,
-            label="NiceGUI checkpoint settlement",
-        )
-        first_react = _react_shape(react)
-        first_nicegui = _nicegui_shape(nicegui)
-        if not _structurally_same_assistant(first_react, first_nicegui):
-            raise LiveParitySafetyError("paired clients did not settle on the same assistant structure")
-        mark("shared_markdown", "checkpointed", react, nicegui)
 
         # Scenario 2: NiceGUI-owned generation, stopped from React after first token.
         report["last_stage"] = "stop_interruption"
@@ -922,6 +1005,14 @@ def main() -> int:
         action="store_true",
         help="Use the single remaining attempt for calculator trace plus Stop.",
     )
+    parser.add_argument(
+        "--resume-after-markdown",
+        action="store_true",
+        help=(
+            "Reopen the prior runner-owned chat after one settled Markdown attempt "
+            "and run only the remaining Stop and calculator scenarios."
+        ),
+    )
     options = parser.parse_args()
 
     # This must remain the first operation capable of preceding profile access.
@@ -939,10 +1030,17 @@ def main() -> int:
         )
 
     attempts_before, resume_target = _recorded_live_state(options.evidence)
+    if options.final_combined and options.resume_after_markdown:
+        raise LiveParitySafetyError("live continuation modes are mutually exclusive")
     if options.final_combined:
         if attempts_before != MAX_GENERATION_ATTEMPTS - 1 or resume_target is None:
             raise LiveParitySafetyError(
                 "final combined mode requires exactly one remaining attempt and a prior validation chat"
+            )
+    elif options.resume_after_markdown:
+        if attempts_before != 1 or resume_target is None:
+            raise LiveParitySafetyError(
+                "Markdown continuation requires exactly one prior settled attempt and its validation chat"
             )
     elif attempts_before:
         raise LiveParitySafetyError(
@@ -976,7 +1074,8 @@ def main() -> int:
     secret = secrets.token_urlsafe(32)
     title = (
         resume_target["title"]
-        if options.final_combined and resume_target is not None
+        if (options.final_combined or options.resume_after_markdown)
+        and resume_target is not None
         else VALIDATION_TITLE + " " + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     )
     graceful = False
@@ -1016,7 +1115,13 @@ def main() -> int:
                         report=report,
                         budget=budget,
                         channel=options.channel,
-                        resume_target=resume_target if options.final_combined else None,
+                        resume_target=(
+                            resume_target
+                            if options.final_combined or options.resume_after_markdown
+                            else None
+                        ),
+                        resume_after_markdown=options.resume_after_markdown,
+                        final_combined=options.final_combined,
                     )
                 finally:
                     graceful = _stop_owned(process, base, secret)
@@ -1028,7 +1133,7 @@ def main() -> int:
         report["attempt_count"] = len(budget.admitted)
         report["uncertain_attempts"] = len(budget.uncertain)
         code = 2 if not budget.admitted else 1
-    except (PlaywrightTimeout, OSError, RuntimeError, ValueError) as exc:
+    except (PlaywrightError, OSError, RuntimeError, ValueError) as exc:
         report["outcome"] = "failed"
         report["failure_code"] = type(exc).__name__
         report["attempt_count"] = len(budget.admitted)

@@ -7,12 +7,19 @@ import type {
   ResourceView,
   SlashCommandSpec,
   TranscriptRow,
+  TranscriptTraceGroup,
   WriteTarget,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Button, EmptyState, Menu, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  CompactAction,
+  EmptyState,
+  Menu,
+  Skeleton,
+} from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
 import { MediaPreview as Media } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
@@ -20,7 +27,7 @@ import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
 import ConversationVoice from './ConversationVoice';
 import ResourceTargets from './ResourceTargets';
-import { Paperclip, ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Check, Copy, Paperclip, Square } from 'lucide-react';
 import SearchConversations from './SearchConversations';
 import SteeringQueue from './SteeringQueue';
 import ConversationActions from '../settings/ConversationActions';
@@ -35,6 +42,7 @@ import {
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
+import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import { ComposerSkillChips } from './ComposerSkills';
 
@@ -62,7 +70,7 @@ const Message = memo(function Message({
         ? 'Row-Bot'
         : 'Tool result';
   const visibleText =
-    expanded || row.blocks.map((block) => block.text).join('\n');
+    expanded || row.blocks.map(publicBlockText).filter(Boolean).join('\n');
   async function copy() {
     try {
       const result = await platform.writeClipboard(visibleText);
@@ -76,6 +84,13 @@ const Message = memo(function Message({
     } catch {
       setCopied(false);
       setError('The visible message could not be copied.');
+    }
+  }
+  async function copyCode(value: string) {
+    try {
+      return (await platform.writeClipboard(value)).status === 'ok';
+    } catch {
+      return false;
     }
   }
   async function more() {
@@ -129,36 +144,51 @@ const Message = memo(function Message({
                 : 'Oversized content'}
             </small>
           )}
+          <CompactAction
+            className="message-copy-action"
+            label={copied ? 'Copied message' : 'Copy message'}
+            onClick={() => void copy()}
+          >
+            {copied ? (
+              <Check aria-hidden="true" />
+            ) : (
+              <Copy aria-hidden="true" />
+            )}
+          </CompactAction>
         </header>
         <div className="message-text">
-          <SafeMarkdown text={visibleText} />
+          {expanded ? (
+            <SafeMarkdown text={expanded} copyText={copyCode} />
+          ) : (
+            <TranscriptBlocks blocks={row.blocks} copyText={copyCode} />
+          )}
         </div>
         {!!row.traces?.length && conversationId && (
           <TranscriptTrace conversation={conversationId} groups={row.traces} />
         )}
-        <div className="message-actions">
-          <Button variant="ghost" onClick={() => void copy()}>
-            {copied ? 'Copied' : 'Copy visible message'}
-          </Button>
-          {row.content_status === 'lazy' && (!expanded || cursor) && (
-            <Button onClick={() => void more()} disabled={busy}>
-              {cursor ? 'Load next content page' : 'Load message content'}
-            </Button>
-          )}
-          {!!previous.length && (
-            <Button
-              onClick={() => {
-                const start = previous.at(-1);
-                setPrevious((pages) => pages.slice(0, -1));
-                setExpanded('');
-                setCursor(start);
-                setCopied(false);
-              }}
-            >
-              Previous message portion
-            </Button>
-          )}
-        </div>
+        {((row.content_status === 'lazy' && (!expanded || cursor)) ||
+          previous.length > 0) && (
+          <div className="message-actions">
+            {row.content_status === 'lazy' && (!expanded || cursor) && (
+              <Button onClick={() => void more()} disabled={busy}>
+                {cursor ? 'Load next content page' : 'Load message content'}
+              </Button>
+            )}
+            {!!previous.length && (
+              <Button
+                onClick={() => {
+                  const start = previous.at(-1);
+                  setPrevious((pages) => pages.slice(0, -1));
+                  setExpanded('');
+                  setCursor(start);
+                  setCopied(false);
+                }}
+              >
+                Previous message portion
+              </Button>
+            )}
+          </div>
+        )}
         {copied && <small role="status">Visible message copied.</small>}
         {error && <p role="alert">{error}</p>}
       </div>
@@ -166,12 +196,48 @@ const Message = memo(function Message({
   );
 });
 
-function Approval({ id }: { id: string }) {
+function ApprovalDetails({ view }: { view: ApprovalView }) {
+  return (
+    <div className="approval-detail stack">
+      <p>{view.reason || view.summary || 'Approval review required.'}</p>
+      <dl>
+        <dt>Action</dt>
+        <dd>{view.action_label}</dd>
+        <dt>Risk</dt>
+        <dd>{view.risk_class}</dd>
+        <dt>Scope</dt>
+        <dd>{view.scope || 'Only this requested action.'}</dd>
+        {view.safe_argument_summary && (
+          <>
+            <dt>Reviewed input</dt>
+            <dd>
+              <code>{view.safe_argument_summary}</code>
+            </dd>
+          </>
+        )}
+        <dt>Expiry</dt>
+        <dd>{view.expires_at || 'No server expiry supplied'}</dd>
+      </dl>
+      <small>
+        Request {view.id} · policy revision {view.policy_revision}
+      </small>
+    </div>
+  );
+}
+
+function ApprovalBar({
+  id,
+  hint,
+}: {
+  id: string;
+  hint?: { action_label?: string; reason?: string; risk_class?: string };
+}) {
   const { controller } = useRuntime();
   const overlay = useOverlay();
   const [view, setView] = useState<ApprovalView | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resolution, setResolution] = useState('');
   useEffect(() => {
     const abort = new AbortController();
     void controller
@@ -192,44 +258,68 @@ function Approval({ id }: { id: string }) {
         { decision, nonce: view.nonce },
         view.revision,
       );
-      overlay.close();
+      setResolution(
+        decision === 'approve' ? 'Approval submitted.' : 'Rejection submitted.',
+      );
     } catch (cause) {
       setError(clientError(cause).message);
       setBusy(false);
     }
   }
   return (
-    <div className="stack">
+    <aside
+      className="approval-bar"
+      aria-label={`Approval required for ${view?.action_label || hint?.action_label || 'requested action'}`}
+      data-risk={view?.risk_class || hint?.risk_class || 'unknown'}
+    >
       {view ? (
         <>
-          <p>
-            {view.summary || 'Review the pending action before continuing.'}
-          </p>
-          <small>
-            Request {view.id} · policy revision {view.policy_revision}
-          </small>
-          <div className="button-row">
+          <div className="approval-bar-context">
+            <strong>{view.action_label}</strong>
+            <span>{view.reason || view.summary}</span>
+            <small>
+              Risk: {view.risk_class} · {view.scope}
+            </small>
+          </div>
+          <div className="approval-bar-actions">
             <Button
               variant="danger"
-              disabled={busy}
+              disabled={busy || Boolean(resolution)}
               onClick={() => void resolve('reject')}
             >
-              Reject action
+              Reject
+            </Button>
+            <Button
+              disabled={busy || Boolean(resolution)}
+              onClick={() =>
+                overlay.open({
+                  title: `Approval details · ${view.action_label}`,
+                  description: 'Review bounded public context for this action.',
+                  content: <ApprovalDetails view={view} />,
+                })
+              }
+            >
+              Details
             </Button>
             <Button
               variant="primary"
-              disabled={busy}
+              disabled={busy || Boolean(resolution)}
               onClick={() => void resolve('approve')}
             >
-              Approve action
+              Approve
             </Button>
           </div>
         </>
       ) : (
-        <Skeleton label="Loading current approval" />
+        <div className="approval-bar-context">
+          <strong>{hint?.action_label || 'Requested action'}</strong>
+          <span>{hint?.reason || 'Loading approval context…'}</span>
+          <Skeleton label="Loading current approval" />
+        </div>
       )}
+      {resolution && <p role="status">{resolution}</p>}
       {error && <p role="alert">{error}</p>}
-    </div>
+    </aside>
   );
 }
 
@@ -471,6 +561,13 @@ export default function Conversation({
                     ? 'Choose a configured model to send. You can still create or open resources.'
                     : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
+  useEffect(() => {
+    if (
+      pending?.conversation === id &&
+      rows.some((row) => row.message_id === pending.id)
+    )
+      setPending(null);
+  }, [id, pending, rows]);
   const visibleRows = rows.filter(
     (row) => row.role !== 'tool' || !row.trace_parent_id,
   );
@@ -493,6 +590,53 @@ export default function Conversation({
         : [],
     ),
   );
+  const liveTraceGroups: TranscriptTraceGroup[] = [
+    ...liveTraceEvents.values(),
+  ].flatMap((record, index) => {
+    if (
+      record.event.type !== 'tool.activity' ||
+      settledTraceCalls.has(record.event.payload.tool_call_id ?? '')
+    )
+      return [];
+    const value = record.event.payload;
+    return [
+      {
+        group_id: value.group_id || value.tool_call_id || record.event.event_id,
+        name: value.group_name || value.tool_name || 'tool',
+        kind: value.group_kind ?? 'generic',
+        group_order: index,
+        status: value.status ?? 'pending',
+        counts: { [value.status ?? 'pending']: 1 },
+        items: [
+          {
+            item_id:
+              value.item_id || value.tool_call_id || record.event.event_id,
+            group_id:
+              value.group_id || value.tool_call_id || record.event.event_id,
+            call_id: value.tool_call_id || record.event.event_id,
+            result_message_id: value.message_id ?? '',
+            call_order: 0,
+            group_order: index,
+            canonical_name: value.tool_name || 'tool',
+            group_name: value.group_name || value.tool_name || 'tool',
+            group_kind: value.group_kind ?? 'generic',
+            status: value.status ?? 'pending',
+            safe_input: value.safe_input ?? '',
+            safe_summary: value.safe_summary ?? '',
+            summary_truncated: value.summary_truncated ?? false,
+            content_ref: value.content_ref ?? '',
+          },
+        ],
+      },
+    ];
+  });
+  const approvalEvent = [...state.activity]
+    .reverse()
+    .find(
+      (record) =>
+        record.event.type === 'approval.required' &&
+        record.event.payload.approval_id === generation?.approval_id,
+    );
   const thinkingActive =
     Boolean(running) &&
     state.activity.at(-1)?.event.type === 'generation.activity';
@@ -857,7 +1001,6 @@ export default function Conversation({
         )
           controller.setDraft(target, { text: '', attachments: [] });
         if (current()) {
-          setPending(null);
           setUnknown(null);
           setMissingReceipt(null);
           setError('');
@@ -1544,44 +1687,20 @@ export default function Conversation({
                 <p>Row-Bot is working. Private reasoning is not shown.</p>
               </details>
             )}
-            {id &&
-              [...liveTraceEvents.values()]
-                .filter(
-                  (record) =>
-                    record.event.type === 'tool.activity' &&
-                    !settledTraceCalls.has(
-                      record.event.payload.tool_call_id ?? '',
-                    ),
-                )
-                .map((record) =>
-                  record.event.type === 'tool.activity' ? (
-                    <details
-                      className="trace-group trace-live"
-                      data-trace-status={record.event.payload.status}
-                      key={
-                        record.event.payload.item_id || record.event.event_id
-                      }
-                    >
-                      <summary>
-                        {record.event.payload.status === 'pending'
-                          ? 'Using'
-                          : [
-                                'failed',
-                                'blocked',
-                                'cancelled',
-                                'uncertain',
-                              ].includes(
-                                record.event.payload.status ?? 'pending',
-                              )
-                            ? 'Needs attention'
-                            : 'Done'}{' '}
-                        {record.event.payload.group_name ||
-                          record.event.payload.tool_name ||
-                          'tool'}
-                      </summary>
-                    </details>
-                  ) : null,
-                )}
+            {id && liveTraceGroups.length > 0 && (
+              <TranscriptTrace conversation={id} groups={liveTraceGroups} />
+            )}
+            {generation?.approval_id &&
+              generation.status === 'waiting_approval' && (
+                <ApprovalBar
+                  id={generation.approval_id}
+                  hint={
+                    approvalEvent?.event.type === 'approval.required'
+                      ? approvalEvent.event.payload
+                      : undefined
+                  }
+                />
+              )}
             {pending?.conversation === id &&
               !rows.some((row) => row.message_id === pending.id) && (
                 <article
@@ -1730,22 +1849,6 @@ export default function Conversation({
               : ''}
           </p>
         )}
-        {generation?.approval_id &&
-          generation.status === 'waiting_approval' && (
-            <Button
-              variant="primary"
-              onClick={() =>
-                overlay.open({
-                  title: 'Approval required',
-                  description:
-                    'Review the current server request and its consequences.',
-                  content: <Approval id={generation.approval_id!} />,
-                })
-              }
-            >
-              Review approval
-            </Button>
-          )}
         {error && (
           <div role="alert" className="chat-error">
             {error}

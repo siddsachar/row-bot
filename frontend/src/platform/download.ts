@@ -37,3 +37,20 @@ export function saveBrowserDownload(
     return null;
   });
 }
+
+/** Save bounded public text through the platform-owned browser capability. */
+export function saveTextDownload(
+  text: string,
+  name: string,
+  target: Window = window,
+) {
+  if (text.length > 2 * 1024 * 1024)
+    return Promise.resolve(unavailable('payload_too_large'));
+  return saveBrowserDownload(
+    () =>
+      Promise.resolve(new Blob([text], { type: 'text/plain;charset=utf-8' })),
+    name,
+    undefined,
+    target,
+  );
+}

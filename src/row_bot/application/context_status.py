@@ -14,23 +14,78 @@ from typing import Any, Literal, TypedDict
 
 class ContextUsageView(TypedDict):
     conversation_id: str
-    state: Literal["unknown", "saved", "stale"]
+    state: Literal["unknown", "saved", "live", "stale"]
+    freshness: Literal["unknown", "current", "stale"]
+    status: Literal["ready", "compacting", "failed", "unavailable"]
     estimated_input_tokens: int | None
     usable_input_tokens: int | None
+    compact_at_tokens: int | None
     native_window_tokens: int | None
+    effective_limit_tokens: int | None
     last_confirmed_input_tokens: int | None
     model_ref: str | None
+    scope: Literal["agent", "chat_only", "unknown"]
+    capacity_state: str
 
 
 _MAX_SNAPSHOT_BYTES = 16 * 1024
 _MAX_TOKENS = 2_147_483_647
-_COUNTS = ("estimated_input_tokens", "usable_input_tokens", "native_window_tokens", "last_confirmed_input_tokens")
+_COUNTS = (
+    "estimated_input_tokens",
+    "usable_input_tokens",
+    "compact_at_tokens",
+    "native_window_tokens",
+    "effective_limit_tokens",
+    "last_confirmed_input_tokens",
+)
 
 
 def _unknown(conversation_id: str) -> ContextUsageView:
-    return {"conversation_id": conversation_id, "state": "unknown", "estimated_input_tokens": None,
-            "usable_input_tokens": None, "native_window_tokens": None,
-            "last_confirmed_input_tokens": None, "model_ref": None}
+    return {"conversation_id": conversation_id, "state": "unknown", "freshness": "unknown",
+            "status": "unavailable", "estimated_input_tokens": None,
+            "usable_input_tokens": None, "compact_at_tokens": None,
+            "native_window_tokens": None, "effective_limit_tokens": None,
+            "last_confirmed_input_tokens": None, "model_ref": None,
+            "scope": "unknown", "capacity_state": "unavailable"}
+
+
+def project_live_usage(
+    conversation_id: str, payload: Any, event_type: str
+) -> ContextUsageView:
+    """Project one transient context event without private fingerprints."""
+
+    unknown = _unknown(conversation_id)
+    if not isinstance(payload, Mapping):
+        return unknown
+    counts: dict[str, int | None] = {}
+    for key in _COUNTS:
+        value = payload.get(key)
+        if value is not None and (type(value) is not int or not 0 <= value <= _MAX_TOKENS):
+            return unknown
+        counts[key] = value
+    model_ref = payload.get("model_ref")
+    if not isinstance(model_ref, str) or not model_ref or len(model_ref) > 256:
+        return unknown
+    scope = payload.get("mode")
+    if scope not in {"agent", "chat_only"}:
+        scope = "unknown"
+    status = {
+        "compaction_started": "compacting",
+        "compaction_failed": "failed",
+    }.get(event_type, "ready")
+    if str(payload.get("status") or "") == "unavailable":
+        status = "unavailable"
+    capacity_state = str(payload.get("capacity_state") or "unavailable")[:64]
+    return {
+        "conversation_id": conversation_id,
+        "state": "live",
+        "freshness": "current",
+        "status": status,
+        "model_ref": model_ref,
+        "scope": scope,
+        "capacity_state": capacity_state,
+        **counts,
+    }
 
 
 def read_usage(service: Any, conversation_id: str, controls: Mapping[str, Any]) -> ContextUsageView:
@@ -115,5 +170,13 @@ def _read_saved(service: Any, conversation_id: str, controls: Mapping[str, Any])
     stale = (not latest_revision or saved_revision != latest_revision
              or model_ref != expected_model or usage["mode"] != controls.get("runtime_mode")
              or bool(service.registry.active(conversation_id)))
+    status = str(usage.get("status") or "ready")
+    if status not in {"ready", "compacting", "failed", "unavailable"}:
+        status = "unavailable"
+    capacity_state = str(usage.get("capacity_state") or "unavailable")
+    if len(capacity_state) > 64 or any(ord(character) < 32 for character in capacity_state):
+        return unknown
     return {"conversation_id": conversation_id, "state": "stale" if stale else "saved",
-            "model_ref": model_ref, **counts}
+            "freshness": "stale" if stale else "current", "status": status,
+            "model_ref": model_ref, "scope": usage["mode"],
+            "capacity_state": capacity_state, **counts}

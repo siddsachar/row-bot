@@ -19,6 +19,8 @@ from row_bot.application.conversation_traces import (
     classify_tool_result,
     group_trace_items,
     project_assistant_row_traces,
+    safe_tool_call_args,
+    safe_tool_input,
     specialize_tool_result,
 )
 
@@ -178,6 +180,22 @@ def test_safe_summary_prefers_bounded_display_summary_and_excludes_private_json(
     assert (summary, truncated) == ("", False)
 
 
+def test_safe_tool_input_is_allowlisted_bounded_and_stable():
+    private = "C:/private/secret.txt"
+    args = {
+        "limit": 3,
+        "statuses": ["running", "completed"],
+        "path": private,
+        "token": "secret",
+    }
+    assert safe_tool_call_args(args) == {
+        "limit": 3,
+        "statuses": ["running", "completed"],
+    }
+    assert safe_tool_input(args) == '{"limit":3,"statuses":["running","completed"]}'
+    assert private not in safe_tool_input(args)
+
+
 def test_oversized_structured_payload_is_not_parsed_or_echoed_as_a_summary():
     private = "secret-value"
     value = '{"display_summary":"' + ("x" * 40000) + private + '"}'
@@ -217,6 +235,7 @@ def test_skill_specialization_exposes_only_reviewed_bounded_metadata():
         "agent_runs": (),
         "media_kind": "",
         "media": (),
+        "error_code": "",
     }
     assert private not in repr(specialized)
 
@@ -296,7 +315,11 @@ def test_ordered_public_rows_project_stable_grouped_assistant_traces():
             },
             "tool_calls": [
                 {"id": "call-browser-1", "name": "browser_navigate"},
-                {"id": "call-generic", "name": "workspace_read_file"},
+                {
+                    "id": "call-generic",
+                    "name": "workspace_read_file",
+                    "args": {"limit": 3, "path": "private/file.txt"},
+                },
                 {"id": "call-browser-2", "name": "browser_click"},
                 {"id": "call-pending", "name": "fixture_pending"},
             ],
@@ -351,6 +374,7 @@ def test_ordered_public_rows_project_stable_grouped_assistant_traces():
     assert [item["call_order"] for item in traces[0]["items"]] == [0, 2]
     assert traces[1]["status"] == "blocked"
     assert traces[1]["items"][0]["safe_summary"] == "Read blocked safely."
+    assert traces[1]["items"][0]["safe_input"] == '{"limit":3}'
     assert traces[2]["status"] == "pending"
     assert traces[2]["items"][0]["result_message_id"] == ""
     assert [row.get("trace_parent_id") for row in rows[1:]] == [

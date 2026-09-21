@@ -176,13 +176,42 @@ def _shell_headers(content: bytes) -> dict[str, str]:
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
             "font-src 'self' data:; worker-src 'self'; manifest-src 'self'; object-src 'none'; "
-            "frame-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
+            "frame-src 'self' https://www.youtube-nocookie.com; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
+
+
+def _client_runtime_assets() -> dict[str, ClientAsset]:
+    """Load reviewed local renderers used by typed transcript blocks."""
+
+    from row_bot.runtime_paths import static_dir
+
+    candidates: dict[str, tuple[Path, str]] = {
+        "runtime/mermaid.min.js": (static_dir(), "mermaid.min.js"),
+        "runtime/vis-network.min.js": (static_dir(), "vis-network.min.js"),
+    }
+    try:
+        import plotly
+
+        candidates["runtime/plotly.min.js"] = (
+            Path(plotly.__file__).resolve().parent / "package_data",
+            "plotly.min.js",
+        )
+    except (ImportError, AttributeError, OSError):
+        pass
+    result: dict[str, ClientAsset] = {}
+    for public_name, (root, name) in candidates.items():
+        try:
+            content = _read_regular(root, name, _MAX_FILE_BYTES)
+        except AssetValidationError:
+            continue
+        digest = hashlib.sha256(content).hexdigest()
+        result[public_name] = ClientAsset(content, "text/javascript", digest)
+    return result
 
 
 def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> None:
     """Mount only /app-v2, preserving the host's root, lifespan and access owner.
 
-    Invalid/missing builds give a safe 503 only on the opt-in client. This helper
+    Invalid/missing builds give a safe 503 only on the React client. This helper
     also requires access context itself so accidentally mounting without the
     shared middleware cannot expose the shell or assets.
     """
@@ -195,6 +224,7 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
     except (AssetValidationError, UnicodeError, OSError):
         assets = {}
         shell_headers = {}
+    runtime_assets = _client_runtime_assets()
 
     async def serve(request: Request, path: str = "") -> Response:
         try:
@@ -210,6 +240,18 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
         if not assets:
             return Response("Client preview is not built. Build the local frontend and restart the host.",
                             503, media_type="text/plain", headers=headers)
+        runtime = runtime_assets.get(path)
+        if runtime is not None:
+            return Response(
+                runtime.content if request.method != "HEAD" else b"",
+                media_type=runtime.media_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "ETag": '"' + runtime.sha256 + '"',
+                    "Content-Length": str(len(runtime.content)),
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
         asset = assets.get(path)
         if asset is not None and path != "index.html":
             cache_control = (

@@ -995,8 +995,9 @@ export class ClientController {
           ? { id: delta.row_id, role: 'assistant' as const, blocks: [] }
           : current.rows[index];
       const text =
-        row.blocks.map((block) => block.text).join('') +
-        delta.public_text_delta;
+        row.blocks
+          .map((block) => ('text' in block ? block.text : ''))
+          .join('') + delta.public_text_delta;
       if (text.length > 262144 || (index < 0 && current.rows.length >= 200))
         return 'reset';
       const changed = {
@@ -1025,7 +1026,12 @@ export class ClientController {
     ].includes(event.type)
       ? [...this.state.activity, record].slice(-200)
       : this.state.activity;
-    this.update({ projection: next, activity });
+    const workspace =
+      event.type === 'context.updated' &&
+      this.state.workspace?.conversation_id === event.conversation_id
+        ? { ...this.state.workspace, context_usage: event.payload }
+        : this.state.workspace;
+    this.update({ projection: next, activity, workspace });
     if (
       event.type === 'tool.activity' &&
       [

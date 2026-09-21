@@ -4883,25 +4883,6 @@ def _resolve_tool_display_name(func_name: str) -> str:
     return _TOOL_DISPLAY_NAMES.get(func_name, func_name)
 
 
-_SAFE_TOOL_CALL_ARG_KEYS = {
-    "category",
-    "display_name",
-    "include_events",
-    "limit",
-    "model",
-    "name",
-    "parent_message_id",
-    "parent_run_id",
-    "parent_thread_id",
-    "profile",
-    "run_id",
-    "setting",
-    "statuses",
-    "timeout_seconds",
-    "wait",
-}
-
-
 class ToolCallPayload(str):
     """String-compatible tool-call event with optional UI metadata."""
 
@@ -4940,26 +4921,9 @@ class ToolCallPayload(str):
 
 
 def _safe_tool_call_args(args: Any) -> dict[str, Any]:
-    if not isinstance(args, dict):
-        return {}
-    safe: dict[str, Any] = {}
-    for key, value in args.items():
-        clean_key = str(key or "").strip()
-        if clean_key not in _SAFE_TOOL_CALL_ARG_KEYS:
-            continue
-        if isinstance(value, bool) or value is None:
-            safe[clean_key] = value
-        elif isinstance(value, (int, float)):
-            safe[clean_key] = value
-        elif isinstance(value, str):
-            safe[clean_key] = value[:180]
-        elif isinstance(value, list):
-            safe[clean_key] = [
-                str(item)[:120]
-                for item in value[:8]
-                if isinstance(item, (str, int, float, bool))
-            ]
-    return safe
+    from row_bot.application.conversation_traces import safe_tool_call_args
+
+    return safe_tool_call_args(args)
 
 
 def _tool_call_runtime_name(tc: dict[str, Any]) -> str:
@@ -6315,6 +6279,7 @@ def _stream_graph(agent, input_data, config: dict,
     _platform_segment_id = str((config.get("configurable") or {}).get("platform_segment_id") or "")
     _platform_outputs: list[tuple[Any, str]] = []
     _tool_call_display_names: dict[str, str] = {}
+    _tool_call_safe_args: dict[str, dict[str, Any]] = {}
     _answer_chars = 0
     _answer_chunks = 0
     _reasoning_chars = 0
@@ -6521,6 +6486,9 @@ def _stream_graph(agent, input_data, config: dict,
                             _tool_call_display_names[str(tc_id)] = _resolve_tool_display_name(
                                 runtime_tool_name
                             )
+                            _tool_call_safe_args[str(tc_id)] = _safe_tool_call_args(
+                                tc.get("args")
+                            )
                             if tc_id not in _seen_tool_calls:
                                 _seen_tool_calls.add(tc_id)
                                 yield ("tool_call", _tool_call_payload(tc))
@@ -6549,6 +6517,9 @@ def _stream_graph(agent, input_data, config: dict,
                                 _resolve_tool_display_name(m.name),
                             ),
                             "raw_name": m.name,
+                            "args": _tool_call_safe_args.get(
+                                str(getattr(m, "tool_call_id", "") or ""), {}
+                            ),
                             "content": getattr(m, "content", ""),
                             "media": (getattr(m, "additional_kwargs", {}) or {}).get("platform_media", []),
                             "media_error": (getattr(m, "additional_kwargs", {}) or {}).get("platform_media_error", ""),
@@ -6677,6 +6648,9 @@ def _stream_graph(agent, input_data, config: dict,
                                         _tool_call_display_names[tc_id] = _resolve_tool_display_name(
                                             _tool_call_runtime_name(tc)
                                         )
+                                        _tool_call_safe_args[tc_id] = _safe_tool_call_args(
+                                            tc.get("args")
+                                        )
                                         yield ("tool_call", _tool_call_payload(tc))
                                 if m.type == "tool":
                                     yield ("tool_done", {
@@ -6687,6 +6661,9 @@ def _stream_graph(agent, input_data, config: dict,
                                             _resolve_tool_display_name(m.name),
                                         ),
                                         "raw_name": m.name,
+                                        "args": _tool_call_safe_args.get(
+                                            str(getattr(m, "tool_call_id", "") or ""), {}
+                                        ),
                                         "content": getattr(m, "content", ""),
                                         "media": (getattr(m, "additional_kwargs", {}) or {}).get("platform_media", []),
                                         "media_error": (getattr(m, "additional_kwargs", {}) or {}).get("platform_media_error", ""),

@@ -8,6 +8,7 @@ existing client-workspace fixture; all saved records live in its disposable
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,7 @@ from tests.browser.client_workspace import fixture_app as workspace
 from tests.helpers.client_platform_fakes import fixture_id
 
 
-FIXTURE_REVISION = "react-chat-live-parity-v2"
+FIXTURE_REVISION = "react-default-rich-parity-v3"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -38,6 +39,7 @@ def _seed_core_surface_state() -> None:
     workspace.p4_buddy(token)
 
     from row_bot import tasks
+    from row_bot.application.attachments import register_attachment
     from row_bot.threads import append_checkpoint_messages
 
     connection = tasks._get_conn()
@@ -59,6 +61,26 @@ def _seed_core_surface_state() -> None:
     finally:
         connection.close()
 
+    image_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ZsAAAAASUVORK5CYII="
+    )
+    chat_media = [
+        register_attachment("p1-browser-a", "synthetic.png", image_bytes),
+        register_attachment(
+            "p1-browser-a", "synthetic.wav", b"RIFF\x10\x00\x00\x00WAVEfmt synthetic"
+        ),
+        register_attachment(
+            "p1-browser-a", "synthetic.mp4", b"\x00\x00\x00\x18ftypisomsynthetic"
+        ),
+        register_attachment("p1-browser-a", "synthetic.txt", b"Synthetic attachment"),
+    ]
+    expired = {
+        "attachment_ref": "p1-browser-a:00000000-0000-0000-0000-000000000000",
+        "name": "expired.png",
+        "mime_type": "image/png",
+        "size_bytes": 1,
+        "revision": "1",
+    }
     append_checkpoint_messages(
         "p1-browser-a",
         [
@@ -86,12 +108,43 @@ def _seed_core_surface_state() -> None:
                 tool_call_id=fixture_id("core-parity:tool-call"),
                 content="Synthetic fixture ready.",
             ),
+            HumanMessage(
+                id=fixture_id("core-rich:user-attachments"),
+                content=(
+                    "Review the durable fixture attachments.\n\n"
+                    "<row_bot_attachment_context>private model-only fixture context"
+                    "</row_bot_attachment_context>"
+                ),
+                additional_kwargs={
+                    "platform_public_content": "Review the durable fixture attachments.",
+                    "platform_attachments": [*chat_media, expired],
+                },
+            ),
+            AIMessage(
+                id=fixture_id("core-rich:assistant"),
+                content=(
+                    "## Rich fixture\n\n"
+                    "| Item | State |\n| --- | --- |\n| Durable blocks | Ready |\n\n"
+                    "```python\nanswer = 42\n```\n\n"
+                    "```mermaid\ngraph TD\n  A[Admission] --> B[Durable row]\n```\n\n"
+                    "[Synthetic YouTube fixture](https://youtu.be/dQw4w9WgXcQ)"
+                ),
+            ),
+            AIMessage(
+                id=fixture_id("core-rich:chart"),
+                content=(
+                    '__CHART__:{"data":[{"type":"bar","x":["A","B"],"y":[1,2]}],'
+                    '"layout":{"title":{"text":"Synthetic chart"}}}\n\n'
+                    "Synthetic chart"
+                ),
+            ),
             AIMessage(
                 id=fixture_id("core-parity:assistant-final"),
                 content="The isolated comparison state is ready.",
             ),
         ],
     )
+    trace_media = register_attachment("p1-browser-b", "generated.png", image_bytes)
     trace_calls = [
         ("trace-repeat-a", "fixture_repeat", "Synthetic first result."),
         ("trace-repeat-b", "fixture_repeat", "Synthetic second result."),
@@ -129,7 +182,8 @@ def _seed_core_surface_state() -> None:
                 }
             ),
         ),
-        ("trace-media", "fixture_image", "__IMAGE__:synthetic-public-reference"),
+        ("trace-media", "fixture_image", "Synthetic generated image."),
+        ("trace-media-error", "fixture_image", "Synthetic unavailable image."),
         ("trace-large", "fixture_large", "L" * 70000),
         ("trace-pending", "computer_use", None),
     ]
@@ -157,6 +211,30 @@ def _seed_core_surface_state() -> None:
                     id=fixture_id(identity + ":result"),
                     tool_call_id=fixture_id(identity),
                     content=content,
+                    additional_kwargs=(
+                        {
+                            "platform_media": [
+                                {
+                                    "type": "media.available",
+                                    "payload": {
+                                        "media_ref": trace_media["attachment_ref"],
+                                        "mime_type": trace_media["mime_type"],
+                                    },
+                                }
+                            ]
+                        }
+                        if identity == "trace-media"
+                        else {
+                            "platform_media": [
+                                {
+                                    "type": "media.error",
+                                    "payload": {"code": "media_unavailable"},
+                                }
+                            ]
+                        }
+                        if identity == "trace-media-error"
+                        else {}
+                    ),
                 )
                 for identity, _name, content in trace_calls
                 if content is not None

@@ -816,10 +816,9 @@ describe('connection and lifecycle ownership', () => {
     await flush();
     const snapshot = value.getSnapshot().projection!;
     expect(snapshot.projection_revision).toBe(String(BigInt(before) + 2n));
-    expect(
-      snapshot.rows.find((row) => row.id === 'fixture-live-row')?.blocks[0]
-        .text,
-    ).toBe('first second');
+    const live = snapshot.rows.find((row) => row.id === 'fixture-live-row')
+      ?.blocks[0];
+    expect(live && 'text' in live ? live.text : '').toBe('first second');
     expect(value.metrics.appliedEvents).toBe(2);
     value.setVisible(false);
     value.setVisible(true);
@@ -1295,7 +1294,10 @@ describe('revisioned snapshot and independent selection', () => {
       value
         .getSnapshot()
         .projection?.rows.some((row) =>
-          row.blocks.some((block) => block.text === 'Conversation continues'),
+          row.blocks.some(
+            (block) =>
+              'text' in block && block.text === 'Conversation continues',
+          ),
         ),
     ).toBe(true);
     expect(transport.counters.active).toBe(1);
@@ -1538,7 +1540,9 @@ describe('event order, atomic reset and commands', () => {
     revision: number,
     sequence = revision,
   ): EventRecord {
-    const event = recorded<Event>('F-P03', 'Event')[0];
+    const event = recorded<Event>('F-P03', 'Event').find(
+      (value) => value.type === 'generation.state',
+    )!;
     return {
       cursor: `cursor-${revision}`,
       event: {
@@ -1565,6 +1569,57 @@ describe('event order, atomic reset and commands', () => {
     expect(value.getSnapshot().projection?.cursor).toBe('cursor-2');
     await vi.advanceTimersByTimeAsync(1000);
     expect(transport.counters.acks.at(-1)).toBe('cursor-2');
+  });
+  it('applies bounded live context usage to the selected composer workspace', async () => {
+    class ContextFixture extends FixtureTransport {
+      async workspace(id: string) {
+        const template = validateWire<wire.ConversationWorkspace>(
+          'ConversationWorkspace',
+          structuredClone(
+            thinkingRecording.records.find(
+              (item) => item.schema === 'ConversationWorkspace',
+            )!.value,
+          ),
+        );
+        return { ...template, conversation_id: id };
+      }
+    }
+    const transport = new ContextFixture();
+    const initial = recorded<SubscriptionView>('F-P03', 'SubscriptionView')[0]
+      .snapshot;
+    transport.setSnapshot(initial);
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    const record = eventRecord(initial, 1);
+    record.event = {
+      ...record.event,
+      type: 'context.updated',
+      payload: {
+        conversation_id: 'conversation-a',
+        state: 'live',
+        freshness: 'current',
+        status: 'compacting',
+        estimated_input_tokens: 80,
+        usable_input_tokens: 100,
+        compact_at_tokens: 75,
+        native_window_tokens: 128,
+        effective_limit_tokens: 100,
+        last_confirmed_input_tokens: null,
+        model_ref: 'fixture/model',
+        scope: 'agent',
+        capacity_state: 'ready',
+      },
+    };
+    transport.emit(record);
+    await flush();
+    expect(value.getSnapshot().workspace?.context_usage).toMatchObject({
+      state: 'live',
+      status: 'compacting',
+      compact_at_tokens: 75,
+    });
+    expect(value.getSnapshot().projection?.projection_revision).toBe('1');
   });
   it('resubscribes on a source sequence gap and atomically installs a new snapshot cut', async () => {
     const { value, transport, initial } = await observed();

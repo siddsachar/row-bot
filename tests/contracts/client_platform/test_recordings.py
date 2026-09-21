@@ -106,6 +106,37 @@ def test_record_f_p01_normal_native_identity(platform, client):
     trace = RecordedProtocolTrace("F-P01")
     subscription = subscribe(client, trace)
     generate(platform, client, trace, "normal-output")
+    from row_bot import threads
+
+    context_handle = platform.registry.register("conversation-a")
+    try:
+        platform.observe_event(
+            "conversation-a",
+            (
+                "context_usage",
+                {
+                    "schema_version": 2,
+                    "snapshot_kind": "transient",
+                    "mode": "agent",
+                    "model_ref": "fixture/model",
+                    "estimated_input_tokens": 120,
+                    "usable_input_tokens": 1000,
+                    "native_window_tokens": 2048,
+                    "compact_at_tokens": 750,
+                    "effective_limit_tokens": 1000,
+                    "last_confirmed_input_tokens": 100,
+                    "capacity_state": "ready",
+                    "status": "ready",
+                    "checkpoint_revision": threads.get_latest_checkpoint_revision(
+                        "conversation-a"
+                    ),
+                    "checkpoint_message_digest": "a" * 64,
+                },
+            ),
+            context_handle,
+        )
+    finally:
+        platform.registry.finish(context_handle, status="completed")
     poll(client, trace, subscription)
     tool_id, tool_ai_id, result_id, final_id = map(fixture_id, (
         "approval-tool", "approval-tool-ai", "approval-tool-result", "approval-final-ai"))
@@ -172,7 +203,6 @@ def test_record_f_p02_duplicate_reordered_event_delivery(platform, client, monke
     # Pressure comes from two real admitted fake producers. Public reset is
     # emitted by the production budget owner; the recorder never invents it.
     second_subscription = subscribe(client, trace, "conversation-b")
-    monkeypatch.setattr(platform.projection, "MAX_GLOBAL_CONTENT_BYTES", 8192)
     monkeypatch.setattr(platform.projection, "MAX_CONTENT_BYTES", 8192)
     barriers = [StreamBarrier(), StreamBarrier()]
     text = "Synthetic " * 775
@@ -192,6 +222,14 @@ def test_record_f_p02_duplicate_reordered_event_delivery(platform, client, monke
             assert response.status_code == 202, response.text
             handles.append(platform.registry.get(response.json()["execution_id"]))
             assert barriers[index].entered.wait(10)
+            if index == 0:
+                # Keep the first admitted transcript materialized, then make
+                # the second durable admission cross the shared budget. This
+                # remains deterministic when the exact user row is installed
+                # before the producer starts.
+                first_size = platform.projection._states[target].content_bytes
+                assert first_size > 0
+                monkeypatch.setattr(platform.projection, "MAX_GLOBAL_CONTENT_BYTES", first_size)
         pressure = poll(client, trace, second_subscription)
         first_pressure = poll(client, trace, subscription)
         assert any(item["event"]["type"] == "projection.reset" for item in [*pressure["events"], *first_pressure["events"]]), {

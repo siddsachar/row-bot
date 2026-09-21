@@ -1,12 +1,15 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from 'react';
-import { Button, Field, Input, Select } from '../../ui/primitives';
+  Button,
+  CompactAction,
+  Field,
+  Input,
+  Select,
+} from '../../ui/primitives';
+import KnowledgeGraphCanvas, {
+  type KnowledgeGraphHandle,
+} from './KnowledgeGraphCanvas';
 
 export type KnowledgeGraphNode = {
   id: string;
@@ -87,106 +90,16 @@ export type KnowledgeHomeProps = {
   onDream: () => void | Promise<void>;
 };
 
-type PositionedNode = KnowledgeGraphNode & { x: number; y: number };
 type DetailRecord = {
   state: 'loading' | 'ready' | 'error';
   value?: KnowledgeNodeDetail;
   error?: string;
 };
 
-const WIDTH = 960;
-const HEIGHT = 500;
-const CENTER_X = WIDTH / 2;
-const CENTER_Y = HEIGHT / 2;
-
-const TYPE_COLORS: Record<string, string> = {
-  person: '#4fc3f7',
-  preference: '#ce93d8',
-  fact: '#81c784',
-  event: '#ffb74d',
-  place: '#4dd0e1',
-  project: '#7986cb',
-  organization: '#f06292',
-  user: '#ffd54f',
-};
-
-function hashColor(value: string) {
-  let hash = 0;
-  for (const character of value)
-    hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  const palette = [
-    '#90caf9',
-    '#a5d6a7',
-    '#ffcc80',
-    '#b39ddb',
-    '#80cbc4',
-    '#ef9a9a',
-  ];
-  return palette[Math.abs(hash) % palette.length];
-}
-
-function colorForType(type: string) {
-  return TYPE_COLORS[type.toLowerCase()] ?? hashColor(type);
-}
-
-function recency(updatedAt: string) {
-  const timestamp = Date.parse(updatedAt);
-  if (!Number.isFinite(timestamp)) return 'unknown';
-  const ageDays = (Date.now() - timestamp) / 86_400_000;
-  if (ageDays <= 7) return 'recent';
-  if (ageDays <= 30) return 'current';
-  if (ageDays <= 90) return 'older';
-  return 'stale';
-}
-
-function recencyStroke(value: ReturnType<typeof recency>) {
-  if (value === 'recent') return '#ffd54f';
-  if (value === 'current') return '#ffa726';
-  if (value === 'older') return '#8d6e63';
-  return '#68707f';
-}
-
-function compactLabel(value: string) {
-  return value.length > 22 ? `${value.slice(0, 21)}…` : value;
-}
-
 function errorMessage(cause: unknown) {
   return cause instanceof Error
     ? cause.message
     : 'The entity detail could not be loaded.';
-}
-
-function layoutNodes(
-  nodes: KnowledgeGraphNode[],
-  centerId: string | null,
-): PositionedNode[] {
-  const ordered = [...nodes]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .slice(0, 250);
-  const center = ordered.find((node) => node.id === centerId);
-  const orbit = center
-    ? ordered.filter((node) => node.id !== center.id)
-    : ordered;
-  const positioned = orbit.map((node, index) => {
-    const ring = index < 16 ? 0 : Math.floor((index - 16) / 28) + 1;
-    const start = ring === 0 ? 0 : 16 + (ring - 1) * 28;
-    const count =
-      ring === 0
-        ? Math.min(16, orbit.length)
-        : Math.min(28, orbit.length - start);
-    const angle =
-      ((index - start) / Math.max(count, 1)) * Math.PI * 2 - Math.PI / 2;
-    const radiusX = Math.min(360, 175 + ring * 72);
-    const radiusY = Math.min(205, 115 + ring * 42);
-    return {
-      ...node,
-      x: CENTER_X + Math.cos(angle) * radiusX,
-      y: CENTER_Y + Math.sin(angle) * radiusY,
-    };
-  });
-  return center
-    ? [{ ...center, x: CENTER_X, y: CENTER_Y }, ...positioned]
-    : positioned;
 }
 
 function availabilityCopy(
@@ -230,8 +143,7 @@ export default function KnowledgeHome({
   const [fitAnnouncement, setFitAnnouncement] = useState('');
   const [dreamError, setDreamError] = useState('');
   const requestTicket = useRef(0);
-  const graphRef = useRef<SVGSVGElement>(null);
-  const markerId = `${useId().replaceAll(':', '')}-knowledge-arrow`;
+  const graphRef = useRef<KnowledgeGraphHandle>(null);
 
   useEffect(() => {
     setSelectedId(null);
@@ -239,14 +151,17 @@ export default function KnowledgeHome({
     requestTicket.current += 1;
   }, [snapshot?.revision]);
 
-  const allPositioned = useMemo(
-    () => layoutNodes(snapshot?.nodes ?? [], snapshot?.center_id ?? null),
-    [snapshot?.center_id, snapshot?.nodes],
+  const allNodes = useMemo(
+    () =>
+      [...(snapshot?.nodes ?? [])]
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .slice(0, 250),
+    [snapshot?.nodes],
   );
 
   const visibleNodes = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return allPositioned.filter((node) => {
+    return allNodes.filter((node) => {
       if (!showUserHub && node.is_user) return false;
       if (hideOrphans && node.orphan) return false;
       if (entityType && node.entity_type !== entityType) return false;
@@ -260,7 +175,7 @@ export default function KnowledgeHome({
         return false;
       return true;
     });
-  }, [allPositioned, entityType, hideOrphans, query, showUserHub, source]);
+  }, [allNodes, entityType, hideOrphans, query, showUserHub, source]);
 
   const visibleIds = useMemo(
     () => new Set(visibleNodes.map((node) => node.id)),
@@ -273,10 +188,6 @@ export default function KnowledgeHome({
           visibleIds.has(edge.source_id) && visibleIds.has(edge.target_id),
       ),
     [snapshot?.edges, visibleIds],
-  );
-  const positions = useMemo(
-    () => new Map(allPositioned.map((node) => [node.id, node])),
-    [allPositioned],
   );
   const selectedNode =
     snapshot?.nodes.find((node) => node.id === selectedId) ?? null;
@@ -303,12 +214,6 @@ export default function KnowledgeHome({
     }
   }
 
-  function onNodeKeyDown(event: KeyboardEvent<SVGGElement>, id: string) {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    void selectNode(id);
-  }
-
   function showAll() {
     setQuery('');
     setEntityType('');
@@ -322,7 +227,7 @@ export default function KnowledgeHome({
     setFitAnnouncement(
       `Graph fitted to ${visibleNodes.length} ${visibleNodes.length === 1 ? 'memory' : 'memories'}.`,
     );
-    graphRef.current?.focus({ preventScroll: true });
+    graphRef.current?.fit();
   }
 
   async function runDream() {
@@ -490,9 +395,30 @@ export default function KnowledgeHome({
                 />
                 Hide orphans
               </label>
-              <Button className="knowledge-graph-fit" onClick={fitGraph}>
-                Fit
-              </Button>
+              <div
+                className="knowledge-graph-navigation"
+                aria-label="Graph navigation"
+              >
+                <CompactAction
+                  label="Zoom in"
+                  onClick={() => graphRef.current?.zoom(0.2)}
+                >
+                  <ZoomIn aria-hidden="true" />
+                </CompactAction>
+                <CompactAction
+                  label="Zoom out"
+                  onClick={() => graphRef.current?.zoom(-0.2)}
+                >
+                  <ZoomOut aria-hidden="true" />
+                </CompactAction>
+                <CompactAction
+                  className="knowledge-graph-fit"
+                  label="Fit"
+                  onClick={fitGraph}
+                >
+                  <Maximize2 aria-hidden="true" />
+                </CompactAction>
+              </div>
               <Button className="knowledge-graph-show-all" onClick={showAll}>
                 Show All
               </Button>
@@ -527,122 +453,14 @@ export default function KnowledgeHome({
                     <Button onClick={showAll}>Show All</Button>
                   </div>
                 ) : view === 'graph' ? (
-                  <svg
+                  <KnowledgeGraphCanvas
                     ref={graphRef}
-                    className="knowledge-graph"
-                    viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                    width="100%"
-                    height="500"
-                    role="group"
-                    aria-label={`Knowledge graph with ${visibleNodes.length} memories and ${visibleEdges.length} connections`}
-                    tabIndex={-1}
-                    preserveAspectRatio="xMidYMid meet"
-                  >
-                    <defs>
-                      <marker
-                        id={markerId}
-                        viewBox="0 0 10 10"
-                        refX="9"
-                        refY="5"
-                        markerWidth="6"
-                        markerHeight="6"
-                        orient="auto-start-reverse"
-                      >
-                        <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
-                      </marker>
-                    </defs>
-                    <g className="knowledge-graph-edges" aria-hidden="true">
-                      {visibleEdges.map((edge) => {
-                        const from = positions.get(edge.source_id);
-                        const to = positions.get(edge.target_id);
-                        if (!from || !to) return null;
-                        const color = hashColor(edge.relation_type);
-                        return (
-                          <g
-                            key={edge.id}
-                            className="knowledge-graph-edge"
-                            data-relation-type={edge.relation_type}
-                          >
-                            <line
-                              x1={from.x}
-                              y1={from.y}
-                              x2={to.x}
-                              y2={to.y}
-                              stroke={color}
-                              strokeWidth="1.5"
-                              strokeOpacity="0.62"
-                              markerEnd={`url(#${markerId})`}
-                            />
-                            {visibleEdges.length <= 40 && (
-                              <text
-                                className="knowledge-graph-edge-label"
-                                x={(from.x + to.x) / 2}
-                                y={(from.y + to.y) / 2 - 4}
-                                textAnchor="middle"
-                                fill={color}
-                                fontSize="10"
-                              >
-                                {compactLabel(edge.relation_type)}
-                              </text>
-                            )}
-                          </g>
-                        );
-                      })}
-                    </g>
-                    <g className="knowledge-graph-nodes">
-                      {visibleNodes.map((node) => {
-                        const freshness = recency(node.updated_at);
-                        const radius = Math.min(
-                          23,
-                          12 + Math.sqrt(Math.max(0, node.relation_count)) * 2,
-                        );
-                        return (
-                          <g
-                            key={node.id}
-                            className={`knowledge-graph-node recency-${freshness}${node.id === selectedId ? ' selected' : ''}`}
-                            data-source={node.source}
-                            data-relation-count={node.relation_count}
-                            role="button"
-                            aria-label={`${node.subject}, ${node.entity_type}, ${node.relation_count} connections`}
-                            tabIndex={0}
-                            transform={`translate(${node.x} ${node.y})`}
-                            onClick={() => void selectNode(node.id)}
-                            onKeyDown={(event) => onNodeKeyDown(event, node.id)}
-                          >
-                            <title>{`${node.subject} · ${node.entity_type} · ${node.source} · ${freshness}`}</title>
-                            <circle
-                              r={radius}
-                              fill={colorForType(node.entity_type)}
-                              stroke={recencyStroke(freshness)}
-                              strokeWidth={
-                                freshness === 'recent'
-                                  ? 4
-                                  : freshness === 'current'
-                                    ? 3
-                                    : 2
-                              }
-                              strokeDasharray={
-                                node.source.toLowerCase().startsWith('document')
-                                  ? '5 3'
-                                  : undefined
-                              }
-                            />
-                            {(visibleNodes.length <= 40 ||
-                              node.id === selectedId) && (
-                              <text
-                                y={radius + 16}
-                                textAnchor="middle"
-                                fill="currentColor"
-                                fontSize="12"
-                              >
-                                {compactLabel(node.subject)}
-                              </text>
-                            )}
-                          </g>
-                        );
-                      })}
-                    </g>
-                  </svg>
+                    nodes={visibleNodes}
+                    edges={visibleEdges}
+                    centerId={snapshot.center_id}
+                    selectedId={selectedId}
+                    onSelect={(nodeId) => void selectNode(nodeId)}
+                  />
                 ) : (
                   <ul
                     className="knowledge-entity-list"

@@ -15,6 +15,11 @@
             "image/png",
             "image/jpeg",
             "video/mp4",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/wav",
+            "audio/flac",
+            "audio/aac",
             "application/pdf",
             "application/octet-stream"
           ],

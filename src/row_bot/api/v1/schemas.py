@@ -4956,6 +4956,10 @@ class ToolActivity(WireModel):
     status: Literal[
         "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
     ] = "pending"
+    safe_input: str = Field(default="", max_length=1024)
+    safe_summary: str = Field(default="", max_length=512)
+    summary_truncated: bool = False
+    content_ref: str = Field(default="", max_length=256)
 
 
 class GenerationActivity(WireModel):
@@ -4965,6 +4969,12 @@ class GenerationActivity(WireModel):
 class ApprovalRequired(WireModel):
     status: Literal["waiting_approval"]
     approval_id: OpaqueId | None = None
+    action_label: str = Field(default="Requested action", max_length=180)
+    reason: str = Field(default="", max_length=1024)
+    risk_class: Literal["low", "medium", "high", "critical", "unknown"] = "unknown"
+    scope: str = Field(default="", max_length=1024)
+    safe_argument_summary: str = Field(default="", max_length=1024)
+    requesting_trace_id: str = Field(default="", max_length=256)
 
 
 class GenerationError(WireModel):
@@ -5066,6 +5076,11 @@ class MediaAvailable(WireModel):
         "image/png",
         "image/jpeg",
         "video/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/flac",
+        "audio/aac",
         "application/pdf",
         "application/octet-stream",
     ]
@@ -5077,6 +5092,22 @@ class MediaError(WireModel):
     code: Literal["payload_too_large", "media_unavailable"]
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
+
+
+class ContextUpdated(WireModel):
+    conversation_id: OpaqueId
+    state: Literal["unknown", "saved", "live", "stale"]
+    freshness: Literal["unknown", "current", "stale"]
+    status: Literal["ready", "compacting", "failed", "unavailable"]
+    estimated_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    usable_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    compact_at_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    native_window_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    effective_limit_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    last_confirmed_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    model_ref: str | None = Field(default=None, max_length=256)
+    scope: Literal["agent", "chat_only", "unknown"] = "unknown"
+    capacity_state: str = Field(default="unavailable", max_length=64)
 
 
 EVENT_PAYLOADS = {
@@ -5092,6 +5123,7 @@ EVENT_PAYLOADS = {
     "agent.activity": AgentActivity,
     "queue.updated": QueueUpdated,
     "media.available": MediaAvailable,
+    "context.updated": ContextUpdated,
 }
 EVENT_PAYLOADS["projection.reset"] = ProjectionReset
 EVENT_PAYLOADS["media.error"] = MediaError
@@ -5125,6 +5157,7 @@ class Event(WireModel):
         "agent.activity",
         "queue.updated",
         "media.available",
+        "context.updated",
         "projection.reset",
         "media.error",
         "steering.queued",
@@ -5274,6 +5307,11 @@ class AttachmentView(WireModel):
         "image/png",
         "image/jpeg",
         "video/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/flac",
+        "audio/aac",
         "application/pdf",
         "application/octet-stream",
     ]
@@ -5311,6 +5349,57 @@ class TextBlock(WireModel):
     text: str = Field(max_length=2097152)
 
 
+class MarkdownBlock(WireModel):
+    id: OpaqueId
+    type: Literal["markdown"]
+    text: str = Field(max_length=2097152)
+
+
+class MermaidBlock(WireModel):
+    id: OpaqueId
+    type: Literal["mermaid"]
+    source: str = Field(max_length=65536)
+    text: str = Field(max_length=65600)
+
+
+class ChartBlock(WireModel):
+    id: OpaqueId
+    type: Literal["chart"]
+    figure_json: str = Field(max_length=131072)
+    text: str = Field(max_length=4096)
+
+
+class YouTubeBlock(WireModel):
+    id: OpaqueId
+    type: Literal["youtube"]
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    url: str = Field(max_length=2048)
+    title: str = Field(max_length=240)
+
+
+class AttachmentBlock(WireModel):
+    id: OpaqueId
+    type: Literal["attachment"]
+    attachment_ref: Reference
+    name: Annotated[str, StringConstraints(min_length=1, max_length=240)]
+    mime_type: str = Field(min_length=1, max_length=128)
+    size_bytes: int = Field(ge=1, le=26214400)
+    revision: Revision
+
+
+TranscriptBlock = Annotated[
+    Union[
+        TextBlock,
+        MarkdownBlock,
+        MermaidBlock,
+        ChartBlock,
+        YouTubeBlock,
+        AttachmentBlock,
+    ],
+    Field(discriminator="type"),
+]
+
+
 class TraceAgentReference(WireModel):
     run_id: str = Field(min_length=1, max_length=256)
     display_name: str = Field(max_length=256)
@@ -5332,6 +5421,7 @@ class TraceSpecialization(WireModel):
     agent_runs: list[TraceAgentReference] = Field(default_factory=list, max_length=16)
     media_kind: str = Field(default="", max_length=64)
     media: list[TraceMediaReference] = Field(default_factory=list, max_length=8)
+    error_code: str = Field(default="", max_length=80)
 
 
 class TranscriptTraceItem(WireModel):
@@ -5347,6 +5437,7 @@ class TranscriptTraceItem(WireModel):
     status: Literal[
         "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
     ]
+    safe_input: str = Field(default="", max_length=1024)
     safe_summary: str = Field(max_length=512)
     summary_truncated: bool
     content_ref: str = Field(default="", max_length=256)
@@ -5372,7 +5463,7 @@ class TranscriptRow(WireModel):
     id: str = Field(min_length=1, max_length=1024)
     message_id: str | None = Field(default=None, max_length=256)
     role: Literal["user", "assistant", "tool"]
-    blocks: list[TextBlock] = Field(max_length=256)
+    blocks: list[TranscriptBlock] = Field(max_length=256)
     tool_call_ids: list[str] = Field(default_factory=list, max_length=256)
     tool_call_id: str = Field(default="", max_length=256)
     tool_calls_ref: str | None = Field(default=None, max_length=256)
@@ -5596,6 +5687,12 @@ class ApprovalView(WireModel):
     revision: Revision
     expires_at: str | None = Field(default=None, max_length=80)
     summary: str | None = Field(default=None, max_length=4096)
+    action_label: str = Field(default="Requested action", max_length=180)
+    reason: str = Field(default="", max_length=1024)
+    risk_class: Literal["low", "medium", "high", "critical", "unknown"] = "unknown"
+    scope: str = Field(default="", max_length=1024)
+    safe_argument_summary: str = Field(default="", max_length=1024)
+    requesting_trace_id: str = Field(default="", max_length=256)
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -5622,14 +5719,8 @@ class ProfileChoice(WireModel):
     label: str = Field(max_length=256)
 
 
-class ContextUsageView(WireModel):
-    conversation_id: OpaqueId
-    state: Literal["unknown", "saved", "stale"]
-    estimated_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    usable_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    native_window_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    last_confirmed_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    model_ref: str | None = Field(default=None, max_length=256)
+class ContextUsageView(ContextUpdated):
+    pass
 
 
 class ComposerLibrary(WireModel):

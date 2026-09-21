@@ -22,6 +22,38 @@ def test_optimistic_user_key_survives_exact_checkpoint_replacement(platform):
         platform.finish_execution(handle, "interrupted")
 
 
+def test_admission_publishes_durable_user_row_before_running_generation(platform):
+    cursor = platform.projection.snapshot("conversation-a")["cursor"]
+    submission_id = "immediate-durable-input"
+
+    handle = platform.admit_execution(
+        "conversation-a",
+        {"configurable": {"platform_submission_id": submission_id}},
+        text="Visible immediately",
+    )
+    try:
+        events = platform.projection.events_since("conversation-a", cursor)["events"]
+        checkpoint = next(
+            index
+            for index, event in enumerate(events)
+            if event["type"] == "transcript.checkpoint"
+        )
+        running = next(
+            index
+            for index, event in enumerate(events)
+            if event["type"] == "generation.state"
+        )
+        assert checkpoint < running
+        rows = platform.projection.snapshot("conversation-a")["rows"]
+        assert [
+            (row["message_id"], row["blocks"][0]["text"])
+            for row in rows
+            if row.get("message_id") == submission_id
+        ] == [(submission_id, "Visible immediately")]
+    finally:
+        platform.finish_execution(handle, "interrupted")
+
+
 def test_queued_submission_reuses_exact_existing_intent_identity():
     from row_bot.ui.streaming import _optimistic_user_submission, _queued_control_message
     first = _queued_control_message("Same text", kind="follow_up", status="dispatching", label="Queued", message_id="first-intent")

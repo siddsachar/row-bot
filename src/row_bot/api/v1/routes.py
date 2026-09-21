@@ -8128,6 +8128,12 @@ def create_router(
                 "revision",
                 "expires_at",
                 "summary",
+                "action_label",
+                "reason",
+                "risk_class",
+                "scope",
+                "safe_argument_summary",
+                "requesting_trace_id",
                 "policy_revision",
             )
             if k in view

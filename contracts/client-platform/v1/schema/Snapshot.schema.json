@@ -1,5 +1,98 @@
 {
   "$defs": {
+    "AttachmentBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Attachment Ref",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "mime_type": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 26214400,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "type": {
+          "const": "attachment",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "attachment_ref",
+        "name",
+        "mime_type",
+        "size_bytes",
+        "revision"
+      ],
+      "title": "AttachmentBlock",
+      "type": "object"
+    },
+    "ChartBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "figure_json": {
+          "maxLength": 131072,
+          "title": "Figure Json",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "chart",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "figure_json",
+        "text"
+      ],
+      "title": "ChartBlock",
+      "type": "object"
+    },
     "GenerationState": {
       "additionalProperties": false,
       "properties": {
@@ -121,6 +214,70 @@
       "title": "GenerationState",
       "type": "object"
     },
+    "MarkdownBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2097152,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "markdown",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "text"
+      ],
+      "title": "MarkdownBlock",
+      "type": "object"
+    },
+    "MermaidBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 65536,
+          "title": "Source",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 65600,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "mermaid",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "text"
+      ],
+      "title": "MermaidBlock",
+      "type": "object"
+    },
     "TextBlock": {
       "additionalProperties": false,
       "properties": {
@@ -210,6 +367,12 @@
           "title": "Display Name",
           "type": "string"
         },
+        "error_code": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Error Code",
+          "type": "string"
+        },
         "evicted_skill_id": {
           "default": "",
           "maxLength": 180,
@@ -275,7 +438,37 @@
       "properties": {
         "blocks": {
           "items": {
-            "$ref": "#/$defs/TextBlock"
+            "discriminator": {
+              "mapping": {
+                "attachment": "#/$defs/AttachmentBlock",
+                "chart": "#/$defs/ChartBlock",
+                "markdown": "#/$defs/MarkdownBlock",
+                "mermaid": "#/$defs/MermaidBlock",
+                "text": "#/$defs/TextBlock",
+                "youtube": "#/$defs/YouTubeBlock"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextBlock"
+              },
+              {
+                "$ref": "#/$defs/MarkdownBlock"
+              },
+              {
+                "$ref": "#/$defs/MermaidBlock"
+              },
+              {
+                "$ref": "#/$defs/ChartBlock"
+              },
+              {
+                "$ref": "#/$defs/YouTubeBlock"
+              },
+              {
+                "$ref": "#/$defs/AttachmentBlock"
+              }
+            ]
           },
           "maxItems": 256,
           "title": "Blocks",
@@ -555,6 +748,12 @@
           "title": "Result Message Id",
           "type": "string"
         },
+        "safe_input": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Safe Input",
+          "type": "string"
+        },
         "safe_summary": {
           "maxLength": 512,
           "title": "Safe Summary",
@@ -602,6 +801,47 @@
         "summary_truncated"
       ],
       "title": "TranscriptTraceItem",
+      "type": "object"
+    },
+    "YouTubeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "youtube",
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
+        },
+        "video_id": {
+          "pattern": "^[A-Za-z0-9_-]{11}$",
+          "title": "Video Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "video_id",
+        "url",
+        "title"
+      ],
+      "title": "YouTubeBlock",
       "type": "object"
     }
   },

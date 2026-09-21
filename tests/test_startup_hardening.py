@@ -973,8 +973,8 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
         lambda server, owns_server, **_kwargs: None,
     )
 
-    def fake_open_window(port, control_port=None):
-        opened.append((port, control_port))
+    def fake_open_window(port, control_port=None, *, client_v2=True):
+        opened.append((port, control_port, client_v2))
         return SimpleNamespace(pid=2222)
 
     monkeypatch.setattr(launcher, "_open_window", fake_open_window)
@@ -991,7 +991,7 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
     launcher._run_direct(args)
 
     assert started == [(8092, "127.0.0.1")]
-    assert opened == [(8092, 18092)]
+    assert opened == [(8092, 18092, True)]
     state = json.loads((tmp_path / "launcher_state.json").read_text(encoding="utf-8"))
     assert state["port"] == 8092
     assert state["mode"] == "native"

@@ -155,10 +155,13 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
         "client_foundation",
         ("frontend/**", "src/row_bot/client_assets.py", "src/row_bot/native_client.py",
-         "src/row_bot/app.py", "scripts/verify_client_assets.py", "scripts/run_client_checks.py",
+         "src/row_bot/app.py", "src/row_bot/launcher.py",
+         "scripts/verify_client_assets.py", "scripts/run_client_checks.py",
          "scripts/client_build.py"),
-        ("tests/subsystem/client_host", "tests/subsystem/client_protocol", "tests/subsystem/installer/test_test_matrix_runner.py"),
-        "The opt-in SPA shares backend access, asset integrity and native authority; changed frontend paths also select the explicit Node lane.",
+        ("tests/subsystem/client_host", "tests/subsystem/client_protocol",
+         "tests/test_app_port.py", "tests/test_startup_hardening.py",
+         "tests/subsystem/installer/test_test_matrix_runner.py"),
+        "The default SPA shares backend access, asset integrity and native authority while the NiceGUI fallback remains mounted; changed frontend paths also select the explicit Node lane.",
     ),
     SourceTestRule(
         "public_docs_inventory",

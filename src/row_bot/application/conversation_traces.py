@@ -38,6 +38,25 @@ MAX_STRUCTURED_NODES = 512
 MAX_STRUCTURED_DEPTH = 8
 MAX_AGENT_REFERENCES = 16
 MAX_MEDIA_REFERENCES = 8
+SAFE_TOOL_CALL_ARG_KEYS: frozenset[str] = frozenset(
+    {
+        "category",
+        "display_name",
+        "include_events",
+        "limit",
+        "model",
+        "name",
+        "parent_message_id",
+        "parent_run_id",
+        "parent_thread_id",
+        "profile",
+        "run_id",
+        "setting",
+        "statuses",
+        "timeout_seconds",
+        "wait",
+    }
+)
 
 AGENT_TOOL_NAMES = {
     "agents",
@@ -80,6 +99,7 @@ class TraceSpecialization:
     agent_runs: tuple[DelegatedAgentReference, ...] = ()
     media_kind: str = ""
     media: tuple[MediaReference, ...] = ()
+    error_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,6 +116,7 @@ class TraceItem:
     group_name: str
     group_kind: TraceGroupKind
     status: TraceStatus
+    safe_input: str
     safe_summary: str
     summary_truncated: bool
     content_ref: str
@@ -159,6 +180,43 @@ def _clean_text(value: Any, maximum: int, *, fallback: str = "") -> str:
         if character in "\n\t" or ord(character) >= 32
     )
     return (text or fallback) if maximum > 0 else ""
+
+
+def safe_tool_call_args(args: Any) -> dict[str, Any]:
+    """Project only the reviewed low-risk argument vocabulary for display."""
+
+    if not isinstance(args, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    for key, value in args.items():
+        clean_key = str(key or "").strip()
+        if clean_key not in SAFE_TOOL_CALL_ARG_KEYS:
+            continue
+        if isinstance(value, bool) or value is None:
+            safe[clean_key] = value
+        elif isinstance(value, (int, float)):
+            safe[clean_key] = value
+        elif isinstance(value, str):
+            safe[clean_key] = _clean_text(value, 180)
+        elif isinstance(value, list):
+            safe[clean_key] = [
+                _clean_text(item, 120)
+                for item in value[:8]
+                if isinstance(item, (str, int, float, bool))
+            ]
+    return safe
+
+
+def safe_tool_input(args: Any) -> str:
+    """Serialize reviewed tool arguments deterministically under the wire bound."""
+
+    safe = safe_tool_call_args(args)
+    if not safe:
+        return ""
+    return _clean_text(
+        json.dumps(safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        1024,
+    )
 
 
 def _identifier(
@@ -491,8 +549,16 @@ def _media_specialization(result: Any) -> TraceSpecialization | None:
                 references.append(MediaReference(media_ref=media_ref, mime_type=mime_type))
     if references and not kind:
         kind = "attachment"
+    error_code = _clean_text(wrapper.get("media_error"), 80)
+    if error_code and not kind:
+        kind = "unavailable"
     return (
-        TraceSpecialization(kind="media", media_kind=kind, media=tuple(references))
+        TraceSpecialization(
+            kind="media",
+            media_kind=kind,
+            media=tuple(references),
+            error_code=error_code,
+        )
         if kind
         else None
     )
@@ -524,6 +590,7 @@ def build_trace_item(
     pending: bool = False,
     external_outcome: str = "",
     content_ref: str = "",
+    safe_input: str = "",
 ) -> TraceItem:
     """Build one bounded item while retaining caller-owned identity/order."""
 
@@ -549,6 +616,7 @@ def build_trace_item(
         status=classify_tool_result(
             result, pending=pending, external_outcome=external_outcome
         ),
+        safe_input=_clean_text(safe_input, 1024),
         safe_summary=summary,
         summary_truncated=truncated,
         content_ref=_identifier(content_ref, "content_ref", required=False),
@@ -632,6 +700,7 @@ def _public_specialization(
             {"media_ref": item.media_ref, "mime_type": item.mime_type}
             for item in specialization.media
         ],
+        "error_code": specialization.error_code,
     }
 
 
@@ -657,6 +726,7 @@ def public_trace_group(group: TraceGroup) -> dict[str, Any]:
                 "group_name": item.group_name,
                 "group_kind": item.group_kind,
                 "status": item.status,
+                "safe_input": item.safe_input,
                 "safe_summary": item.safe_summary,
                 "summary_truncated": item.summary_truncated,
                 "content_ref": item.content_ref,
@@ -674,7 +744,7 @@ def _row_text(row: dict[str, Any]) -> str:
     parts: list[str] = []
     retained = 0
     for block in blocks[:256]:
-        if not isinstance(block, dict) or block.get("type") != "text":
+        if not isinstance(block, dict) or block.get("type") not in {"text", "markdown", "mermaid"}:
             continue
         text = str(block.get("text") or "")
         if retained >= MAX_STRUCTURED_PAYLOAD_CHARS:
@@ -751,6 +821,7 @@ def project_assistant_row_traces(
                 "call_order": call_order,
                 "group_order": grouped_orders[group_key],
                 "tool_name": name,
+                "safe_input": safe_tool_input(raw_call.get("args")),
                 "parent_id": parent_id,
                 "parent_output_index": len(output) - 1,
                 "record_index": record_index,
@@ -777,9 +848,13 @@ def project_assistant_row_traces(
             "name": call["tool_name"],
             "content": _row_text(row),
         }
-        for field_name in ("status", "error", "ok", "media"):
+        for field_name in ("status", "error", "ok", "media", "media_error"):
             if field_name in row:
-                result[field_name] = row[field_name]
+                # These fields are checkpoint-reader inputs to the reviewed
+                # trace projection, not members of the public TranscriptRow.
+                # Consume them here so the closed wire record cannot expose
+                # the internal carrier or fail validation on reload.
+                result[field_name] = row.pop(field_name)
         call["result"] = result
         call["result_row"] = row
 
@@ -802,6 +877,7 @@ def project_assistant_row_traces(
                     pending=call["result"] is None,
                     external_outcome=str(result_row.get("external_outcome") or ""),
                     content_ref=content_ref,
+                    safe_input=call["safe_input"],
                 )
             )
         parent_index = int(projected_calls[0]["parent_output_index"])

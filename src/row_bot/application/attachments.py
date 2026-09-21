@@ -22,6 +22,20 @@ UPLOAD_BATCH_BYTES = 100 * 1024 * 1024
 UPLOAD_TTL_SECONDS = 1800
 _LOCK = threading.RLock()
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+PUBLIC_MIME_TYPES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "video/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/flac",
+        "audio/aac",
+        "application/pdf",
+        "application/octet-stream",
+    }
+)
 
 
 class AttachmentError(ValueError):
@@ -126,10 +140,27 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         metadata_name = f"attachment_{attachment_id}.json"
         # Active formats are always downloaded with attachment disposition;
         # content type is sniffed, never a client's authority claim.
-        detected = ("image/png" if data.startswith(b"\x89PNG\r\n\x1a\n") else
-                    "image/jpeg" if data.startswith(b"\xff\xd8\xff") else
-                    "video/mp4" if len(data) >= 12 and data[4:8] == b"ftyp" else
-                    "application/pdf" if data.startswith(b"%PDF-") else "application/octet-stream")
+        detected = (
+            "image/png"
+            if data.startswith(b"\x89PNG\r\n\x1a\n")
+            else "image/jpeg"
+            if data.startswith(b"\xff\xd8\xff")
+            else "video/mp4"
+            if len(data) >= 12 and data[4:8] == b"ftyp"
+            else "audio/wav"
+            if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WAVE"
+            else "audio/ogg"
+            if data.startswith(b"OggS")
+            else "audio/flac"
+            if data.startswith(b"fLaC")
+            else "audio/aac"
+            if len(data) >= 2 and data[0] == 0xFF and data[1] & 0xF6 == 0xF0
+            else "audio/mpeg"
+            if data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0)
+            else "application/pdf"
+            if data.startswith(b"%PDF-")
+            else "application/octet-stream"
+        )
         metadata = {"attachment_ref": ref, "name": name, "mime_type": detected,
                     "size_bytes": len(data), "revision": "1",
                     "sha256": hashlib.sha256(data).hexdigest()}
@@ -207,7 +238,7 @@ def _metadata(root: Path, folder: Path, attachment_id: str, reference: str) -> d
                 or metadata["name"] in {".", ".."}
                 or any(c in metadata["name"] for c in '/\\:\x00\r\n')
                 or not isinstance(metadata["mime_type"], str)
-                or metadata["mime_type"] not in {"image/png", "image/jpeg", "video/mp4", "application/pdf", "application/octet-stream"}
+                or metadata["mime_type"] not in PUBLIC_MIME_TYPES
                 or not isinstance(metadata["sha256"], str)
                 or not re.fullmatch(r"[a-f0-9]{64}", metadata["sha256"])):
             raise ValueError()

@@ -1,6 +1,6 @@
 # Shared client product system
 
-The opt-in client uses a single semantic product system. Domain features consume
+The default React client uses a single semantic product system. Domain features consume
 `frontend/src/ui`; they do not introduce separate palettes, overlay stacks or
 resizer implementations. The read-only conversation placeholder stays mounted
 under route, layout and appearance changes. Chat rendering and real Developer or

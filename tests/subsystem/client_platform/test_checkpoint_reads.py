@@ -104,6 +104,142 @@ def test_large_block_and_tool_identity_sets_are_lazy_without_metadata_loss(platf
     assert read_all(row["tool_calls_ref"]) == [call["id"] for call in calls]
 
 
+def test_reloaded_trace_reads_only_reviewed_tool_arguments(platform):
+    from row_bot import threads
+
+    assert threads.append_checkpoint_messages(
+        "conversation-a",
+        [
+            AIMessage(
+                content="",
+                id="tool-owner",
+                tool_calls=[{
+                    "id": "call-safe",
+                    "name": "fixture_tool",
+                    "args": {
+                        "limit": 3,
+                        "statuses": ["running", "completed"],
+                        "path": "C:/private/secret.txt",
+                        "token": "do-not-project",
+                    },
+                }],
+            ),
+            ToolMessage(
+                content="Synthetic public result",
+                id="tool-result",
+                tool_call_id="call-safe",
+            ),
+        ],
+    )
+
+    trace = platform.transcript("conversation-a")["rows"][0]["traces"][0]["items"][0]
+    assert trace["safe_input"] == '{"limit":3,"statuses":["running","completed"]}'
+    assert "private" not in json.dumps(trace)
+    assert "do-not-project" not in json.dumps(trace)
+
+
+def test_reloaded_trace_restores_only_opaque_generated_media_metadata(platform):
+    from row_bot import threads
+    from row_bot.api.v1.schemas import TranscriptPage
+    from row_bot.application.attachments import register_attachment
+
+    media = register_attachment(
+        "conversation-a", "generated.png", b"\x89PNG\r\n\x1a\nsynthetic"
+    )
+    assert threads.append_checkpoint_messages(
+        "conversation-a",
+        [
+            AIMessage(
+                content="",
+                id="media-owner",
+                tool_calls=[{"id": "media-call", "name": "image_gen", "args": {}}],
+            ),
+            ToolMessage(
+                content="Synthetic image generated",
+                id="media-result",
+                tool_call_id="media-call",
+                additional_kwargs={
+                    "platform_media": [
+                        {
+                            "type": "media.available",
+                            "payload": {
+                                "media_ref": media["attachment_ref"],
+                                "mime_type": media["mime_type"],
+                                "private": "must-not-project",
+                            },
+                        }
+                    ],
+                    "private": "must-not-project",
+                },
+            ),
+        ],
+    )
+
+    transcript = platform.transcript("conversation-a")
+    TranscriptPage.model_validate(transcript)
+    trace = transcript["rows"][0]["traces"][0]["items"][0]
+    assert trace["specialization"] == {
+        "kind": "media",
+        "skill_id": "",
+        "display_name": "",
+        "source": "",
+        "newly_active": None,
+        "evicted_skill_id": "",
+        "agent_runs": [],
+        "media_kind": "attachment",
+        "media": [
+            {
+                "media_ref": media["attachment_ref"],
+                "mime_type": "image/png",
+            }
+        ],
+        "error_code": "",
+    }
+    assert all("media" not in row and "media_error" not in row for row in transcript["rows"])
+    assert "must-not-project" not in json.dumps(trace)
+
+
+def test_reloaded_trace_keeps_generated_media_failure_under_closed_code(platform):
+    from row_bot import threads
+    from row_bot.api.v1.schemas import TranscriptPage
+
+    assert threads.append_checkpoint_messages(
+        "conversation-a",
+        [
+            AIMessage(
+                content="",
+                id="media-error-owner",
+                tool_calls=[{"id": "media-error-call", "name": "image_gen", "args": {}}],
+            ),
+            ToolMessage(
+                content="Synthetic operation complete",
+                id="media-error-result",
+                tool_call_id="media-error-call",
+                additional_kwargs={
+                    "platform_media": [
+                        {
+                            "type": "media.error",
+                            "payload": {
+                                "code": "media_unavailable",
+                                "private": "must-not-project",
+                            },
+                        }
+                    ]
+                },
+            ),
+        ],
+    )
+
+    transcript = platform.transcript("conversation-a")
+    TranscriptPage.model_validate(transcript)
+    trace = transcript["rows"][0]["traces"][0]["items"][0]
+    assert trace["specialization"]["media_kind"] == "unavailable"
+    assert trace["specialization"]["error_code"] == "media_unavailable"
+    assert trace["specialization"]["media"] == []
+    assert all("media" not in row and "media_error" not in row for row in transcript["rows"])
+    assert "must-not-project" not in json.dumps(trace)
+
+
 def test_checkpoint_container_work_and_depth_are_explicitly_bounded():
     import msgpack
     from row_bot.runtime.checkpoint_reader import BlobReader

@@ -40,7 +40,14 @@ The installed entry point is `row-bot serve`. The older
 compatibility path; new scripts and service definitions should use the
 subcommand. Server mode requires an authenticated browser even over loopback.
 
-Direct NiceGUI launch remains supported through the root wrapper:
+The normal launcher opens React at `/app-v2/`; use the explicit fallback when
+diagnosing the retained NiceGUI client:
+
+```powershell
+uv run python launcher.py --legacy-ui
+```
+
+Direct NiceGUI launch also remains supported through the root wrapper:
 
 ```powershell
 python app.py

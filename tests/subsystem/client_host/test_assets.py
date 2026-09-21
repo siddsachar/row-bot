@@ -61,7 +61,7 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     shell = host.get("/app-v2/")
     assert shell.status_code == 200 and shell.headers["cache-control"] == "no-store"
     assert "sha256-" in shell.headers["content-security-policy"]
-    assert "frame-src 'self'" in shell.headers["content-security-policy"]
+    assert "frame-src 'self' https://www.youtube-nocookie.com" in shell.headers["content-security-policy"]
     assert "object-src 'none'" in shell.headers["content-security-policy"]
     directives = dict(part.strip().split(' ', 1) for part in shell.headers["content-security-policy"].split(';') if part.strip())
     assert directives['media-src'].split() == ["'self'", 'blob:']
@@ -71,6 +71,11 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     asset = host.get("/app-v2/assets/index-abcdef12.js")
     assert "immutable" in asset.headers["cache-control"]
     assert asset.headers["x-content-type-options"] == "nosniff"
+    for name in ("mermaid.min.js", "vis-network.min.js", "plotly.min.js"):
+        runtime = host.get("/app-v2/runtime/" + name)
+        assert runtime.status_code == 200
+        assert runtime.headers["content-type"].startswith("text/javascript")
+        assert runtime.headers["x-content-type-options"] == "nosniff"
     for path in (".vite/manifest.json", "asset-manifest.json", "assets/missing.js", "assets/missing", "secret.txt", "%252e%252e/secret", "a%5cb"):
         assert host.get("/app-v2/" + path, headers={"Accept": "text/html"}).status_code == 404
     assert host.get("/app-v2/conversation").status_code == 404

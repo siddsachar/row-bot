@@ -1362,7 +1362,8 @@ client_platform_service.bind_voice(state.voice_coordinator,
 install_client_platform(app, client_platform_service, instance_id=client_platform_service.instance_id,
                         folder_selections=FolderSelections(picker=select_existing_workspace_folder))
 
-# The established NiceGUI shell remains the default. The new client is opt-in.
+# React is the launcher default at /app-v2/. NiceGUI remains mounted at / as
+# the explicit local --legacy-ui fallback and paired-diagnostics surface.
 from row_bot.client_assets import install_client_assets
 
 install_client_assets(app)

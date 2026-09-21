@@ -896,8 +896,21 @@ def _url_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def _client_url_for_port(port: int, *, client_v2: bool = False) -> str:
+def _client_url_for_port(port: int, *, client_v2: bool = True) -> str:
     return _url_for_port(port) + ("/app-v2/" if client_v2 else "")
+
+
+def _resolve_client_v2(args: object) -> bool:
+    """Return the selected shell; ``--client-v2`` is a deprecated no-op."""
+
+    if bool(getattr(args, "client_v2", False)) and bool(
+        getattr(args, "legacy_ui", False)
+    ):
+        raise ValueError(
+            "--client-v2 now names the default client and cannot be combined "
+            "with --legacy-ui"
+        )
+    return not bool(getattr(args, "legacy_ui", False))
 
 
 def _resolve_launch_host(cli_host: object) -> str:
@@ -2802,7 +2815,7 @@ def _ask_window_mode() -> str:
     return "native"
 
 
-def _open_in_browser(port: int = _PORT, *, client_v2: bool = False) -> None:
+def _open_in_browser(port: int = _PORT, *, client_v2: bool = True) -> None:
     """Open the Row-Bot UI in the default system browser."""
     webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
     logger.info("Opened %s in system browser on port %s", APP_DISPLAY_NAME, port)
@@ -2812,7 +2825,7 @@ def _open_window(
     port: int = _PORT,
     control_port: int | None = None,
     *,
-    client_v2: bool = False,
+    client_v2: bool = True,
 ) -> subprocess.Popen | None:
     """Open a pywebview native window pointing at the running server.
 
@@ -2890,7 +2903,7 @@ def _wait_for_server(
 
 
 class RowBotTray:
-    """System-tray icon that manages the NiceGUI server and native window."""
+    """System-tray icon that manages the shared server and selected client."""
 
     def __init__(
         self,
@@ -2898,7 +2911,7 @@ class RowBotTray:
         preferred_port: int = _PORT,
         host: str | None = None,
         preferred_mode: str | None = None,
-        client_v2: bool = False,
+        client_v2: bool = True,
         no_splash: bool = False,
         no_ollama: bool = False,
     ) -> None:
@@ -2937,7 +2950,7 @@ class RowBotTray:
         return self._window_control_port
 
     def _launch_window(self) -> subprocess.Popen | None:
-        options = {"client_v2": True} if self._client_v2 else {}
+        options = {} if self._client_v2 else {"client_v2": False}
         return _open_window(
             self._port,
             self._ensure_window_control_port(),
@@ -3508,10 +3521,10 @@ def _run_direct(args: argparse.Namespace) -> None:
         if args.native and _has_display_server():
             mode_for_state = "native"
             window_control_port = _find_free_port(port + 10000, max_tries=50)
-            window_proc = (
-                _open_window(port, window_control_port, client_v2=True)
-                if bool(getattr(args, "client_v2", False))
-                else _open_window(port, window_control_port)
+            window_proc = _open_window(
+                port,
+                window_control_port,
+                client_v2=bool(getattr(args, "client_v2", True)),
             )
             if window_proc is None:
                 window_control_port = None
@@ -3524,7 +3537,7 @@ def _run_direct(args: argparse.Namespace) -> None:
         elif _has_display_server() or not args.server:
             mode_for_state = "browser"
             _open_in_browser(
-                port, client_v2=bool(getattr(args, "client_v2", False))
+                port, client_v2=bool(getattr(args, "client_v2", True))
             )
             _launch_event("browser_opened", port=port, mode="browser")
         else:
@@ -3732,7 +3745,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--client-v2",
         action="store_true",
-        help="Open the opt-in React client at /app-v2/ (does not change the default client)",
+        help="Deprecated no-op alias for the default React client at /app-v2/",
+    )
+    parser.add_argument(
+        "--legacy-ui",
+        action="store_true",
+        help="Open the retained legacy local UI at /",
     )
     parser.add_argument(
         "--no-splash", action="store_true", help="Skip the launcher splash screen"
@@ -3801,6 +3819,10 @@ def main(argv: list[str] | None = None) -> None:
         from row_bot.plugins import devtools as plugin_devtools
 
         raise SystemExit(plugin_devtools.run_cli(args))
+    try:
+        selected_client_v2 = _resolve_client_v2(args)
+    except ValueError as exc:
+        raise SystemExit(f"row-bot: {exc}") from exc
     if getattr(args, "command", "") == "serve":
         from row_bot.access.access_routes import AccessRouteConfigStore
         from row_bot.access.cli import resolve_serve_options, serve_startup_lines
@@ -3827,10 +3849,10 @@ def main(argv: list[str] | None = None) -> None:
         args.no_ollama = not serve_options.auto_start_ollama
         args.browser = False
         args.native = False
-        args.client_v2 = False
         args.reset_tasks_db = False
         args.reset_db = False
         args.restore_data = None
+    args.client_v2 = selected_client_v2
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None

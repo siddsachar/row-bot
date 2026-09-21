@@ -170,12 +170,46 @@
     "ContextUsageView": {
       "additionalProperties": false,
       "properties": {
+        "capacity_state": {
+          "default": "unavailable",
+          "maxLength": 64,
+          "title": "Capacity State",
+          "type": "string"
+        },
+        "compact_at_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Compact At Tokens"
+        },
         "conversation_id": {
           "maxLength": 128,
           "minLength": 1,
           "pattern": "^[A-Za-z0-9:_-]+$",
           "title": "Conversation Id",
           "type": "string"
+        },
+        "effective_limit_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Limit Tokens"
         },
         "estimated_input_tokens": {
           "anyOf": [
@@ -190,6 +224,15 @@
           ],
           "default": null,
           "title": "Estimated Input Tokens"
+        },
+        "freshness": {
+          "enum": [
+            "unknown",
+            "current",
+            "stale"
+          ],
+          "title": "Freshness",
+          "type": "string"
         },
         "last_confirmed_input_tokens": {
           "anyOf": [
@@ -232,13 +275,34 @@
           "default": null,
           "title": "Native Window Tokens"
         },
+        "scope": {
+          "default": "unknown",
+          "enum": [
+            "agent",
+            "chat_only",
+            "unknown"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
         "state": {
           "enum": [
             "unknown",
             "saved",
+            "live",
             "stale"
           ],
           "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "compacting",
+            "failed",
+            "unavailable"
+          ],
+          "title": "Status",
           "type": "string"
         },
         "usable_input_tokens": {
@@ -258,7 +322,9 @@
       },
       "required": [
         "conversation_id",
-        "state"
+        "state",
+        "freshness",
+        "status"
       ],
       "title": "ContextUsageView",
       "type": "object"

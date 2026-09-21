@@ -148,6 +148,12 @@
     "ApprovalRequired": {
       "additionalProperties": false,
       "properties": {
+        "action_label": {
+          "default": "Requested action",
+          "maxLength": 180,
+          "title": "Action Label",
+          "type": "string"
+        },
         "approval_id": {
           "anyOf": [
             {
@@ -162,6 +168,42 @@
           ],
           "default": null,
           "title": "Approval Id"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Reason",
+          "type": "string"
+        },
+        "requesting_trace_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Requesting Trace Id",
+          "type": "string"
+        },
+        "risk_class": {
+          "default": "unknown",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk Class",
+          "type": "string"
+        },
+        "safe_argument_summary": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Safe Argument Summary",
+          "type": "string"
+        },
+        "scope": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Scope",
+          "type": "string"
         },
         "status": {
           "const": "waiting_approval",
@@ -274,6 +316,269 @@
         "payload"
       ],
       "title": "ApprovalRequiredEvent",
+      "type": "object"
+    },
+    "ContextUpdated": {
+      "additionalProperties": false,
+      "properties": {
+        "capacity_state": {
+          "default": "unavailable",
+          "maxLength": 64,
+          "title": "Capacity State",
+          "type": "string"
+        },
+        "compact_at_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Compact At Tokens"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "effective_limit_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Limit Tokens"
+        },
+        "estimated_input_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Input Tokens"
+        },
+        "freshness": {
+          "enum": [
+            "unknown",
+            "current",
+            "stale"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "last_confirmed_input_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Confirmed Input Tokens"
+        },
+        "model_ref": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Ref"
+        },
+        "native_window_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Window Tokens"
+        },
+        "scope": {
+          "default": "unknown",
+          "enum": [
+            "agent",
+            "chat_only",
+            "unknown"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "unknown",
+            "saved",
+            "live",
+            "stale"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "compacting",
+            "failed",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "usable_input_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usable Input Tokens"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "state",
+        "freshness",
+        "status"
+      ],
+      "title": "ContextUpdated",
+      "type": "object"
+    },
+    "ContextUpdatedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "event_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ContextUpdated"
+        },
+        "projection_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Projection Revision",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "server_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Server Epoch",
+          "type": "string"
+        },
+        "source": {
+          "default": "runtime",
+          "enum": [
+            "runtime",
+            "checkpoint",
+            "approval",
+            "resource"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Epoch",
+          "type": "string"
+        },
+        "source_sequence_end": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence End",
+          "type": "string"
+        },
+        "source_sequence_start": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence Start",
+          "type": "string"
+        },
+        "source_stream_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Stream Id",
+          "type": "string"
+        },
+        "topic": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "const": "context.updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "topic",
+        "server_epoch",
+        "conversation_id",
+        "projection_revision",
+        "source_stream_id",
+        "source_epoch",
+        "source_sequence_start",
+        "source_sequence_end",
+        "type",
+        "payload"
+      ],
+      "title": "ContextUpdatedEvent",
       "type": "object"
     },
     "GenerationActivity": {
@@ -751,6 +1056,11 @@
             "image/png",
             "image/jpeg",
             "video/mp4",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/wav",
+            "audio/flac",
+            "audio/aac",
             "application/pdf",
             "application/octet-stream"
           ],
@@ -1727,6 +2037,12 @@
     "ToolActivity": {
       "additionalProperties": false,
       "properties": {
+        "content_ref": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Content Ref",
+          "type": "string"
+        },
         "group_id": {
           "default": "",
           "maxLength": 256,
@@ -1776,6 +2092,18 @@
           "default": null,
           "title": "Pass Id"
         },
+        "safe_input": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Safe Input",
+          "type": "string"
+        },
+        "safe_summary": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Safe Summary",
+          "type": "string"
+        },
         "segment_id": {
           "anyOf": [
             {
@@ -1811,6 +2139,11 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "summary_truncated": {
+          "default": false,
+          "title": "Summary Truncated",
+          "type": "boolean"
         },
         "tool_call_id": {
           "default": "",
@@ -2326,6 +2659,7 @@
     "mapping": {
       "agent.activity": "#/$defs/AgentActivityEvent",
       "approval.required": "#/$defs/ApprovalRequiredEvent",
+      "context.updated": "#/$defs/ContextUpdatedEvent",
       "generation.activity": "#/$defs/GenerationActivityEvent",
       "generation.error": "#/$defs/GenerationErrorEvent",
       "generation.state": "#/$defs/GenerationStateEvent",
@@ -2380,6 +2714,9 @@
     },
     {
       "$ref": "#/$defs/MediaAvailableEvent"
+    },
+    {
+      "$ref": "#/$defs/ContextUpdatedEvent"
     },
     {
       "$ref": "#/$defs/ProjectionResetEvent"

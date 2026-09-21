@@ -6,6 +6,7 @@ import type {
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
+import { MediaPreview } from './MediaPreview';
 
 const ATTENTION = new Set(['failed', 'blocked', 'cancelled', 'uncertain']);
 
@@ -36,12 +37,24 @@ function specialization(item: TranscriptTraceItem) {
       </ul>
     );
   return (
-    <p className="trace-specialization">
-      Media result · {value.media_kind || 'attachment'}
-      {(value.media ?? []).length
-        ? ` · ${(value.media ?? []).length} item${(value.media ?? []).length === 1 ? '' : 's'}`
-        : ''}
-    </p>
+    <div className="trace-specialization trace-media">
+      <p>
+        Media result · {value.media_kind || 'attachment'}
+        {(value.media ?? []).length
+          ? ` · ${(value.media ?? []).length} item${(value.media ?? []).length === 1 ? '' : 's'}`
+          : ''}
+      </p>
+      {value.error_code ? (
+        <p role="alert">The generated media is unavailable.</p>
+      ) : null}
+      {(value.media ?? []).map((media) => (
+        <MediaPreview
+          key={media.media_ref}
+          reference={media.media_ref}
+          mime={media.mime_type}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -94,6 +107,12 @@ function TraceItem({
         {item.canonical_name} · {item.status}
       </summary>
       {specialization(item)}
+      {item.safe_input ? (
+        <div className="trace-input">
+          <strong>Input</strong>
+          <pre>{item.safe_input}</pre>
+        </div>
+      ) : null}
       {text ? <pre className="trace-output">{text}</pre> : null}
       {item.summary_truncated && !loaded && (
         <small>Summary truncated. Load the public result to review more.</small>

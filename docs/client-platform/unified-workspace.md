@@ -1,9 +1,9 @@
 # Unified workspace contributor cookbook
 
-The opt-in client at `/app-v2/` presents conversations, saved Designer artifacts and
-registered Developer workspaces through shared application services. NiceGUI at
-`/` remains the default application. Enabling the client does not migrate user
-data, replace the native host, or make the new client the default.
+The default client at `/app-v2/` presents conversations, saved Designer artifacts
+and registered Developer workspaces through shared application services.
+NiceGUI remains mounted at `/` as the explicit `--legacy-ui` fallback. Selecting
+either client does not migrate user data or replace the shared host.
 
 The checked-in [v1 contracts](../../contracts/client-platform/v1/schema/openapi.json)
 describe the public wire format. Python

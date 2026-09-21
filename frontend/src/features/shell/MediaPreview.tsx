@@ -44,10 +44,16 @@ function previewKind(declared: string, actual: string): PreviewKind {
 export function MediaPreview({
   reference,
   mime,
+  label,
+  downloadName = 'result',
 }: {
   reference: string;
   mime: string;
+  label?: string;
+  downloadName?: string;
 }) {
+  const accessibleLabel = label || 'Generated result';
+  const displayLabel = label || 'generated result';
   const { controller } = useRuntime();
   const [result, setResult] = useState<{
     reference: string;
@@ -107,7 +113,7 @@ export function MediaPreview({
     error?.reference === reference && error.mime === mime ? error.message : '';
   const retry = (
     <Button onClick={() => setAttempt((value) => value + 1)}>
-      Retry generated result
+      {label ? 'Retry preview' : 'Retry generated result'}
     </Button>
   );
   if (!current)
@@ -117,7 +123,7 @@ export function MediaPreview({
       </div>
     ) : (
       <p role="status" className="media-preview-status">
-        Loading generated result…
+        Loading {displayLabel}…
       </p>
     );
 
@@ -127,13 +133,13 @@ export function MediaPreview({
     <div
       className="stack media-preview"
       role="group"
-      aria-label="Generated result"
+      aria-label={accessibleLabel}
     >
       {!decodeFailed && current.kind === 'image' && (
         <img
           className="message-media"
           src={current.url}
-          alt="Generated result"
+          alt={accessibleLabel}
           onError={onError}
         />
       )}
@@ -173,9 +179,9 @@ export function MediaPreview({
       <a
         className="media-preview-download"
         href={current.url}
-        download="result"
+        download={downloadName}
       >
-        Download generated result
+        Download {displayLabel}
       </a>
     </div>
   );

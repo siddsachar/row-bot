@@ -1,10 +1,11 @@
 # Client platform service boundary
 
-NiceGUI remains the default application. Its compatibility adapter and the
-authenticated `/api/v1` transport use the same application services, execution
-registry, checkpoint store and resource bindings. This boundary does not start
-a separate daemon or copy transcripts into a new database. The opt-in React
-foundation at `/app-v2/` uses that same service boundary; NiceGUI stays at `/`.
+The launcher opens the React application at `/app-v2/` by default. The retained
+NiceGUI compatibility application stays mounted at `/` and is available through
+the explicit `--legacy-ui` launch choice. Both clients and the authenticated
+`/api/v1` transport use the same application services, execution registry,
+checkpoint store and resource bindings. This boundary does not start a separate
+daemon or copy transcripts into a new database.
 See [frontend development](../frontend/README.md),
 [dual hosting](CLIENT_PLATFORM_HOSTING.md), and
 [the shared product system](CLIENT_PLATFORM_PRODUCT_SYSTEM.md).

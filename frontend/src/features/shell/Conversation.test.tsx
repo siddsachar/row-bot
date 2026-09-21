@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
+  ApprovalView,
   CommandReceipt,
   ConversationWorkspace,
   ModelChoice,
@@ -39,6 +40,7 @@ const mock = vi.hoisted(() => ({
   routeKey: 'conversation-route',
   navigate: vi.fn(),
   intent: vi.fn(),
+  approval: vi.fn(),
   receipt: vi.fn(),
   showHistory: vi.fn(),
   showLatest: vi.fn(),
@@ -75,6 +77,7 @@ vi.mock('../../runtime', () => {
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
       intent: mock.intent,
+      approval: mock.approval,
       receipt: mock.receipt,
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,
@@ -133,6 +136,7 @@ beforeEach(() => {
   mock.drafts.clear();
   mock.setDraft.mockImplementation((id, draft) => mock.drafts.set(id, draft));
   mock.state.search = null;
+  mock.state.activity = [];
   mock.state.handshake.instance_id = crypto.randomUUID();
   mock.state.handshake.models = [];
   mock.selectConversation.mockImplementation(async (id: string) => {
@@ -270,6 +274,91 @@ function activeConversation(id = 'conversation-a') {
   return commandReceipts.scope(mock.state.handshake.instance_id, id);
 }
 
+it('anchors bounded approval context inline with canonical resolve controls', async () => {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: false,
+      can_stop: false,
+      status: 'waiting_approval',
+      approval_id: 'approval-a',
+    },
+  } as unknown as Snapshot;
+  mock.state.activity = [
+    {
+      cursor: '4',
+      event: {
+        event_id: 'event-approval',
+        type: 'approval.required',
+        conversation_id: 'conversation-a',
+        projection_revision: '4',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '4',
+        source_sequence_end: '4',
+        payload: {
+          status: 'waiting_approval',
+          approval_id: 'approval-a',
+          action_label: 'fixture_tool',
+          reason: 'Read a reviewed local value.',
+          risk_class: 'low',
+          scope: 'One local read.',
+          safe_argument_summary: '{"limit":3}',
+          requesting_trace_id: 'call-a',
+        },
+      },
+    },
+  ] as never[];
+  mock.approval.mockResolvedValue({
+    id: 'approval-a',
+    status: 'pending',
+    revision: '0',
+    expires_at: '2030-01-01T00:00:00Z',
+    summary: 'Read a reviewed local value.',
+    action_label: 'fixture_tool',
+    reason: 'Read a reviewed local value.',
+    risk_class: 'low',
+    scope: 'One local read.',
+    safe_argument_summary: '{"limit":3}',
+    requesting_trace_id: 'call-a',
+    policy_revision: '1',
+    nonce: 'n'.repeat(32),
+  } satisfies ApprovalView);
+  mock.intent.mockResolvedValue({ status: 'accepted' });
+
+  await act(async () => conversation());
+  const bar = await screen.findByRole('complementary', {
+    name: 'Approval required for fixture_tool',
+  });
+  expect(bar).toHaveTextContent('Read a reviewed local value.');
+  expect(bar).toHaveTextContent('Risk: low · One local read.');
+  expect(within(bar).getByRole('button', { name: 'Reject' })).toBeVisible();
+  expect(within(bar).getByRole('button', { name: 'Details' })).toBeVisible();
+  await act(async () =>
+    fireEvent.click(within(bar).getByRole('button', { name: 'Details' })),
+  );
+  expect(mock.open.mock.lastCall?.[0]).toMatchObject({
+    title: 'Approval details · fixture_tool',
+  });
+  await act(async () =>
+    fireEvent.click(within(bar).getByRole('button', { name: 'Approve' })),
+  );
+  expect(mock.intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'n'.repeat(32) },
+    '0',
+  );
+  expect(within(bar).getByRole('status')).toHaveTextContent(
+    'Approval submitted.',
+  );
+});
+
 it('renders assistant Markdown safely and copies only the visible canonical text', async () => {
   activeConversation();
   mock.state.projection = {
@@ -315,7 +404,7 @@ it('renders assistant Markdown safely and copies only the visible canonical text
   expect(within(message).getByText('Paged content')).toBeVisible();
   await act(async () =>
     fireEvent.click(
-      within(message).getByRole('button', { name: 'Copy visible message' }),
+      within(message).getByRole('button', { name: 'Copy message' }),
     ),
   );
   expect(mock.writeClipboard).toHaveBeenCalledExactlyOnceWith(
@@ -324,6 +413,9 @@ it('renders assistant Markdown safely and copies only the visible canonical text
   expect(within(message).getByRole('status')).toHaveTextContent(
     'Visible message copied.',
   );
+  expect(
+    within(message).getByRole('button', { name: 'Copied message' }),
+  ).toBeVisible();
 });
 
 it('opens reviewed conversation management from the existing action menu', async () => {
@@ -821,6 +913,57 @@ it('persists ordinary submit identity before dispatch and recovers a lost respon
   expect(commandReceipts.read(key)).toBeNull();
   expect(mock.drafts.get('conversation-a')?.text).toBe('Edited current draft');
   expect(mock.setDraft).not.toHaveBeenCalled();
+});
+
+it('keeps the admitted user row visible until the exact durable row is observed', async () => {
+  idleConversation();
+  mock.intent.mockImplementation(
+    async (_id, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      submission_id: payload.submission_id,
+      conversation_id: 'conversation-a',
+      status: 'accepted',
+    }),
+  );
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  const submissionId = mock.intent.mock.calls[0][2].submission_id;
+  expect(
+    screen.getByRole('article', { name: 'You message awaiting confirmation' }),
+  ).toHaveTextContent('Original queued draft');
+
+  rendered.rerender(<Conversation onPanel={vi.fn()} />);
+  expect(
+    screen.getByRole('article', { name: 'You message awaiting confirmation' }),
+  ).toBeVisible();
+
+  mock.state.projection = {
+    rows: [
+      {
+        id: `user:submission:${submissionId}`,
+        message_id: submissionId,
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Original queued draft' }],
+      },
+    ],
+    generation: null,
+  } as unknown as Snapshot;
+  await act(async () => {
+    rendered.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(
+    screen.queryByRole('article', {
+      name: 'You message awaiting confirmation',
+    }),
+  ).not.toBeInTheDocument();
+  expect(screen.getAllByRole('article', { name: 'You message' })).toHaveLength(
+    1,
+  );
 });
 
 it('does not submit when its persisted recovery identity write fails', async () => {

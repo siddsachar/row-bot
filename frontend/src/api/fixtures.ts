@@ -255,7 +255,9 @@ export class FixtureTransport implements ClientTransport {
     const rowId = 'fixture-live-row';
     const existing = snapshot.rows.find((row) => row.id === rowId);
     const content =
-      (existing?.blocks.map((block) => block.text ?? '').join('') ?? '') + text;
+      (existing?.blocks
+        .map((block) => ('text' in block ? block.text : ''))
+        .join('') ?? '') + text;
     if (content.length > 262144) throw new Error('Fixture text limit reached');
     const record: wire.EventRecord = {
       cursor: `fixture-event-${revision}`,

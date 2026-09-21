@@ -1,6 +1,12 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import KnowledgeHome, {
   type KnowledgeDreamState,
   type KnowledgeGraphSnapshot,
@@ -8,6 +14,11 @@ import KnowledgeHome, {
 } from './KnowledgeHome';
 
 const revision = 'a'.repeat(64);
+
+afterEach(() => {
+  delete window.vis;
+  vi.unstubAllGlobals();
+});
 
 const populated: KnowledgeGraphSnapshot = {
   schema_version: 1,
@@ -212,6 +223,64 @@ it('fits the visible graph and Show All restores every filter and toggle', async
     screen.getByRole('checkbox', { name: 'Hide orphans' }),
   ).not.toBeChecked();
   expect(container.querySelectorAll('.knowledge-graph-node')).toHaveLength(3);
+});
+
+it('uses the local vis runtime with bounded reduced-motion navigation', async () => {
+  const instances: Array<{
+    options: Record<string, unknown>;
+    fit: ReturnType<typeof vi.fn>;
+    moveTo: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn>;
+  }> = [];
+  class DataSet {
+    constructor(readonly items: unknown[]) {}
+  }
+  class Network {
+    fit = vi.fn();
+    moveTo = vi.fn();
+    destroy = vi.fn();
+    redraw = vi.fn();
+    selectNodes = vi.fn();
+    getScale = vi.fn(() => 1);
+    on = vi.fn();
+    constructor(
+      _root: HTMLElement,
+      _data: Record<string, unknown>,
+      readonly options: Record<string, unknown>,
+    ) {
+      instances.push(this);
+    }
+  }
+  window.vis = { DataSet, Network };
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  render(<KnowledgeHome {...props()} />);
+  await waitFor(() =>
+    expect(document.querySelector('.knowledge-network-shell')).toHaveAttribute(
+      'data-renderer-status',
+      'ready',
+    ),
+  );
+  expect(instances).toHaveLength(1);
+  expect(instances[0].options).toMatchObject({
+    physics: false,
+    interaction: {
+      keyboard: { enabled: true, bindToWindow: false },
+    },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+  expect(instances[0].moveTo).toHaveBeenCalledWith({
+    scale: 1.2,
+    animation: false,
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+  expect(instances[0].fit).toHaveBeenCalledWith({ animation: false });
 });
 
 it('loads escaped rich detail, exposes edit, and recovers from detail errors', async () => {

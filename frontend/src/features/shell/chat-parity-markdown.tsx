@@ -1,11 +1,13 @@
-import { Fragment, type JSX, type ReactNode } from 'react';
+import { Fragment, useState, type JSX, type ReactNode } from 'react';
+import { saveTextDownload } from '../../platform/download';
+import { Button } from '../../ui/primitives';
 
 const INLINE =
   /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
 
 function safeHref(value: string) {
   try {
-    const url = new URL(value, window.location.origin);
+    const url = new URL(value, 'https://row-bot.invalid');
     return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? value : null;
   } catch {
     return null;
@@ -57,11 +59,66 @@ function cells(line: string) {
     .map((cell) => cell.trim());
 }
 
+function CodeBlock({
+  language,
+  text,
+  copyText,
+}: {
+  language: string;
+  text: string;
+  copyText?: (value: string) => Promise<boolean>;
+}) {
+  const [status, setStatus] = useState('');
+  const extension = /^[A-Za-z0-9_+-]{1,20}$/.test(language)
+    ? language.toLowerCase()
+    : 'txt';
+  async function copy() {
+    try {
+      setStatus(
+        (await (copyText ?? (async () => false))(text))
+          ? 'Code copied.'
+          : 'Copy is unavailable.',
+      );
+    } catch {
+      setStatus('Code could not be copied.');
+    }
+  }
+  async function download() {
+    const result = await saveTextDownload(text, `code.${extension}`);
+    setStatus(
+      result.status === 'ok'
+        ? 'Code download prepared.'
+        : 'Code download is unavailable.',
+    );
+  }
+  return (
+    <figure className="code-block">
+      <figcaption>
+        <span>{language || 'Plain text'}</span>
+        <span className="code-block-actions">
+          <Button onClick={() => void copy()}>Copy code</Button>
+          <Button onClick={() => void download()}>Download code</Button>
+        </span>
+      </figcaption>
+      <pre className="code-sample">
+        <code data-language={language || undefined}>{text}</code>
+      </pre>
+      {status && <small role="status">{status}</small>}
+    </figure>
+  );
+}
+
 /**
  * A deliberately small, text-only Markdown projection. React owns escaping;
  * raw HTML is never parsed and only allow-listed link protocols become links.
  */
-export default function SafeMarkdown({ text }: { text: string }) {
+export default function SafeMarkdown({
+  text,
+  copyText,
+}: {
+  text: string;
+  copyText?: (value: string) => Promise<boolean>;
+}) {
   const lines = text.replaceAll('\r\n', '\n').split('\n');
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -82,11 +139,12 @@ export default function SafeMarkdown({ text }: { text: string }) {
         content.push(lines[index++]);
       if (index < lines.length) index++;
       blocks.push(
-        <pre className="code-sample" key={`code-${index}`}>
-          <code data-language={language || undefined}>
-            {content.join('\n')}
-          </code>
-        </pre>,
+        <CodeBlock
+          copyText={copyText}
+          language={language}
+          text={content.join('\n')}
+          key={`code-${index}`}
+        />,
       );
       continue;
     }
