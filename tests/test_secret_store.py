@@ -19,6 +19,23 @@ class _UnavailableKeyring:
         raise RuntimeError("No recommended backend was available")
 
 
+class _CapacityLimitedKeyring:
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, str], str] = {}
+        self.fail_writes = True
+
+    def get_password(self, service, account):
+        return self.values.get((service, account))
+
+    def set_password(self, service, account, value):
+        if self.fail_writes:
+            raise OSError(8, "synthetic Credential Manager capacity failure")
+        self.values[service, account] = value
+
+    def delete_password(self, service, account):
+        self.values.pop((service, account), None)
+
+
 def test_persistent_server_secret_initializer_creates_once_and_reuses_key(
     tmp_path,
 ) -> None:
@@ -304,6 +321,84 @@ def test_encrypted_server_store_is_not_an_implicit_plaintext_fallback(
         assert list(data_dir.rglob("*")) == []
     finally:
         secret_store._set_backend_for_tests(None)
+
+
+def test_windows_user_encrypted_fallback_survives_keyring_capacity_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from row_bot import secret_store
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("ROW_BOT_SECRETS_DIR", raising=False)
+    monkeypatch.setattr(secret_store, "_windows_user_secret_supported", lambda: True)
+
+    def protect(value: bytes, entropy: bytes) -> bytes:
+        mask = sum(entropy) % 251 + 1
+        return bytes(byte ^ mask for byte in value)
+
+    monkeypatch.setattr(secret_store, "_protect_windows_user_data", protect)
+    monkeypatch.setattr(secret_store, "_unprotect_windows_user_data", protect)
+    backend = _CapacityLimitedKeyring()
+    account = "providers:codex:oauth.access_token.g." + ("a" * 32) + ".00"
+    backend.values[secret_store.SERVICE_NAME, account] = "stale-keyring-value"
+    secret_store._set_backend_for_tests(backend)
+    try:
+        source = secret_store.set_secret(
+            "oauth.access_token.g." + ("a" * 32) + ".00",
+            "new-dpapi-protected-value",
+            namespace="providers:codex",
+        )
+
+        assert source == "encrypted_file"
+        records = list((data_dir / secret_store.PERSISTENT_SERVER_SECRET_DIR_NAME).glob("*.secret"))
+        assert len(records) == 1
+        payload = records[0].read_bytes()
+        assert payload.startswith(b"ROWBOT-DPAPI-V1\x00")
+        assert b"new-dpapi-protected-value" not in payload
+        assert secret_store.get_secret(
+            "oauth.access_token.g." + ("a" * 32) + ".00",
+            namespace="providers:codex",
+        ) == "new-dpapi-protected-value"
+
+        secret_store._set_backend_for_tests(_UnavailableKeyring())
+        secret_store.delete_secret(
+            "oauth.access_token.g." + ("a" * 32) + ".00",
+            namespace="providers:codex",
+        )
+        assert not records[0].exists()
+
+        secret_store._set_backend_for_tests(backend)
+        assert secret_store.set_secret(
+            "oauth.access_token.g." + ("a" * 32) + ".00",
+            "replacement-dpapi-protected-value",
+            namespace="providers:codex",
+        ) == "encrypted_file"
+        backend.fail_writes = False
+        assert secret_store.set_secret(
+            "oauth.access_token.g." + ("a" * 32) + ".00",
+            "recovered-keyring-value",
+            namespace="providers:codex",
+        ) == "keyring"
+        assert not records[0].exists()
+        assert secret_store.get_secret(
+            "oauth.access_token.g." + ("a" * 32) + ".00",
+            namespace="providers:codex",
+        ) == "recovered-keyring-value"
+    finally:
+        secret_store._set_backend_for_tests(None)
+
+
+def test_test_mode_requires_an_explicit_secret_backend(monkeypatch) -> None:
+    from row_bot import secret_store
+
+    monkeypatch.setenv("ROW_BOT_TEST_MODE", "1")
+    secret_store._set_backend_for_tests(None)
+
+    with pytest.raises(secret_store.SecretStoreError, match="test mode"):
+        secret_store._backend()
 
 
 def test_encrypted_server_store_survives_a_fresh_python_process(

@@ -80,6 +80,7 @@ def test_passive_review_redacts_secrets_and_never_writes(store):
 @pytest.mark.parametrize("failure", ["write", "readback", "publication"])
 def test_failed_replacement_preserves_original_bytes_and_effective_value(store, monkeypatch, failure):
     before = Path(config.CONFIG_PATH).read_bytes()
+    stored_before = dict(store.values)
     if failure == "write":
         store.failure = True
     elif failure == "readback":
@@ -91,6 +92,7 @@ def test_failed_replacement_preserves_original_bytes_and_effective_value(store, 
         apply(value)
     assert auth_store.get_provider_secret("openai") == "old-synthetic-secret"
     assert Path(config.CONFIG_PATH).read_bytes() == before
+    assert store.values == stored_before
     assert auth_store._session_provider_secrets == {}
     with pytest.raises(controls.CredentialControlError, match="operation_uncertain"):
         apply(value)
@@ -114,6 +116,18 @@ def test_restore_original_legacy_after_first_replacement(store):
     apply(command())
     apply(command("restore"))
     assert auth_store.get_provider_secret("openai") == "old-synthetic-secret"
+
+
+def test_repeated_replacements_retain_only_current_and_previous_generations(store):
+    apply(command(value="first-synthetic-secret"))
+    apply(command(value="second-synthetic-secret"))
+    apply(command(value="third-synthetic-secret"))
+
+    generation_accounts = {account for _service, account in store.values
+                           if account.startswith("providers:openai:api_key.g.")}
+    assert len(generation_accounts) == 2
+    assert "first-synthetic-secret" not in store.values.values()
+    assert auth_store.get_provider_secret("openai") == "third-synthetic-secret"
 
 
 def test_crash_after_config_publication_recovers_original_receipt_without_second_write(store, monkeypatch):

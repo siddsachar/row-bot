@@ -95,9 +95,11 @@ def test_probe_started_before_same_url_recreation_cannot_publish(store, monkeypa
     assert "models" not in custom.get_custom_endpoint("synthetic")
 
 
-def test_save_clear_restore_keep_previous_bytes_and_scope(store):
+def test_save_clear_restore_retires_unreferenced_bytes_and_keeps_scope(store):
     start()
     before = dict(store.values)
+    superseded = {key for key in before if key[1].startswith(f"providers:{PROVIDER}:api_key.g.")}
+    assert superseded
     first_scope = config.load_provider_config()["custom_endpoints"][0]["credential_scope"]
     execute(command())
     assert auth_store.get_provider_secret(PROVIDER) == "replacement-synthetic-value"
@@ -105,7 +107,7 @@ def test_save_clear_restore_keep_previous_bytes_and_scope(store):
     assert auth_store.get_provider_secret(PROVIDER) == ""
     execute(command("restore"))
     assert auth_store.get_provider_secret(PROVIDER) == "replacement-synthetic-value"
-    assert all(store.values[key] == value for key, value in before.items())
+    assert superseded.isdisjoint(store.values)
     assert config.load_provider_config()["custom_endpoints"][0]["credential_scope"] == first_scope
 
 
