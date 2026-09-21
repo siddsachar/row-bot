@@ -3000,7 +3000,20 @@ async def index():
         elif _dialog == "export":
             defer_ui(_open_export, delay=0.25)
         elif _dialog == "workflow-editor":
-            defer_ui(lambda: _show_task_dialog(None, lambda: _rebuild_main()), delay=0.25)
+            _workflow_id = str(_docs_capture_intent.get("workflow_id") or "")
+
+            def _open_docs_workflow() -> None:
+                selected = None
+                if _workflow_id:
+                    from row_bot.tasks import list_tasks
+
+                    selected = next(
+                        (task for task in list_tasks() if str(task.get("id") or "") == _workflow_id),
+                        None,
+                    )
+                _show_task_dialog(selected, lambda: _rebuild_main())
+
+            defer_ui(_open_docs_workflow, delay=0.25)
         elif _dialog == "skills-hub":
             from row_bot.skills_hub.ui import open_skills_hub_dialog
 

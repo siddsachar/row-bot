@@ -108,7 +108,7 @@ def test_landing_page_is_evergreen_and_current() -> None:
     ]
     assert "Row-Bot 4.9.1 available" in HTML
     assert "Row-Bot &middot; v4.9.1 &middot; Apache 2.0" in HTML
-    assert 'src="img/screenshots/real-ui/home-knowledge.png?v=4.9.1-r1"' in HTML
+    assert 'src="media/landing-story/screenshots/research-local.webp"' in HTML
     assert (
         "agents, models, tools, memory, documents, workflows, code, design, "
         "messaging, and voice"
@@ -127,7 +127,7 @@ def test_landing_page_fallbacks_and_links_are_complete() -> None:
             assert href[1:] in parser.ids, href
 
     os_primary = [link for link in parser.links if "data-os-primary" in link]
-    assert {link["href"] for link in os_primary} == {"#demos", "#install"}
+    assert {link["href"] for link in os_primary} == {"#proof", "#install"}
     assert all(not link["href"].endswith((".exe", ".dmg")) for link in os_primary)
 
     hrefs = [link.get("href") for link in parser.links]

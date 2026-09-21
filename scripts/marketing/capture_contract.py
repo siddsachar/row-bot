@@ -6,12 +6,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
 
 SCHEMA_VERSION = 1
-MAX_GENERATION_ATTEMPTS = 12
+MAX_GENERATION_ATTEMPTS = 6
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MODEL_REF_PATTERN = re.compile(r"^model:[a-z0-9][a-z0-9_-]*:.+$")
 ALLOWED_OUTPUTS = frozenset({"webp", "webm"})
@@ -56,6 +57,22 @@ class ViewportSpec:
 
 
 @dataclass(frozen=True)
+class PublicSourceSpec:
+    id: str
+    url: str
+
+
+@dataclass(frozen=True)
+class PreparationSpec:
+    id: str
+    record: str
+    title: str
+    model_role: str
+    reasoning: str
+    prompt: str
+
+
+@dataclass(frozen=True)
 class SceneSpec:
     id: str
     surface: str
@@ -75,6 +92,8 @@ class LandingStoryManifest:
     story: StorySpec
     models: ModelSpec
     viewports: dict[str, ViewportSpec]
+    public_sources: tuple[PublicSourceSpec, ...]
+    preparation: tuple[PreparationSpec, ...]
     canonical_task: str
     scenes: tuple[SceneSpec, ...]
 
@@ -195,6 +214,42 @@ def _scene(value: Any, index: int, *, model_roles: set[str]) -> SceneSpec:
     )
 
 
+def _public_source(value: Any, index: int) -> PublicSourceSpec:
+    label = f"public_sources[{index}]"
+    selected = _mapping(value, label)
+    url = _nonempty_string(selected.get("url"), f"{label}.url")
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise CaptureContractError(f"{label}.url must be an absolute HTTPS URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise CaptureContractError(f"{label}.url must not contain credentials, query, or fragment")
+    return PublicSourceSpec(id=_slug(selected.get("id"), f"{label}.id"), url=url)
+
+
+def _preparation(
+    value: Any,
+    index: int,
+    *,
+    model_roles: set[str],
+) -> PreparationSpec:
+    label = f"preparation[{index}]"
+    selected = _mapping(value, label)
+    model_role = _nonempty_string(selected.get("model_role"), f"{label}.model_role")
+    if model_role not in model_roles:
+        raise CaptureContractError(f"{label}.model_role is not declared in models")
+    reasoning = _nonempty_string(selected.get("reasoning"), f"{label}.reasoning")
+    if reasoning not in {"low", "medium", "high", "xhigh"}:
+        raise CaptureContractError(f"{label}.reasoning is not supported")
+    return PreparationSpec(
+        id=_slug(selected.get("id"), f"{label}.id"),
+        record=_slug(selected.get("record"), f"{label}.record"),
+        title=_nonempty_string(selected.get("title"), f"{label}.title"),
+        model_role=model_role,
+        reasoning=reasoning,
+        prompt=_nonempty_string(selected.get("prompt"), f"{label}.prompt"),
+    )
+
+
 def parse_manifest(data: Any) -> LandingStoryManifest:
     """Parse and validate a deserialized landing-story manifest."""
 
@@ -240,6 +295,31 @@ def parse_manifest(data: Any) -> LandingStoryManifest:
         name: _viewport(name, raw_viewports[name]) for name in sorted(raw_viewports)
     }
 
+    raw_sources = root.get("public_sources")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise CaptureContractError("public_sources must be a non-empty list")
+    public_sources = tuple(
+        _public_source(value, index) for index, value in enumerate(raw_sources)
+    )
+    if len({source.id for source in public_sources}) != len(public_sources):
+        raise CaptureContractError("public source IDs must be unique")
+
+    raw_preparation = root.get("preparation")
+    if not isinstance(raw_preparation, list) or not raw_preparation:
+        raise CaptureContractError("preparation must be a non-empty list")
+    preparation = tuple(
+        _preparation(value, index, model_roles=expected_model_roles)
+        for index, value in enumerate(raw_preparation)
+    )
+    if len(preparation) >= attempts:
+        raise CaptureContractError(
+            "preparation must reserve at least one generation attempt for explicit recovery"
+        )
+    if len({step.id for step in preparation}) != len(preparation):
+        raise CaptureContractError("preparation IDs must be unique")
+    if len({step.record for step in preparation}) != len(preparation):
+        raise CaptureContractError("preparation record keys must be unique")
+
     raw_scenes = root.get("scenes")
     if not isinstance(raw_scenes, list) or not raw_scenes:
         raise CaptureContractError("scenes must be a non-empty list")
@@ -258,6 +338,8 @@ def parse_manifest(data: Any) -> LandingStoryManifest:
         story=story,
         models=models,
         viewports=viewports,
+        public_sources=public_sources,
+        preparation=preparation,
         canonical_task=_nonempty_string(root.get("canonical_task"), "canonical_task"),
         scenes=scenes,
     )

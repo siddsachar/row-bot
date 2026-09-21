@@ -32,6 +32,11 @@ def test_canonical_manifest_is_client_neutral_and_complete() -> None:
     assert manifest.models.frontier == "model:codex:gpt-5.6-sol"
     assert manifest.viewports["desktop"].width == 1920
     assert manifest.viewports["mobile"].height == 844
+    assert len(manifest.public_sources) == 3
+    assert len(manifest.preparation) == 5
+    assert [step.model_role for step in manifest.preparation] == [
+        "local", "local", "frontier", "frontier", "local"
+    ]
     assert set(manifest.scenes_by_id) == {
         "approval-boundary",
         "designer-output",
@@ -77,9 +82,27 @@ def test_every_scene_must_be_explicitly_public_safe(raw_manifest: dict) -> None:
 
 def test_generation_budget_is_bounded(raw_manifest: dict) -> None:
     changed = deepcopy(raw_manifest)
-    changed["story"]["max_generation_attempts"] = 13
+    changed["story"]["max_generation_attempts"] = 7
 
-    with pytest.raises(CaptureContractError, match="must not exceed 12"):
+    with pytest.raises(CaptureContractError, match="must not exceed 6"):
+        parse_manifest(changed)
+
+
+def test_preparation_reserves_an_explicit_recovery_attempt(raw_manifest: dict) -> None:
+    changed = deepcopy(raw_manifest)
+    changed["preparation"].append(deepcopy(changed["preparation"][0]))
+    changed["preparation"][-1]["id"] = "automatic-retry"
+    changed["preparation"][-1]["record"] = "automatic-retry"
+
+    with pytest.raises(CaptureContractError, match="reserve at least one"):
+        parse_manifest(changed)
+
+
+def test_public_sources_are_https_and_credential_free(raw_manifest: dict) -> None:
+    changed = deepcopy(raw_manifest)
+    changed["public_sources"][0]["url"] = "https://user:secret@example.com/page"
+
+    with pytest.raises(CaptureContractError, match="must not contain credentials"):
         parse_manifest(changed)
 
 

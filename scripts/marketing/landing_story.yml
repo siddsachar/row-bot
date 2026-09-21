@@ -23,6 +23,71 @@ canonical_task: >-
   concise campaign brief, a visual launch concept, and a recurring weekly
   intelligence workflow. Keep file writes and external delivery behind approval.
 
+public_sources:
+  - id: row-bot-home
+    url: https://row-bot.ai/
+  - id: row-bot-architecture
+    url: https://row-bot.ai/architecture.html
+  - id: row-bot-public-repository
+    url: https://github.com/siddsachar/row-bot
+
+preparation:
+  - id: research-source-digest
+    record: local-first-ai-landscape
+    title: Local-first AI landscape
+    model_role: local
+    reasoning: high
+    prompt: >-
+      This is a public-safe marketing research workspace. Research how
+      local-first AI changes ownership and control of knowledge work using only
+      https://row-bot.ai/, https://row-bot.ai/architecture.html, and the public
+      committed Row-Bot repository documentation. Show source links and tool
+      activity. Do not read local files, private history, credentials, channels,
+      or uncommitted repository content. Produce a concise evidence-led digest.
+  - id: knowledge-synthesis
+    record: what-should-stay-local
+    title: What should stay local?
+    model_role: local
+    reasoning: high
+    prompt: >-
+      Synthesize the public research into a short decision framework titled
+      "What should stay local?" Cover conversations, knowledge, workflows,
+      approvals, and explicit hosted-provider boundaries. Extract durable
+      public-safe knowledge where the normal Row-Bot workflow supports it. Do
+      not use private profile material or make external writes.
+  - id: campaign-synthesis
+    record: campaign-narrative
+    title: Campaign narrative
+    model_role: frontier
+    reasoning: high
+    prompt: >-
+      Using only the public-safe findings already visible in this workspace,
+      create a concise launch campaign brief for Row-Bot. Lead with "Think it.
+      Build it. Run it. Keep it yours." Make the handoff to this hosted model
+      explicit and do not claim this model runs locally. Include audience,
+      promise, proof, and a six-section narrative. Do not deliver externally.
+  - id: designer-direction
+    record: landing-visual-direction
+    title: Landing visual direction
+    model_role: frontier
+    reasoning: high
+    prompt: >-
+      Create an editable Designer direction for the public Row-Bot launch story:
+      dark mission-control atmosphere, the Orbit Buddy as guide, real product UI
+      as proof, cobalt and amber accents, readable statement-led typography, and
+      an honest labelled boundary between local Qwen and hosted GPT-5.6 Sol.
+      Review it for clarity and accessibility. Do not publish or share it.
+  - id: workflow-execution
+    record: weekly-sovereignty-watch
+    title: Weekly sovereignty watch
+    model_role: local
+    reasoning: medium
+    prompt: >-
+      Produce one public-safe weekly local-first AI intelligence update from the
+      approved public sources. This output is for the disabled-delivery workflow
+      named "Weekly sovereignty watch". Do not message a channel, recipient, or
+      webhook and do not write outside the Row-Bot profile.
+
 scenes:
   - id: hero-app
     surface: conversation

@@ -462,6 +462,8 @@ def configure_docs_capture_state(
         "settings_tab": query.get("settings_tab", ""),
         "dialog": query.get("dialog", ""),
         "mobile_view": query.get("mobile_view", ""),
+        "project_id": query.get("project_id", ""),
+        "workflow_id": query.get("workflow_id", ""),
     }
     real_data = is_docs_real_data_capture()
     demo = {} if real_data else load_docs_capture_demo_state()
@@ -473,7 +475,9 @@ def configure_docs_capture_state(
         from row_bot.designer.storage import list_projects, load_project
 
         project_id = str((demo.get("designer") or {}).get("project_id") or "")
-        if real_data:
+        if real_data and intent["project_id"]:
+            project_id = intent["project_id"]
+        elif real_data:
             projects = list_projects()
             project_id = str(projects[0].get("id") or "") if projects else ""
         state.active_designer_project = load_project(project_id)

@@ -1058,7 +1058,7 @@ def build_sidebar(
                     item_style += " margin-left: 18px; width: calc(100% - 18px);"
 
                 with ui.item(on_click=_select).classes(item_classes).props(
-                    "clickable" + (" active" if is_active else "")
+                    f'clickable data-thread-id="{tid}"' + (" active" if is_active else "")
                 ).style(item_style):
                     if activity_label:
                         _render_thread_activity_indicator(activity_label)
