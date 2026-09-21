@@ -1,8 +1,10 @@
 """Secure storage adapters for Row-Bot secrets.
 
-The platform keyring remains the default. An explicitly keyed server deployment
-can use encrypted records in its persistent data directory when the platform
-backend is unavailable. This module never falls back to plaintext files.
+The platform keyring remains the default. Windows desktop installs can recover
+from Credential Manager write exhaustion with user-scoped DPAPI records, and an
+explicitly keyed server deployment can use encrypted records in its persistent
+data directory when the platform backend is unavailable. This module never
+falls back to plaintext files.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ PERSISTENT_SERVER_SECRET_KEY_NAME = "ROW_BOT_SECRET_STORE_KEY"
 PERSISTENT_SERVER_SECRET_DIR_NAME = "secure-secrets"
 _PERSISTENT_SERVER_SECRET_KEY = re.compile(r"^[0-9a-fA-F]{64}$")
 _PERSISTENT_SERVER_SECRET_MAGIC = b"ROWBOT-SECRET-V1\x00"
+_WINDOWS_USER_SECRET_MAGIC = b"ROWBOT-DPAPI-V1\x00"
 _PERSISTENT_SERVER_SECRET_NONCE_BYTES = 12
 MAX_PERSISTENT_SERVER_SECRET_BYTES = MAX_SERVER_SECRET_BYTES + 1024
 
@@ -46,6 +49,10 @@ _backend_override: Any | None = None
 
 def _docs_capture_active() -> bool:
     return str(os.environ.get("ROW_BOT_DOCS_CAPTURE") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _test_mode_active() -> bool:
+    return str(os.environ.get("ROW_BOT_TEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class SecretStoreError(RuntimeError):
@@ -376,6 +383,140 @@ def _delete_persistent_server_secret(service: str, account: str) -> bool:
     return True
 
 
+def _windows_user_secret_supported() -> bool:
+    """Return whether user-scoped Windows DPAPI storage is available."""
+    return os.name == "nt" and not _test_mode_active() and server_secrets_dir() is None
+
+
+def _windows_crypt_data(data: bytes, entropy: bytes, *, protect: bool) -> bytes:
+    """Protect or unprotect bytes with the current Windows user's DPAPI key."""
+    import ctypes
+    from ctypes import wintypes
+
+    class _DataBlob(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
+
+    def _blob(value: bytes) -> tuple[_DataBlob, Any]:
+        buffer = ctypes.create_string_buffer(value)
+        return _DataBlob(len(value), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte))), buffer
+
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    input_blob, input_buffer = _blob(data)
+    entropy_blob, entropy_buffer = _blob(entropy)
+    output_blob = _DataBlob()
+    if protect:
+        operation = crypt32.CryptProtectData
+        operation.argtypes = [ctypes.POINTER(_DataBlob), wintypes.LPCWSTR, ctypes.POINTER(_DataBlob),
+                              ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(_DataBlob)]
+    else:
+        operation = crypt32.CryptUnprotectData
+        operation.argtypes = [ctypes.POINTER(_DataBlob), ctypes.c_void_p, ctypes.POINTER(_DataBlob),
+                              ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(_DataBlob)]
+    operation.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    result = operation(ctypes.byref(input_blob), None, ctypes.byref(entropy_blob), None, None,
+                       0x1, ctypes.byref(output_blob))  # CRYPTPROTECT_UI_FORBIDDEN
+    # The backing buffers must stay alive until the DPAPI call returns.
+    del input_buffer, entropy_buffer
+    if not result:
+        raise OSError(ctypes.get_last_error(), "Windows credential protection failed")
+    try:
+        return ctypes.string_at(output_blob.pbData, output_blob.cbData)
+    finally:
+        kernel32.LocalFree(ctypes.cast(output_blob.pbData, ctypes.c_void_p))
+
+
+def _protect_windows_user_data(data: bytes, entropy: bytes) -> bytes:
+    return _windows_crypt_data(data, entropy, protect=True)
+
+
+def _unprotect_windows_user_data(data: bytes, entropy: bytes) -> bytes:
+    return _windows_crypt_data(data, entropy, protect=False)
+
+
+def _read_windows_user_secret(service: str, account: str) -> tuple[bool, str | None]:
+    if not _windows_user_secret_supported():
+        return False, None
+    path, identity = _persistent_server_secret_identity(service, account)
+    try:
+        if path.is_symlink():
+            raise SecretStoreError("Windows user secret record must not be a symlink")
+        info = path.stat()
+    except FileNotFoundError:
+        return True, None
+    except SecretStoreError:
+        raise
+    except OSError as exc:
+        raise SecretStoreError("Windows user secret record cannot be inspected") from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise SecretStoreError("Windows user secret record must be regular")
+    if info.st_size > MAX_PERSISTENT_SERVER_SECRET_BYTES:
+        raise SecretStoreError("Windows user secret record is too large")
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise SecretStoreError("Windows user secret record cannot be read") from exc
+    if not payload.startswith(_WINDOWS_USER_SECRET_MAGIC):
+        raise SecretStoreError("Windows user secret record has an unsupported format")
+    try:
+        plaintext = _unprotect_windows_user_data(payload[len(_WINDOWS_USER_SECRET_MAGIC):], identity)
+        value = plaintext.decode("utf-8")
+    except Exception as exc:
+        raise SecretStoreError("Windows user secret record could not be decrypted") from exc
+    return True, value or None
+
+
+def _write_windows_user_secret(service: str, account: str, value: str) -> bool:
+    if not _windows_user_secret_supported():
+        return False
+    directory = _prepare_persistent_server_secret_directory()
+    path, identity = _persistent_server_secret_identity(service, account)
+    if path.exists() or path.is_symlink():
+        _read_windows_user_secret(service, account)
+    try:
+        protected = _protect_windows_user_data(str(value).encode("utf-8"), identity)
+    except Exception as exc:
+        raise SecretStoreError("Windows user secret could not be encrypted") from exc
+    payload = _WINDOWS_USER_SECRET_MAGIC + protected
+    temporary = directory / f".{path.name}.{secrets.token_hex(8)}.tmp"
+    file_descriptor: int | None = None
+    try:
+        file_descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(file_descriptor, "wb") as handle:
+            file_descriptor = None
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    except OSError as exc:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise SecretStoreError("Windows user secret record could not be written") from exc
+    return True
+
+
+def _delete_windows_user_secret(service: str, account: str) -> bool:
+    if not _windows_user_secret_supported():
+        return False
+    path, _identity = _persistent_server_secret_identity(service, account)
+    if path.is_symlink():
+        raise SecretStoreError("Windows user secret record must not be a symlink")
+    if path.exists():
+        _read_windows_user_secret(service, account)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise SecretStoreError("Windows user secret record could not be deleted") from exc
+    return True
+
+
 def _is_unavailable_error(exc: BaseException) -> bool:
     """Return True for expected missing/disabled keyring backend failures."""
     name = exc.__class__.__name__.lower()
@@ -401,6 +542,8 @@ def _raise_secret_error(action: str, name: str, exc: BaseException) -> None:
 def _backend() -> Any:
     if _backend_override is not None:
         return _backend_override
+    if _test_mode_active():
+        raise SecretStoreError("keyring is unavailable in test mode")
     try:
         import keyring  # type: ignore
     except Exception as exc:  # pragma: no cover - exercised through fake backends
@@ -435,6 +578,9 @@ def get_secret(name: str, *, namespace: str = "api_keys", service: str | None = 
         return None
     resolved_service = service or SERVICE_NAME
     account = _account(name, namespace=namespace)
+    windows_configured, windows_stored = _read_windows_user_secret(resolved_service, account)
+    if windows_configured and windows_stored:
+        return windows_stored
     try:
         value = _backend().get_password(resolved_service, account)
     except Exception as exc:
@@ -465,7 +611,10 @@ def set_secret(name: str, value: str, *, namespace: str = "api_keys", service: s
             str(value),
         ):
             return "encrypted_file"
+        if _write_windows_user_secret(resolved_service, account, str(value)):
+            return "encrypted_file"
         _raise_secret_error("write", name, exc)
+    _delete_windows_user_secret(resolved_service, account)
     return "keyring"
 
 
@@ -479,14 +628,16 @@ def delete_secret(name: str, *, namespace: str = "api_keys", service: str | None
         message = str(exc).lower()
         if "not found" in message or "not exist" in message or "no such" in message:
             _delete_persistent_server_secret(resolved_service, account)
+            _delete_windows_user_secret(resolved_service, account)
             return
-        if _is_unavailable_error(exc) and _delete_persistent_server_secret(
-            resolved_service,
-            account,
-        ):
-            return
+        if _is_unavailable_error(exc):
+            server_deleted = _delete_persistent_server_secret(resolved_service, account)
+            windows_deleted = _delete_windows_user_secret(resolved_service, account)
+            if server_deleted or windows_deleted:
+                return
         _raise_secret_error("delete", name, exc)
     _delete_persistent_server_secret(resolved_service, account)
+    _delete_windows_user_secret(resolved_service, account)
 
 
 def fingerprint(value: str) -> str:

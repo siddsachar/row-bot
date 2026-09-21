@@ -51,7 +51,7 @@ def test_partial_staging_failure_preserves_old_complete_bundle(provider, store, 
         save(token(provider, "new"))
     store.corrupt = False
     assert config.CONFIG_PATH.read_bytes() == old
-    assert all(store.values[key] == value for key, value in original_secrets.items())
+    assert store.values == original_secrets
     values, _, _ = auth_store.read_provider_oauth_bundle_snapshot(provider_id)
     assert values["access_token"] == "old-access" and values["refresh_token"] == "old-refresh"
     assert not auth_store._session_provider_secrets
@@ -130,6 +130,25 @@ def test_missing_refresh_from_new_login_does_not_reuse_previous_account(provider
     save(replace(token(provider, "new"), refresh_token="", id_token=""))
     values, _, _ = auth_store.read_provider_oauth_bundle_snapshot(provider_id)
     assert values["access_token"] == "new-access" and not values["refresh_token"] and not values["id_token"]
+
+
+def test_repeated_oauth_replacements_retain_only_two_complete_generations(provider, store):
+    provider_id, _, save, *_ = provider
+    save(token(provider, "first"))
+    save(token(provider, "second"))
+    save(token(provider, "third"))
+
+    entry = config.load_provider_config()["providers"][provider_id]
+    retained = (entry["oauth_bundle_ref"], entry["oauth_bundle_previous"]["reference"])
+    expected_accounts = set()
+    for bundle in retained:
+        for name, reference in bundle["values"].items():
+            for index in range(reference["chunks"]):
+                expected_accounts.add(f"providers:{provider_id}:oauth.{name}.g.{reference['generation']}.{index:02d}")
+    actual_accounts = {account for _service, account in store.values
+                       if account.startswith(f"providers:{provider_id}:oauth.") and ".g." in account}
+    assert actual_accounts == expected_accounts
+    assert all("first-" not in value for value in store.values.values())
 
 
 def test_revocation_before_config_publish_retains_original_account(provider):
