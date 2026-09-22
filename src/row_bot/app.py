@@ -56,6 +56,7 @@ from row_bot.docs_capture import (
     docs_capture_query_params,
     docs_capture_reduce_motion_css,
     is_docs_capture,
+    is_docs_read_only_real_data_capture,
     is_docs_real_data_capture,
 )
 from row_bot.runtime_paths import static_dir
@@ -781,7 +782,7 @@ async def _run_startup_sequence_guarded():
 
 async def _run_startup_sequence():
     _app_boot_event("startup_sequence_start")
-    if is_docs_real_data_capture():
+    if is_docs_read_only_real_data_capture():
         import row_bot.ui.state as _st
 
         _st.startup_status = "Read-only Settings capture ready"

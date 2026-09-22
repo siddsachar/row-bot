@@ -328,9 +328,9 @@ _REQUIRED_COLUMNS = {
 
 
 def _raw_conn() -> sqlite3.Connection:
-    from row_bot.docs_capture import is_docs_real_data_capture
+    from row_bot.docs_capture import is_docs_read_only_real_data_capture
 
-    if is_docs_real_data_capture():
+    if is_docs_read_only_real_data_capture():
         db_path = pathlib.Path(_DB_PATH).expanduser().absolute()
         if not db_path.is_file():
             raise FileNotFoundError(db_path)
@@ -480,9 +480,9 @@ def ensure_task_schema(*, repair: bool = True, force: bool = False) -> dict[str,
         if not force and _SCHEMA_READY_PATH == db_path:
             return {"status": "ok", "db_path": db_path, "cached": True}
 
-        from row_bot.docs_capture import is_docs_real_data_capture
+        from row_bot.docs_capture import is_docs_read_only_real_data_capture
 
-        if is_docs_real_data_capture():
+        if is_docs_read_only_real_data_capture():
             conn = _raw_conn()
             try:
                 snapshot = _validate_schema(conn)

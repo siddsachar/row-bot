@@ -4,7 +4,21 @@ from scripts.marketing import capture_landing_story as cli
 def test_cli_exposes_all_phases_and_requires_run_ids() -> None:
     parser = cli._parser()
     assert parser.parse_args(["preflight"]).phase == "preflight"
-    assert parser.parse_args(["prepare", "--authorize-real-profile"]).phase == "prepare"
+    prepared = parser.parse_args(
+        ["prepare", "--authorize-real-profile", "--run-id", "run-123"]
+    )
+    assert prepared.phase == "prepare"
+    assert prepared.run_id == "run-123"
+    enriched = parser.parse_args(
+        [
+            "prepare",
+            "--authorize-real-profile",
+            "--run-id",
+            "run-123",
+            "--enrich-knowledge-graph",
+        ]
+    )
+    assert enriched.enrich_knowledge_graph is True
     for phase in ("capture", "process", "validate", "publish"):
         args = parser.parse_args([phase, "--run-id", "run-123"])
         assert args.phase == phase
@@ -40,4 +54,20 @@ def test_external_route_filter_allows_only_loopback_and_page_local_urls() -> Non
                 handler(Route(url))  # type: ignore[operator]
 
     cli._block_external_routes(Context())
-    assert outcomes == ["continue", "continue", "continue", "continue", "abort:blockedbyclient"]
+    assert outcomes == [
+        "continue",
+        "continue",
+        "continue",
+        "continue",
+        "abort:blockedbyclient",
+    ]
+
+
+def test_ffmpeg_override_must_be_an_existing_file(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "ffmpeg.exe"
+    executable.write_bytes(b"reviewed test binary")
+    monkeypatch.setenv(cli.FFMPEG_ENV, str(executable))
+    assert cli._ffmpeg_executable() == str(executable.resolve())
+    monkeypatch.setenv(cli.FFMPEG_ENV, str(tmp_path / "missing.exe"))
+    monkeypatch.setattr(cli.shutil, "which", lambda _name: None)
+    assert cli._ffmpeg_executable() == ""

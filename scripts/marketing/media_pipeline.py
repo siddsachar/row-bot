@@ -27,6 +27,7 @@ from scripts.marketing.capture_run import (
 PUBLIC_MEDIA_BUDGET = 500_000
 CLIP_MEDIA_BUDGET = 1_500_000
 RESPONSIVE_WIDTHS = (720, 1200, 1600)
+CLIP_LEAD_TRIM_SECONDS = 0.9
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:
@@ -98,6 +99,8 @@ def process_webm(source: Path, destination: Path, *, ffmpeg: str = "ffmpeg") -> 
         "-loglevel",
         "error",
         "-y",
+        "-ss",
+        str(CLIP_LEAD_TRIM_SECONDS),
         "-i",
         str(source),
         "-t",
@@ -216,27 +219,26 @@ def process_run(
         assets.append(record)
     contact_sheet = build_contact_sheet(manifest, processed_dir, review_dir, assets)
     decision = review_dir / "decision.json"
-    if not decision.exists():
-        decision.write_text(
-            json.dumps(
-                {
-                    "status": "pending",
-                    "reviewed_at": "",
-                    "reviewer": "",
-                    "checks": {
-                        "privacy": False,
-                        "model_labels": False,
-                        "settled_states": False,
-                        "visual_quality": False,
-                    },
-                    "asset_hashes": {item["asset"]: item["webp"]["sha256"] for item in assets},
+    decision.write_text(
+        json.dumps(
+            {
+                "status": "pending",
+                "reviewed_at": "",
+                "reviewer": "",
+                "checks": {
+                    "privacy": False,
+                    "model_labels": False,
+                    "settled_states": False,
+                    "visual_quality": False,
                 },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+                "asset_hashes": {item["asset"]: item["webp"]["sha256"] for item in assets},
+            },
+            indent=2,
+            sort_keys=True,
         )
+        + "\n",
+        encoding="utf-8",
+    )
     receipt.phase = "process"
     receipt.status = "processed"
     receipt.write(run_dir)
@@ -355,4 +357,3 @@ def approve_review(run_dir: Path, *, reviewer: str = "Codex assisted visual revi
     decision["checks"] = {key: True for key in (decision.get("checks") or {})}
     path.write_text(json.dumps(decision, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
-

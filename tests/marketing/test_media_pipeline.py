@@ -70,3 +70,20 @@ def test_review_hash_gate_blocks_changed_asset(tmp_path: Path) -> None:
     )["asset_hashes"][MANIFEST.scenes[0].asset]
     with pytest.raises(CaptureSafetyError, match="reviewed hash changed"):
         publish_run(MANIFEST, run_dir, public, approve_reviewed_run=True)
+
+
+def test_reprocessing_invalidates_prior_review(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    _create_run(run_dir)
+    process_run(MANIFEST, run_dir)
+    approve_review(run_dir, reviewer="deterministic test")
+
+    process_run(MANIFEST, run_dir)
+
+    decision = json.loads(
+        (run_dir / "review" / "decision.json").read_text(encoding="utf-8")
+    )
+    assert decision["status"] == "pending"
+    assert decision["reviewed_at"] == ""
+    assert decision["reviewer"] == ""
+    assert not any(decision["checks"].values())

@@ -193,8 +193,15 @@ class GenerationBudget:
         status: str,
         operation_id: str = "",
         conversation_id: str = "",
+        provider_call_count: int | None = None,
+        durable_assistant_turn_count: int | None = None,
     ) -> None:
-        if status not in {"succeeded", "failed_safe", "uncertain"}:
+        if status not in {
+            "succeeded",
+            "failed_safe",
+            "artifact_retained",
+            "uncertain",
+        }:
             raise ValueError("unsupported generation outcome")
         try:
             attempt = self.attempts[number - 1]
@@ -202,12 +209,25 @@ class GenerationBudget:
             raise GenerationBudgetError("unknown generation attempt") from exc
         if attempt["status"] != "started":
             raise GenerationBudgetError("generation attempt is already terminal")
+        for label, value in (
+            ("provider_call_count", provider_call_count),
+            ("durable_assistant_turn_count", durable_assistant_turn_count),
+        ):
+            if value is not None and (isinstance(value, bool) or int(value) < 0):
+                raise GenerationBudgetError(f"{label} must be a non-negative integer")
         attempt.update(
             status=status,
             finished_at=utc_now(),
             operation_id=_safe_identifier(operation_id, "operation_id"),
             conversation_id=_safe_identifier(conversation_id, "conversation_id"),
         )
+        for label, value in (
+            ("provider_call_count", provider_call_count),
+            ("durable_assistant_turn_count", durable_assistant_turn_count),
+        ):
+            if value is None:
+                continue
+            attempt[label] = int(value)
         if status == "uncertain":
             self.terminal_status = "uncertain"
 
@@ -237,6 +257,7 @@ class RunReceipt:
     phase: str = "preflight"
     status: str = "started"
     generation_attempts: list[dict[str, Any]] = field(default_factory=list)
+    safety_events: list[dict[str, Any]] = field(default_factory=list)
     records: dict[str, str] = field(default_factory=dict)
     sources: list[str] = field(default_factory=list)
     captures: list[dict[str, Any]] = field(default_factory=list)
@@ -257,6 +278,7 @@ class RunReceipt:
             "phase": self.phase,
             "status": self.status,
             "generation_attempts": list(self.generation_attempts),
+            "safety_events": list(self.safety_events),
             "records": {
                 str(key): _safe_identifier(str(value), f"record {key}")
                 for key, value in self.records.items()
@@ -297,6 +319,7 @@ class RunReceipt:
             phase=raw["phase"],
             status=raw["status"],
             generation_attempts=list(raw.get("generation_attempts") or []),
+            safety_events=list(raw.get("safety_events") or []),
             records=dict(raw.get("records") or {}),
             sources=list(raw.get("sources") or []),
             captures=list(raw.get("captures") or []),

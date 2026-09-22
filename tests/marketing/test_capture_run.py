@@ -69,6 +69,53 @@ def test_generation_budget_is_bounded_and_uncertain_is_terminal() -> None:
     assert [item["status"] for item in budget.attempts] == ["succeeded", "uncertain"]
 
 
+def test_failed_safe_attempt_consumes_budget_but_allows_a_bounded_retry() -> None:
+    budget = GenerationBudget(2)
+    first = budget.begin(model="model:codex:sol", purpose="campaign")
+    budget.finish(first, status="failed_safe", conversation_id="thread-1")
+    second = budget.begin(model="model:codex:sol", purpose="campaign")
+    budget.finish(second, status="succeeded", conversation_id="thread-2")
+
+    assert [item["status"] for item in budget.attempts] == ["failed_safe", "succeeded"]
+    with pytest.raises(GenerationBudgetError, match="budget exhausted"):
+        budget.begin(model="model:codex:sol", purpose="third")
+
+
+def test_reviewed_artifact_can_close_an_interrupted_generation_attempt() -> None:
+    budget = GenerationBudget(1)
+    attempt = budget.begin(model="model:codex:sol", purpose="designer")
+    budget.finish(
+        attempt,
+        status="artifact_retained",
+        conversation_id="designer-thread",
+    )
+
+    assert budget.attempts[0]["status"] == "artifact_retained"
+
+
+def test_generation_receipt_records_provider_and_durable_turn_counts() -> None:
+    budget = GenerationBudget(1)
+    attempt = budget.begin(model="model:ollama:qwen", purpose="research")
+    budget.finish(
+        attempt,
+        status="succeeded",
+        conversation_id="research-thread",
+        provider_call_count=4,
+        durable_assistant_turn_count=4,
+    )
+
+    assert budget.attempts[0]["provider_call_count"] == 4
+    assert budget.attempts[0]["durable_assistant_turn_count"] == 4
+
+
+def test_generation_receipt_rejects_invalid_call_counts() -> None:
+    budget = GenerationBudget(1)
+    attempt = budget.begin(model="model:ollama:qwen", purpose="research")
+
+    with pytest.raises(GenerationBudgetError, match="non-negative integer"):
+        budget.finish(attempt, status="succeeded", provider_call_count=-1)
+
+
 def test_output_containment_rejects_traversal(tmp_path: Path) -> None:
     root = tmp_path / "run"
     root.mkdir()
@@ -80,12 +127,20 @@ def test_output_containment_rejects_traversal(tmp_path: Path) -> None:
 def test_receipt_is_public_safe_and_round_trips(tmp_path: Path) -> None:
     receipt = _receipt()
     receipt.records = {"campaign": "thread-123"}
+    receipt.safety_events = [
+        {
+            "event": "pre_dispatch_failure",
+            "purpose": "campaign",
+            "provider_call_count": 0,
+        }
+    ]
     receipt.sources = ["https://row-bot.ai/"]
     receipt.write(tmp_path)
     raw = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
     assert raw["profile"] == "normal"
     assert "profile_path" not in raw
     assert RunReceipt.read(tmp_path).records == receipt.records
+    assert RunReceipt.read(tmp_path).safety_events == receipt.safety_events
 
     receipt.sources = [r"C:\Users\private\notes.txt"]
     with pytest.raises(CaptureSafetyError, match="private-data"):
