@@ -3,14 +3,14 @@
   "story_id": "sovereignty-workbench-v1",
   "run_id": "20260921T230035Z-f3ed05",
   "review_status": "approved",
-  "reviewed_at": "2026-09-22T13:14:52.2987090Z",
+  "reviewed_at": "2026-09-22T16:18:16.8740165Z",
   "recording_receipt": "recording-receipt.json",
   "assets": [
     {
       "scene_id": "hero-app",
       "still": "screenshots/research.webp",
       "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
-      "alt": "Row-Bot using local Qwen research and resolving the findings into connected knowledge."
+      "alt": "Row-Bot using a local model for research and resolving the findings into connected knowledge."
     },
     {
       "scene_id": "research-local",
@@ -20,7 +20,7 @@
       "clip_sha256": "744ade42a04fed94df0f3a7c2f54528db1f1f1ea9493b73d319180b343bec161",
       "clip_fallback": "clips/research.mp4",
       "clip_fallback_sha256": "957a6e143eba9fcee79dadace928ffd3f9cb11a63b8ce1628e46e25255eb3ca2",
-      "alt": "Local Qwen research with source activity followed by a populated node-and-edge knowledge graph."
+      "alt": "Local-model research with source activity followed by a populated node-and-edge knowledge graph."
     },
     {
       "scene_id": "synthesis-sol",
@@ -30,7 +30,7 @@
       "clip_sha256": "b2767bb1fc67a6b2c0c12b06a8546a8b5dafcff47021c0fed4c90bdd38bb6539",
       "clip_fallback": "clips/create.mp4",
       "clip_fallback_sha256": "e65dd768d82ae2331e522ec3d196ca96a3d24496d693ff8cebc0e1af13adc364",
-      "alt": "An explicit hosted GPT-5.6 Sol handoff followed by a real editable Designer artifact."
+      "alt": "An explicit frontier-model handoff followed by a real editable Designer artifact."
     },
     {
       "scene_id": "knowledge-control",
@@ -61,18 +61,18 @@
     {
       "scene_id": "approval-boundary",
       "still": "screenshots/ship.webp",
-      "sha256": "d3315f5283f92782f140462615ab774e0e91742078b4fb793bd5e358128fcef1",
+      "sha256": "1fbef103698e7afd11825b83d67bc08f32fa384bef3576a899ad75bf5510f453",
       "clip": "clips/ship.webm",
-      "clip_sha256": "a05f1dd45b68ca278e0aa2ff2e902be1377d706faba7654fc536f3ea9dbffeb2",
+      "clip_sha256": "44ee737c981cc6ae77d0e6346e1ccf7e76957d4ce6e1a82b689194b21ddc185c",
       "clip_fallback": "clips/ship.mp4",
-      "clip_fallback_sha256": "4454cb1923803b2b24d2ba38185604eb00f3f7bda2bd077d46f87af8702c425e",
+      "clip_fallback_sha256": "cee37096bbe345799ee184f14055b5108944128360bb45bc3fc1c6ffc6bdfd7e",
       "alt": "Row-Bot requesting approval before creating a reviewed local campaign artifact."
     },
     {
       "scene_id": "model-choice",
       "still": "screenshots/create.webp",
       "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
-      "alt": "The model picker making the local Qwen and hosted GPT-5.6 Sol boundary explicit."
+      "alt": "The model picker making the local and frontier model boundary explicit."
     },
     {
       "scene_id": "mobile-shell",
@@ -92,6 +92,26 @@
       "approval": "9ba6984b52e3322e902b23a1463820851c2145d1f5a3d39f3840a10d1594f659",
       "success": "19ef46e3260043779138fbb5c8db3cbee32fcac2bc04809fb987d197c0ae9d04",
       "error": "b586dcf23017ccbda58b1ff0895c8c9559f4b6d7be1753c8cd7b06f8712cfdd9"
+    },
+    "motion": {
+      "format": "webm",
+      "alpha": "chroma-keyed",
+      "audio": false,
+      "story_loop": false,
+      "scene_durations_seconds": {
+        "research": 12.042,
+        "create": 12.042,
+        "automate": 12.042,
+        "ship": 6.042
+      },
+      "states": {
+        "idle": "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca",
+        "thinking": "7cffda47e017f0fc2fbe0e80f1d09f4bef54de8fd2009a8af49b767d47e9bb0c",
+        "working": "7363131a02264797cf88443f558ea0882aa08becccddc10308010a8253053650",
+        "approval": "5332f0136c7e3307ea8249cb77d45f8640b45c4b89796c3b283b675570bb845b",
+        "success": "96f0bb0d8e3176aba5163250d8ff02cebcc079ecb6151dcc94d8b97fa3dedd73",
+        "error": "9b59552f8f9cb680779e11cb4b590eb9d06637879c1a965224e889b50fb56e1f"
+      }
     }
   }
 }

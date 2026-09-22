@@ -107,9 +107,10 @@ def test_landing_page_is_evergreen_and_current() -> None:
     assert "Row-Bot 4.9.1 available" in HTML
     assert "Row-Bot &middot; v4.9.1 &middot; Apache 2.0" in HTML
     assert 'src="media/landing-story/screenshots/research.webp"' in HTML
-    assert "One private AI workspace that can research, create, automate, and act" in HTML
-    assert "Real UI · Normal-speed recordings" in HTML
-    assert "Your AI.<br>Your machine.<br><em>Your rules.</em>" in HTML
+    assert "One private workspace to reason, build, automate, and act." in HTML
+    assert "Row-Bot · Real app capture" in HTML
+    assert "Recorded in-product" in HTML
+    assert "Reason.<br>Orchestrate.<br>Work.<br><em>Keep it yours.</em>" in HTML
     assert "PARENT-LED ORCHESTRATION" not in HTML
 
 

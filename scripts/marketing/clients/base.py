@@ -85,4 +85,3 @@ class ClientAdapter(ABC):
     @abstractmethod
     def capture_scene(self, scene: SceneSpec, output_dir: Path) -> SceneCapture:
         """Capture lossless raw evidence for the requested semantic scene."""
-

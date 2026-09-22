@@ -24,13 +24,16 @@ function element(dataset = {}) {
     return {
         dataset: {...dataset},
         classList: new FakeClassList(),
+        style: {setProperty() {}},
         listeners: {},
         hidden: false,
         focused: false,
         addEventListener(type, handler) { this.listeners[type] = handler; },
-        setAttribute(name, value) { attributes[name] = value; },
+        setAttribute(name, value) { attributes[name] = String(value); },
+        getAttribute(name) { return attributes[name] ?? null; },
         removeAttribute(name) { delete attributes[name]; },
         hasAttribute(name) { return Object.hasOwn(attributes, name); },
+        querySelectorAll() { return []; },
         focus() { this.focused = true; },
         emit(type, event = {}) { this.listeners[type]?.(event); },
     };
@@ -52,17 +55,44 @@ function makeRuntime({reducedMotion = false, search = ''} = {}) {
     images[1].decode = () => Promise.resolve();
     const triggers = beats.map(beat => element({storyTrigger: beat}));
     const panels = beats.map(beat => element({storyPanel: beat}));
+    panels.slice(1).forEach(panel => { panel.hidden = true; });
     const copies = beats.map(beat => element({storyCopy: beat}));
+    copies.slice(1).forEach(copy => { copy.hidden = true; });
     const videos = beats.map(beat => {
         const video = element({storyVideo: beat});
+        video.setAttribute('src', `${beat}.webm`);
         video.currentTime = 4;
+        video.paused = true;
+        video.ended = false;
         video.playCalls = 0;
         video.pauseCalls = 0;
+        video.load = () => {};
         video.play = () => {
             video.playCalls += 1;
+            video.paused = false;
+            video.ended = false;
             return Promise.resolve();
         };
-        video.pause = () => { video.pauseCalls += 1; };
+        video.pause = () => { video.pauseCalls += 1; video.paused = true; };
+        return video;
+    });
+    const buddyVideos = ['idle', 'thinking', 'working', 'approval', 'success', 'error'].map(state => {
+        const video = element({buddyMotion: state});
+        video.currentTime = 0;
+        video.duration = 12;
+        video.paused = true;
+        video.ended = false;
+        video.playCalls = 0;
+        video.pauseCalls = 0;
+        video.load = () => {};
+        video.play = () => {
+            video.playCalls += 1;
+            video.paused = false;
+            video.ended = false;
+            return Promise.resolve();
+        };
+        video.pause = () => { video.pauseCalls += 1; video.paused = true; };
+        video.requestVideoFrameCallback = callback => callback();
         return video;
     });
     const mediaQuery = {
@@ -72,6 +102,8 @@ function makeRuntime({reducedMotion = false, search = ''} = {}) {
     };
     const documentListeners = {};
     const windowListeners = {};
+    const timers = new Map();
+    let nextTimer = 1;
     const document = {
         hidden: false,
         addEventListener(type, handler) { documentListeners[type] = handler; },
@@ -81,11 +113,16 @@ function makeRuntime({reducedMotion = false, search = ''} = {}) {
             if (selector === '[data-buddy-control]') return control;
             if (selector === '[data-buddy-status]') return status;
             if (selector === '[data-sovereignty-canvas]') return null;
+            if (selector === '[data-sovereignty-buddy]') return null;
+            if (selector === '[data-sovereignty-buddy-video]') return null;
+            if (selector === '.app-stack') return null;
+            if (selector === '.product-stage') return null;
             const match = selector.match(/^\[data-story-video="(.+)"\]$/);
             return match ? videos.find(video => video.dataset.storyVideo === match[1]) : null;
         },
         querySelectorAll(selector) {
             if (selector === '[data-buddy-image]') return images;
+            if (selector === '[data-buddy-motion]') return buddyVideos;
             if (selector === '[data-story-trigger]') return triggers;
             if (selector === '[data-story-panel]') return panels;
             if (selector === '[data-story-copy]') return copies;
@@ -108,7 +145,12 @@ function makeRuntime({reducedMotion = false, search = ''} = {}) {
         addEventListener(type, handler) { windowListeners[type] = handler; },
         requestAnimationFrame(callback) { callback(); return 1; },
         cancelAnimationFrame() {},
-        setTimeout(callback) { callback(); return 1; },
+        setTimeout(callback, delay = 0) {
+            const id = nextTimer++;
+            timers.set(id, {callback, delay});
+            return id;
+        },
+        clearTimeout(id) { timers.delete(id); },
         scrollTo() {},
         IntersectionObserver: FakeIntersectionObserver,
     };
@@ -134,9 +176,17 @@ function makeRuntime({reducedMotion = false, search = ''} = {}) {
         panels,
         copies,
         videos,
+        buddyVideos,
         document,
         documentListeners,
         mediaQuery,
+        runTimers(maxDelay = Infinity) {
+            for (const [id, timer] of [...timers]) {
+                if (timer.delay > maxDelay) continue;
+                timers.delete(id);
+                timer.callback();
+            }
+        },
     };
 }
 
@@ -159,10 +209,18 @@ const preventDefaultEvent = key => ({key, prevented: false, preventDefault() { t
     runtime.triggers[3].emit('click');
     await Promise.resolve();
     assert.equal(runtime.api.getState().beat, 'ship');
-    assert.equal(runtime.api.getState().buddy, 'approval');
+    assert.equal(runtime.api.getState().buddy, 'error');
     assert.equal(runtime.controller.dataset.scene, 'ship');
     assert.equal(runtime.panels[3].hidden, false);
     assert.equal(runtime.videos[3].currentTime, 0);
+    assert.equal(runtime.stage.classList.contains('is-repositioning'), true);
+    assert.equal(runtime.buddyVideos.every(video => video.hidden), true);
+    runtime.runTimers(1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(runtime.stage.classList.contains('is-repositioning'), false);
+    assert.equal(runtime.buddyVideos.filter(video => !video.hidden).length, 1);
+    assert.equal(runtime.buddyVideos.find(video => video.dataset.buddyMotion === 'error').playCalls > 0, true);
 
     const left = preventDefaultEvent('ArrowLeft');
     runtime.triggers[3].emit('keydown', left);
@@ -173,7 +231,7 @@ const preventDefaultEvent = key => ({key, prevented: false, preventDefault() { t
     const space = preventDefaultEvent(' ');
     runtime.control.emit('keydown', space);
     assert.equal(space.prevented, true);
-    assert.equal(runtime.api.getState().buddy, 'approval');
+    assert.equal(runtime.api.getState().buddy, 'thinking');
 
     runtime.api.setScene('approval-boundary');
     runtime.videos[3].emit('ended');

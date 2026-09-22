@@ -14,11 +14,13 @@ JS = (ROOT / "docs" / "landing-story.js").read_text(encoding="utf-8")
 MEDIA = ROOT / "docs" / "media" / "landing-story"
 
 
-def test_statement_led_pinned_story_uses_the_real_app_as_hero() -> None:
-    assert "Think it. Build it. Run it. <em>Keep it yours.</em>" in HTML
-    assert 'class="product-journey"' in HTML
+def test_statement_led_autoplay_story_uses_the_real_app_as_hero() -> None:
+    assert "<span>Your AI.</span> <span>Your machine.</span> <em>Your rules.</em>" in HTML
+    assert 'class="product-journey is-intro"' in HTML
     assert 'class="journey-sticky"' in HTML
     assert 'class="product-stage"' in HTML
+    assert "Row-Bot · Real app capture" in HTML
+    assert "Recorded in-product" in HTML
     assert [beat for beat in re.findall(r'data-story-trigger="([^"]+)"', HTML)] == [
         "research",
         "create",
@@ -27,9 +29,15 @@ def test_statement_led_pinned_story_uses_the_real_app_as_hero() -> None:
     ]
     assert HTML.count('data-story-panel="') == 4
     assert HTML.count('data-story-copy="') == 4
-    assert "model:ollama:qwen3.8:27b" in HTML
-    assert "model:codex:gpt-5.6-sol" in HTML
-    assert "Real UI · Normal-speed recordings" in HTML
+    assert "Local model · public sources" in HTML
+    assert "Frontier model · editable output" in HTML
+    assert "model:ollama" not in HTML
+    assert "model:codex" not in HTML
+    assert "height: 440svh" not in CSS
+    assert "position: sticky" not in CSS
+    assert '<link rel="preload" as="image" href="media/landing-story/screenshots/research.webp"' in HTML
+    assert HTML.count('data-poster="media/landing-story/screenshots/') == 3
+    assert "video.dataset.poster" in JS
     assert "capability-section" not in HTML
     assert "data-capability=" not in HTML
 
@@ -39,7 +47,8 @@ def test_four_real_clips_have_posters_fallbacks_and_bounded_receipt() -> None:
     assert receipt["editing"].startswith("normal-speed editorial cuts")
     assert set(receipt["clips"]) == {"research", "create", "automate", "ship"}
     for beat, record in receipt["clips"].items():
-        assert 8 <= record["duration_seconds"] <= 13
+        minimum_duration = 5 if beat == "ship" else 8
+        assert minimum_duration <= record["duration_seconds"] <= 13
         assert record["dimensions"] == [1440, 810]
         assert record["fps"] == 30
         assert record["webm_bytes"] <= 1_500_000
@@ -68,6 +77,9 @@ def test_reviewed_manifest_hashes_every_public_story_asset() -> None:
         if fallback := asset.get("clip_fallback"):
             video = MEDIA / fallback
             assert hashlib.sha256(video.read_bytes()).hexdigest() == asset["clip_fallback_sha256"]
+    for state, expected_hash in manifest["buddy"]["motion"]["states"].items():
+        video = MEDIA / "buddy" / f"{state}.webm"
+        assert hashlib.sha256(video.read_bytes()).hexdigest() == expected_hash
 
 
 def test_buddy_has_transparent_states_and_automatic_scene_choreography() -> None:
@@ -79,9 +91,13 @@ def test_buddy_has_transparent_states_and_automatic_scene_choreography() -> None
             assert image.getchannel("A").getextrema() == (0, 255)
     assert "${state}.webp" in JS
     assert HTML.count("data-buddy-image") == 2
+    assert HTML.count("data-buddy-motion=") == 6
+    assert HTML.count('class="buddy-video" muted playsinline preload="none" hidden') == 6
     assert 'src="media/landing-story/buddy/thinking.webp"' in HTML
     assert "<noscript>" in HTML
-    assert "transition: opacity 360ms ease" in CSS
+    assert ".buddy-video[hidden]" in CSS
+    assert "video.hidden = true" in JS
+    assert "window.requestAnimationFrame(() => window.requestAnimationFrame" in JS
     assert "BEAT_STATES" in JS
     assert "controller.dataset.scene = beat" in JS
     assert "setBuddyState(BEAT_STATES[beat], false)" in JS
@@ -102,11 +118,15 @@ def test_scene_controller_handles_scroll_keyboard_and_media_preferences() -> Non
     assert "window.RowBotLandingStory" in JS
     assert "landing_scene" in JS and "motion" in JS
     assert ".landing-overhaul::before { display: none; }" in CSS
+    assert "scheduleNextBeat" in JS
+    assert "BEATS[(BEATS.indexOf(finishedBeat) + 1) % BEATS.length]" in JS
 
 
 def test_sovereignty_reveal_combines_core_visual_and_local_first_proofs() -> None:
-    assert "Your AI.<br>Your machine.<br><em>Your rules.</em>" in HTML
-    assert HTML.count('class="sovereignty-core') == 2
+    assert "Reason.<br>Orchestrate.<br>Work.<br><em>Keep it yours.</em>" in HTML
+    assert 'class="sovereignty-hero__base" src="row_bot_hero.webp"' in HTML
+    assert 'class="sovereignty-buddy"' in HTML
+    assert "data-sovereignty-buddy-video" in HTML
     assert HTML.count("<li><strong>") == 4
     assert "Your system of record" in HTML
     assert "No Row-Bot account" in HTML

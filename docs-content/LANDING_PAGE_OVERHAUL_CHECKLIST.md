@@ -31,9 +31,9 @@ only after the real run evidence exists.
 ## Landing experience
 
 - [x] Statement-led hero and download/watch actions complete
-- [x] Buddy six-state controller, movement, and pose crossfade complete
+- [x] Buddy six-state controller, movement, and decoded-frame handoff complete
 - [x] Scroll, click/tap, keyboard, visibility, offscreen, reduced-motion complete
-- [x] Research -> Create -> Automate -> Ship pinned story complete
+- [x] Research -> Create -> Automate -> Ship autonomous story complete
 - [x] Sovereignty field, connected knowledge visual, and local-first proofs complete
 - [x] Three privacy-enhanced demo facades preserved
 - [x] Local-first statement and final CTA complete
@@ -56,3 +56,8 @@ The changed-source matrix completed with 4,861 passed and 19 skipped. Four
 Developer workspace-import recovery tests failed only in the aggregated test
 order; the untouched 98-test file passed independently, and the adjacent
 Designer + Developer sequence passed 793 tests with 14 skips.
+
+Known reviewed limitation: a rare single-frame Buddy compositor/chroma flash can
+still appear during a long cross-screen reposition. The user accepted the
+current result after the deterministic single-still movement handoff removed
+the more disruptive double-image and intermittent-static behavior.
