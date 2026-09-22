@@ -1,82 +1,97 @@
 {
+  "schema": 1,
+  "story_id": "sovereignty-workbench-v1",
+  "run_id": "20260921T230035Z-f3ed05",
+  "review_status": "approved",
+  "reviewed_at": "2026-09-22T13:14:52.2987090Z",
+  "recording_receipt": "recording-receipt.json",
   "assets": [
     {
-      "alt": "Row-Bot conversation using a local Qwen model with sources and Activity visible in the connected workspace.",
       "scene_id": "hero-app",
-      "sha256": "c7747db7a4195fe7cf8a10973fe905ee32fef57a222dbcfdb852f99dde505981",
-      "still": "screenshots/hero-app.webp"
+      "still": "screenshots/research.webp",
+      "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "alt": "Row-Bot using local Qwen research and resolving the findings into connected knowledge."
     },
     {
-      "alt": "A real local-model research result with public sources and a reviewed tool trace inside Row-Bot.",
-      "clip": "clips/research-local.webm",
-      "clip_sha256": "f9260b841054b48079c70889abcb5f2cbfcd1f61f68ef05ad9cc055fcc5b5b0e",
       "scene_id": "research-local",
-      "sha256": "fc572cbd6817fcc635e7d9edfd73e687c12120d9948ab54c4ab5607871af932d",
-      "still": "screenshots/research-local.webp"
+      "still": "screenshots/research.webp",
+      "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "clip": "clips/research.webm",
+      "clip_sha256": "744ade42a04fed94df0f3a7c2f54528db1f1f1ea9493b73d319180b343bec161",
+      "clip_fallback": "clips/research.mp4",
+      "clip_fallback_sha256": "957a6e143eba9fcee79dadace928ffd3f9cb11a63b8ce1628e46e25255eb3ca2",
+      "alt": "Local Qwen research with source activity followed by a populated node-and-edge knowledge graph."
     },
     {
-      "alt": "Row-Bot campaign synthesis with the hosted GPT-5.6 Sol route shown explicitly in the conversation.",
       "scene_id": "synthesis-sol",
-      "sha256": "412791cbdb1d5fed60a7a3542a362e29ce0cce90eb715bd9d00322f8c9ca0d51",
-      "still": "screenshots/synthesis-sol.webp"
+      "still": "screenshots/create.webp",
+      "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "clip": "clips/create.webm",
+      "clip_sha256": "b2767bb1fc67a6b2c0c12b06a8546a8b5dafcff47021c0fed4c90bdd38bb6539",
+      "clip_fallback": "clips/create.mp4",
+      "clip_fallback_sha256": "e65dd768d82ae2331e522ec3d196ca96a3d24496d693ff8cebc0e1af13adc364",
+      "alt": "An explicit hosted GPT-5.6 Sol handoff followed by a real editable Designer artifact."
     },
     {
-      "alt": "Row-Bot knowledge graph populated from the public-safe local-first AI research workspace.",
-      "clip": "clips/knowledge-control.webm",
-      "clip_sha256": "3138b0f15f94afe9c5b23181ec6f52dea0168730facaf4eec17699ef0d33b194",
       "scene_id": "knowledge-control",
-      "sha256": "d0e9c57aa7e152e57366cc5fffa432d6ef64da34a38783d28a293beb4f77e13b",
-      "still": "screenshots/knowledge-control.webp"
+      "still": "screenshots/research.webp",
+      "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "clip": "clips/research.webm",
+      "clip_sha256": "744ade42a04fed94df0f3a7c2f54528db1f1f1ea9493b73d319180b343bec161",
+      "alt": "A genuine Row-Bot knowledge graph with many connected nodes and edges from the research workspace."
     },
     {
-      "alt": "A real editable launch visual open in Row-Bot Designer Studio.",
       "scene_id": "designer-output",
-      "sha256": "fbefcd9de75488c99b559d8a035e480b13d55628c9df149a187878787c79a23a",
-      "still": "screenshots/designer-output.webp"
+      "still": "screenshots/create.webp",
+      "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "clip": "clips/create.webm",
+      "clip_sha256": "b2767bb1fc67a6b2c0c12b06a8546a8b5dafcff47021c0fed4c90bdd38bb6539",
+      "alt": "A real editable launch visual open in Row-Bot Designer Studio."
     },
     {
-      "alt": "A disabled-delivery Row-Bot workflow with one successful local-model run.",
       "scene_id": "workflow-repeat",
-      "sha256": "751157bec1651ff19ec4d6c366a2c6cd0ed1443eff999fe0c0a06825999e1567",
-      "still": "screenshots/workflow-repeat.webp"
+      "still": "screenshots/automate.webp",
+      "sha256": "c980145f3439741e79b567764ed0423f3ae57af1d4d7069d21ae65c9639f4e8e",
+      "clip": "clips/automate.webm",
+      "clip_sha256": "e9cf006412231eb369a6576da3fa858be5e05b5a86edd1b646f49713eae8521c",
+      "clip_fallback": "clips/automate.mp4",
+      "clip_fallback_sha256": "6a32e0fd179b82541174fcff847c07a03779a762a51a7621000cce060174b764",
+      "alt": "A local-model workflow being configured and saved with external delivery disabled."
     },
     {
-      "alt": "Row-Bot asking for approval before a reversible write in the public-safe marketing workspace.",
-      "clip": "clips/approval-boundary.webm",
-      "clip_sha256": "55cbbfd8d487c1804ba6d5cf460880892f709361222bbae98d680bf2b1ec5261",
       "scene_id": "approval-boundary",
-      "sha256": "e6a55f1618573f4f8a6f5b7ae860b5b00d18273fd9bfae38d497a63a635d522a",
-      "still": "screenshots/approval-boundary.webp"
+      "still": "screenshots/ship.webp",
+      "sha256": "d3315f5283f92782f140462615ab774e0e91742078b4fb793bd5e358128fcef1",
+      "clip": "clips/ship.webm",
+      "clip_sha256": "a05f1dd45b68ca278e0aa2ff2e902be1377d706faba7654fc536f3ea9dbffeb2",
+      "clip_fallback": "clips/ship.mp4",
+      "clip_fallback_sha256": "4454cb1923803b2b24d2ba38185604eb00f3f7bda2bd077d46f87af8702c425e",
+      "alt": "Row-Bot requesting approval before creating a reviewed local campaign artifact."
     },
     {
-      "alt": "Row-Bot model picker showing explicit local Qwen and hosted GPT-5.6 Sol choices.",
       "scene_id": "model-choice",
-      "sha256": "4a5491b1b2d1772cb76024baa88cf9186df5a45fd190c30055ad3427466aba82",
-      "still": "screenshots/model-choice.webp"
+      "still": "screenshots/create.webp",
+      "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "alt": "The model picker making the local Qwen and hosted GPT-5.6 Sol boundary explicit."
     },
     {
-      "alt": "The same public-safe Row-Bot workspace at a mobile browser width.",
       "scene_id": "mobile-shell",
+      "still": "screenshots/mobile-shell.webp",
       "sha256": "1e7fc565e7af856b43a46e52f22f38e9fa54af14161c77b47fd97ca278a85c88",
-      "still": "screenshots/mobile-shell.webp"
+      "alt": "The same public-safe Row-Bot workspace at a mobile browser width."
     }
   ],
   "buddy": {
-    "alpha": "native-generated",
     "format": "webp",
-    "inspiration": "bundled Orbit preview",
-    "render_passes": 2,
+    "alpha": "native-generated",
+    "direction": "friendly dark steel companion with cyan sovereign-core lighting",
     "states": {
-      "approval": "b81b03f04f22e99c026078765f248138deb1f9639eec254687e6503cddcf2aa9",
-      "error": "9cf6dfbe590694d8c3624c0173d238e6953913c0463f3ca199dd69be0e96bfcb",
-      "idle": "195c3673223d1128b9f5f2617a09a07ef21a5752b253beb80f674dbfd10f57f2",
-      "success": "22ebb271493a1791e1939c24782f725fd687ea87d630ff7d4bf40792ad430c4d",
-      "thinking": "927c965433a7045c8f65224fa95f389ef87bd0c60acddb6828cf54a7001b6a7b",
-      "working": "c41cbf19d9eebc5e0c1d8602f731dc728c069134637c91285878fc5645c93101"
+      "idle": "bbbef96dfe7a512e6de2e5ffc3014375b823fec33cedf5095bf250cff7260f81",
+      "thinking": "24d527d4faf0ac3e277dc06f8776ce152c1b71aea82a1e616b1192ba71d6f808",
+      "working": "ffbe25521fea6ac71c7552c39308fc90e9e99c97afccffb1dc66728ae9aa6c11",
+      "approval": "9ba6984b52e3322e902b23a1463820851c2145d1f5a3d39f3840a10d1594f659",
+      "success": "19ef46e3260043779138fbb5c8db3cbee32fcac2bc04809fb987d197c0ae9d04",
+      "error": "b586dcf23017ccbda58b1ff0895c8c9559f4b6d7be1753c8cd7b06f8712cfdd9"
     }
-  },
-  "reviewed_at": "2026-09-22T07:57:17.331017Z",
-  "run_id": "20260921T230035Z-f3ed05",
-  "schema": 1,
-  "story_id": "sovereignty-workbench-v1"
+  }
 }

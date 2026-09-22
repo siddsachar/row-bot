@@ -107,7 +107,7 @@ One sticky product frame changes as four short statements enter the viewport:
 | Research | Ask across documents, tools, and the web. | Local Qwen research thread, sources, and tool activity | `thinking` |
 | Create | Turn the answer into work. | Sol-assisted synthesis and a real Designer artifact | `working` |
 | Automate | Make it happen again. | Real workflow definition and completed run | `working` |
-| Control | Choose the model. Review the action. Keep the memory. | Model picker, approval, knowledge, and activity | `approval`, then `success` |
+| Ship | Review the target, approve the action, and keep the receipt. | Approval boundary and reviewed output | `approval`, then `success` |
 
 Each beat is one headline, one short support sentence, and one optional proof
 label. No body paragraph should carry the feature inventory.
@@ -188,7 +188,7 @@ The background is a deterministic, low-density knowledge field rather than a
 generic particle effect.
 
 - A seeded set of nodes forms a local boundary around Buddy.
-- Lines connect Research, Create, Automate, and Control as the story advances.
+- Lines connect Research, Create, Automate, and Ship as the story advances.
 - Local scenes keep motion within the boundary.
 - The hosted-model scene shows one deliberate, labelled outward route and return.
   This makes the provider boundary honest rather than implying that every model

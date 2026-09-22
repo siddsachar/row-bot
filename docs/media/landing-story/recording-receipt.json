@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "story_id": "sovereignty-workbench-v1",
+  "editing": "normal-speed editorial cuts with four-frame dissolves; no global acceleration",
+  "clips": {
+    "research": {
+      "source_name": "1.mp4",
+      "source_sha256": "975367434a6e5f9c1349a9e48d8474385d752fa6214a068fd00f73c6fc40cd84",
+      "source_duration_seconds": 47.133,
+      "segments_seconds": [
+        [
+          3.0,
+          12.0
+        ],
+        [
+          44.0,
+          47.05
+        ]
+      ],
+      "duration_seconds": 12.133,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/research.webm",
+      "webm_sha256": "744ade42a04fed94df0f3a7c2f54528db1f1f1ea9493b73d319180b343bec161",
+      "webm_bytes": 790724,
+      "mp4": "media/landing-story/clips/research.mp4",
+      "mp4_sha256": "957a6e143eba9fcee79dadace928ffd3f9cb11a63b8ce1628e46e25255eb3ca2",
+      "mp4_bytes": 741218,
+      "poster": "media/landing-story/screenshots/research.webp",
+      "poster_sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "poster_bytes": 89492
+    },
+    "create": {
+      "source_name": "2.mp4",
+      "source_sha256": "6624ace4e8f218a934899f6a9ff81d0208b2b886e68c75988e55a103a01f8055",
+      "source_duration_seconds": 50.0,
+      "segments_seconds": [
+        [
+          2.0,
+          4.5
+        ],
+        [
+          12.0,
+          15.0
+        ],
+        [
+          22.5,
+          27.0
+        ],
+        [
+          47.0,
+          49.0
+        ]
+      ],
+      "duration_seconds": 12.133,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/create.webm",
+      "webm_sha256": "b2767bb1fc67a6b2c0c12b06a8546a8b5dafcff47021c0fed4c90bdd38bb6539",
+      "webm_bytes": 762685,
+      "mp4": "media/landing-story/clips/create.mp4",
+      "mp4_sha256": "e65dd768d82ae2331e522ec3d196ca96a3d24496d693ff8cebc0e1af13adc364",
+      "mp4_bytes": 774732,
+      "poster": "media/landing-story/screenshots/create.webp",
+      "poster_sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "poster_bytes": 86514
+    },
+    "automate": {
+      "source_name": "3.mp4",
+      "source_sha256": "b52e3b3ff45824f452c3b20d76ca54a5831f5e4becfce86947154a7d639477cf",
+      "source_duration_seconds": 23.133,
+      "segments_seconds": [
+        [
+          0.0,
+          2.0
+        ],
+        [
+          2.0,
+          4.2
+        ],
+        [
+          7.2,
+          10.8
+        ],
+        [
+          12.0,
+          16.0
+        ]
+      ],
+      "duration_seconds": 11.933,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/automate.webm",
+      "webm_sha256": "e9cf006412231eb369a6576da3fa858be5e05b5a86edd1b646f49713eae8521c",
+      "webm_bytes": 338755,
+      "mp4": "media/landing-story/clips/automate.mp4",
+      "mp4_sha256": "6a32e0fd179b82541174fcff847c07a03779a762a51a7621000cce060174b764",
+      "mp4_bytes": 407563,
+      "poster": "media/landing-story/screenshots/automate.webp",
+      "poster_sha256": "c980145f3439741e79b567764ed0423f3ae57af1d4d7069d21ae65c9639f4e8e",
+      "poster_bytes": 39512
+    },
+    "ship": {
+      "source_name": "4.mp4",
+      "source_sha256": "e4441c570bb7c4c27137ca61c40a0757597c6fadfb2145e1c6d2cbeb8d786d28",
+      "source_duration_seconds": 21.6,
+      "privacy_edits": [
+        "blurred private address and path regions",
+        "replaced the first modal body with a public-safe local-artifact target",
+        "ended before the external editor and post-action result"
+      ],
+      "segments_seconds": [
+        [
+          4.7,
+          8.0
+        ],
+        [
+          8.4,
+          11.4
+        ]
+      ],
+      "duration_seconds": 8.167,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/ship.webm",
+      "webm_sha256": "a05f1dd45b68ca278e0aa2ff2e902be1377d706faba7654fc536f3ea9dbffeb2",
+      "webm_bytes": 283414,
+      "mp4": "media/landing-story/clips/ship.mp4",
+      "mp4_sha256": "4454cb1923803b2b24d2ba38185604eb00f3f7bda2bd077d46f87af8702c425e",
+      "mp4_bytes": 353145,
+      "poster": "media/landing-story/screenshots/ship.webp",
+      "poster_sha256": "d3315f5283f92782f140462615ab774e0e91742078b4fb793bd5e358128fcef1",
+      "poster_bytes": 42796
+    }
+  }
+}
