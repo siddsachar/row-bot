@@ -62,6 +62,10 @@ def test_review_hash_gate_blocks_changed_asset(tmp_path: Path) -> None:
     assert len(published["published"]) == 9
     public_manifest = json.loads((public / "manifest.json").read_text(encoding="utf-8"))
     assert public_manifest["run_id"] == "20260921T120000Z-a1b2c3"
+    assert validate_run(MANIFEST, run_dir)["ok"] is True
+    receipt = RunReceipt.read(run_dir)
+    assert receipt.phase == "publish"
+    assert receipt.status == "published-locally"
 
     changed = run_dir / "processed" / f"{MANIFEST.scenes[0].asset}.webp"
     changed.write_bytes(changed.read_bytes() + b"changed")

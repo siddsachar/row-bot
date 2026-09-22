@@ -290,8 +290,12 @@ def validate_run(manifest: LandingStoryManifest, run_dir: Path) -> dict[str, Any
         clip = processed / f"{scene.asset}.webm"
         if clip.exists() and clip.stat().st_size > CLIP_MEDIA_BUDGET:
             errors.append(f"{scene.asset} clip exceeds budget")
-    receipt.phase = "validate"
-    receipt.status = "invalid" if errors else "validated"
+    if errors:
+        receipt.phase = "validate"
+        receipt.status = "invalid"
+    elif receipt.status != "published-locally":
+        receipt.phase = "validate"
+        receipt.status = "validated"
     receipt.write(run_dir)
     return {"ok": not errors, "errors": errors, "checked": checked}
 
