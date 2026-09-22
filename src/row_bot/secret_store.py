@@ -55,6 +55,15 @@ def _test_mode_active() -> bool:
     return str(os.environ.get("ROW_BOT_TEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _marketing_capture_secret_reads_authorized() -> bool:
+    truthy = {"1", "true", "yes", "on"}
+    return (
+        _docs_capture_active()
+        and str(os.environ.get("ROW_BOT_DOCS_REAL_DATA") or "").strip().lower() in truthy
+        and str(os.environ.get("ROW_BOT_MARKETING_CAPTURE") or "").strip().lower() in truthy
+    )
+
+
 class SecretStoreError(RuntimeError):
     """Raised when the platform secret store cannot complete an operation."""
 
@@ -561,7 +570,16 @@ def _account(name: str, *, namespace: str = "api_keys") -> str:
 def is_available() -> bool:
     """Return True when the configured backend can round-trip a probe secret."""
     if _docs_capture_active():
-        return False
+        if not _marketing_capture_secret_reads_authorized():
+            return False
+        try:
+            _backend().get_password(
+                SERVICE_NAME,
+                _account("__row_bot_keyring_probe__", namespace="health"),
+            )
+            return True
+        except Exception:
+            return False
     probe = "__row_bot_keyring_probe__"
     try:
         set_secret(probe, "ok", namespace="health")
@@ -574,7 +592,7 @@ def is_available() -> bool:
 
 def get_secret(name: str, *, namespace: str = "api_keys", service: str | None = None) -> str | None:
     """Return a stored secret, or None if it is unset/unavailable."""
-    if _docs_capture_active():
+    if _docs_capture_active() and not _marketing_capture_secret_reads_authorized():
         return None
     resolved_service = service or SERVICE_NAME
     account = _account(name, namespace=namespace)
@@ -597,6 +615,8 @@ def get_secret(name: str, *, namespace: str = "api_keys", service: str | None = 
 
 def set_secret(name: str, value: str, *, namespace: str = "api_keys", service: str | None = None) -> str:
     """Persist a secret and return the secure storage backend used."""
+    if _docs_capture_active():
+        raise SecretStoreError("secure_storage_write_disabled_during_docs_capture")
     if value is None:
         delete_secret(name, namespace=namespace, service=service)
         return ""
@@ -620,6 +640,8 @@ def set_secret(name: str, value: str, *, namespace: str = "api_keys", service: s
 
 def delete_secret(name: str, *, namespace: str = "api_keys", service: str | None = None) -> None:
     """Remove a secret from the OS keyring if it exists."""
+    if _docs_capture_active():
+        raise SecretStoreError("secure_storage_delete_disabled_during_docs_capture")
     resolved_service = service or SERVICE_NAME
     account = _account(name, namespace=namespace)
     try:

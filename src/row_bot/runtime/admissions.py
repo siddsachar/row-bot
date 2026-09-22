@@ -32,9 +32,9 @@ def transaction() -> Iterator[sqlite3.Connection]:
     with _LOCK:
         conn = _get_conn()
         try:
-            from row_bot.docs_capture import is_docs_real_data_capture
+            from row_bot.docs_capture import is_docs_read_only_real_data_capture
 
-            if is_docs_real_data_capture():
+            if is_docs_read_only_real_data_capture():
                 yield conn
                 return
             conn.executescript("""

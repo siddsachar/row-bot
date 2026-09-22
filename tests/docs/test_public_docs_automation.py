@@ -263,8 +263,11 @@ def test_llms_txt_generation_covers_docs_routes(tmp_path: Path) -> None:
 def test_docs_capture_is_opt_in_and_seed_data_is_safe(tmp_path: Path, monkeypatch) -> None:
     from row_bot.docs_capture import (
         is_docs_capture,
+        is_authorized_marketing_capture,
+        is_docs_read_only_real_data_capture,
         is_docs_real_data_capture,
         load_docs_capture_demo_state,
+        marketing_capture_knowledge_ids,
         scan_demo_data_safety,
         write_docs_capture_demo_state,
     )
@@ -279,6 +282,16 @@ def test_docs_capture_is_opt_in_and_seed_data_is_safe(tmp_path: Path, monkeypatc
     assert not is_docs_real_data_capture()
     monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
     assert is_docs_real_data_capture()
+    assert is_docs_read_only_real_data_capture()
+    assert not is_authorized_marketing_capture()
+    monkeypatch.setenv("ROW_BOT_MARKETING_CAPTURE", "1")
+    assert is_authorized_marketing_capture()
+    assert not is_docs_read_only_real_data_capture()
+    monkeypatch.setenv(
+        "ROW_BOT_MARKETING_KNOWLEDGE_IDS",
+        "safe-one,unsafe value,safe-two,safe-one",
+    )
+    assert marketing_capture_knowledge_ids() == ("safe-one", "safe-two")
     write_docs_capture_demo_state(tmp_path, scenario="full")
     data = load_docs_capture_demo_state(tmp_path)
     payload = json.dumps(data, sort_keys=True)
@@ -719,6 +732,87 @@ def test_authorized_real_mobile_detail_selects_a_real_chat_thread(
     assert state.messages == [{"role": "user", "content": "real-chat"}]
 
 
+def test_authorized_real_chat_capture_uses_the_exact_threads_real_title(
+    monkeypatch,
+) -> None:
+    import row_bot.docs_capture as capture
+
+    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
+    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
+    monkeypatch.setattr(
+        capture,
+        "_list_real_capture_threads",
+        lambda: [
+            ("other-chat", "Private name", "", "", "", "", "chat"),
+            (
+                "public-chat",
+                "Public-safe campaign",
+                "",
+                "",
+                "model:codex:gpt-5.6-sol",
+                "",
+                "chat",
+            ),
+        ],
+    )
+    state = SimpleNamespace(
+        active_designer_project=None,
+        active_developer_workspace_id=None,
+        mobile_view="",
+        thread_id=None,
+        thread_name=None,
+        thread_model_override="",
+        messages=[],
+    )
+
+    capture.configure_docs_capture_state(
+        state,
+        {"docs_surface": "chat-main", "thread_id": "public-chat"},
+        load_messages=lambda _thread_id: [],
+    )
+
+    assert state.thread_id == "public-chat"
+    assert state.thread_name == "Public-safe campaign"
+    assert state.thread_model_override == "model:codex:gpt-5.6-sol"
+
+
+def test_authorized_real_designer_capture_uses_the_projects_real_thread(
+    monkeypatch,
+) -> None:
+    import row_bot.docs_capture as capture
+    from row_bot.designer import storage
+
+    project = SimpleNamespace(
+        id="public-project",
+        name="Public launch direction",
+        thread_id="public-designer-thread",
+    )
+    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
+    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
+    monkeypatch.setattr(storage, "load_project", lambda project_id: project)
+    monkeypatch.setattr(storage, "list_projects", lambda: [])
+    state = SimpleNamespace(
+        active_designer_project=None,
+        active_developer_workspace_id=None,
+        thread_id=None,
+        thread_name=None,
+        messages=[],
+    )
+
+    capture.configure_docs_capture_state(
+        state,
+        {"docs_surface": "designer-editor", "project_id": "public-project"},
+        load_messages=lambda thread_id: [{"role": "assistant", "content": thread_id}],
+    )
+
+    assert state.active_designer_project is project
+    assert state.thread_id == "public-designer-thread"
+    assert state.thread_name == "Public launch direction"
+    assert state.messages == [
+        {"role": "assistant", "content": "public-designer-thread"}
+    ]
+
+
 def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
     buddy = (ROOT / "docs-site" / "docs" / "settings" / "buddy.mdx").read_text(
         encoding="utf-8"
@@ -781,6 +875,38 @@ def test_docs_capture_never_reads_the_keyring(monkeypatch) -> None:
 
     assert secret_store.is_available() is False
     assert secret_store.get_secret("OPENAI_API_KEY") is None
+
+
+def test_authorized_marketing_capture_reads_but_never_writes_keyring(monkeypatch) -> None:
+    import row_bot.secret_store as secret_store
+
+    calls: list[str] = []
+
+    class ReadOnlyBackend:
+        def get_password(self, _service, account):
+            calls.append(f"read:{account}")
+            return "configured-token"
+
+        def set_password(self, *_args):
+            raise AssertionError("marketing capture wrote the keyring")
+
+        def delete_password(self, *_args):
+            raise AssertionError("marketing capture deleted from the keyring")
+
+    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
+    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
+    monkeypatch.setenv("ROW_BOT_MARKETING_CAPTURE", "1")
+    monkeypatch.setattr(secret_store, "_backend_override", ReadOnlyBackend())
+
+    assert secret_store.is_available() is True
+    assert secret_store.get_secret("access_token", namespace="providers:codex") == (
+        "configured-token"
+    )
+    with pytest.raises(secret_store.SecretStoreError, match="write_disabled"):
+        secret_store.set_secret("access_token", "replacement", namespace="providers:codex")
+    with pytest.raises(secret_store.SecretStoreError, match="delete_disabled"):
+        secret_store.delete_secret("access_token", namespace="providers:codex")
+    assert calls
 
 
 def test_real_home_and_settings_tabs_have_routes() -> None:

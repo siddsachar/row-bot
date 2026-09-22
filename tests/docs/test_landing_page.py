@@ -99,8 +99,6 @@ def test_landing_page_is_evergreen_and_current() -> None:
     assert all(image.get("width") and image.get("height") for image in parser.images)
     assert parser.sections == [
         "top",
-        "proof",
-        "product",
         "demos",
         "architecture",
         "faq",
@@ -108,14 +106,11 @@ def test_landing_page_is_evergreen_and_current() -> None:
     ]
     assert "Row-Bot 4.9.1 available" in HTML
     assert "Row-Bot &middot; v4.9.1 &middot; Apache 2.0" in HTML
-    assert 'src="img/screenshots/real-ui/home-knowledge.png?v=4.9.1-r1"' in HTML
-    assert (
-        "agents, models, tools, memory, documents, workflows, code, design, "
-        "messaging, and voice"
-    ) in HTML
-    assert "Move across the workbench" in HTML
-    assert "A visible context meter and rolling compaction" in HTML
-    assert "external capabilities can be discovered only when needed" in HTML
+    assert 'src="media/landing-story/screenshots/research.webp"' in HTML
+    assert "One private workspace to reason, build, automate, and act." in HTML
+    assert "Row-Bot · Real app capture" in HTML
+    assert "Recorded in-product" in HTML
+    assert "Reason.<br>Orchestrate.<br>Work.<br><em>Keep it yours.</em>" in HTML
     assert "PARENT-LED ORCHESTRATION" not in HTML
 
 
@@ -127,7 +122,7 @@ def test_landing_page_fallbacks_and_links_are_complete() -> None:
             assert href[1:] in parser.ids, href
 
     os_primary = [link for link in parser.links if "data-os-primary" in link]
-    assert {link["href"] for link in os_primary} == {"#demos", "#install"}
+    assert {link["href"] for link in os_primary} == {"#install"}
     assert all(not link["href"].endswith((".exe", ".dmg")) for link in os_primary)
 
     hrefs = [link.get("href") for link in parser.links]

@@ -24,6 +24,8 @@ DOCS_DISABLE_AUTOSTART_ENV = "ROW_BOT_DOCS_DISABLE_AUTOSTART"
 DOCS_REDUCE_MOTION_ENV = "ROW_BOT_DOCS_REDUCE_MOTION"
 DOCS_FAKE_PROVIDERS_ENV = "ROW_BOT_DOCS_FAKE_PROVIDERS"
 DOCS_REAL_DATA_ENV = "ROW_BOT_DOCS_REAL_DATA"
+MARKETING_CAPTURE_ENV = "ROW_BOT_MARKETING_CAPTURE"
+MARKETING_KNOWLEDGE_IDS_ENV = "ROW_BOT_MARKETING_KNOWLEDGE_IDS"
 DOCS_DEMO_STATE_FILE = "docs_real_ui_demo_state.json"
 DEMO_THREAD_ID = "docs-demo-chat"
 
@@ -68,6 +70,35 @@ def is_docs_real_data_capture() -> bool:
     """Return whether this already-opted-in docs process uses the real profile."""
 
     return is_docs_capture() and _truthy(os.environ.get(DOCS_REAL_DATA_ENV))
+
+
+def is_authorized_marketing_capture() -> bool:
+    """Return whether the explicitly authorized real-profile marketing mode is active."""
+
+    return is_docs_real_data_capture() and _truthy(os.environ.get(MARKETING_CAPTURE_ENV))
+
+
+def is_docs_read_only_real_data_capture() -> bool:
+    """Keep ordinary real-data docs capture read-only, excluding marketing runs."""
+
+    return is_docs_real_data_capture() and not is_authorized_marketing_capture()
+
+
+def marketing_capture_knowledge_ids() -> tuple[str, ...]:
+    """Return the bounded public-safe knowledge allowlist for a capture process."""
+
+    if not is_authorized_marketing_capture():
+        return ()
+    result: list[str] = []
+    for raw in str(os.environ.get(MARKETING_KNOWLEDGE_IDS_ENV) or "").split(","):
+        value = raw.strip()
+        if not value or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value):
+            continue
+        if value not in result:
+            result.append(value)
+        if len(result) >= 24:
+            break
+    return tuple(result)
 
 
 def docs_capture_fixed_now() -> datetime:
@@ -462,6 +493,8 @@ def configure_docs_capture_state(
         "settings_tab": query.get("settings_tab", ""),
         "dialog": query.get("dialog", ""),
         "mobile_view": query.get("mobile_view", ""),
+        "project_id": query.get("project_id", ""),
+        "workflow_id": query.get("workflow_id", ""),
     }
     real_data = is_docs_real_data_capture()
     demo = {} if real_data else load_docs_capture_demo_state()
@@ -473,17 +506,26 @@ def configure_docs_capture_state(
         from row_bot.designer.storage import list_projects, load_project
 
         project_id = str((demo.get("designer") or {}).get("project_id") or "")
-        if real_data:
+        if real_data and intent["project_id"]:
+            project_id = intent["project_id"]
+        elif real_data:
             projects = list_projects()
             project_id = str(projects[0].get("id") or "") if projects else ""
         state.active_designer_project = load_project(project_id)
-        state.thread_id = "docs-designer-thread"
+        project_thread_id = str(
+            getattr(state.active_designer_project, "thread_id", "") or ""
+        )
+        state.thread_id = project_thread_id if real_data else "docs-designer-thread"
         state.thread_name = (
             str(getattr(state.active_designer_project, "name", "") or "Designer project")
             if real_data
             else "Community Workshop Deck"
         )
-        state.messages = []
+        state.messages = (
+            load_messages(project_thread_id)
+            if real_data and project_thread_id and load_messages is not None
+            else []
+        )
         return intent
     if intent["surface"] == "developer-workspace":
         workspace_id = str((demo.get("developer") or {}).get("workspace_id") or "")
@@ -530,22 +572,30 @@ def configure_docs_capture_state(
     if intent["surface"].startswith("chat") or query.get("thread_id"):
         thread_id = query.get("thread_id") or str(demo.get("thread_id") or DEMO_THREAD_ID)
         thread_name = str(demo.get("thread_name") or "Demo thread")
-        if real_data and (not thread_id or thread_id == DEMO_THREAD_ID):
+        if real_data:
             rows = _list_real_capture_threads()
-            row = next(
-                (
-                    item
-                    for item in rows
-                    if str(item[6] or "chat").casefold() in {"", "chat"}
-                ),
-                None,
-            )
+            if thread_id and thread_id != DEMO_THREAD_ID:
+                row = next(
+                    (item for item in rows if str(item[0] or "") == thread_id),
+                    None,
+                )
+            else:
+                row = next(
+                    (
+                        item
+                        for item in rows
+                        if str(item[6] or "chat").casefold() in {"", "chat"}
+                    ),
+                    None,
+                )
             if row is not None:
                 thread_id = str(row[0])
                 thread_name = str(row[1] or "Conversation")
+                state.thread_model_override = str(row[4] or "")
         state.thread_id = thread_id
         state.thread_name = thread_name
-        state.thread_model_override = str(demo.get("model") or "")
+        if not real_data:
+            state.thread_model_override = str(demo.get("model") or "")
         loaded = load_messages(thread_id) if load_messages else []
         state.messages = loaded or list(demo.get("messages") or [])
         if intent["mobile_view"] and thread_id:

@@ -1,0 +1,206 @@
+schema: 1
+story:
+  id: sovereignty-workbench-v1
+  prompt_version: 1
+  max_generation_attempts: 6
+  buddy_pack: orbit
+
+models:
+  local: model:ollama:qwen3.8:27b
+  frontier: model:codex:gpt-5.6-sol
+
+viewports:
+  desktop:
+    width: 1920
+    height: 1200
+  mobile:
+    width: 390
+    height: 844
+
+canonical_task: >-
+  Research how local-first AI changes ownership and control of knowledge work.
+  Use Row-Bot's public documentation and approved public sources to create a
+  concise campaign brief, a visual launch concept, and a recurring weekly
+  intelligence workflow. Keep file writes and external delivery behind approval.
+
+public_sources:
+  - id: row-bot-home
+    url: https://row-bot.ai/
+  - id: row-bot-architecture
+    url: https://row-bot.ai/architecture.html
+  - id: row-bot-public-repository
+    url: https://github.com/siddsachar/row-bot
+
+preparation:
+  - id: research-source-digest
+    record: local-first-ai-landscape
+    title: Local-first AI landscape
+    model_role: local
+    reasoning: high
+    prompt: >-
+      This is a public-safe marketing research workspace. Research how
+      local-first AI changes ownership and control of knowledge work using only
+      https://row-bot.ai/, https://row-bot.ai/architecture.html, and the public
+      committed Row-Bot repository documentation. Show source links and tool
+      activity. Do not read local files, private history, credentials, channels,
+      or uncommitted repository content. Produce a concise evidence-led digest.
+  - id: knowledge-synthesis
+    record: what-should-stay-local
+    title: What should stay local?
+    model_role: local
+    reasoning: high
+    prompt: >-
+      Synthesize the public research into a short decision framework titled
+      "What should stay local?" Cover conversations, knowledge, workflows,
+      approvals, and explicit hosted-provider boundaries. Extract durable
+      public-safe knowledge where the normal Row-Bot workflow supports it. Do
+      not use private profile material or make external writes.
+  - id: campaign-synthesis
+    record: campaign-narrative
+    title: Campaign narrative
+    model_role: frontier
+    reasoning: high
+    prompt: >-
+      Using only the public-safe findings already visible in this workspace,
+      create a concise launch campaign brief for Row-Bot. Lead with "Think it.
+      Build it. Run it. Keep it yours." Make the handoff to this hosted model
+      explicit and do not claim this model runs locally. Include audience,
+      promise, proof, and a six-section narrative. Do not deliver externally.
+  - id: designer-direction
+    record: landing-visual-direction
+    title: Landing visual direction
+    model_role: frontier
+    reasoning: high
+    prompt: >-
+      Create an editable Designer direction for the public Row-Bot launch story:
+      dark mission-control atmosphere, the Orbit Buddy as guide, real product UI
+      as proof, cobalt and amber accents, readable statement-led typography, and
+      an honest labelled boundary between local Qwen and hosted GPT-5.6 Sol.
+      Review it for clarity and accessibility. Do not publish or share it.
+  - id: workflow-execution
+    record: weekly-sovereignty-watch
+    title: Weekly sovereignty watch
+    model_role: local
+    reasoning: medium
+    prompt: >-
+      Produce one public-safe weekly local-first AI intelligence update from the
+      approved public sources. This output is for the disabled-delivery workflow
+      named "Weekly sovereignty watch". Do not message a channel, recipient, or
+      webhook and do not write outside the Row-Bot profile.
+
+scenes:
+  - id: hero-app
+    surface: conversation
+    record: local-first-ai-landscape
+    state: settled
+    framing: app-window
+    viewport: desktop
+    model_role: local
+    outputs: [webp]
+    asset: hero-app
+    public_safe: true
+    alt: >-
+      Row-Bot conversation using a local Qwen model with sources and Activity
+      visible in the connected workspace.
+
+  - id: research-local
+    surface: conversation
+    record: local-first-ai-landscape
+    state: sources-open
+    framing: app-window
+    viewport: desktop
+    model_role: local
+    outputs: [webp, webm]
+    asset: research-local
+    public_safe: true
+    alt: >-
+      A real local-model research result with public sources and a reviewed tool
+      trace inside Row-Bot.
+
+  - id: synthesis-sol
+    surface: conversation
+    record: campaign-narrative
+    state: settled
+    framing: app-window
+    viewport: desktop
+    model_role: frontier
+    outputs: [webp]
+    asset: synthesis-sol
+    public_safe: true
+    alt: >-
+      Row-Bot campaign synthesis with the hosted GPT-5.6 Sol route shown
+      explicitly in the conversation.
+
+  - id: knowledge-control
+    surface: knowledge
+    state: populated
+    framing: app-window
+    viewport: desktop
+    model_role: local
+    outputs: [webp, webm]
+    asset: knowledge-control
+    public_safe: true
+    alt: >-
+      Row-Bot knowledge graph populated from the public-safe local-first AI
+      research workspace.
+
+  - id: designer-output
+    surface: designer
+    record: landing-visual-direction
+    state: editor-open
+    framing: app-window
+    viewport: desktop
+    model_role: frontier
+    outputs: [webp]
+    asset: designer-output
+    public_safe: true
+    alt: >-
+      A real editable launch visual open in Row-Bot Designer Studio.
+
+  - id: workflow-repeat
+    surface: workflow
+    record: weekly-sovereignty-watch
+    state: completed-run
+    framing: app-window
+    viewport: desktop
+    model_role: local
+    outputs: [webp]
+    asset: workflow-repeat
+    public_safe: true
+    alt: >-
+      A disabled-delivery Row-Bot workflow with one successful local-model run.
+
+  - id: approval-boundary
+    surface: approval
+    state: pending
+    framing: detail
+    viewport: desktop
+    outputs: [webp, webm]
+    asset: approval-boundary
+    public_safe: true
+    alt: >-
+      Row-Bot asking for approval before a reversible write in the public-safe
+      marketing workspace.
+
+  - id: model-choice
+    surface: model-picker
+    state: open
+    framing: detail
+    viewport: desktop
+    outputs: [webp]
+    asset: model-choice
+    public_safe: true
+    alt: >-
+      Row-Bot model picker showing explicit local Qwen and hosted GPT-5.6 Sol
+      choices.
+
+  - id: mobile-shell
+    surface: home
+    state: knowledge-open
+    framing: mobile
+    viewport: mobile
+    outputs: [webp]
+    asset: mobile-shell
+    public_safe: true
+    alt: >-
+      The same public-safe Row-Bot workspace at a mobile browser width.
