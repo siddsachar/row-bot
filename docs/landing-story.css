@@ -50,15 +50,15 @@
     width: min(100%, 530px);
     aspect-ratio: 1;
     padding: 0;
-    overflow: hidden;
+    overflow: visible;
     border: 0;
-    border-radius: 50%;
+    border-radius: 24%;
     background: transparent;
     color: inherit;
     cursor: pointer;
 }
 .buddy-control:focus-visible { outline-offset: 10px; }
-.buddy-video {
+.buddy-image {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -66,9 +66,17 @@
     object-fit: contain;
     opacity: 0;
     transform: scale(.985);
-    transition: opacity 420ms ease, transform 420ms ease;
+    filter: drop-shadow(0 24px 52px rgba(25, 91, 160, .24));
+    transition: opacity 480ms ease, transform 480ms ease;
+    animation: buddy-drift 6s ease-in-out infinite;
+    animation-play-state: paused;
 }
-.buddy-video.is-active { opacity: 1; transform: scale(1); }
+.buddy-image.is-active { opacity: 1; transform: scale(1); animation-play-state: running; }
+.buddy-stage.is-paused .buddy-image { animation-play-state: paused; }
+@keyframes buddy-drift {
+    0%, 100% { transform: scale(1) translate3d(0, 0, 0); }
+    50% { transform: scale(1.012) translate3d(0, -1.25%, 0); }
+}
 .buddy-glow {
     position: absolute;
     inset: 15%;
@@ -148,7 +156,7 @@
 .sovereignty-route__gate { padding: 8px 12px; border: 1px solid rgba(213,173,114,.45); border-radius: 999px; color: #e1c49c; }
 .sovereignty-content .comparison-disclosure { margin: 28px auto 0; max-width: 700px; text-align: left; }
 
-html:not(.js) .buddy-video, html:not(.js) .story-panel:not(.is-active) { display: none; }
+html:not(.js) .buddy-image, html:not(.js) .story-panel:not(.is-active) { display: none; }
 html:not(.js) .story-panel[hidden] { display: block !important; margin-top: 80px; }
 html:not(.js) .story-rail { display: none; }
 
@@ -172,10 +180,12 @@ html:not(.js) .story-rail { display: none; }
 @media (max-width: 560px) {
     .story-hero { padding-bottom: 54px; }
     .story-hero h1 { font-size: clamp(3.75rem, 19vw, 5.5rem); }
-    .buddy-control { width: min(112%, 430px); }
+    .buddy-control { width: min(100%, 430px); }
     .model-boundary { align-items: flex-start; flex-direction: column; }
     .product-story { padding: 80px 0 100px; }
     .story-heading { margin-bottom: 34px; }
+    .story-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-x: visible; }
+    .story-rail button { min-width: 0; }
     .story-panel__copy h3 { font-size: 2.7rem; }
     .product-frame { border-radius: 12px; }
     .constellation { min-height: 500px; transform: scale(.92); }
@@ -185,6 +195,6 @@ html:not(.js) .story-rail { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .buddy-video { transition: none; }
+    .buddy-image { transition: none; animation: none; }
     .sovereignty-section canvas { display: none; }
 }

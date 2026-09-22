@@ -3,33 +3,37 @@
 
     const STATES = ['idle', 'thinking', 'working', 'approval', 'success', 'error'];
     const LABELS = {
-        idle: 'Orbit is ready.',
-        thinking: 'Orbit is researching.',
-        working: 'Orbit is building.',
-        approval: 'Orbit is waiting for your approval.',
-        success: 'Orbit completed the work.',
-        error: 'Orbit paused safely.'
+        idle: 'Buddy is ready.',
+        thinking: 'Buddy is researching.',
+        working: 'Buddy is building.',
+        approval: 'Buddy is waiting for your approval.',
+        success: 'Buddy completed the work.',
+        error: 'Buddy paused safely.'
     };
-    const SOURCES = Object.fromEntries(STATES.map(state => [state, `media/landing-story/buddy/${state}.mp4`]));
+    const SOURCES = Object.fromEntries(STATES.map(state => [state, `media/landing-story/buddy/${state}.webp`]));
     const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const saveData = Boolean(navigator.connection?.saveData);
     const stage = document.querySelector('[data-buddy-stage]');
     const control = document.querySelector('[data-buddy-control]');
     const status = document.querySelector('[data-buddy-status]');
-    const videos = [...document.querySelectorAll('[data-buddy-video]')];
+    const images = [...document.querySelectorAll('[data-buddy-image]')];
     let stateIndex = 0;
-    let activeVideo = 0;
+    let activeImage = 0;
     let stageVisible = true;
     let mediaFailed = false;
+    let crossfadePending = false;
+    let queuedState = null;
+
+    function playbackAllowed() {
+        return !reduceMotionQuery.matches && !saveData && !document.hidden && !mediaFailed;
+    }
 
     function motionAllowed() {
-        return !reduceMotionQuery.matches && !saveData && !document.hidden && stageVisible && !mediaFailed;
+        return playbackAllowed() && stageVisible;
     }
 
     function pauseAll(except = null) {
-        videos.forEach(video => {
-            if (video !== except) video.pause();
-        });
+        stage?.classList.add('is-paused');
         document.querySelectorAll('[data-story-video]').forEach(video => {
             if (video !== except) {
                 video.pause();
@@ -38,37 +42,68 @@
         });
     }
 
-    function setBuddyState(nextState, announce = true) {
-        const nextIndex = STATES.indexOf(nextState);
-        if (nextIndex < 0 || !stage || videos.length < 2) return;
-        stateIndex = nextIndex;
-        stage.dataset.state = nextState;
-        if (status && announce) status.textContent = LABELS[nextState];
-        if (!motionAllowed()) {
-            videos.forEach(video => video.pause());
+    function crossfadeBuddy(nextState, { boundary = false } = {}) {
+        const incomingIndex = activeImage === 0 ? 1 : 0;
+        const incoming = images[incomingIndex];
+        const outgoing = images[activeImage];
+        if (!incoming || !outgoing) return;
+        if (crossfadePending) {
+            queuedState = nextState;
             return;
         }
-        const incomingIndex = activeVideo === 0 ? 1 : 0;
-        const incoming = videos[incomingIndex];
-        const outgoing = videos[activeVideo];
-        if (!incoming.src.endsWith(SOURCES[nextState])) incoming.src = SOURCES[nextState];
-        incoming.currentTime = 0;
-        incoming.play().then(() => {
+        crossfadePending = true;
+        const source = SOURCES[nextState];
+        if (!incoming.src.endsWith(source)) incoming.src = source;
+        const ready = incoming.decode ? incoming.decode() : Promise.resolve();
+        ready.then(() => {
+            if (!motionAllowed()) {
+                incoming.classList.add('is-active');
+                outgoing.classList.remove('is-active');
+                activeImage = incomingIndex;
+                crossfadePending = false;
+                if (queuedState) {
+                    const queued = queuedState;
+                    queuedState = null;
+                    crossfadeBuddy(queued);
+                }
+                return;
+            }
+            stage?.classList.remove('is-paused');
             incoming.classList.add('is-active');
             outgoing.classList.remove('is-active');
-            window.setTimeout(() => outgoing.pause(), 430);
-            activeVideo = incomingIndex;
+            activeImage = incomingIndex;
+            window.setTimeout(() => {
+                crossfadePending = false;
+                if (queuedState) {
+                    const queued = queuedState;
+                    queuedState = null;
+                    crossfadeBuddy(queued);
+                }
+            }, boundary ? 500 : 480);
         }).catch(() => {
             mediaFailed = true;
+            crossfadePending = false;
+            queuedState = null;
             pauseAll();
+            if (status) status.textContent = 'Buddy is available as a still image.';
         });
     }
 
+    function setBuddyState(nextState, announce = true) {
+        const nextIndex = STATES.indexOf(nextState);
+        if (nextIndex < 0 || !stage || images.length < 2) return;
+        stateIndex = nextIndex;
+        stage.dataset.state = nextState;
+        if (status && announce) status.textContent = LABELS[nextState];
+        if (images[activeImage]?.src.endsWith(SOURCES[nextState])) {
+            resumeBuddy();
+            return;
+        }
+        crossfadeBuddy(nextState);
+    }
+
     function resumeBuddy() {
-        if (!motionAllowed()) return;
-        const current = videos[activeVideo];
-        if (!current.src) current.src = SOURCES[STATES[stateIndex]];
-        current.play().catch(() => { mediaFailed = true; });
+        stage?.classList.toggle('is-paused', !motionAllowed());
     }
 
     control?.addEventListener('click', () => setBuddyState(STATES[(stateIndex + 1) % STATES.length]));
@@ -78,10 +113,14 @@
             setBuddyState(STATES[(stateIndex + 1) % STATES.length]);
         }
     });
-    videos.forEach(video => video.addEventListener('error', () => {
+    images.forEach(image => image.addEventListener('error', () => {
         mediaFailed = true;
         pauseAll();
-        if (status) status.textContent = 'Orbit is available as a still image.';
+        if (status) status.textContent = 'Buddy is available as a still image.';
+    }));
+    images.forEach(image => image.addEventListener('animationiteration', () => {
+        if (image !== images[activeImage] || crossfadePending || !motionAllowed()) return;
+        crossfadeBuddy(STATES[stateIndex], { boundary: true });
     }));
 
     if ('IntersectionObserver' in window && stage) {
@@ -105,7 +144,7 @@
 
     function playStoryClip(beat) {
         const clip = document.querySelector(`[data-story-video="${beat}"]`);
-        if (!clip || !storyVisible || !motionAllowed()) return;
+        if (!clip || !storyVisible || !playbackAllowed()) return;
         pauseAll(clip);
         clip.play().then(() => clip.classList.add('is-playing')).catch(() => clip.classList.remove('is-playing'));
     }
@@ -124,7 +163,7 @@
         });
         pauseAll();
         playStoryClip(beat);
-        setBuddyState(beatState[beat], false);
+        if (storyVisible) setBuddyState(beatState[beat], false);
     }
 
     if ('IntersectionObserver' in window && storyController) {
@@ -132,7 +171,10 @@
             storyVisible = Boolean(entries[0]?.isIntersecting);
             if (storyVisible) {
                 const current = triggers.find(item => item.hasAttribute('aria-current'))?.dataset.storyTrigger;
-                if (current) playStoryClip(current);
+                if (current) {
+                    playStoryClip(current);
+                    setBuddyState(beatState[current], false);
+                }
             } else {
                 document.querySelectorAll('[data-story-video]').forEach(video => {
                     video.pause();

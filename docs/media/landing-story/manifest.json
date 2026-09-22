@@ -1,0 +1,82 @@
+{
+  "assets": [
+    {
+      "alt": "Row-Bot conversation using a local Qwen model with sources and Activity visible in the connected workspace.",
+      "scene_id": "hero-app",
+      "sha256": "c7747db7a4195fe7cf8a10973fe905ee32fef57a222dbcfdb852f99dde505981",
+      "still": "screenshots/hero-app.webp"
+    },
+    {
+      "alt": "A real local-model research result with public sources and a reviewed tool trace inside Row-Bot.",
+      "clip": "clips/research-local.webm",
+      "clip_sha256": "f9260b841054b48079c70889abcb5f2cbfcd1f61f68ef05ad9cc055fcc5b5b0e",
+      "scene_id": "research-local",
+      "sha256": "fc572cbd6817fcc635e7d9edfd73e687c12120d9948ab54c4ab5607871af932d",
+      "still": "screenshots/research-local.webp"
+    },
+    {
+      "alt": "Row-Bot campaign synthesis with the hosted GPT-5.6 Sol route shown explicitly in the conversation.",
+      "scene_id": "synthesis-sol",
+      "sha256": "412791cbdb1d5fed60a7a3542a362e29ce0cce90eb715bd9d00322f8c9ca0d51",
+      "still": "screenshots/synthesis-sol.webp"
+    },
+    {
+      "alt": "Row-Bot knowledge graph populated from the public-safe local-first AI research workspace.",
+      "clip": "clips/knowledge-control.webm",
+      "clip_sha256": "3138b0f15f94afe9c5b23181ec6f52dea0168730facaf4eec17699ef0d33b194",
+      "scene_id": "knowledge-control",
+      "sha256": "d0e9c57aa7e152e57366cc5fffa432d6ef64da34a38783d28a293beb4f77e13b",
+      "still": "screenshots/knowledge-control.webp"
+    },
+    {
+      "alt": "A real editable launch visual open in Row-Bot Designer Studio.",
+      "scene_id": "designer-output",
+      "sha256": "fbefcd9de75488c99b559d8a035e480b13d55628c9df149a187878787c79a23a",
+      "still": "screenshots/designer-output.webp"
+    },
+    {
+      "alt": "A disabled-delivery Row-Bot workflow with one successful local-model run.",
+      "scene_id": "workflow-repeat",
+      "sha256": "751157bec1651ff19ec4d6c366a2c6cd0ed1443eff999fe0c0a06825999e1567",
+      "still": "screenshots/workflow-repeat.webp"
+    },
+    {
+      "alt": "Row-Bot asking for approval before a reversible write in the public-safe marketing workspace.",
+      "clip": "clips/approval-boundary.webm",
+      "clip_sha256": "55cbbfd8d487c1804ba6d5cf460880892f709361222bbae98d680bf2b1ec5261",
+      "scene_id": "approval-boundary",
+      "sha256": "e6a55f1618573f4f8a6f5b7ae860b5b00d18273fd9bfae38d497a63a635d522a",
+      "still": "screenshots/approval-boundary.webp"
+    },
+    {
+      "alt": "Row-Bot model picker showing explicit local Qwen and hosted GPT-5.6 Sol choices.",
+      "scene_id": "model-choice",
+      "sha256": "4a5491b1b2d1772cb76024baa88cf9186df5a45fd190c30055ad3427466aba82",
+      "still": "screenshots/model-choice.webp"
+    },
+    {
+      "alt": "The same public-safe Row-Bot workspace at a mobile browser width.",
+      "scene_id": "mobile-shell",
+      "sha256": "1e7fc565e7af856b43a46e52f22f38e9fa54af14161c77b47fd97ca278a85c88",
+      "still": "screenshots/mobile-shell.webp"
+    }
+  ],
+  "buddy": {
+    "alpha": "native-generated",
+    "format": "webp",
+    "inspiration": "bundled Orbit preview",
+    "render_passes": 2,
+    "states": {
+      "approval": "b81b03f04f22e99c026078765f248138deb1f9639eec254687e6503cddcf2aa9",
+      "error": "9cf6dfbe590694d8c3624c0173d238e6953913c0463f3ca199dd69be0e96bfcb",
+      "idle": "195c3673223d1128b9f5f2617a09a07ef21a5752b253beb80f674dbfd10f57f2",
+      "success": "22ebb271493a1791e1939c24782f725fd687ea87d630ff7d4bf40792ad430c4d",
+      "thinking": "927c965433a7045c8f65224fa95f389ef87bd0c60acddb6828cf54a7001b6a7b",
+      "working": "c41cbf19d9eebc5e0c1d8602f731dc728c069134637c91285878fc5645c93101"
+    }
+  },
+  "reviewed_at": "2026-09-22T07:57:17.331017Z",
+  "run_id": "20260921T230035Z-f3ed05",
+  "schema": 1,
+  "story_id": "sovereignty-workbench-v1"
+}
