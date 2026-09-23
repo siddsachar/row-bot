@@ -5,6 +5,8 @@
     const BEATS = ['research', 'create', 'automate', 'ship'];
     const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'approval' };
     const BUDDY_REVEAL_AT = { idle: .16, thinking: .2, working: .2 };
+    const SCENE_SWIPE_MS = 900;
+    const SCENE_SWAP_AT = 420;
     // The reviewed Ship cut clears its approval dialog at 2.25 seconds.
     const SHIP_APPROVAL_AT = 2.25;
     const BEAT_LABELS = {
@@ -54,12 +56,17 @@
 
     let stateIndex = STATES.indexOf('working');
     let currentBeat = 'research';
+    let displayedBeat = 'research';
     let storyVisible = true;
     let mediaFrozen = false;
     let scrollFrame = 0;
     let autoAdvanceTimer = 0;
     let introTimer = 0;
     let autoCenterTimer = 0;
+    let sceneSwapTimer = 0;
+    let sceneEndTimer = 0;
+    let sceneTransitionToken = 0;
+    let sceneTransitionPending = false;
     let buddyTransitionTimer = 0;
     let buddyRevealToken = 0;
     let buddyTransitionToken = 0;
@@ -119,6 +126,7 @@
     function pauseAll() {
         window.clearTimeout(autoAdvanceTimer);
         autoAdvanceTimer = 0;
+        cancelSceneSwipe(true);
         window.clearTimeout(buddyTransitionTimer);
         buddyTransitionTimer = 0;
         buddyTransitionToken += 1;
@@ -292,13 +300,13 @@
             stage.classList.remove('is-repositioning');
             resumeBuddy(true);
         });
-        if (moving) buddyTransitionTimer = window.setTimeout(finish, 680);
+        if (moving) buddyTransitionTimer = window.setTimeout(finish, SCENE_SWIPE_MS);
         else finish();
     }
 
     function playStoryClip(beat, restart = false) {
         const clip = videos.find(video => video.dataset.storyVideo === beat);
-        if (!clip || !storyVisible || !playbackAllowed()) return;
+        if (!clip || !storyVisible || !playbackAllowed() || (sceneTransitionPending && displayedBeat !== beat)) return;
         pauseVideos(clip);
         const token = clipPlayToken;
         clip.classList.remove('is-playing', 'has-played');
@@ -325,8 +333,61 @@
         });
     }
 
+    function applyStoryContent(beat) {
+        panels.forEach(panel => {
+            const selected = panel.dataset.storyPanel === beat;
+            panel.hidden = !selected;
+            panel.classList.toggle('is-active', selected);
+        });
+        copies.forEach(copy => {
+            const selected = copy.dataset.storyCopy === beat;
+            copy.hidden = !selected;
+            copy.classList.toggle('is-active', selected);
+        });
+        displayedBeat = beat;
+    }
+
+    function cancelSceneSwipe(commit = false) {
+        window.clearTimeout(sceneSwapTimer);
+        window.clearTimeout(sceneEndTimer);
+        sceneSwapTimer = 0;
+        sceneEndTimer = 0;
+        sceneTransitionToken += 1;
+        sceneTransitionPending = false;
+        productStage?.classList.remove('is-scene-transitioning');
+        if (commit) applyStoryContent(currentBeat);
+    }
+
+    function beginSceneSwipe(beat) {
+        cancelSceneSwipe();
+        sceneTransitionPending = true;
+        const token = sceneTransitionToken;
+        hydrateVideo(videos.find(video => video.dataset.storyVideo === beat));
+        // Hold the outgoing decoded frame until the light reaches the midpoint.
+        clipPlayToken += 1;
+        videos.forEach(video => video.pause());
+        if (productStage) {
+            productStage.style.setProperty('--scene-swipe-duration', `${SCENE_SWIPE_MS}ms`);
+            void productStage.offsetWidth; // Restart the sweep after rapid manual selections.
+            productStage.classList.add('is-scene-transitioning');
+        }
+        sceneSwapTimer = window.setTimeout(() => {
+            if (token !== sceneTransitionToken) return;
+            sceneSwapTimer = 0;
+            applyStoryContent(beat);
+            playStoryClip(beat, true);
+        }, SCENE_SWAP_AT);
+        sceneEndTimer = window.setTimeout(() => {
+            if (token !== sceneTransitionToken) return;
+            sceneEndTimer = 0;
+            sceneTransitionPending = false;
+            productStage?.classList.remove('is-scene-transitioning');
+        }, SCENE_SWIPE_MS);
+    }
+
     function setStoryBeat(beat, { focus = false, restart = false } = {}) {
         if (!BEAT_STATES[beat]) return;
+        if (sceneTransitionPending && currentBeat === beat) return;
         window.clearTimeout(autoAdvanceTimer);
         autoAdvanceTimer = 0;
         const changed = currentBeat !== beat;
@@ -338,22 +399,19 @@
             else trigger.removeAttribute('aria-current');
             if (selected && focus) trigger.focus();
         });
-        // Only one app surface is ever visible; the poster gates the new video frame.
-        panels.forEach(panel => {
-            const selected = panel.dataset.storyPanel === beat;
-            panel.hidden = !selected;
-            panel.classList.toggle('is-active', selected);
-        });
-        copies.forEach(copy => {
-            const selected = copy.dataset.storyCopy === beat;
-            copy.hidden = !selected;
-            copy.classList.toggle('is-active', selected);
-        });
-        if (introHolding) return;
+        if (introHolding) { applyStoryContent(beat); return; }
         if (changed || restart || STATES[stateIndex] !== BEAT_STATES[beat]) {
             setBuddyState(BEAT_STATES[beat], false, changed);
         }
         if (status) status.textContent = BEAT_LABELS[beat];
+        if (displayedBeat !== beat && !reduceMotionQuery.matches && !saveData && !mediaFrozen
+            && storyVisible && !document.hidden) {
+            beginSceneSwipe(beat);
+            return;
+        }
+        cancelSceneSwipe();
+        // Keep exactly one app panel visible; its poster gates the decoded clip.
+        applyStoryContent(beat);
         if (changed || restart) playStoryClip(beat, true);
         else if (videos.find(video => video.dataset.storyVideo === beat)?.paused) playStoryClip(beat);
     }

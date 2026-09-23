@@ -212,7 +212,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
         demoPosters,
         observers,
         runTimers(maxDelay = Infinity) {
-            for (const [id, timer] of [...timers]) {
+            for (const [id, timer] of [...timers].sort((a, b) => a[1].delay - b[1].delay)) {
                 if (timer.delay > maxDelay) continue;
                 timers.delete(id);
                 timer.callback();
@@ -247,12 +247,18 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(runtime.api.getState().beat, 'ship');
     assert.equal(runtime.api.getState().buddy, 'approval');
     assert.equal(runtime.controller.dataset.scene, 'ship');
+    assert.equal(runtime.panels[0].hidden, false);
+    assert.equal(runtime.panels[3].hidden, true);
+    assert.equal(runtime.productStage.classList.contains('is-scene-transitioning'), true);
+    runtime.runTimers(450);
+    await flush();
     assert.equal(runtime.panels[3].hidden, false);
     assert.equal(runtime.videos[3].currentTime, 0);
     assert.equal(runtime.stage.classList.contains('is-repositioning'), true);
     assert.equal(runtime.buddyVideos.every(video => video.hidden), true);
     runtime.runTimers(1000);
     await flush();
+    assert.equal(runtime.productStage.classList.contains('is-scene-transitioning'), false);
     assert.equal(runtime.stage.classList.contains('is-repositioning'), false);
     assert.equal(runtime.buddyVideos.filter(video => !video.hidden).length, 1);
     assert.equal(runtime.buddyVideos.find(video => video.dataset.buddyMotion === 'approval').playCalls > 0, true);
@@ -317,11 +323,27 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     let resolveOldPlay;
     staleClip.videos[1].play = () => new Promise(resolve => { resolveOldPlay = resolve; });
     staleClip.api.setScene('create');
+    staleClip.runTimers(450);
     staleClip.api.setScene('ship');
     resolveOldPlay();
     await flush();
     assert.equal(staleClip.videos[1].classList.contains('is-playing'), false);
+    staleClip.runTimers(450);
     assert.equal(staleClip.panels.filter(panel => !panel.hidden).length, 1);
+    assert.equal(staleClip.panels[3].hidden, false);
+
+    const interruptedSwipe = makeRuntime();
+    await flush();
+    interruptedSwipe.api.setScene('create');
+    interruptedSwipe.api.setScene('ship');
+    interruptedSwipe.runTimers(450);
+    assert.equal(interruptedSwipe.panels[1].hidden, true);
+    assert.equal(interruptedSwipe.panels[3].hidden, false);
+    assert.equal(interruptedSwipe.panels.filter(panel => !panel.hidden).length, 1);
+    interruptedSwipe.api.freezeMotion();
+    assert.equal(interruptedSwipe.productStage.classList.contains('is-scene-transitioning'), false);
+    interruptedSwipe.runTimers(1000);
+    assert.equal(interruptedSwipe.panels[3].hidden, false);
 
     runtime.api.setScene('ship');
     runtime.videos[3].emit('ended');
@@ -349,6 +371,9 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(reduced.api.getState().beat, 'ship');
     assert.equal(reduced.api.getState().motionAllowed, false);
     assert.equal(reduced.videos.every(video => video.playCalls === 0), true);
+    reduced.api.setScene('create');
+    assert.equal(reduced.panels[1].hidden, false);
+    assert.equal(reduced.productStage.classList.contains('is-scene-transitioning'), false);
     const dataSaver = makeRuntime({saveData: true});
     await flush();
     assert.equal(dataSaver.api.getState().motionAllowed, false);

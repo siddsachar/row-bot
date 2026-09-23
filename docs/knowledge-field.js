@@ -96,7 +96,7 @@
         canvas.width = Math.max(1, Math.floor(width * ratio));
         canvas.height = Math.max(1, Math.floor(height * ratio));
         context.setTransform(ratio, 0, 0, ratio, 0, 0);
-        const count = width < 760 ? 28 : 54;
+        const count = width < 760 ? 42 : 90;
         if (nodes.length !== count) {
             nodes = Array.from({ length: count }, (_, index) => {
                 const target = positionFor(scene, index, count);
@@ -114,7 +114,7 @@
         const haloX = width * pointer.x;
         const haloY = height * pointer.y;
         const halo = context.createRadialGradient(haloX, haloY, 0, haloX, haloY, Math.max(width, height) * .56);
-        halo.addColorStop(0, `rgba(${color.join(',')},.095)`);
+        halo.addColorStop(0, `rgba(${color.join(',')},.14)`);
         halo.addColorStop(1, `rgba(${color.join(',')},0)`);
         context.fillStyle = halo;
         context.fillRect(0, 0, width, height);
@@ -145,14 +145,14 @@
             const start = projected[a];
             const end = projected[b];
             const strength = Math.min(start.depth, end.depth);
-            context.strokeStyle = `rgba(${color.join(',')},${(.15 * strength).toFixed(3)})`;
+            context.strokeStyle = `rgba(${color.join(',')},${(.19 * strength).toFixed(3)})`;
             context.beginPath();
             context.moveTo(start.x, start.y);
             context.lineTo(end.x, end.y);
             context.stroke();
             if (!still && index % 11 === 0) {
                 const progress = (time * .00016 + index * .11) % 1;
-                context.fillStyle = `rgba(${color.join(',')},${(.48 * strength).toFixed(3)})`;
+                context.fillStyle = `rgba(${color.join(',')},${(.64 * strength).toFixed(3)})`;
                 context.beginPath();
                 context.arc(start.x + (end.x - start.x) * progress,
                     start.y + (end.y - start.y) * progress, 1.7 * strength, 0, Math.PI * 2);
@@ -162,14 +162,18 @@
         projected.forEach((point, index) => {
             const hub = index % 13 === 0;
             if (hub) {
-                context.fillStyle = `rgba(${color.join(',')},.085)`;
+                const glow = context.createRadialGradient(point.x, point.y, 0,
+                    point.x, point.y, 23 * point.depth);
+                glow.addColorStop(0, `rgba(${color.join(',')},.22)`);
+                glow.addColorStop(1, `rgba(${color.join(',')},0)`);
+                context.fillStyle = glow;
                 context.beginPath();
-                context.arc(point.x, point.y, 14 * point.depth, 0, Math.PI * 2);
+                context.arc(point.x, point.y, 23 * point.depth, 0, Math.PI * 2);
                 context.fill();
             }
-            context.fillStyle = `rgba(${color.join(',')},${(hub ? .9 : .5) * point.depth})`;
+            context.fillStyle = `rgba(${color.join(',')},${(hub ? 1 : .63) * point.depth})`;
             context.beginPath();
-            context.arc(point.x, point.y, (hub ? 2.6 : 1.35) * point.depth, 0, Math.PI * 2);
+            context.arc(point.x, point.y, (hub ? 3 : 1.55) * point.depth, 0, Math.PI * 2);
             context.fill();
         });
     }

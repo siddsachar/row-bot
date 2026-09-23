@@ -208,6 +208,39 @@ body.landing-overhaul .nav-menu .nav-download { min-height: 42px; padding-inline
 .app-echo--near { animation: echo-near 7s ease-in-out infinite alternate; }
 .app-echo--far { animation: echo-far 9s ease-in-out infinite alternate; }
 
+.glass-slab {
+    position: absolute;
+    z-index: 1;
+    inset: -10px -9px -15px;
+    border: 1px solid rgba(147, 217, 247, .34);
+    border-radius: 23px;
+    background: linear-gradient(135deg, rgba(174, 229, 249, .14), rgba(25, 58, 76, .38) 22%, rgba(7, 18, 28, .84) 68%, rgba(112, 196, 229, .11));
+    box-shadow: inset 0 1px 0 rgba(226, 249, 255, .3), inset 0 -1px 0 rgba(116, 190, 225, .18),
+        0 20px 46px rgba(0, 0, 0, .5), 0 0 48px rgba(var(--scene-glow-rgb), .12);
+    pointer-events: none;
+    transform: translate3d(0, 7px, -28px) rotateX(1.5deg);
+    transition: box-shadow 700ms ease;
+}
+.glass-slab::before {
+    position: absolute;
+    inset: 1px;
+    content: '';
+    border-radius: inherit;
+    background: linear-gradient(116deg, rgba(232, 250, 255, .19), transparent 18%, transparent 74%, rgba(var(--scene-glow-rgb), .08));
+    clip-path: polygon(0 0, 47% 0, 29% 100%, 0 100%);
+}
+.glass-slab::after {
+    position: absolute;
+    right: 7%;
+    bottom: -3px;
+    left: 7%;
+    height: 5px;
+    content: '';
+    border-radius: 50%;
+    background: rgba(var(--scene-glow-rgb), .3);
+    filter: blur(7px);
+}
+
 .product-stage {
     position: relative;
     overflow: hidden;
@@ -222,6 +255,16 @@ body.landing-overhaul .nav-menu .nav-download { min-height: 42px; padding-inline
     transition: transform 180ms ease-out, box-shadow 600ms ease;
 }
 .product-stage.is-scene-transitioning { box-shadow: 0 2px 0 rgba(185, 230, 250, .15), 0 30px 40px -18px rgba(0, 0, 0, .96), 0 62px 130px rgba(0, 0, 0, .76), 0 0 106px rgba(var(--scene-glow-rgb), .28), inset 0 1px 0 rgba(255,255,255,.14); }
+.product-stage::after {
+    position: absolute;
+    z-index: 9;
+    inset: 0;
+    content: '';
+    border-radius: inherit;
+    box-shadow: inset 1px 1px 0 rgba(232, 250, 255, .22), inset -1px -1px 0 rgba(92, 160, 194, .14);
+    background: linear-gradient(127deg, rgba(220, 246, 255, .045), transparent 17%, transparent 86%, rgba(var(--scene-glow-rgb), .025));
+    pointer-events: none;
+}
 .product-stage__bar {
     position: absolute;
     inset: 0 0 auto;
@@ -280,6 +323,25 @@ body.landing-overhaul .nav-menu .nav-download { min-height: 42px; padding-inline
     border: 1px solid rgba(255, 255, 255, .025);
     background: linear-gradient(90deg, rgba(71, 217, 255, .025), transparent 10%, transparent 90%, rgba(71, 217, 255, .025));
 }
+.stage-light-swipe {
+    position: absolute;
+    z-index: 6;
+    inset: 34px 0 0;
+    overflow: hidden;
+    background: rgba(4, 10, 16, .7);
+    opacity: 0;
+    pointer-events: none;
+}
+.stage-light-swipe::before {
+    position: absolute;
+    inset: 0;
+    content: '';
+    background: linear-gradient(90deg, transparent 28%, rgba(var(--scene-glow-rgb), .08) 42%,
+        rgba(224, 248, 255, .24) 50%, rgba(var(--scene-glow-rgb), .08) 58%, transparent 72%);
+    transform: translateX(-100%);
+}
+.product-stage.is-scene-transitioning .stage-light-swipe { animation: stage-veil var(--scene-swipe-duration, 900ms) ease-in-out both; }
+.product-stage.is-scene-transitioning .stage-light-swipe::before { animation: stage-sweep var(--scene-swipe-duration, 900ms) cubic-bezier(.35, 0, .2, 1) both; }
 
 .story-rail {
     position: relative;
@@ -547,6 +609,8 @@ body.landing-overhaul .nav-menu .nav-download { min-height: 42px; padding-inline
 @keyframes stage-glow-breathe { from { opacity: .64; scale: .98; } to { opacity: .94; scale: 1.035; } }
 @keyframes sovereignty-buddy { 0%, 100% { transform: translateY(0) rotate(1deg); } 50% { transform: translateY(-10px) rotate(-1deg); } }
 @keyframes route-arrive { from { opacity: .5; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+@keyframes stage-veil { 0%, 100% { opacity: 0; } 43%, 53% { opacity: .83; } }
+@keyframes stage-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
 html:not(.js) .product-journey { height: auto; min-height: 0; }
 html:not(.js) .journey-sticky { position: relative; height: auto; min-height: 0; padding-block: 110px 70px; }
@@ -601,10 +665,12 @@ html:not(.js) .product-stage .story-panel:not(:first-of-type) { display: none; }
     .product-journey.is-intro .journey-theatre { transform: none; }
     .app-stack { width: 100%; margin: 0; }
     .app-echo { display: none; }
+    .glass-slab { inset: -5px -5px -8px; border-radius: 15px; transform: translate3d(0, 4px, -18px); }
     .product-stage { border-radius: 11px; transform: none; }
     .product-stage__bar { height: 24px; }
     .product-stage__bar b, .product-stage__bar i { display: none; }
     .story-panel, .stage-scan { inset-block-start: 24px; }
+    .stage-light-swipe { inset-block-start: 24px; }
     .story-rail { width: 100%; grid-template-columns: repeat(4, 1fr); gap: 4px; }
     .story-rail::before { left: 6%; right: 6%; top: 8px; bottom: auto; width: auto; height: 1px; }
     .story-rail button { min-height: 52px; padding: 20px 4px 4px; display: block; text-align: center; }
@@ -651,7 +717,8 @@ html:not(.js) .product-stage .story-panel:not(:first-of-type) { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
     .journey-sticky { position: relative; height: auto; min-height: 0; padding-block: 110px 70px; }
-    .journey-grid, .app-stack::before, .app-stack::after, .app-echo, .product-stage, .story-rail button::before, .buddy-stage, .buddy-control, .buddy-image, .story-panel, .sovereignty-buddy { transition: none; animation: none; }
+    .journey-grid, .app-stack::before, .app-stack::after, .app-echo, .glass-slab, .product-stage, .story-rail button::before, .buddy-stage, .buddy-control, .buddy-image, .story-panel, .sovereignty-buddy { transition: none; animation: none; }
+    .stage-light-swipe { display: none; }
     .story-panel video { display: none; }
     .buddy-video, .sovereignty-buddy video { display: none; }
     .sovereignty-section canvas { display: none; }
