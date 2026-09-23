@@ -27,7 +27,11 @@ from row_bot.agent_budget import new_execution_budget
 
 class McpClientFoundationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        # macOS exposes its temp root through /var -> /private/var. The
+        # ownership guard intentionally rejects symlinked path components.
+        self._tmp = tempfile.TemporaryDirectory(
+            dir=Path(tempfile.gettempdir()).resolve()
+        )
         self._old_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
         os.environ["ROW_BOT_DATA_DIR"] = self._tmp.name
         from row_bot import tasks
