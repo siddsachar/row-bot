@@ -4,7 +4,9 @@
     const STATES = ['idle', 'thinking', 'working', 'approval', 'success', 'error'];
     const BEATS = ['research', 'create', 'automate', 'ship'];
     const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'approval' };
-    const BUDDY_REVEAL_AT = { idle: .16, thinking: .2, working: .2 };
+    const BUDDY_CUE_IN = { thinking: 1 };
+    const BUDDY_REVEAL_AT = { idle: .16, thinking: BUDDY_CUE_IN.thinking + .2, working: .2 };
+    const BEAT_END_PAUSE_MS = { research: 2000, create: 450, automate: 450, ship: 3100 };
     const SCENE_SWIPE_MS = 900;
     const SCENE_SWAP_AT = 420;
     // The reviewed Ship cut clears its approval dialog at 2.25 seconds.
@@ -226,7 +228,7 @@
             });
         };
         if (restart) {
-            try { target.currentTime = 0; } catch (_) { /* Metadata may not be ready. */ }
+            try { target.currentTime = BUDDY_CUE_IN[state] || 0; } catch (_) { /* Metadata may not be ready. */ }
         }
         playReadyFrame();
     }
@@ -434,7 +436,9 @@
 
     function scheduleNextBeat(finishedBeat, mediaFailed = false) {
         window.clearTimeout(autoAdvanceTimer);
-        const delay = mediaFailed ? 6000 : finishedBeat === 'ship' ? 3100 : 450;
+        // Research's app cut ends before Buddy draws the arc from its core to the atom.
+        // Cue Buddy one second in and hold the scene until that motion resolves.
+        const delay = mediaFailed ? 6000 : (BEAT_END_PAUSE_MS[finishedBeat] ?? 450);
         autoAdvanceTimer = window.setTimeout(() => {
             autoAdvanceTimer = 0;
             if (currentBeat !== finishedBeat || !storyVisible || !playbackAllowed()) return;

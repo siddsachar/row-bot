@@ -242,6 +242,15 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(runtime.demoPosters[0].src, 'demos/launch-campaign.jpg');
     assert.equal(runtime.demoPosters.slice(1).every(image => !image.src), true);
 
+    const researchTiming = makeRuntime();
+    await flush();
+    assert.equal(researchTiming.buddyVideos.find(video => video.dataset.buddyMotion === 'thinking').currentTime, 1);
+    researchTiming.videos[0].emit('ended');
+    researchTiming.runTimers(1900);
+    assert.equal(researchTiming.api.getState().beat, 'research');
+    researchTiming.runTimers(2000);
+    assert.equal(researchTiming.api.getState().beat, 'create');
+
     runtime.triggers[3].emit('click');
     await flush();
     assert.equal(runtime.api.getState().beat, 'ship');
@@ -409,7 +418,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(intro.videos[0].playCalls > 0, true);
     intro.runTimers(1000);
     await flush();
-    assert.equal(intro.buddyVideos.find(video => video.dataset.buddyMotion === 'thinking').currentTime, 0);
+    assert.equal(intro.buddyVideos.find(video => video.dataset.buddyMotion === 'thinking').currentTime, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(intro.scrollCalls)), [{top: 32, behavior: 'smooth'}]);
     intro.controller.getBoundingClientRect = () => ({top: -5});
     intro.windowListeners.scroll();
