@@ -147,7 +147,7 @@ def test_mobile_handoff_and_product_media_contracts() -> None:
     parser = _parse()
     video_images = [image for image in parser.images if image.get("src", "").startswith("media/landing-story/demos/")]
     deferred_images = [image for image in parser.images if image.get("data-src", "").startswith("media/landing-story/demos/")]
-    assert len(video_images) == len(deferred_images) == 3
+    assert len(video_images) == len(deferred_images) == 4
     assert all(not image.get("src") and image.get("loading") == "lazy" for image in deferred_images)
     assert all(image.get("loading") == "lazy" for image in video_images)
     assert all(image.get("width") and image.get("height") for image in video_images)

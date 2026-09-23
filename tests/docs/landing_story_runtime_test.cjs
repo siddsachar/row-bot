@@ -59,7 +59,8 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
         }
     }
     const triggers = beats.map(beat => element({storyTrigger: beat}));
-    const demoPosters = ['launch-campaign', 'research-report', 'background-workflow'].map(name => element({src: `demos/${name}.jpg`}));
+    const demoPosters = ['launch-campaign', 'research-report', 'background-workflow', 'inbox-action-plan']
+        .map(name => element({src: `demos/${name}.jpg`}));
     const panels = beats.map(beat => element({storyPanel: beat}));
     panels.slice(1).forEach(panel => { panel.hidden = true; });
     const copies = beats.map(beat => element({storyCopy: beat}));
@@ -247,6 +248,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     runtime.triggers[3].emit('keydown', left);
     assert.equal(left.prevented, true);
     assert.equal(runtime.api.getState().beat, 'automate');
+    assert.equal(runtime.api.getState().buddy, 'working');
     assert.equal(runtime.triggers[2].focused, true);
 
     const space = preventDefaultEvent(' ');
@@ -354,11 +356,13 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     intro.runTimers(3200);
     await flush();
     assert.equal(intro.controller.classList.contains('is-intro'), true);
+    assert.equal(intro.controller.classList.contains('is-story-active'), true);
     assert.equal(intro.api.getState().buddy, 'thinking');
     assert.equal(intro.videos[0].playCalls > 0, true);
     intro.controller.getBoundingClientRect = () => ({top: -5});
     intro.windowListeners.scroll();
     assert.equal(intro.controller.classList.contains('is-intro'), false);
+    assert.equal(intro.controller.classList.contains('is-story-active'), false);
     const failedMotion = makeRuntime({intro: true});
     failedMotion.buddyVideos.find(video => video.dataset.buddyMotion === 'thinking').play = () => Promise.reject(new Error('decode failed'));
     failedMotion.runTimers(3200);
@@ -366,6 +370,27 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     await flush();
     assert.equal(failedMotion.images[0].src.endsWith('/thinking.webp'), true);
     assert.equal(failedMotion.stage.classList.contains('is-video-ready'), false);
+
+    const frameGate = makeRuntime();
+    await flush();
+    const appFrames = [];
+    const buddyFrames = [];
+    frameGate.videos[1].requestVideoFrameCallback = callback => appFrames.push(callback);
+    frameGate.buddyVideos.find(video => video.dataset.buddyMotion === 'working')
+        .requestVideoFrameCallback = callback => buddyFrames.push(callback);
+    frameGate.api.setScene('create');
+    frameGate.runTimers(1000);
+    await flush();
+    assert.equal(frameGate.videos[1].classList.contains('is-playing'), false);
+    assert.equal(frameGate.stage.classList.contains('is-video-ready'), false);
+    appFrames.shift()();
+    buddyFrames.shift()();
+    assert.equal(frameGate.videos[1].classList.contains('is-playing'), false);
+    assert.equal(frameGate.stage.classList.contains('is-video-ready'), false);
+    appFrames.shift()();
+    buddyFrames.shift()();
+    assert.equal(frameGate.videos[1].classList.contains('is-playing'), true);
+    assert.equal(frameGate.stage.classList.contains('is-video-ready'), true);
 })().catch(error => {
     console.error(error);
     process.exitCode = 1;

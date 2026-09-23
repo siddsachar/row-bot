@@ -3,7 +3,7 @@
 
     const STATES = ['idle', 'thinking', 'working', 'approval', 'success', 'error'];
     const BEATS = ['research', 'create', 'automate', 'ship'];
-    const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'approval' };
+    const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'working', ship: 'approval' };
     // The reviewed Ship cut clears its approval dialog at 2.25 seconds.
     const SHIP_APPROVAL_AT = 2.25;
     const BEAT_LABELS = {
@@ -122,9 +122,9 @@
 
     function dismissIntro(startScene = true, collapse = true) {
         if (collapse) {
-            controller?.classList.remove('is-intro');
+            controller?.classList.remove('is-intro', 'is-story-active');
             applyPendingBuddyPoster(STATES[stateIndex]);
-        }
+        } else controller?.classList.add('is-story-active');
         if (introDismissed) return;
         introDismissed = true;
         introHolding = false;
@@ -162,7 +162,11 @@
                 stage?.classList.add('is-video-ready');
                 applyPendingBuddyPoster(state);
             });
-            if ('requestVideoFrameCallback' in target) target.requestVideoFrameCallback(reveal);
+            // Keep the reviewed still up through two decoded frames. The first
+            // transparent WebM frame can contain a transient compositor color.
+            if ('requestVideoFrameCallback' in target) {
+                target.requestVideoFrameCallback(() => target.requestVideoFrameCallback(reveal));
+            }
             else window.requestAnimationFrame(() => window.requestAnimationFrame(reveal));
         }).catch(() => {
             if (token === buddyRevealToken) {
@@ -262,7 +266,9 @@
                 if (token !== clipPlayToken || beat !== currentBeat || !playbackAllowed()) return;
                 clip.classList.add('is-playing');
             });
-            if ('requestVideoFrameCallback' in clip) clip.requestVideoFrameCallback(reveal);
+            if ('requestVideoFrameCallback' in clip) {
+                clip.requestVideoFrameCallback(() => clip.requestVideoFrameCallback(reveal));
+            }
             else window.requestAnimationFrame(() => window.requestAnimationFrame(reveal));
         }).catch(() => {
             if (token !== clipPlayToken || beat !== currentBeat) return;
@@ -411,6 +417,8 @@
 
     if (appStack) {
         const resetStageTilt = () => {
+            appStack.style.setProperty('--stage-parallax-x', '0px');
+            appStack.style.setProperty('--stage-parallax-y', '0px');
             appStack.style.setProperty('--stage-tilt-x', '0deg');
             appStack.style.setProperty('--stage-tilt-y', '0deg');
         };
@@ -419,8 +427,10 @@
             const rect = appStack.getBoundingClientRect();
             const horizontal = ((event.clientX - rect.left) / rect.width - .5) * 2;
             const vertical = ((event.clientY - rect.top) / rect.height - .5) * 2;
-            appStack.style.setProperty('--stage-tilt-x', `${(-vertical * 1.35).toFixed(2)}deg`);
-            appStack.style.setProperty('--stage-tilt-y', `${(horizontal * 2.1).toFixed(2)}deg`);
+            appStack.style.setProperty('--stage-parallax-x', `${Math.round(horizontal * 3)}px`);
+            appStack.style.setProperty('--stage-parallax-y', `${Math.round(vertical * 2)}px`);
+            appStack.style.setProperty('--stage-tilt-x', `${(-vertical * .8).toFixed(2)}deg`);
+            appStack.style.setProperty('--stage-tilt-y', `${(horizontal * 1.1).toFixed(2)}deg`);
         });
         appStack.addEventListener('pointerleave', resetStageTilt);
         reduceMotionQuery.addEventListener?.('change', resetStageTilt);

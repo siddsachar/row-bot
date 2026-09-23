@@ -3,7 +3,7 @@
   "story_id": "sovereignty-workbench-v1",
   "run_id": "20260921T230035Z-f3ed05",
   "review_status": "approved",
-  "reviewed_at": "2026-09-23T09:04:18Z",
+  "reviewed_at": "2026-09-23T09:59:02Z",
   "recording_receipt": "recording-receipt.json",
   "assets": [
     {
@@ -129,6 +129,11 @@
       "file": "demos/background-workflow.jpg",
       "source": "https://img.youtube.com/vi/Vuk2xz-vPcA/maxresdefault.jpg",
       "sha256": "3425733154b2572374ca363261e8f47832fcad554f9e5a91d158753f9114fa87"
+    },
+    {
+      "file": "demos/inbox-action-plan.jpg",
+      "source": "https://img.youtube.com/vi/wOUSGTyfEpk/maxresdefault.jpg",
+      "sha256": "a841ac003f4f7d832cf1658f3492bd69fdd526235619390216ff2edaadc93dd0"
     }
   ]
 }

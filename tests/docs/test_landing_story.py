@@ -83,7 +83,7 @@ def test_reviewed_manifest_hashes_every_public_story_asset() -> None:
     for state, expected_hash in manifest["buddy"]["motion"]["states"].items():
         video = MEDIA / "buddy" / f"{state}.webm"
         assert hashlib.sha256(video.read_bytes()).hexdigest() == expected_hash
-    assert len(manifest["demo_posters"]) == 3
+    assert len(manifest["demo_posters"]) == 4
     for poster in manifest["demo_posters"]:
         assert poster["source"].startswith("https://img.youtube.com/vi/")
         assert hashlib.sha256((MEDIA / poster["file"]).read_bytes()).hexdigest() == poster["sha256"]
@@ -143,10 +143,10 @@ def test_sovereignty_reveal_combines_core_visual_and_local_first_proofs() -> Non
     assert "requestAnimationFrame(drawSovereigntyField)" in JS
 
 
-def test_three_privacy_enhanced_demo_facades_remain() -> None:
-    assert HTML.count("data-youtube=") == 3
+def test_four_privacy_enhanced_demo_facades_remain() -> None:
+    assert HTML.count("data-youtube=") == 4
     assert "youtube-nocookie.com/embed" in (ROOT / "docs" / "site.js").read_text(encoding="utf-8")
-    assert all(video_id in HTML for video_id in ("hRLuOEqbsds", "GA2Tnlt4jNk", "Vuk2xz-vPcA"))
+    assert all(video_id in HTML for video_id in ("hRLuOEqbsds", "GA2Tnlt4jNk", "Vuk2xz-vPcA", "wOUSGTyfEpk"))
 
 
 def test_scrollable_linux_command_is_keyboard_focusable() -> None:
