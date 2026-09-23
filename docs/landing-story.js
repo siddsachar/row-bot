@@ -3,7 +3,9 @@
 
     const STATES = ['idle', 'thinking', 'working', 'approval', 'success', 'error'];
     const BEATS = ['research', 'create', 'automate', 'ship'];
-    const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'error' };
+    const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'approval' };
+    // The reviewed Ship cut clears its approval dialog at 2.25 seconds.
+    const SHIP_APPROVAL_AT = 2.25;
     const BEAT_LABELS = {
         research: 'Buddy is researching.',
         create: 'Buddy is building.',
@@ -34,26 +36,20 @@
     const sovereigntyBuddy = document.querySelector('[data-sovereignty-buddy]');
     const sovereigntyBuddyVideo = document.querySelector('[data-sovereignty-buddy-video]');
     const appStack = document.querySelector('.app-stack');
-    const productStage = document.querySelector('.product-stage');
 
-    let stateIndex = STATES.indexOf('thinking');
-    let activeImage = 0;
+    let stateIndex = STATES.indexOf('working');
     let currentBeat = 'research';
     let storyVisible = true;
     let mediaFrozen = false;
-    let buddyFailed = false;
-    let crossfadePending = false;
-    let queuedState = null;
     let scrollFrame = 0;
     let autoAdvanceTimer = 0;
     let introTimer = 0;
-    let sceneTransitionTimer = 0;
     let buddyTransitionTimer = 0;
-    let buddyImageSwapTimer = 0;
     let buddyRevealToken = 0;
     let buddyTransitionToken = 0;
-    let buddyPendingState = null;
-    const panelHideTimers = new Map();
+    let clipPlayToken = 0;
+    let sovereigntyVisible = false;
+    let pendingBuddyPoster = null;
     let introDismissed = !controller?.classList.contains('is-intro');
     let introHolding = !introDismissed;
 
@@ -62,21 +58,22 @@
     }
 
     function buddyMotionAllowed() {
-        return playbackAllowed() && storyVisible && !buddyFailed && !stage?.classList.contains('is-repositioning');
+        return !reduceMotionQuery.matches && !saveData && !document.hidden && !mediaFrozen
+            && storyVisible && !stage?.classList.contains('is-repositioning');
     }
 
     function pauseVideos(except = null) {
+        clipPlayToken += 1;
         videos.forEach(video => {
             if (video !== except) {
                 video.pause();
-                video.classList.remove('is-playing');
+                video.classList.remove('is-playing', 'has-played');
             }
         });
     }
 
     function pauseBuddyVideos() {
         buddyRevealToken += 1;
-        buddyPendingState = null;
         buddyVideos.forEach(video => {
             video.pause();
             video.classList.remove('is-active');
@@ -106,21 +103,25 @@
         buddyTransitionTimer = 0;
         buddyTransitionToken += 1;
         stage?.classList.remove('is-repositioning');
+        applyPendingBuddyPoster(STATES[stateIndex]);
         stage?.classList.add('is-paused');
         pauseVideos();
         pauseBuddyVideos();
     }
 
-    function dismissIntro() {
+    function dismissIntro(startScene = true, collapse = true) {
+        if (collapse) {
+            controller?.classList.remove('is-intro');
+            applyPendingBuddyPoster(STATES[stateIndex]);
+        }
         if (introDismissed) return;
         introDismissed = true;
         introHolding = false;
         window.clearTimeout(introTimer);
-        controller?.classList.remove('is-intro');
-        if (storyVisible && playbackAllowed()) {
+        if (startScene && storyVisible && playbackAllowed()) {
             playStoryClip(currentBeat, true);
-            playBuddyState(STATES[stateIndex]);
         }
+        if (startScene) setBuddyState(BEAT_STATES[currentBeat], false, true);
     }
 
     function resumeBuddy(restart = false) {
@@ -132,40 +133,32 @@
     function playBuddyState(state, restart = true) {
         const target = buddyVideos.find(video => video.dataset.buddyMotion === state);
         if (!target || !buddyMotionAllowed()) return;
-        if (!restart && buddyPendingState === state) return;
-        if (!restart && target.classList.contains('is-active') && !target.paused && !target.ended) return;
+        if (!restart && target.classList.contains('is-active') && !target.paused) return;
         if (!target.getAttribute('src') && target.dataset.src) {
             target.src = target.dataset.src;
             target.load();
         }
-        buddyVideos.forEach(video => {
-            if (video !== target) {
-                video.pause();
-                video.classList.remove('is-active');
-                video.hidden = true;
-            }
-        });
+        pauseBuddyVideos();
+        const token = buddyRevealToken;
         target.hidden = false;
         if (restart) {
-            try { target.currentTime = 0; } catch (_) { /* Metadata may not be ready yet. */ }
+            try { target.currentTime = 0; } catch (_) { /* Metadata may not be ready. */ }
         }
-        const revealToken = ++buddyRevealToken;
-        buddyPendingState = state;
         target.play().then(() => {
-            const reveal = () => {
-                window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-                    if (revealToken !== buddyRevealToken || target.dataset.buddyMotion !== STATES[stateIndex]
-                        || !buddyMotionAllowed()) return;
-                    buddyPendingState = null;
-                    target.classList.add('is-active');
-                    stage?.classList.add('is-video-ready');
-                }));
-            };
+            const reveal = () => window.requestAnimationFrame(() => {
+                if (token !== buddyRevealToken || state !== STATES[stateIndex] || !buddyMotionAllowed()) return;
+                target.classList.add('is-active');
+                stage?.classList.add('is-video-ready');
+                applyPendingBuddyPoster(state);
+            });
             if ('requestVideoFrameCallback' in target) target.requestVideoFrameCallback(reveal);
-            else window.requestAnimationFrame(reveal);
+            else window.requestAnimationFrame(() => window.requestAnimationFrame(reveal));
         }).catch(() => {
-            if (revealToken === buddyRevealToken) buddyPendingState = null;
-            if (target.dataset.buddyMotion === STATES[stateIndex]) stage?.classList.remove('is-video-ready');
+            if (token === buddyRevealToken) {
+                target.hidden = true;
+                stage?.classList.remove('is-video-ready');
+                applyPendingBuddyPoster(state);
+            }
         });
     }
 
@@ -175,77 +168,96 @@
         else window.requestAnimationFrame(reveal);
     }
 
-    function crossfadeBuddy(nextState) {
-        const incomingIndex = activeImage === 0 ? 1 : 0;
-        const incoming = images[incomingIndex];
-        const outgoing = images[activeImage];
-        if (!incoming || !outgoing) return;
-        if (crossfadePending) {
-            queuedState = nextState;
-            return;
-        }
-        crossfadePending = true;
-        const source = SOURCES[nextState];
-        if (!incoming.src.endsWith(source)) incoming.src = source;
-        const ready = incoming.decode ? incoming.decode() : Promise.resolve();
-        ready.then(() => {
-            const commitSwap = () => {
-                buddyImageSwapTimer = 0;
-                incoming.classList.add('is-active');
-                outgoing.classList.remove('is-active');
-                activeImage = incomingIndex;
-                crossfadePending = false;
-                if (queuedState) {
-                    const queued = queuedState;
-                    queuedState = null;
-                    crossfadeBuddy(queued);
+    function applyPendingBuddyPoster(state) {
+        if (!pendingBuddyPoster || pendingBuddyPoster.state !== state) return;
+        if (images[0]) images[0].src = pendingBuddyPoster.src;
+        pendingBuddyPoster = null;
+    }
+
+    function loadBuddyPoster(state, token) {
+        const image = images[0];
+        if (!image || image.src.endsWith(SOURCES[state])) return Promise.resolve(true);
+        const candidate = new Image();
+        let ready;
+        if (candidate.decode) {
+            candidate.src = SOURCES[state];
+            ready = candidate.decode();
+        } else {
+            ready = new Promise((resolve, reject) => {
+                candidate.onload = resolve;
+                candidate.onerror = reject;
+                candidate.src = SOURCES[state];
+                if (candidate.complete) {
+                    if (candidate.naturalWidth) resolve();
+                    else reject(new Error('Buddy poster unavailable'));
                 }
-            };
-            window.clearTimeout(buddyImageSwapTimer);
-            const swapDelay = stage?.classList.contains('is-repositioning') && !reduceMotionQuery.matches ? 1060 : 0;
-            if (swapDelay) buddyImageSwapTimer = window.setTimeout(commitSwap, swapDelay);
-            else commitSwap();
+            });
+        }
+        return ready.then(() => {
+            if (token !== buddyTransitionToken) return false;
+            if (controller?.classList.contains('is-intro') && !reduceMotionQuery.matches
+                && !saveData && !document.hidden && !mediaFrozen && storyVisible) {
+                pendingBuddyPoster = { state, src: candidate.src };
+            } else image.src = candidate.src;
+            return true;
         }).catch(() => {
-            buddyFailed = true;
-            crossfadePending = false;
-            queuedState = null;
-            stage?.classList.add('is-paused');
-            if (status) status.textContent = 'Buddy is available as a still image.';
+            if (token === buddyTransitionToken && status) status.textContent = 'Buddy is available as a still image.';
+            return false;
         });
     }
 
-    function setBuddyState(nextState, announce = true) {
+    function setBuddyState(nextState, announce = true, travel = false) {
         const nextIndex = STATES.indexOf(nextState);
-        if (nextIndex < 0 || !stage || images.length < 2) return;
+        if (nextIndex < 0 || !stage) return;
+        const token = ++buddyTransitionToken;
+        pendingBuddyPoster = null;
+        window.clearTimeout(buddyTransitionTimer);
+        buddyTransitionTimer = 0;
         stateIndex = nextIndex;
         stage.dataset.state = nextState;
         if (status) {
             status.setAttribute('aria-live', announce ? 'polite' : 'off');
             status.textContent = LABELS[nextState];
         }
-        if (images[activeImage]?.src.endsWith(SOURCES[nextState])) {
-            stage.classList.toggle('is-paused', !buddyMotionAllowed());
-            if (buddyMotionAllowed()) playBuddyState(nextState);
-            else pauseBuddyVideos();
-            return;
-        }
-        crossfadeBuddy(nextState);
-        stage.classList.toggle('is-paused', !buddyMotionAllowed());
-        if (buddyMotionAllowed()) playBuddyState(nextState);
-        else pauseBuddyVideos();
+        pauseBuddyVideos();
+        const moving = travel && !reduceMotionQuery.matches && !mediaFrozen;
+        stage.classList.toggle('is-repositioning', moving);
+        const posterReady = loadBuddyPoster(nextState, token);
+        const finish = () => posterReady.then(() => {
+            if (token !== buddyTransitionToken) return;
+            buddyTransitionTimer = 0;
+            stage.classList.remove('is-repositioning');
+            resumeBuddy(true);
+        });
+        if (moving) buddyTransitionTimer = window.setTimeout(finish, 680);
+        else finish();
     }
 
     function playStoryClip(beat, restart = false) {
-        const clip = document.querySelector(`[data-story-video="${beat}"]`);
+        const clip = videos.find(video => video.dataset.storyVideo === beat);
         if (!clip || !storyVisible || !playbackAllowed()) return;
-        if (!hydrateVideo(clip)) return;
         pauseVideos(clip);
+        const token = clipPlayToken;
+        clip.classList.remove('is-playing', 'has-played');
+        if (!hydrateVideo(clip)) {
+            scheduleNextBeat(beat, true);
+            return;
+        }
         if (restart) {
-            try { clip.currentTime = 0; } catch (_) { /* Metadata may not be ready yet. */ }
+            try { clip.currentTime = 0; } catch (_) { /* Metadata may not be ready. */ }
         }
         clip.play().then(() => {
-            clip.classList.add('is-playing', 'has-played');
-        }).catch(() => clip.classList.remove('is-playing'));
+            const reveal = () => window.requestAnimationFrame(() => {
+                if (token !== clipPlayToken || beat !== currentBeat || !playbackAllowed()) return;
+                clip.classList.add('is-playing');
+            });
+            if ('requestVideoFrameCallback' in clip) clip.requestVideoFrameCallback(reveal);
+            else window.requestAnimationFrame(() => window.requestAnimationFrame(reveal));
+        }).catch(() => {
+            if (token !== clipPlayToken || beat !== currentBeat) return;
+            clip.classList.remove('is-playing');
+            scheduleNextBeat(beat, true);
+        });
     }
 
     function setStoryBeat(beat, { focus = false, restart = false } = {}) {
@@ -254,77 +266,35 @@
         autoAdvanceTimer = 0;
         const changed = currentBeat !== beat;
         currentBeat = beat;
-        if (changed && stage && !reduceMotionQuery.matches) {
-            window.clearTimeout(buddyTransitionTimer);
-            const transitionToken = ++buddyTransitionToken;
-            stage.classList.add('is-repositioning');
-            pauseBuddyVideos();
-            void stage.offsetWidth;
-            window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-                if (transitionToken !== buddyTransitionToken) return;
-                if (controller) controller.dataset.scene = beat;
-                buddyTransitionTimer = window.setTimeout(() => {
-                    buddyTransitionTimer = 0;
-                    if (transitionToken !== buddyTransitionToken) return;
-                    stage.classList.remove('is-repositioning');
-                    void stage.offsetWidth;
-                    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-                        if (transitionToken === buddyTransitionToken) resumeBuddy(true);
-                    }));
-                }, 980);
-            }));
-        } else if (controller) {
-            controller.dataset.scene = beat;
-        }
+        if (controller) controller.dataset.scene = beat;
         triggers.forEach(trigger => {
             const selected = trigger.dataset.storyTrigger === beat;
             if (selected) trigger.setAttribute('aria-current', 'step');
             else trigger.removeAttribute('aria-current');
             if (selected && focus) trigger.focus();
         });
+        // Only one app surface is ever visible; the poster gates the new video frame.
         panels.forEach(panel => {
             const selected = panel.dataset.storyPanel === beat;
-            const pendingHide = panelHideTimers.get(panel);
-            if (pendingHide) {
-                window.clearTimeout(pendingHide);
-                panelHideTimers.delete(panel);
-            }
-            if (selected) {
-                panel.hidden = false;
-                panel.classList.remove('is-leaving');
-                window.requestAnimationFrame(() => {
-                    if (currentBeat === beat && panel.dataset.storyPanel === beat) panel.classList.add('is-active');
-                });
-            } else if (!panel.hidden) {
-                panel.classList.remove('is-active');
-                panel.classList.add('is-leaving');
-                const hideTimer = window.setTimeout(() => {
-                    if (panel.dataset.storyPanel !== currentBeat) panel.hidden = true;
-                    panel.classList.remove('is-leaving');
-                    panelHideTimers.delete(panel);
-                }, reduceMotionQuery.matches ? 0 : 900);
-                panelHideTimers.set(panel, hideTimer);
-            }
+            panel.hidden = !selected;
+            panel.classList.toggle('is-active', selected);
         });
         copies.forEach(copy => {
             const selected = copy.dataset.storyCopy === beat;
             copy.hidden = !selected;
             copy.classList.toggle('is-active', selected);
         });
-        setBuddyState(BEAT_STATES[beat], false);
-        if (status) status.textContent = BEAT_LABELS[beat];
-        if (changed && productStage && !reduceMotionQuery.matches) {
-            window.clearTimeout(sceneTransitionTimer);
-            productStage.classList.remove('is-scene-transitioning');
-            void productStage.offsetWidth;
-            productStage.classList.add('is-scene-transitioning');
-            sceneTransitionTimer = window.setTimeout(() => productStage.classList.remove('is-scene-transitioning'), 900);
+        if (introHolding) return;
+        if (changed || restart || STATES[stateIndex] !== BEAT_STATES[beat]) {
+            setBuddyState(BEAT_STATES[beat], false, changed);
         }
-        playStoryClip(beat, restart || changed);
+        if (status) status.textContent = BEAT_LABELS[beat];
+        if (changed || restart) playStoryClip(beat, true);
+        else if (videos.find(video => video.dataset.storyVideo === beat)?.paused) playStoryClip(beat);
     }
 
     function goToBeat(beat, focus = false) {
-        dismissIntro();
+        dismissIntro(false);
         setStoryBeat(beat, { focus, restart: true });
     }
 
@@ -332,62 +302,69 @@
         scrollFrame = 0;
         if (!controller || reduceMotionQuery.matches || mediaFrozen) return;
         const rect = controller.getBoundingClientRect();
-        if (rect.top < -4) dismissIntro();
+        if (rect.top < -4) dismissIntro(true, true);
     }
 
     function queueScrollUpdate() {
         if (!scrollFrame) scrollFrame = window.requestAnimationFrame(updateStoryFromScroll);
     }
 
-    function scheduleNextBeat(finishedBeat) {
+    function scheduleNextBeat(finishedBeat, mediaFailed = false) {
         window.clearTimeout(autoAdvanceTimer);
-        const delay = finishedBeat === 'ship' ? 2600 : 680;
+        const delay = mediaFailed ? 6000 : finishedBeat === 'ship' ? 3100 : 450;
         autoAdvanceTimer = window.setTimeout(() => {
             autoAdvanceTimer = 0;
             if (currentBeat !== finishedBeat || !storyVisible || !playbackAllowed()) return;
-            dismissIntro();
             const nextBeat = BEATS[(BEATS.indexOf(finishedBeat) + 1) % BEATS.length];
             setStoryBeat(nextBeat, { restart: true });
         }, delay);
     }
 
-    control?.addEventListener('click', () => setBuddyState(STATES[(stateIndex + 1) % STATES.length]));
+    control?.addEventListener('click', () => goToBeat(BEATS[(BEATS.indexOf(currentBeat) + 1) % BEATS.length]));
     control?.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setBuddyState(STATES[(stateIndex + 1) % STATES.length]);
+            goToBeat(BEATS[(BEATS.indexOf(currentBeat) + 1) % BEATS.length]);
         }
     });
     images.forEach(image => image.addEventListener('error', () => {
-        buddyFailed = true;
-        stage?.classList.add('is-paused');
-        if (status) status.textContent = 'Buddy is available as a still image.';
+        pauseBuddyVideos();
+        if (status) status.textContent = 'Buddy motion is unavailable.';
     }));
     buddyVideos.forEach(video => video.addEventListener('error', () => {
         video.classList.remove('is-active');
-        if (video.dataset.buddyMotion === STATES[stateIndex]) stage?.classList.remove('is-video-ready');
+        if (video.dataset.buddyMotion === STATES[stateIndex]) {
+            stage?.classList.remove('is-video-ready');
+            applyPendingBuddyPoster(STATES[stateIndex]);
+        }
         video.removeAttribute('src');
-        video.dataset.hydrated = 'false';
     }));
+    buddyVideos.find(video => video.dataset.buddyMotion === 'success')?.addEventListener('ended', () => {
+        if (currentBeat === 'ship' && STATES[stateIndex] === 'success') setBuddyState('idle', false);
+    });
 
     videos.forEach(video => {
+        video.addEventListener('timeupdate', () => {
+            if (video.dataset.storyVideo === 'ship' && currentBeat === 'ship'
+                && video.currentTime >= SHIP_APPROVAL_AT && STATES[stateIndex] === 'approval') {
+                setBuddyState('success', false);
+            }
+        });
         video.addEventListener('ended', () => {
             video.classList.remove('is-playing');
             video.classList.add('has-played');
-            if (video.dataset.storyVideo === 'ship' && currentBeat === 'ship') setBuddyState('success', false);
+            if (video.dataset.storyVideo === 'ship' && currentBeat === 'ship'
+                && STATES[stateIndex] === 'approval') setBuddyState('success', false);
             if (video.dataset.storyVideo === currentBeat) scheduleNextBeat(currentBeat);
         });
-        video.addEventListener('canplay', () => {
-            if (video.dataset.storyVideo === currentBeat && video.paused) playStoryClip(currentBeat);
-        });
         video.addEventListener('error', () => {
-            video.classList.remove('is-playing', 'has-played');
-            if (video.dataset.storyVideo === currentBeat) setBuddyState('error', false);
+            video.classList.remove('is-playing');
+            if (video.dataset.storyVideo === currentBeat) scheduleNextBeat(currentBeat, true);
         });
     });
 
     function playSovereigntyBuddy() {
-        if (!sovereigntyBuddyVideo || reduceMotionQuery.matches || saveData || document.hidden) return;
+        if (!sovereigntyBuddyVideo || !sovereigntyVisible || storyVisible || reduceMotionQuery.matches || saveData || document.hidden || mediaFrozen) return;
         if (!hydrateVideo(sovereigntyBuddyVideo)) return;
         sovereigntyBuddyVideo.hidden = false;
         sovereigntyBuddyVideo.play().catch(() => {
@@ -403,9 +380,10 @@
     });
     if ('IntersectionObserver' in window && sovereigntyBuddy) {
         new IntersectionObserver(entries => {
-            if (entries[0]?.isIntersecting) playSovereigntyBuddy();
+            sovereigntyVisible = Boolean(entries[0]?.isIntersecting);
+            if (sovereigntyVisible) playSovereigntyBuddy();
             else sovereigntyBuddyVideo?.pause();
-        }, { rootMargin: '280px 0px', threshold: .01 }).observe(sovereigntyBuddy);
+        }, { threshold: .01 }).observe(sovereigntyBuddy);
     }
 
     triggers.forEach((trigger, index) => {
@@ -441,10 +419,14 @@
         new IntersectionObserver(entries => {
             storyVisible = Boolean(entries[0]?.isIntersecting);
             if (storyVisible) {
-                resumeBuddy();
+                sovereigntyBuddyVideo?.pause();
+                sovereigntyBuddy?.classList.remove('is-video-ready');
+                if (!images[0]?.src.endsWith(SOURCES[STATES[stateIndex]])) setBuddyState(STATES[stateIndex], false);
+                else resumeBuddy();
                 playStoryClip(currentBeat);
             } else {
                 pauseAll();
+                playSovereigntyBuddy();
             }
         }, { threshold: .01 }).observe(controller);
     }
@@ -455,14 +437,18 @@
             sovereigntyBuddyVideo?.pause();
         }
         else if (storyVisible) {
-            resumeBuddy();
+            setBuddyState(STATES[stateIndex], false);
             playStoryClip(currentBeat);
-        }
+        } else playSovereigntyBuddy();
     });
     reduceMotionQuery.addEventListener?.('change', () => {
-        if (reduceMotionQuery.matches) pauseAll();
+        if (reduceMotionQuery.matches) {
+            pauseAll();
+            sovereigntyBuddyVideo?.pause();
+            sovereigntyBuddy?.classList.remove('is-video-ready');
+        }
         else if (storyVisible) {
-            resumeBuddy();
+            setBuddyState(STATES[stateIndex], false);
             playStoryClip(currentBeat);
         }
         queueScrollUpdate();
@@ -523,15 +509,15 @@
     if (params.get('motion') === 'freeze') mediaFrozen = true;
     setStoryBeat(BEATS.includes(requestedScene) ? requestedScene : 'research');
     if (mediaFrozen || reduceMotionQuery.matches || requestedScene) dismissIntro();
-    else introTimer = window.setTimeout(dismissIntro, 3200);
+    else introTimer = window.setTimeout(() => dismissIntro(true, false), 3200);
     if (mediaFrozen) pauseAll();
     drawSovereigntyField();
     queueScrollUpdate();
 
     window.RowBotLandingStory = {
-        setScene(scene) { dismissIntro(); setStoryBeat(sceneAliases[scene] || scene, { restart: true }); },
+        setScene(scene) { dismissIntro(false); setStoryBeat(sceneAliases[scene] || scene, { restart: true }); },
         setBuddyState,
-        freezeMotion() { mediaFrozen = true; pauseAll(); },
+        freezeMotion() { mediaFrozen = true; pauseAll(); sovereigntyBuddyVideo?.pause(); },
         getState() { return { beat: currentBeat, buddy: STATES[stateIndex], motionAllowed: buddyMotionAllowed() }; }
     };
 })();

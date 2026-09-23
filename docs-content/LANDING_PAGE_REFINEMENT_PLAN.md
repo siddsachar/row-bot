@@ -21,29 +21,29 @@ All 13 references are also preserved locally at `C:\Users\v_2si\.codex\worktrees
 
 ### Desktop
 
-- [ ] D1: Hero Buddy is truly animated with the existing Create/working motion; keep the immediate still/poster for LCP and no-JavaScript/reduced-motion fallback. Keep the large introductory size and title legibility.
-- [ ] D2: Scale only the four in-story Buddy placements to roughly 0.85-0.9 of their present size. Do not shrink the hero Buddy or sovereignty illustration by accident.
-- [ ] D3: Tighten the stage-to-demos, demos-to-sovereignty, sovereignty-to-FAQ, and FAQ-to-install/footer vertical gaps shown in screenshots 2, 3, 5, and 6. Preserve intentional breathing room, but remove empty bands that consume most of a viewport.
-- [ ] D4: Replace the current two-column, one-point `ownership-compare` with the full six-topic comparison table previously in the landing page. Put it inside an accessible `<details>` collapsed by default, with an obvious summary and the honest hosted-provider caveat. Keep the `#comparison` anchor and footer link working.
+- [x] D1: Hero Buddy is truly animated with the existing Create/working motion; keep the immediate still/poster for LCP and no-JavaScript/reduced-motion fallback. Keep the large introductory size and title legibility.
+- [x] D2: Scale only the four in-story Buddy placements to roughly 0.85-0.9 of their present size. Do not shrink the hero Buddy or sovereignty illustration by accident.
+- [x] D3: Tighten the stage-to-demos, demos-to-sovereignty, sovereignty-to-FAQ, and FAQ-to-install/footer vertical gaps shown in screenshots 2, 3, 5, and 6. Preserve intentional breathing room, but remove empty bands that consume most of a viewport.
+- [x] D4: Replace the current two-column, one-point `ownership-compare` with the full six-topic comparison table previously in the landing page. Put it inside an accessible `<details>` collapsed by default, with an obvious summary and the honest hosted-provider caveat. Keep the `#comparison` anchor and footer link working.
 
 ### Mobile
 
-- [ ] M1: Show a small Create/working Buddy animation beside or subtly behind the hero title without covering text or CTAs. Reuse the reviewed motion and avoid decoding two simultaneously playing Buddy videos.
-- [ ] M2: Shrink in-story Buddy to about 0.85-0.9 of current size and move scene placements inward so no pose is cropped at the right edge. The app stage itself must remain fully visible.
-- [ ] M3: Remove the large empty band below the stage and other inter-section gaps, including the space before/after the demos, in the sovereignty section, and before the footer.
-- [ ] M4: Show all three demo thumbnails in compact, consistently sized cards. Preserve click-to-load, privacy-enhanced YouTube facades, keyboard activation, and poster fallbacks. The current mobile CSS explicitly hides thumbnails 2 and 3.
-- [ ] M5: Make the four sovereignty proof items denser and visually coherent, without cramped text or small touch targets. Ensure the sticky navigation does not obscure section headings while scrolling.
-- [ ] M6: Use the same collapsed-by-default comparison table on mobile, with an obvious expand affordance. Preserve semantic table relationships and make narrow-width overflow discoverable and usable.
-- [ ] M7: Eliminate the detached Buddy and tall blank area at the end of sovereignty. Integrate a smaller Buddy beside the heading, into the artwork, or into a restrained background composition.
-- [ ] M8: Give `Direct desktop downloads` a clear disclosure affordance (chevron/plus and open state), keyboard focus styling, and an accessible label. Keep existing cross-platform links and mobile handoff behavior.
+- [x] M1: Show a small Create/working Buddy animation beside or subtly behind the hero title without covering text or CTAs. Reuse the reviewed motion and avoid decoding two simultaneously playing Buddy videos.
+- [x] M2: Shrink in-story Buddy to about 0.85-0.9 of current size and move scene placements inward so no pose is cropped at the right edge. The app stage itself must remain fully visible.
+- [x] M3: Remove the large empty band below the stage and other inter-section gaps, including the space before/after the demos, in the sovereignty section, and before the footer.
+- [x] M4: Show all three demo thumbnails in compact, consistently sized cards. Preserve click-to-load, privacy-enhanced YouTube facades, keyboard activation, and poster fallbacks. The current mobile CSS explicitly hides thumbnails 2 and 3.
+- [x] M5: Make the four sovereignty proof items denser and visually coherent, without cramped text or small touch targets. Ensure the sticky navigation does not obscure section headings while scrolling.
+- [x] M6: Use the same collapsed-by-default comparison table on mobile, with an obvious expand affordance. Preserve semantic table relationships and make narrow-width overflow discoverable and usable.
+- [x] M7: Eliminate the detached Buddy and tall blank area at the end of sovereignty. Integrate a smaller Buddy beside the heading, into the artwork, or into a restrained background composition.
+- [x] M8: Give `Direct desktop downloads` a clear disclosure affordance (chevron/plus and open state), keyboard focus styling, and an accessible label. Keep existing cross-platform links and mobile handoff behavior.
 
 ### Both viewports and motion
 
-- [ ] A1: Make real-app stage video noticeably sharper in the rendered page. Check whether softness comes from encoding, source resolution, CSS scaling, or the 3D transform; do not simply increase file sizes without measuring.
-- [ ] A2: Shorten each real-app clip by a few seconds so the four-scene cycle feels quicker. Preserve the meaningful action, natural playback speed, the approval state, and the review-gated story. Prefer precise edits of the reviewed source clips over global speed-up. Keep WebM/MP4 fallbacks, posters, aspect ratio, and honest provenance.
-- [ ] A3: Align Buddy motion and scene timing: Research/thinking, Create/working, Automate/idle or appropriate work motion, Ship/approval then success after the actual approval moment. Do not show celebration while the UI is still awaiting approval.
-- [ ] A4: Remove double-imaging during Buddy travel and magenta flashes at every transition, including 4→1 and approval→success. Test autoplay and rapid manual scene changes on desktop and mobile. Do not accept a transition that only looks clean when manually clicked.
-- [ ] A5: Preserve infinite autoplay 1→2→3→4→1, manual stage buttons, offscreen/page-hidden pause, Save-Data and reduced-motion poster behavior, keyboard input, focus, and no-JavaScript fallback.
+- [x] A1: Make real-app stage video noticeably sharper in the rendered page. Check whether softness comes from encoding, source resolution, CSS scaling, or the 3D transform; do not simply increase file sizes without measuring.
+- [x] A2: Shorten each real-app clip by a few seconds so the four-scene cycle feels quicker. Preserve the meaningful action, natural playback speed, the approval state, and the review-gated story. Prefer precise edits of the reviewed source clips over global speed-up. Keep WebM/MP4 fallbacks, posters, aspect ratio, and honest provenance.
+- [x] A3: Align Buddy motion and scene timing: Research/thinking, Create/working, Automate/idle or appropriate work motion, Ship/approval then success after the actual approval moment. Do not show celebration while the UI is still awaiting approval.
+- [x] A4: Remove double-imaging during Buddy travel and magenta flashes at every transition, including 4→1 and approval→success. Test autoplay and rapid manual scene changes on desktop and mobile. Do not accept a transition that only looks clean when manually clicked.
+- [x] A5: Preserve infinite autoplay 1→2→3→4→1, manual stage buttons, offscreen/page-hidden pause, Save-Data and reduced-motion poster behavior, keyboard input, focus, and no-JavaScript fallback.
 
 ## Implementation strategy
 

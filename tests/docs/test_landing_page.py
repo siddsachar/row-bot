@@ -145,12 +145,26 @@ def test_mobile_handoff_and_product_media_contracts() -> None:
     assert "document.execCommand?.('copy')" in JS
 
     parser = _parse()
-    video_images = [image for image in parser.images if "img.youtube.com" in image.get("src", "")]
+    video_images = [image for image in parser.images if image.get("src", "").startswith("media/landing-story/demos/")]
     assert len(video_images) == 3
     assert all(image.get("loading") == "lazy" for image in video_images)
     assert all(image.get("width") and image.get("height") for image in video_images)
     assert "background-image:url" not in HTML
     assert "youtube-nocookie.com/embed" in JS
+    assert "img.youtube.com" not in HTML
+    story_css = (ROOT / "docs" / "landing-story.css").read_text(encoding="utf-8")
+    assert ".video-grid .video-card:not(:first-child) .video-facade { display: none; }" not in CSS
+    assert "#demos .video-card .video-facade { display: grid" in story_css
+    assert ".mobile-direct-disclosure[open] summary::after" in story_css
+    assert ".mobile-direct-disclosure summary:focus-visible" in story_css
+
+
+def test_six_topic_comparison_is_a_closed_semantic_disclosure() -> None:
+    assert '<details class="comparison-disclosure ownership-compare" id="comparison">' in HTML
+    assert '<div class="comparison-table-wrap" role="region"' in HTML
+    assert HTML.count('<th scope="row">') == 6
+    assert HTML.count('<th scope="col">') == 3
+    assert "Hosted providers and networked tools receive the context required" in HTML
 
 
 def test_device_states_and_intent_events_remain_distinct() -> None:

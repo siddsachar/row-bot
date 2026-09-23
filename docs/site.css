@@ -1050,7 +1050,6 @@ html.lightbox-open { overflow: hidden; }
     .proof-step strong { margin-top: 0.35rem; }
     .pillar { grid-template-columns: 42px 1fr; gap: 0.7rem; }
     .pillar h3 { font-size: 1.8rem; }
-    .video-grid .video-card:not(:first-child) .video-facade { display: none; }
     .video-grid .video-card:not(:first-child) .video-card__copy { padding: 0; }
     .video-grid .video-card:not(:first-child) .video-card__link { display: flex; min-height: 78px; flex-direction: column; justify-content: center; padding: 0.9rem 1rem; }
     #architecture { overflow: clip; }
