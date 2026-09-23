@@ -76,7 +76,7 @@ def test_real_data_capture_rejects_any_other_directory() -> None:
         runner.CaptureSafetyError, match="canonical configured directory"
     ):
         runner._canonical_real_data_dir(
-            Path(r"D:\not-the-row-bot-data-directory"), True
+            Path.home() / "not-the-row-bot-data-directory", True
         )
 
 

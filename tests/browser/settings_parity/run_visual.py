@@ -38,7 +38,7 @@ EVIDENCE_ROOT = (
 )
 AXE_SOURCE = ROOT / "frontend" / "node_modules" / "axe-core" / "axe.min.js"
 LAUNCH_SECRET_ENV = "ROW_BOT_LAUNCH_SECRET"
-AUTHORIZED_REAL_DATA = Path(r"C:\Users\v_2si\.row-bot")
+AUTHORIZED_REAL_DATA = Path.home() / ".row-bot"
 VIEWPORTS = {
     "desktop": {"width": 1440, "height": 900},
     "phone": {"width": 390, "height": 844},

@@ -47,8 +47,9 @@ def test_four_real_clips_have_posters_fallbacks_and_bounded_receipt() -> None:
     assert receipt["editing"].startswith("normal-speed editorial cuts")
     assert set(receipt["clips"]) == {"research", "create", "automate", "ship"}
     for beat, record in receipt["clips"].items():
-        minimum_duration = 5 if beat == "ship" else 8
-        assert minimum_duration <= record["duration_seconds"] <= 13
+        minimum_duration = 2.5 if beat == "ship" else 8
+        maximum_duration = 3 if beat == "ship" else 10
+        assert minimum_duration <= record["duration_seconds"] <= maximum_duration
         assert record["dimensions"] == [1440, 810]
         assert record["fps"] == 30
         assert record["webm_bytes"] <= 1_500_000
@@ -61,7 +62,9 @@ def test_four_real_clips_have_posters_fallbacks_and_bounded_receipt() -> None:
         assert f'clips/{beat}.webm' in HTML
         assert f'clips/{beat}.mp4' in HTML
         assert f'screenshots/{beat}.webp' in HTML
-    assert " loop " not in HTML
+    assert not re.search(r'<video[^>]*\bloop\b[^>]*data-story-video=', HTML)
+    assert "privacy_mask" not in receipt["clips"]["ship"]
+    assert receipt["clips"]["ship"]["approval_moment_seconds"] < receipt["clips"]["ship"]["duration_seconds"]
 
 
 def test_reviewed_manifest_hashes_every_public_story_asset() -> None:
@@ -80,6 +83,15 @@ def test_reviewed_manifest_hashes_every_public_story_asset() -> None:
     for state, expected_hash in manifest["buddy"]["motion"]["states"].items():
         video = MEDIA / "buddy" / f"{state}.webm"
         assert hashlib.sha256(video.read_bytes()).hexdigest() == expected_hash
+    idle_edit = manifest["buddy"]["motion"]["edits"]["idle"]
+    assert idle_edit["source_sha256"] == "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca"
+    assert idle_edit["result_sha256"] == manifest["buddy"]["motion"]["states"]["idle"]
+    assert idle_edit["kept_segment_seconds"] == [5.333, 9.916]
+    assert idle_edit["result_duration_seconds"] < idle_edit["source_duration_seconds"]
+    assert len(manifest["demo_posters"]) == 4
+    for poster in manifest["demo_posters"]:
+        assert poster["source"].startswith("https://img.youtube.com/vi/")
+        assert hashlib.sha256((MEDIA / poster["file"]).read_bytes()).hexdigest() == poster["sha256"]
 
 
 def test_buddy_has_transparent_states_and_automatic_scene_choreography() -> None:
@@ -90,17 +102,18 @@ def test_buddy_has_transparent_states_and_automatic_scene_choreography() -> None
             assert image.mode == "RGBA"
             assert image.getchannel("A").getextrema() == (0, 255)
     assert "${state}.webp" in JS
-    assert HTML.count("data-buddy-image") == 2
+    assert HTML.count("data-buddy-image") == 1
     assert HTML.count("data-buddy-motion=") == 6
-    assert HTML.count('class="buddy-video" muted playsinline preload="none" hidden') == 6
-    assert 'src="media/landing-story/buddy/thinking.webp"' in HTML
+    assert HTML.count('class="buddy-video" muted playsinline') == 6
+    assert 'src="media/landing-story/buddy/working.webp"' in HTML
     assert "<noscript>" in HTML
     assert ".buddy-video[hidden]" in CSS
     assert "video.hidden = true" in JS
-    assert "window.requestAnimationFrame(() => window.requestAnimationFrame" in JS
+    assert "requestVideoFrameCallback" in JS
     assert "BEAT_STATES" in JS
     assert "controller.dataset.scene = beat" in JS
-    assert "setBuddyState(BEAT_STATES[beat], false)" in JS
+    assert "setBuddyState(BEAT_STATES[beat], false, changed)" in JS
+    assert "ship: 'approval'" in JS
     assert "video.dataset.storyVideo === 'ship'" in JS
     assert "event.key === 'Enter' || event.key === ' '" in JS
 
@@ -135,10 +148,10 @@ def test_sovereignty_reveal_combines_core_visual_and_local_first_proofs() -> Non
     assert "requestAnimationFrame(drawSovereigntyField)" in JS
 
 
-def test_three_privacy_enhanced_demo_facades_remain() -> None:
-    assert HTML.count("data-youtube=") == 3
+def test_four_privacy_enhanced_demo_facades_remain() -> None:
+    assert HTML.count("data-youtube=") == 4
     assert "youtube-nocookie.com/embed" in (ROOT / "docs" / "site.js").read_text(encoding="utf-8")
-    assert all(video_id in HTML for video_id in ("hRLuOEqbsds", "GA2Tnlt4jNk", "Vuk2xz-vPcA"))
+    assert all(video_id in HTML for video_id in ("hRLuOEqbsds", "GA2Tnlt4jNk", "Vuk2xz-vPcA", "wOUSGTyfEpk"))
 
 
 def test_scrollable_linux_command_is_keyboard_focusable() -> None:
@@ -147,4 +160,11 @@ def test_scrollable_linux_command_is_keyboard_focusable() -> None:
 
 def test_story_controller_runtime_contract() -> None:
     runtime_test = ROOT / "tests" / "docs" / "landing_story_runtime_test.cjs"
+    subprocess.run(["node", str(runtime_test)], check=True, cwd=ROOT)
+
+
+def test_knowledge_field_runtime_contract() -> None:
+    assert '<canvas class="knowledge-field" data-knowledge-field aria-hidden="true"></canvas>' in HTML
+    assert '<script src="knowledge-field.js?' in HTML
+    runtime_test = ROOT / "tests" / "docs" / "knowledge_field_runtime_test.cjs"
     subprocess.run(["node", str(runtime_test)], check=True, cwd=ROOT)

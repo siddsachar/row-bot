@@ -142,7 +142,7 @@ def test_current_policy_withdrawal_before_download_prevents_bytes(owner):
     assert result["status"] == "partial" and calls == ["resolve"]
 
 
-@pytest.mark.parametrize("mode,dead", [("missing", True), ("reused", True), ("same", False), ("denied", False)])
+@pytest.mark.parametrize("mode,dead", [("missing", True), ("reused", True), ("same", False), ("same-jitter", False), ("denied", False)])
 def test_dead_owner_requires_exact_process_birth_and_access_denied_is_unknown(owner, monkeypatch, mode, dead):
     class Process:
         def __init__(self, pid):
@@ -151,7 +151,7 @@ def test_dead_owner_requires_exact_process_birth_and_access_denied_is_unknown(ow
             if mode == "denied":
                 raise psutil.AccessDenied(pid)
         def create_time(self):
-            return 23.0 if mode == "reused" else 12.0
+            return 23.0 if mode == "reused" else 12.0005 if mode == "same-jitter" else 12.0
     monkeypatch.setattr(controls.psutil, "Process", Process)
     assert controls._dead_owner({"owner_pid": 123, "owner_birth": 12.0}) is dead
 
@@ -200,11 +200,22 @@ def test_exclusive_target_claim_uses_independent_connections_and_preserves_repla
 def test_live_owner_without_registry_never_claims_quiescence_or_restarts(owner, monkeypatch):
     service, calls, _ = owner
     monkeypatch.setattr(service, "_finish", lambda _: None)
+    entered, release = threading.Event(), threading.Event()
+    resolve = requirements.resolve_managed_runtime_plan
+    def blocked(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return resolve(*args, **kwargs)
+    monkeypatch.setattr(requirements, "resolve_managed_runtime_plan", blocked)
     value = command(service)
-    execute(service, value)
-    active = controls._OPERATIONS.get("node")
-    if active:
-        active.thread.join(5)
+    try:
+        execute(service, value)
+        assert entered.wait(5)
+    finally:
+        release.set()
+    active = controls._OPERATIONS["node"]
+    active.thread.join(5)
+    assert not active.thread.is_alive()
     # Emulate lost in-memory ownership after the worker wrote its private return,
     # without claiming that the still-alive host process died.
     controls._OPERATIONS.clear()
