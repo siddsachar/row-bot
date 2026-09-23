@@ -146,7 +146,9 @@ def test_mobile_handoff_and_product_media_contracts() -> None:
 
     parser = _parse()
     video_images = [image for image in parser.images if image.get("src", "").startswith("media/landing-story/demos/")]
-    assert len(video_images) == 3
+    deferred_images = [image for image in parser.images if image.get("data-src", "").startswith("media/landing-story/demos/")]
+    assert len(video_images) == len(deferred_images) == 3
+    assert all(not image.get("src") and image.get("loading") == "lazy" for image in deferred_images)
     assert all(image.get("loading") == "lazy" for image in video_images)
     assert all(image.get("width") and image.get("height") for image in video_images)
     assert "background-image:url" not in HTML
@@ -314,7 +316,7 @@ def test_all_marketing_internal_links_and_images_resolve() -> None:
                 assert parts.fragment in target_parser.ids, f"{name}: {href}"
 
         for image in parser.images:
-            source = image.get("src", "")
+            source = image.get("src") or image.get("data-src", "")
             source_parts = urlsplit(source)
             if source_parts.scheme:
                 continue

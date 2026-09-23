@@ -33,6 +33,17 @@
     const panels = [...document.querySelectorAll('[data-story-panel]')];
     const copies = [...document.querySelectorAll('[data-story-copy]')];
     const videos = [...document.querySelectorAll('[data-story-video]')];
+    const demoPosters = [...document.querySelectorAll('[data-demo-poster]')];
+    if ('IntersectionObserver' in window) {
+        const posterObserver = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                entry.target.src = entry.target.dataset.src;
+                posterObserver.unobserve(entry.target);
+            });
+        }, { rootMargin: '80px 0px' });
+        demoPosters.forEach(image => posterObserver.observe(image));
+    } else demoPosters.forEach(image => { image.src = image.dataset.src; });
     const sovereigntyBuddy = document.querySelector('[data-sovereignty-buddy]');
     const sovereigntyBuddyVideo = document.querySelector('[data-sovereignty-buddy-video]');
     const appStack = document.querySelector('.app-stack');

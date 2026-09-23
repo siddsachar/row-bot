@@ -59,6 +59,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
         }
     }
     const triggers = beats.map(beat => element({storyTrigger: beat}));
+    const demoPosters = ['launch-campaign', 'research-report', 'background-workflow'].map(name => element({src: `demos/${name}.jpg`}));
     const panels = beats.map(beat => element({storyPanel: beat}));
     panels.slice(1).forEach(panel => { panel.hidden = true; });
     const copies = beats.map(beat => element({storyCopy: beat}));
@@ -126,6 +127,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
             return match ? videos.find(video => video.dataset.storyVideo === match[1]) : null;
         },
         querySelectorAll(selector) {
+            if (selector === '[data-demo-poster]') return demoPosters;
             if (selector === '[data-buddy-image]') return images;
             if (selector === '[data-buddy-motion]') return buddyVideos;
             if (selector === '[data-story-trigger]') return triggers;
@@ -138,7 +140,10 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
     const observers = [];
     class FakeIntersectionObserver {
         constructor(callback) { this.callback = callback; observers.push(this); }
-        observe() { Promise.resolve().then(() => this.callback([{isIntersecting: true}])); }
+        observe(target) {
+            if (target === controller) Promise.resolve().then(() => this.callback([{isIntersecting: true, target}]));
+        }
+        unobserve() {}
     }
     const runtimeWindow = {
         document,
@@ -190,6 +195,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
         mediaQuery,
         FakeImage,
         posterDecodes,
+        demoPosters,
         observers,
         runTimers(maxDelay = Infinity) {
             for (const [id, timer] of [...timers]) {
@@ -217,6 +223,10 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(runtime.panels[0].hidden, false);
     assert.equal(runtime.panels.slice(1).every(panel => panel.hidden), true);
     assert.equal(runtime.videos[0].playCalls > 0, true);
+    assert.equal(runtime.demoPosters.every(image => !image.src), true);
+    runtime.observers[0].callback([{isIntersecting: true, target: runtime.demoPosters[0]}]);
+    assert.equal(runtime.demoPosters[0].src, 'demos/launch-campaign.jpg');
+    assert.equal(runtime.demoPosters.slice(1).every(image => !image.src), true);
 
     runtime.triggers[3].emit('click');
     await flush();
@@ -293,10 +303,10 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     runtime.runTimers(4000);
     await flush();
     assert.equal(runtime.api.getState().beat, 'research');
-    runtime.observers[0].callback([{isIntersecting: false}]);
+    runtime.observers.at(-1).callback([{isIntersecting: false}]);
     assert.equal(runtime.api.getState().motionAllowed, false);
     assert.equal(runtime.videos.every(video => video.paused), true);
-    runtime.observers[0].callback([{isIntersecting: true}]);
+    runtime.observers.at(-1).callback([{isIntersecting: true}]);
     await flush();
     assert.equal(runtime.api.getState().motionAllowed, true);
 
