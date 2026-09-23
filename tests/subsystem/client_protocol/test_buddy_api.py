@@ -16,6 +16,44 @@ pytestmark = pytest.mark.subsystem
 BASE = "/api/v1/conversations/buddy-conversation/buddy"
 
 
+def test_global_buddy_projection_is_passive_idle_shell_state(service, env):
+    with _client(service) as client:
+        unauthenticated = client.get("/api/v1/buddy")
+        _, headers = bootstrap(client)
+        snapshot = client.get("/api/v1/buddy", headers=headers)
+        packs = client.get("/api/v1/buddy/packs", headers=headers)
+
+        assert unauthenticated.status_code == 401
+        assert snapshot.status_code == 200, snapshot.text
+        assert snapshot.json()["conversation_id"] is None
+        assert snapshot.json()["activity"] == "idle"
+        assert packs.status_code == 200, packs.text
+        pack = next(item for item in packs.json()["packs"] if item["available"] and item["assets"])
+        asset = pack["assets"][0]
+        media = client.get(
+            f"/api/v1/buddy/packs/{pack['id']}/media/{asset['id']}",
+            headers=headers,
+            params={"revision": pack["revision"]},
+        )
+        assert media.status_code == 200, media.text
+        assert media.content
+        assert media.headers["content-type"].startswith(asset["content_type"])
+        assert not config._BUDDY_CONFIG_PATH.exists()
+
+
+def test_passive_buddy_reads_keep_general_query_reserve_available(service, env):
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        query_statuses = [
+            client.get("/api/v1/conversations", headers=headers).status_code
+            for _ in range(31)
+        ]
+        assert 200 in query_statuses
+        assert 429 in query_statuses
+        assert client.get("/api/v1/buddy", headers=headers).status_code == 200
+        assert client.get("/api/v1/buddy/packs", headers=headers).status_code == 200
+
+
 def prepare(service, monkeypatch, mode="ask"):
     monkeypatch.setattr(service, "_metadata", lambda _: {"approval_mode": mode, "agent_profile_id": ""})
 

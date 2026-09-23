@@ -21,23 +21,19 @@
 }
 
 .buddy-avatar-frame::before {
-  inset: -5px;
+  inset: -2px;
   z-index: -2;
-  background: conic-gradient(
-    from 210deg,
-    color-mix(in srgb, var(--accent-solid) 70%, transparent),
-    color-mix(in srgb, var(--chart-series-2) 58%, transparent),
-    color-mix(in srgb, var(--status-warning-border) 46%, transparent),
-    color-mix(in srgb, var(--accent-solid) 35%, transparent)
-  );
-  opacity: 0.78;
+  border: 1px solid color-mix(in srgb, var(--accent-solid) 36%, transparent);
+  background: transparent;
+  opacity: 0.7;
 }
 
 .buddy-avatar-frame::after {
   inset: -1px;
   z-index: -1;
-  border: 2px solid color-mix(in srgb, var(--accent-solid) 52%, transparent);
-  box-shadow: 0 0 22px color-mix(in srgb, var(--accent-solid) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
+  box-shadow: 0 4px 18px
+    color-mix(in srgb, var(--accent-solid) 14%, transparent);
 }
 
 .buddy-avatar-frame[data-buddy-mood='focused']::after,
@@ -63,7 +59,11 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: inherit;
+  border-radius: 50%;
+}
+
+.buddy-avatar-frame[data-preview='true'] .buddy-avatar {
+  object-fit: contain;
 }
 
 .buddy-avatar-frame[data-collapsed='true'] {

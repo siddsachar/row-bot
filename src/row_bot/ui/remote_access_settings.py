@@ -26,7 +26,11 @@ from row_bot.access.access_routes import (
 from row_bot.access.config import AccessConfigError, canonical_origin
 from row_bot.access.models import SessionLifetime
 from row_bot.access.runtime_policy import RuntimeAccessPolicy
-from row_bot.access.service import AccessService, CreatedInvitation
+from row_bot.access.service import (
+    REMOTE_CLIENT_PATH,
+    AccessService,
+    CreatedInvitation,
+)
 from row_bot.ui.access_context import current_access_context, require_ui_owner
 
 Authorize = Callable[[], Any]
@@ -106,7 +110,7 @@ class RemoteAccessActions:
         return self.service.create_invitation(
             intended_origin=route.origin,
             session_lifetime=normalized_lifetime,
-            next_path="/?mobile=1" if layout == "compact" else "/",
+            next_path=REMOTE_CLIENT_PATH,
             created_by="settings_owner",
             access_route="settings",
         )
@@ -137,7 +141,7 @@ class RemoteAccessActions:
         return self.service.create_invitation(
             intended_origin=normalized_origin,
             session_lifetime=normalized_lifetime,
-            next_path="/?mobile=1" if layout == "compact" else "/",
+            next_path=REMOTE_CLIENT_PATH,
             created_by="settings_owner",
             access_route="settings_trusted_origin",
         )

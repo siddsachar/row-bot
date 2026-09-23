@@ -1,6 +1,9 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BuddyAvatar, type BuddyMediaLoader } from './BuddySurface';
+import BuddySurface, {
+  BuddyAvatar,
+  type BuddyMediaLoader,
+} from './BuddySurface';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 
 const snapshot: BuddySnapshot = {
@@ -29,6 +32,32 @@ const snapshot: BuddySnapshot = {
   },
 };
 
+const surface = vi.hoisted(() => ({
+  state: { selectedConversationId: null as string | null },
+  navigate: vi.fn(),
+  globalBuddy: vi.fn(),
+  globalBuddyPack: vi.fn(),
+  globalBuddyMedia: vi.fn(),
+}));
+
+vi.mock('../../runtime', () => ({
+  useClientState: () => surface.state,
+  useRuntime: () => ({
+    controller: {
+      globalBuddy: surface.globalBuddy,
+      globalBuddyPack: surface.globalBuddyPack,
+      globalBuddyMedia: surface.globalBuddyMedia,
+      buddyMedia: vi.fn(),
+    },
+    buddyOwner: null,
+  }),
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => surface.navigate,
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+}));
+
 const pack: BuddyPack = {
   id: 'luminous',
   name: 'Luminous',
@@ -44,7 +73,30 @@ const pack: BuddyPack = {
 };
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('renders passive global Buddy state without selecting a conversation', async () => {
+  surface.state.selectedConversationId = null;
+  surface.globalBuddy.mockResolvedValue({
+    ...snapshot,
+    conversation_id: null,
+    activity: 'idle',
+  });
+  surface.globalBuddyPack.mockResolvedValue({ ...pack, available: false });
+
+  const view = render(<BuddySurface />);
+
+  await waitFor(() =>
+    expect(view.getByLabelText('Buddy settings')).toBeInTheDocument(),
+  );
+  expect(surface.globalBuddy).toHaveBeenCalled();
+  expect(surface.globalBuddyPack).toHaveBeenCalledWith(
+    'luminous',
+    expect.any(AbortSignal),
+  );
+  expect(view.getByRole('status')).toHaveTextContent('Ready');
 });
 
 describe('Buddy avatar lifecycle', () => {
@@ -103,6 +155,38 @@ describe('Buddy avatar lifecycle', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  it('does not reload unchanged media when the canonical pack is reprojected', async () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:stable-pack',
+      revokeObjectURL: vi.fn(),
+    });
+    const loadMedia = vi.fn<BuddyMediaLoader>(async () => new Blob(['media']));
+    const view = render(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={pack}
+        snapshot={snapshot}
+        loadMedia={loadMedia}
+      />,
+    );
+    await waitFor(() => expect(loadMedia).toHaveBeenCalledTimes(2));
+
+    view.rerender(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={{
+          ...pack,
+          assets: pack.assets.map((asset) => ({ ...asset })),
+          animation_map: { ...pack.animation_map },
+        }}
+        snapshot={{ ...snapshot, status: { ...snapshot.status } }}
+        loadMedia={loadMedia}
+      />,
+    );
+
+    expect(loadMedia).toHaveBeenCalledTimes(2);
   });
 
   it('reacts to reduced motion and falls back from video to the selected still', async () => {

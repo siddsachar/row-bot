@@ -317,13 +317,118 @@ svg {
   scroll-padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 .chat-workspace {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(400px, 1fr) minmax(288px, 328px);
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
   flex: 1;
   gap: 12px;
 }
+.chat-workspace.compact-context {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.conversation-context-rail {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-soft);
+  overscroll-behavior: contain;
+}
+.context-rail-heading,
+.context-resource-title,
+.context-suggestion {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.context-rail-heading h2,
+.context-rail-section h3 {
+  margin: 0;
+}
+.context-rail-heading h2 {
+  font-size: 18px;
+  line-height: 24px;
+}
+.context-rail-section {
+  padding-block: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.context-rail-section:first-of-type {
+  margin-top: 12px;
+}
+.context-rail-section h3 {
+  margin-bottom: 8px;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.context-resource-list,
+.context-utility-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-resource-list > li,
+.context-suggestion {
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.context-resource-title {
+  align-items: center;
+}
+.context-resource-title > .button {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  justify-items: start;
+  text-align: start;
+  white-space: normal;
+}
+.context-resource-title span,
+.context-resource-title small,
+.context-resource-summary span,
+.context-resource-summary small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.context-resource-summary {
+  margin: 4px 6px 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.context-resource-summary[data-state='unavailable'] {
+  color: var(--status-warning-text);
+}
+.context-suggestion {
+  align-items: center;
+  margin-block: 6px;
+}
+.context-utility-list > .button {
+  width: 100%;
+  justify-content: flex-start;
+}
+.context-agents .delegated-activity {
+  max-height: none;
+  border-top: 0;
+}
 .chat-content {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -395,6 +500,8 @@ svg {
   object-fit: contain;
 }
 .composer {
+  grid-column: 1;
+  grid-row: 2;
   flex-shrink: 0;
   max-height: 70%;
   overflow: auto;
@@ -521,6 +628,8 @@ svg {
 }
 @media (max-width: 767px) {
   .chat-workspace {
+    display: flex;
+    flex-direction: column;
     gap: 6px;
   }
   .conversation-heading h1 {
@@ -1831,7 +1940,9 @@ progress {
 .knowledge-network-shell {
   position: relative;
   display: grid;
-  min-height: 500px;
+  height: clamp(360px, 56vh, 620px);
+  min-height: 0;
+  overflow: hidden;
   place-items: stretch;
   background:
     radial-gradient(
@@ -1843,7 +1954,8 @@ progress {
 }
 .knowledge-network-canvas {
   width: 100%;
-  min-height: 500px;
+  height: 100%;
+  min-height: 0;
   outline: none;
 }
 .knowledge-network-shell > [role='status'],
@@ -1999,6 +2111,7 @@ progress {
     display: none;
   }
   .knowledge-network-shell {
+    height: auto;
     min-height: 0;
   }
   .knowledge-graph-semantic.visually-hidden {
@@ -2017,6 +2130,7 @@ progress {
     display: none;
   }
   .knowledge-network-shell {
+    height: auto;
     min-height: 0;
     background: Canvas;
   }
@@ -5824,8 +5938,40 @@ details[open] > summary > .settings-disclosure-chevron {
 .navigation .buddy-avatar {
   width: 132px;
   height: 132px;
+  border: 0;
   border-radius: 50%;
-  border: 1px solid var(--border-subtle);
+}
+.navigation .buddy-companion {
+  display: grid;
+  justify-items: center;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.shell-buddy-presence {
+  display: flex;
+  align-items: center;
+  min-width: 44px;
+}
+.shell-buddy-presence .buddy-companion {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.shell-buddy-presence .buddy-companion > p {
+  display: none;
+}
+.shell-buddy-presence .buddy-avatar-frame {
+  width: 40px;
+  height: 40px;
+}
+.shell-buddy-presence .buddy-state-glyph {
+  width: 36px;
+  height: 36px;
 }
 
 /* Phase 4 capability and studio scaffolds share one visual owner. */

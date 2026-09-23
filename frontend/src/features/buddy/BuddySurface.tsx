@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useState,
   useSyncExternalStore,
@@ -13,7 +14,7 @@ import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import glyph from '../../assets/row_bot_glyph_256.png';
 
 export type BuddyMediaLoader = (
-  conversation: string,
+  conversation: string | null,
   packId: string,
   assetId: string,
   revision: string,
@@ -45,7 +46,7 @@ export function BuddyAvatar({
   loadMedia,
   preview = false,
 }: {
-  conversation: string;
+  conversation: string | null;
   pack: BuddyPack | null;
   snapshot: BuddySnapshot;
   loadMedia: BuddyMediaLoader;
@@ -74,24 +75,30 @@ export function BuddyAvatar({
     pack?.animation_map[activityAnimation] ??
     pack?.animation_map[snapshot.status.animation] ??
     activityAnimation;
+  const packId = pack?.id ?? '';
+  const packRevision = pack?.revision ?? '';
+  const packAvailable = pack?.available ?? false;
+  const stillAssetId = pack?.assets.some((asset) => asset.id === 'preview')
+    ? 'preview'
+    : '';
+  const motionAssetId =
+    pack?.assets.find(
+      (asset) => asset.id === clip && asset.content_type === 'video/mp4',
+    )?.id ?? '';
   useEffect(() => {
     const abort = new AbortController();
     const urls = new Set<string>();
     setStill('');
     setMotion('');
-    if (!pack) setPhase('fallback');
-    else if (!pack.available) setPhase('unavailable');
+    if (!packId) setPhase('fallback');
+    else if (!packAvailable) setPhase('unavailable');
     else {
-      const stillAsset = pack.assets.find((asset) => asset.id === 'preview');
-      const active = pack.assets.find(
-        (asset) => asset.id === clip && asset.content_type === 'video/mp4',
-      );
       const motionAllowed =
-        !!active &&
+        !!motionAssetId &&
         !preview &&
         !reduced &&
         snapshot.preferences.animation_intensity !== 'quiet';
-      setPhase(stillAsset || motionAllowed ? 'loading' : 'fallback');
+      setPhase(stillAssetId || motionAllowed ? 'loading' : 'fallback');
       const load = async (
         asset: string,
         apply: (url: string) => void,
@@ -100,9 +107,9 @@ export function BuddyAvatar({
         try {
           const blob = await loadMedia(
             conversation,
-            pack.id,
+            packId,
             asset,
-            pack.revision,
+            packRevision,
             abort.signal,
           );
           if (abort.signal.aborted) return;
@@ -123,8 +130,8 @@ export function BuddyAvatar({
             );
         }
       };
-      if (stillAsset) void load(stillAsset.id, setStill, 'still');
-      if (motionAllowed) void load(active.id, setMotion, 'motion');
+      if (stillAssetId) void load(stillAssetId, setStill, 'still');
+      if (motionAllowed) void load(motionAssetId, setMotion, 'motion');
     }
     return () => {
       abort.abort();
@@ -133,8 +140,11 @@ export function BuddyAvatar({
   }, [
     loadMedia,
     conversation,
-    pack,
-    clip,
+    packId,
+    packRevision,
+    packAvailable,
+    stillAssetId,
+    motionAssetId,
     reduced,
     preview,
     snapshot.preferences.animation_intensity,
@@ -157,6 +167,7 @@ export function BuddyAvatar({
       data-energy={percentage(snapshot.status.energy)}
       data-focus={percentage(snapshot.status.focus)}
       data-alert={percentage(snapshot.status.alert)}
+      data-preview={preview ? 'true' : 'false'}
       style={style}
       aria-hidden="true"
     >
@@ -198,7 +209,87 @@ export function BuddyAvatar({
 
 function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
   const { controller } = useRuntime();
-  return <BuddyAvatar {...props} loadMedia={controller.buddyMedia} />;
+  const loadMedia = useCallback<BuddyMediaLoader>(
+    (conversation, pack, asset, revision, signal) =>
+      conversation
+        ? controller.buddyMedia(conversation, pack, asset, revision, signal)
+        : controller.globalBuddyMedia(pack, asset, revision, signal),
+    [controller],
+  );
+  return <BuddyAvatar {...props} loadMedia={loadMedia} />;
+}
+
+function GlobalBuddy() {
+  const { controller } = useRuntime();
+  const navigate = useNavigate();
+  const [snapshot, setSnapshot] = useState<BuddySnapshot | null>(null);
+  const [pack, setPack] = useState<BuddyPack | null>(null);
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const request = new AbortController();
+    let timer = 0;
+    const load = async () => {
+      try {
+        const next = await controller.globalBuddy(request.signal);
+        if (request.signal.aborted) return;
+        const selected = await controller.globalBuddyPack(
+          next.preferences.pack_id,
+          request.signal,
+        );
+        if (request.signal.aborted) return;
+        setSnapshot(next);
+        setPack(selected);
+        setError(false);
+        timer = window.setTimeout(load, 30000);
+      } catch {
+        if (!request.signal.aborted) {
+          setError(true);
+          timer = window.setTimeout(load, 15000);
+        }
+      }
+    };
+    void load();
+    return () => {
+      request.abort();
+      window.clearTimeout(timer);
+    };
+  }, [attempt, controller]);
+  if (snapshot && !snapshot.preferences.visible) return null;
+  if (!snapshot)
+    return (
+      <aside
+        className="buddy-companion buddy-companion-state"
+        aria-label="Buddy companion"
+        aria-busy={!error}
+        data-state={error ? 'unavailable' : 'loading'}
+      >
+        <img className="buddy-state-glyph" src={glyph} alt="" />
+        <p>
+          {error ? 'Buddy could not load its saved view.' : 'Buddy is loading…'}
+        </p>
+        {error && (
+          <Button onClick={() => setAttempt((value) => value + 1)}>
+            Retry Buddy
+          </Button>
+        )}
+      </aside>
+    );
+  return (
+    <aside className="buddy-companion" aria-label="Buddy companion">
+      <Button
+        aria-label="Buddy settings"
+        variant="ghost"
+        onClick={() => navigate('/settings/buddy')}
+      >
+        <Avatar conversation={null} pack={pack} snapshot={snapshot} />
+      </Button>
+      {snapshot.preferences.bubble_verbosity !== 'quiet' &&
+        !snapshot.preferences.collapsed && (
+          <p role="status">{snapshot.status.label || 'Ready when you are.'}</p>
+        )}
+    </aside>
+  );
 }
 
 function OwnedBuddy({
@@ -276,7 +367,9 @@ export default function BuddySurface({
       <EmptyState title="Open a conversation for Buddy">
         Buddy uses that conversation’s current profile and approvals.
       </EmptyState>
-    ) : null;
+    ) : (
+      <GlobalBuddy />
+    );
   if (!buddyOwner?.get())
     return settings ? (
       <EmptyState title="Buddy is reconnecting">

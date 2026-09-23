@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
@@ -29,12 +36,17 @@ const mock = vi.hoisted(() => ({
     history: null as TranscriptPage | null,
     historyFocus: null,
     status: 'ready',
-    handshake: { instance_id: '', models: [] as ModelChoice[] },
+    handshake: {
+      instance_id: '',
+      models: [] as ModelChoice[],
+      application_capabilities: [] as string[],
+    },
     activity: [],
     loadingConversation: false,
     search: null as SearchPage | null,
     searching: false,
     draftStatus: 'saved',
+    suggestions: [],
   },
   version: 0,
   routeKey: 'conversation-route',
@@ -54,6 +66,7 @@ const mock = vi.hoisted(() => ({
   open: vi.fn(),
   download: vi.fn(),
   writeClipboard: vi.fn(),
+  platformDiscover: vi.fn(),
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
 }));
@@ -100,6 +113,7 @@ vi.mock('../../runtime', () => {
       },
     },
     platform: {
+      discover: mock.platformDiscover,
       save: vi.fn(),
       writeClipboard: mock.writeClipboard,
     },
@@ -139,6 +153,11 @@ beforeEach(() => {
   mock.state.activity = [];
   mock.state.handshake.instance_id = crypto.randomUUID();
   mock.state.handshake.models = [];
+  mock.state.handshake.application_capabilities = [];
+  mock.platformDiscover.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'browser', platform: 'browser', capabilities: [] },
+  });
   mock.selectConversation.mockImplementation(async (id: string) => {
     mock.version++;
     mock.state.selectedConversationId = id;
@@ -441,6 +460,90 @@ it('opens reviewed conversation management from the existing action menu', async
     load: mock.conversationActions,
     review: mock.reviewConversationAction,
     execute: mock.executeConversationAction,
+  });
+});
+
+it('keeps resources, agents, and utilities in the persistent context rail', async () => {
+  idleConversation();
+  await act(async () => conversation());
+
+  const rail = screen.getByRole('complementary', {
+    name: 'Conversation context',
+  });
+  expect(
+    within(rail).getByRole('heading', { name: 'Resources' }),
+  ).toBeVisible();
+  expect(within(rail).getByRole('heading', { name: 'Agents' })).toBeVisible();
+  expect(
+    within(rail).getByRole('heading', { name: 'Utilities' }),
+  ).toBeVisible();
+  expect(
+    within(rail).getByRole('button', { name: 'Add resource' }),
+  ).toBeVisible();
+  expect(
+    within(rail).getByRole('button', { name: 'Interactive terminal' }),
+  ).toBeDisabled();
+  expect(
+    within(document.querySelector('.conversation-heading')!).queryByRole(
+      'button',
+      {
+        name: 'Add resource',
+      },
+    ),
+  ).not.toBeInTheDocument();
+  expect(
+    await within(rail).findByText('No delegated agents in this conversation.'),
+  ).toBeVisible();
+});
+
+it('enables terminal only for an authorized pywebview platform', async () => {
+  idleConversation();
+  mock.state.handshake.application_capabilities = ['native:terminal'];
+  mock.platformDiscover.mockResolvedValue({
+    status: 'ok',
+    value: {
+      kind: 'pywebview',
+      platform: 'windows',
+      capabilities: ['terminal_open'],
+      instanceId: mock.state.handshake.instance_id,
+      windowId: 'synthetic-window',
+      epoch: 1,
+    },
+  });
+  await act(async () => conversation());
+
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Interactive terminal' }),
+    ).toBeEnabled(),
+  );
+});
+
+it('keeps terminal denied when only the application capability is present', async () => {
+  idleConversation();
+  mock.state.handshake.application_capabilities = ['native:terminal'];
+  await act(async () => conversation());
+
+  await waitFor(() => expect(mock.platformDiscover).toHaveBeenCalled());
+  expect(
+    screen.getByRole('button', { name: 'Interactive terminal' }),
+  ).toBeDisabled();
+});
+
+it('uses one persistent Context entry point for the compact sheet', async () => {
+  idleConversation();
+  await act(async () =>
+    render(<ConversationView onPanel={vi.fn()} compactContext />),
+  );
+
+  expect(
+    screen.queryByRole('complementary', { name: 'Conversation context' }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Context' }));
+  expect(mock.open.mock.lastCall?.[0]).toMatchObject({
+    kind: 'sheet',
+    key: 'conversation-context',
+    title: 'Conversation context',
   });
 });
 

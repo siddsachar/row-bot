@@ -220,6 +220,10 @@ OPERATIONS = (
     ("get", "/settings/providers/subscriptions", None, "SubscriptionAccountsSnapshot"),
     ("get", "/settings/providers/subscriptions/options", None, "SubscriptionOptionsSnapshot"),
     ("get", "/conversations/{conversation_id}/buddy", None, "BuddySnapshot"),
+    ("get", "/buddy", None, "BuddySnapshot"),
+    ("get", "/buddy/packs", None, "BuddyPackPage"),
+    ("get", "/buddy/packs/{pack_id}", None, "BuddyPack"),
+    ("get", "/buddy/packs/{pack_id}/media/{asset_id}", None, "bytes"),
     ("get", "/conversations/{conversation_id}/buddy/packs", None, "BuddyPackPage"),
     ("get", "/conversations/{conversation_id}/buddy/packs/{pack_id}", None, "BuddyPack"),
     ("get", "/conversations/{conversation_id}/buddy/packs/{pack_id}/media/{asset_id}", None, "bytes"),
@@ -929,6 +933,12 @@ export const sendDocumentRemoval = (base: string, proof: SessionProof, command: 
   jsonRequest(base, '/knowledge/documents/commands', 'DocumentRemovalReceipt', proof, 'POST', command, command.command_id, signal);
 export const getBuddy = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<BuddySnapshot> =>
   jsonRequest(base, `/conversations/${id(conversation)}/buddy`, 'BuddySnapshot', proof, 'GET', undefined, undefined, signal);
+export const getGlobalBuddy = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<BuddySnapshot> =>
+  jsonRequest(base, '/buddy', 'BuddySnapshot', proof, 'GET', undefined, undefined, signal);
+export const getGlobalBuddyPacks = (base: string, proof: SessionProof, cursor?: string, signal?: AbortSignal): Promise<BuddyPackPage> =>
+  jsonRequest(base, `/buddy/packs${query({cursor})}`, 'BuddyPackPage', proof, 'GET', undefined, undefined, signal);
+export const getGlobalBuddyPack = (base: string, proof: SessionProof, pack: string, signal?: AbortSignal): Promise<BuddyPack> =>
+  jsonRequest(base, `/buddy/packs/${id(pack)}`, 'BuddyPack', proof, 'GET', undefined, undefined, signal);
 export const getBuddyPacks = (base: string, proof: SessionProof, conversation: string, cursor?: string, signal?: AbortSignal): Promise<BuddyPackPage> =>
   jsonRequest(base, `/conversations/${id(conversation)}/buddy/packs${query({cursor})}`, 'BuddyPackPage', proof, 'GET', undefined, undefined, signal);
 export const getBuddyPack = (base: string, proof: SessionProof, conversation: string, pack: string, signal?: AbortSignal): Promise<BuddyPack> =>
@@ -958,6 +968,26 @@ export async function getBuddyMedia(base: string, proof: SessionProof, conversat
     }
   } finally { await reader.cancel(); reader.releaseLock(); }
   return new Blob(chunks, {type: response.headers.get('content-type') ?? 'application/octet-stream'});
+}
+export async function getGlobalBuddyMedia(base: string, proof: SessionProof, pack: string, asset: string, revision: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/buddy/packs/${id(pack)}/media/${id(asset)}${query({revision})}`, {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('protocol_incompatible');
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 67108864) throw new Error('response_too_large');
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  return new Blob(chunks, {type: response.headers.get('content-type') || 'application/octet-stream'});
 }
 export const getSubscriptionProbes = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SubscriptionProbeSnapshot> =>
   jsonRequest(base, '/settings/providers/subscriptions/probes', 'SubscriptionProbeSnapshot', proof, 'GET', undefined, undefined, signal);

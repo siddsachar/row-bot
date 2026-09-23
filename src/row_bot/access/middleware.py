@@ -12,7 +12,7 @@ import time
 from typing import Awaitable, Callable, Mapping, Protocol
 from urllib.parse import quote
 
-from row_bot.access.config import AccessConfig
+from row_bot.access.config import AccessConfig, DeploymentMode
 from row_bot.access.policy import AccessPolicy, RouteClassification, RouteKind
 from row_bot.access.request_context import (
     ACCESS_CONTEXT_SCOPE_KEY,
@@ -141,12 +141,39 @@ async def _json_error(
 async def _redirect_connect(scope: Mapping[str, object], send: ASGISend) -> None:
     raw_path = str(scope.get("path") or "/")
     query = bytes(scope.get("query_string") or b"").decode("latin-1", errors="ignore")
-    target = raw_path if not query else f"{raw_path}?{query}"
+    context = scope.get(ACCESS_CONTEXT_SCOPE_KEY)
+    remote_root = (
+        raw_path == "/"
+        and isinstance(context, AccessContext)
+        and not (
+            context.direct_loopback
+            and context.deployment_mode is DeploymentMode.DESKTOP
+        )
+    )
+    target_path = "/app-v2/" if remote_root else raw_path
+    target = target_path if not query else f"{target_path}?{query}"
     next_path = safe_relative_next(target)
     location = f"/connect?next={quote(next_path, safe='')}".encode("ascii")
     await _send_http(
         send,
         303,
+        b"",
+        content_type=b"text/plain; charset=utf-8",
+        headers=[(b"location", location), (b"x-robots-tag", b"noindex")],
+    )
+
+
+async def _redirect_remote_root_to_react(
+    scope: Mapping[str, object], send: ASGISend
+) -> None:
+    query = bytes(scope.get("query_string") or b"").decode(
+        "latin-1", errors="ignore"
+    )
+    target = "/app-v2/" if not query else f"/app-v2/?{query}"
+    location = safe_relative_next(target, default="/app-v2/").encode("ascii")
+    await _send_http(
+        send,
+        307,
         b"",
         content_type=b"text/plain; charset=utf-8",
         headers=[(b"location", location), (b"x-robots-tag", b"noindex")],
@@ -361,6 +388,18 @@ class AccessMiddleware:
                 status_code=403,
                 reason="origin_required",
             )
+            return
+        if (
+            scope.get("type") == "http"
+            and _method(forwarded_scope) in {"GET", "HEAD"}
+            and _path(forwarded_scope) == "/"
+            and classification.browser_navigation
+            and not (
+                context.direct_loopback
+                and context.deployment_mode is DeploymentMode.DESKTOP
+            )
+        ):
+            await _redirect_remote_root_to_react(forwarded_scope, send)
             return
         if scope.get("type") != "websocket" or context.session_id is None:
             await self.app(forwarded_scope, receive, send)

@@ -231,6 +231,7 @@ it('uses the local vis runtime with bounded reduced-motion navigation', async ()
     fit: ReturnType<typeof vi.fn>;
     moveTo: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
+    redraw: ReturnType<typeof vi.fn>;
   }> = [];
   class DataSet {
     constructor(readonly items: unknown[]) {}
@@ -253,9 +254,18 @@ it('uses the local vis runtime with bounded reduced-motion navigation', async ()
   }
   window.vis = { DataSet, Network };
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const resizeCallbacks: ResizeObserverCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(callback);
+      }
       observe() {}
       disconnect() {}
     },
@@ -269,6 +279,7 @@ it('uses the local vis runtime with bounded reduced-motion navigation', async ()
   );
   expect(instances).toHaveLength(1);
   expect(instances[0].options).toMatchObject({
+    autoResize: false,
     physics: false,
     interaction: {
       keyboard: { enabled: true, bindToWindow: false },
@@ -281,6 +292,10 @@ it('uses the local vis runtime with bounded reduced-motion navigation', async ()
   });
   fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
   expect(instances[0].fit).toHaveBeenCalledWith({ animation: false });
+  const resized = { contentRect: { width: 640, height: 420 } };
+  resizeCallbacks[0]([resized as ResizeObserverEntry], {} as ResizeObserver);
+  resizeCallbacks[0]([resized as ResizeObserverEntry], {} as ResizeObserver);
+  expect(instances[0].redraw).toHaveBeenCalledOnce();
 });
 
 it('loads escaped rich detail, exposes edit, and recovers from detail errors', async () => {

@@ -18,6 +18,8 @@ type VisNetwork = {
   selectNodes(ids: string[]): void;
 };
 
+type GraphSize = { width: number; height: number };
+
 declare global {
   interface Window {
     vis?: {
@@ -117,6 +119,7 @@ const KnowledgeGraphCanvas = forwardRef<
   useEffect(() => {
     let active = true;
     let observer: ResizeObserver | undefined;
+    let resizeFrame = 0;
     const element = root.current;
     setStatus('loading');
     void loadLocalRuntimeScript('vis-network.min.js', () => Boolean(window.vis))
@@ -169,7 +172,7 @@ const KnowledgeGraphCanvas = forwardRef<
           ),
         };
         const instance = new window.vis.Network(element, data, {
-          autoResize: true,
+          autoResize: false,
           physics: reduced
             ? false
             : {
@@ -204,16 +207,35 @@ const KnowledgeGraphCanvas = forwardRef<
         });
         if (selectedIdRef.current)
           instance.selectNodes([selectedIdRef.current]);
+        let lastSize: GraphSize = {
+          width: element.clientWidth,
+          height: element.clientHeight,
+        };
         observer =
           typeof ResizeObserver === 'undefined'
             ? undefined
-            : new ResizeObserver(() => instance.redraw());
+            : new ResizeObserver((entries) => {
+                const rect = entries[0]?.contentRect;
+                const next = {
+                  width: Math.round(rect?.width ?? element.clientWidth),
+                  height: Math.round(rect?.height ?? element.clientHeight),
+                };
+                if (
+                  next.width === lastSize.width &&
+                  next.height === lastSize.height
+                )
+                  return;
+                lastSize = next;
+                cancelAnimationFrame(resizeFrame);
+                resizeFrame = requestAnimationFrame(() => instance.redraw());
+              });
         observer?.observe(element);
         setStatus('ready');
       })
       .catch(() => active && setStatus('failed'));
     return () => {
       active = false;
+      cancelAnimationFrame(resizeFrame);
       observer?.disconnect();
       network.current?.destroy();
       network.current = null;

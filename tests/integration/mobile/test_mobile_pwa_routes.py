@@ -27,7 +27,7 @@ def test_manifest_is_valid_and_publicly_pairing_gate_accessible(tmp_path) -> Non
 
     assert response.status_code == 200
     manifest = response.json()
-    assert manifest["start_url"] == "/?mobile=1"
+    assert manifest["start_url"] == "/app-v2/"
     assert manifest["display"] == "standalone"
     assert manifest["icons"][0]["src"] == "/static/row_bot_glyph_256.png"
 

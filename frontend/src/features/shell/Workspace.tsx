@@ -54,6 +54,7 @@ import {
 import { PanelSubscriptions } from '../panels/subscriptions';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import Commands from './Commands';
+import BuddySurface from '../buddy/BuddySurface';
 import Navigation from './Navigation';
 import Home from './Home';
 import useNewChat from './useNewChat';
@@ -724,6 +725,7 @@ export default function Workspace() {
   }
   const navigation = (
     <Navigation
+      showBuddy={desktop && !layout.navigation.collapsed}
       onNewChat={() => void creation.newChat()}
       creatingChat={creation.creatingChat}
       onOpenConversation={() =>
@@ -745,6 +747,11 @@ export default function Workspace() {
       </a>
       <header className="app-header">
         <Brand compact />
+        {(!desktop || layout.navigation.collapsed) && (
+          <div className="shell-buddy-presence">
+            <BuddySurface />
+          </div>
+        )}
         <div className="header-actions">
           <Button
             className="command-trigger"
@@ -1008,40 +1015,8 @@ export default function Workspace() {
                     onNewChat={() => void creation.newChat()}
                     focusConversationId={creation.focusConversationId}
                     onComposerFocused={creation.onComposerFocused}
+                    compactContext={!desktop}
                   />
-                  {import.meta.env.VITE_ENABLE_FIXTURES === '1' &&
-                    state.suggestions
-                      .filter(
-                        (item) =>
-                          item.conversation_id ===
-                            state.selectedConversationId &&
-                          item.descriptor.panel_kind.startsWith('fake.'),
-                      )
-                      .map((suggestion) => (
-                        <aside
-                          className="suggestion"
-                          key={panelKey(suggestion.descriptor)}
-                          aria-label="Suggested panel"
-                        >
-                          <p>Suggested: {suggestion.descriptor.title}</p>
-                          <Button
-                            onClick={() => {
-                              showPanel(suggestion.descriptor);
-                              controller.dismissSuggestion(suggestion);
-                            }}
-                          >
-                            Open suggested panel
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              controller.dismissSuggestion(suggestion)
-                            }
-                          >
-                            Dismiss suggestion
-                          </Button>
-                        </aside>
-                      ))}
                 </section>
                 {homeOpen && <Home />}
                 {compact && !routeOpen && (

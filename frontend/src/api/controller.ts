@@ -2588,6 +2588,21 @@ export class ClientController {
   };
   buddy = (conversation: string, signal?: AbortSignal) =>
     this.query(() => this.transport.buddy?.(conversation, signal));
+  globalBuddy = (signal?: AbortSignal) =>
+    this.query(() => this.transport.globalBuddy?.(signal));
+  globalBuddyPacks = (cursor?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.globalBuddyPacks?.(cursor, signal));
+  globalBuddyPack = (pack: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.globalBuddyPack?.(pack, signal));
+  globalBuddyMedia = (
+    pack: string,
+    asset: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.globalBuddyMedia?.(pack, asset, revision, signal),
+    );
   buddyPacks = (conversation: string, cursor?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.buddyPacks?.(conversation, cursor, signal));
   buddyPack = (conversation: string, pack: string, signal?: AbortSignal) =>

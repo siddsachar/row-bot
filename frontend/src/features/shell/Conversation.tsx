@@ -17,7 +17,6 @@ import {
   Button,
   CompactAction,
   EmptyState,
-  Menu,
   Skeleton,
 } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
@@ -35,6 +34,7 @@ import DraftConflict from './DraftConflict';
 import QueueControls from './QueueControls';
 import ContextUsage from './ContextUsage';
 import DelegatedActivity from './DelegatedActivity';
+import ConversationContextRail from './ConversationContextRail';
 import {
   commandReceipts,
   ReceiptStorageError,
@@ -328,11 +328,13 @@ export default function Conversation({
   onNewChat = () => undefined,
   focusConversationId,
   onComposerFocused,
+  compactContext = false,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
   onNewChat?: () => void;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
+  compactContext?: boolean;
 }) {
   const state = useClientState();
   const { controller, platform, conversationActionsOwner } = useRuntime();
@@ -344,6 +346,29 @@ export default function Conversation({
   const draft = controller.getDraft(id ?? 'new');
   const voiceScope = controller.dictationScope();
   const [talkBusy, setTalkBusy] = useState(false);
+  const terminalAdvertised = Boolean(
+    state.handshake?.application_capabilities?.includes('native:terminal'),
+  );
+  const [terminalAvailable, setTerminalAvailable] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setTerminalAvailable(false);
+    if (!terminalAdvertised) return () => void (current = false);
+    void platform
+      .discover()
+      .then((result) => {
+        if (!current) return;
+        setTerminalAvailable(
+          result.status === 'ok' &&
+            result.value.kind === 'pywebview' &&
+            result.value.capabilities.includes('terminal_open'),
+        );
+      })
+      .catch(() => {
+        if (current) setTerminalAvailable(false);
+      });
+    return () => void (current = false);
+  }, [platform, state.handshake?.instance_id, terminalAdvertised]);
   const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
   const [voiceExposure, setVoiceExposure] = useState({
     key: '',
@@ -1448,11 +1473,126 @@ export default function Conversation({
       required_capabilities: ['browser_navigate'],
     });
   }
+  function findConversation() {
+    if (!id) return;
+    overlay.open({
+      title: 'Find in conversation',
+      description: 'Search the complete conversation history.',
+      content: <SearchConversations conversationId={id} />,
+    });
+  }
+  function unbindResource(resource: ResourceView) {
+    if (!id || !state.conversation) return;
+    overlay.open({
+      kind: 'alert',
+      title: 'Unbind resource?',
+      description:
+        'Remove this relationship. The resource and its original conversation remain saved.',
+      confirmLabel: 'Unbind',
+      onConfirm: () => {
+        overlay.close();
+        void controller
+          .intent(
+            id,
+            'conversation.unbind',
+            { binding_id: resource.binding.binding_id },
+            state.conversation!.revision,
+          )
+          .catch((e) => setError(clientError(e).message));
+      },
+    });
+  }
+  function deleteConversation() {
+    if (!id || !state.conversation) return;
+    overlay.open({
+      kind: 'alert',
+      title: 'Delete conversation?',
+      description:
+        'This removes its history. Bound resources are retained. Running work must stop before deletion completes.',
+      confirmLabel: 'Delete conversation',
+      onConfirm: () => {
+        overlay.close();
+        void controller
+          .intent(id, 'conversation.delete', {}, state.conversation!.revision)
+          .then((receipt) => {
+            if (receipt.status === 'DeleteCompleted') navigate('/');
+            else
+              setError(
+                'Deletion is waiting for running work to stop. Review and try again.',
+              );
+          })
+          .catch((e) => setError(clientError(e).message));
+      },
+    });
+  }
   async function recover() {
     if (pendingSubmit) await dispatch();
   }
+  const delegatedActivity = id ? (
+    <DelegatedActivity
+      compact
+      conversationId={id}
+      ready={Boolean(state.handshake) && state.status === 'ready'}
+      refreshKey={
+        state.activity
+          .filter((record) => record.event.type === 'agent.activity')
+          .at(-1)?.event.event_id ?? ''
+      }
+      loadPage={(cursor, signal) =>
+        controller.delegatedActivity(id, cursor, signal)
+      }
+      loadRun={(run, signal) => controller.delegatedRun(id, run, signal)}
+      openConversation={async (target) => {
+        if (controller.getSnapshot().selectedConversationId !== id) return;
+        await controller.selectConversation(target);
+        if (
+          controller.getSnapshot().selectedConversationId === target &&
+          controller.getSnapshot().conversation?.id === target
+        )
+          navigate(`/conversations/${target}`);
+      }}
+    />
+  ) : (
+    <p className="muted">Agents appear after a conversation is created.</p>
+  );
+  const contextRail = id ? (
+    <ConversationContextRail
+      conversationId={id}
+      resources={resources}
+      suggestions={(state.suggestions ?? []).filter(
+        (suggestion) => suggestion.conversation_id === id,
+      )}
+      ready={state.status === 'ready' && !state.loadingConversation}
+      connectionStatus={state.status}
+      terminalAvailable={terminalAvailable}
+      agents={delegatedActivity}
+      onAddResource={setup}
+      onOpenResource={resourcePanel}
+      onUnbindResource={unbindResource}
+      onFind={findConversation}
+      onManageConversation={manageConversation}
+      onManageBrowser={manageBrowser}
+      onDeleteConversation={deleteConversation}
+      onOpenTerminal={() =>
+        onPanel({
+          panel_kind: 'native.terminal',
+          title: 'Interactive terminal',
+          required_capabilities: ['native:terminal'],
+        })
+      }
+      onOpenSuggestion={(suggestion) => {
+        onPanel(suggestion.descriptor);
+        controller.dismissSuggestion(suggestion);
+      }}
+      onDismissSuggestion={(suggestion) =>
+        controller.dismissSuggestion(suggestion)
+      }
+    />
+  ) : null;
   return (
-    <div className="chat-workspace">
+    <div
+      className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
+    >
       <div
         className="chat-content"
         ref={chatContentRef}
@@ -1480,108 +1620,24 @@ export default function Conversation({
                   Review pending receipt
                 </Button>
               )}
-            {id && <Button onClick={setup}>Add resource</Button>}
-            {id && (
+            {id && compactContext && (
               <Button
                 onClick={() =>
                   overlay.open({
-                    title: 'Find in conversation',
-                    description: 'Search the complete conversation history.',
-                    content: <SearchConversations conversationId={id} />,
+                    kind: 'sheet',
+                    key: 'conversation-context',
+                    title: 'Conversation context',
+                    description:
+                      'Resources, agents, and conversation utilities.',
+                    content: contextRail,
                   })
                 }
               >
-                Find
+                Context
               </Button>
-            )}
-            {id && (
-              <Menu
-                label="Conversation actions"
-                actions={[
-                  {
-                    label: 'Manage conversation',
-                    onSelect: manageConversation,
-                  },
-                  {
-                    label: 'Manage browser',
-                    onSelect: manageBrowser,
-                  },
-                  {
-                    label: 'Delete conversation',
-                    onSelect: () =>
-                      overlay.open({
-                        kind: 'alert',
-                        title: 'Delete conversation?',
-                        description:
-                          'This removes its history. Bound resources are retained. Running work must stop before deletion completes.',
-                        confirmLabel: 'Delete conversation',
-                        onConfirm: () => {
-                          overlay.close();
-                          void controller
-                            .intent(
-                              id,
-                              'conversation.delete',
-                              {},
-                              state.conversation!.revision,
-                            )
-                            .then((r) => {
-                              if (r.status === 'DeleteCompleted') navigate('/');
-                              else
-                                setError(
-                                  'Deletion is waiting for running work to stop. Review and try again.',
-                                );
-                            })
-                            .catch((e) => setError(clientError(e).message));
-                        },
-                      }),
-                  },
-                ]}
-              />
             )}
           </div>
         </header>
-        {!!resources.length && (
-          <div
-            className="resource-chips"
-            role="group"
-            aria-label="Bound resources"
-          >
-            {resources.map((resource) => (
-              <div key={resource.binding.binding_id} className="resource-chip">
-                <Button onClick={() => resourcePanel(resource)}>
-                  {resource.title}
-                </Button>
-                <Menu
-                  label={`Actions for ${resource.title}`}
-                  actions={[
-                    {
-                      label: 'Unbind resource',
-                      onSelect: () =>
-                        overlay.open({
-                          kind: 'alert',
-                          title: 'Unbind resource?',
-                          description:
-                            'Remove this relationship. The resource and its original conversation remain saved.',
-                          confirmLabel: 'Unbind',
-                          onConfirm: () => {
-                            overlay.close();
-                            void controller
-                              .intent(
-                                id!,
-                                'conversation.unbind',
-                                { binding_id: resource.binding.binding_id },
-                                state.conversation!.revision,
-                              )
-                              .catch((e) => setError(clientError(e).message));
-                          },
-                        }),
-                    },
-                  ]}
-                />
-              </div>
-            ))}
-          </div>
-        )}
         <div
           className="history-controls"
           role="group"
@@ -1719,31 +1775,6 @@ export default function Conversation({
               )}
           </div>
         </div>
-        {id && (
-          <DelegatedActivity
-            conversationId={id}
-            ready={Boolean(state.handshake) && state.status === 'ready'}
-            refreshKey={
-              state.activity
-                .filter((record) => record.event.type === 'agent.activity')
-                .at(-1)?.event.event_id ?? ''
-            }
-            loadPage={(cursor, signal) =>
-              controller.delegatedActivity(id, cursor, signal)
-            }
-            loadRun={(run, signal) => controller.delegatedRun(id, run, signal)}
-            openConversation={async (target) => {
-              if (controller.getSnapshot().selectedConversationId !== id)
-                return;
-              await controller.selectConversation(target);
-              if (
-                controller.getSnapshot().selectedConversationId === target &&
-                controller.getSnapshot().conversation?.id === target
-              )
-                navigate(`/conversations/${target}`);
-            }}
-          />
-        )}
         {id && (
           <details
             className="activity steering-activity"
@@ -2184,6 +2215,7 @@ export default function Conversation({
           <ContextUsage usage={state.workspace?.context_usage} />
         </form>
       )}
+      {!compactContext && contextRail}
     </div>
   );
 }

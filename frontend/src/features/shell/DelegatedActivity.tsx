@@ -13,7 +13,17 @@ type Props = {
   ) => Promise<DelegatedActivityView>;
   loadRun: (runId: string, signal?: AbortSignal) => Promise<DelegatedRun>;
   openConversation: (id: string) => Promise<void>;
+  compact?: boolean;
 };
+
+const ACTIVE_STATES = new Set([
+  'queued',
+  'starting',
+  'running',
+  'waiting',
+  'waiting_approval',
+  'stopping',
+]);
 
 function RunDetail({
   runId,
@@ -186,6 +196,11 @@ export default function DelegatedActivity(props: Props) {
         setLoading(false);
     }
   }
+  const items = [...(page?.items ?? [])].sort((left, right) => {
+    const leftActive = ACTIVE_STATES.has(left.status) ? 0 : 1;
+    const rightActive = ACTIVE_STATES.has(right.status) ? 0 : 1;
+    return leftActive - rightActive;
+  });
   return (
     <section
       aria-label="Delegated tasks"
@@ -212,14 +227,19 @@ export default function DelegatedActivity(props: Props) {
         </p>
       )}
       {loading && !page && <Skeleton label="Loading delegated tasks" />}
-      {!!page?.items.length && (
+      {page && !page.items.length && !loading && !error && (
+        <p className="muted">No delegated agents in this conversation.</p>
+      )}
+      {!!items.length && (
         <>
-          <header className="activity-heading">
-            <h2>Delegated tasks</h2>
-            <span className="muted">{page.items.length} on this page</span>
-          </header>
+          {!props.compact && (
+            <header className="activity-heading">
+              <h2>Delegated tasks</h2>
+              <span className="muted">{items.length} on this page</span>
+            </header>
+          )}
           <ul className="delegated-run-list">
-            {page.items.map((run) => (
+            {items.map((run) => (
               <li className="delegated-run-item" key={run.run_id}>
                 <Button
                   variant="ghost"

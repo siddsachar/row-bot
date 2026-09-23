@@ -37,6 +37,7 @@ TRUSTED_SESSION_TTL = timedelta(days=30)
 TEMPORARY_SESSION_TTL = timedelta(hours=12)
 TRUSTED_SESSION_RENEWAL_WINDOW = timedelta(days=7)
 SESSION_REFRESH_POLL_INTERVAL = timedelta(hours=12)
+REMOTE_CLIENT_PATH = "/app-v2/"
 
 
 @dataclass(frozen=True)

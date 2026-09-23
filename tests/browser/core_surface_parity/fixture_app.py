@@ -40,7 +40,37 @@ def _seed_core_surface_state() -> None:
 
     from row_bot import tasks
     from row_bot.application.attachments import register_attachment
+    from row_bot.conversation_resources import bind, list_bindings
+    from row_bot.developer import storage as developer_storage
     from row_bot.threads import append_checkpoint_messages
+
+    developer_workspace = next(
+        (
+            item
+            for item in developer_storage.list_workspaces(include_hidden=True)
+            if item.name == "Phase 1 workspace"
+        ),
+        None,
+    )
+    if developer_workspace is None:
+        raise RuntimeError("Synthetic Developer workspace was not seeded")
+    developer_workspace.origin_conversation_id = "p1-browser-a"
+    developer_storage.save_workspace(developer_workspace)
+    resource_snapshot = list_bindings("p1-browser-a")
+    resource_snapshot = bind(
+        "p1-browser-a",
+        "workspace",
+        developer_workspace.id,
+        expected_revision=resource_snapshot.revision,
+        role="primary",
+    )
+    bind(
+        "p1-browser-a",
+        "artifact",
+        "docs-designer-project",
+        expected_revision=resource_snapshot.revision,
+        role="primary",
+    )
 
     connection = tasks._get_conn()
     try:

@@ -840,6 +840,18 @@ export interface ClientTransport {
     conversation: string,
     signal?: AbortSignal,
   ): Promise<Wire.BuddySnapshot>;
+  globalBuddy?(signal?: AbortSignal): Promise<Wire.BuddySnapshot>;
+  globalBuddyPacks?(
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BuddyPackPage>;
+  globalBuddyPack?(pack: string, signal?: AbortSignal): Promise<Wire.BuddyPack>;
+  globalBuddyMedia?(
+    pack: string,
+    asset: string,
+    revision: string,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   buddyPacks?(
     conversation: string,
     cursor?: string,

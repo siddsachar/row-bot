@@ -198,6 +198,11 @@ def _write_launcher_state(
     owns_server: bool,
     window_control_port: int | None = None,
     window_pid: int | None = None,
+    requested_mode: str | None = None,
+    selected_mode: str | None = None,
+    opened_mode: str | None = None,
+    window_authorized: bool | None = None,
+    fallback_reason: str | None = None,
 ) -> None:
     path = _launcher_state_path()
     payload = {
@@ -208,6 +213,11 @@ def _write_launcher_state(
         "owns_server": bool(owns_server),
         "session": _LAUNCH_SESSION_ID,
         "updated_at": time.time(),
+        "requested_mode": requested_mode or mode,
+        "selected_mode": selected_mode or mode,
+        "opened_mode": opened_mode or mode,
+        "window_authorized": bool(window_authorized),
+        "fallback_reason": fallback_reason,
     }
     if window_control_port:
         payload["window_control_port"] = int(window_control_port)
@@ -2531,6 +2541,7 @@ if _CLIENT_V2:
     try:
         _bootstrap = _native_json("/api/v1/native/bootstrap")
         _attach_client_v2(main_window, str(_bootstrap["instance_id"]))
+        _buddy_window_log("client-v2 native bridge ready; terminal capability registered")
     except Exception as exc:
         _buddy_window_log(f"client-v2 native bridge unavailable: {exc}")
 _install_main_window_buddy_events(main_window)
@@ -2839,11 +2850,11 @@ def _open_window(
         )
         webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
         return None
+    proc = None
     try:
         args = [
             sys.executable,
-            "-c",
-            _WINDOW_SCRIPT,
+            "-",
             _client_url_for_port(port, client_v2=client_v2),
             APP_DISPLAY_NAME,
             "1280",
@@ -2857,8 +2868,14 @@ def _open_window(
         args.append("1" if client_v2 else "0")
         proc = subprocess.Popen(
             args,
+            stdin=subprocess.PIPE,
+            text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        if proc.stdin is None:
+            raise RuntimeError("Native window script pipe is unavailable")
+        proc.stdin.write(_WINDOW_SCRIPT)
+        proc.stdin.close()
         time.sleep(0.5)
         if proc.poll() is not None:
             logger.warning(
@@ -2869,6 +2886,11 @@ def _open_window(
         logger.info("Native window opened (PID %s, port %s)", proc.pid, port)
         return proc
     except Exception as exc:
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
         logger.warning(
             "Could not open native window: %s — falling back to browser", exc
         )
@@ -3300,6 +3322,7 @@ class RowBotTray:
                 port=self._port,
                 duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1),
             )
+            requested_mode = self._preferred_mode or "saved"
             mode = self._preferred_mode or _load_window_mode()
             _stop_launcher_helper(splash_proc, name="splash_tk")
             if mode == "ask":
@@ -3310,23 +3333,41 @@ class RowBotTray:
                     port=self._port,
                     mode="browser",
                     owns_server=self._owns_server,
+                    requested_mode=requested_mode,
+                    selected_mode="browser",
+                    opened_mode="browser",
                 )
             else:
                 self._window_proc = self._launch_window()
                 if self._window_proc is None:
                     self._window_control_port = None
+                opened_mode = "native" if self._window_proc else "browser"
+                fallback_reason = (
+                    None if self._window_proc else "native_window_start_failed"
+                )
                 _launch_event(
                     "native_window_requested",
                     port=self._port,
                     pid=self._window_proc.pid if self._window_proc else 0,
-                    mode=mode,
+                    requested_mode=requested_mode,
+                    selected_mode=mode,
+                    opened_mode=opened_mode,
+                    authorized=bool(self._window_proc and self._window_control_port),
+                    fallback_reason=fallback_reason or "",
                 )
                 _write_launcher_state(
                     port=self._port,
-                    mode=mode,
+                    mode=opened_mode,
                     owns_server=self._owns_server,
                     window_control_port=self._window_control_port,
                     window_pid=self._window_proc.pid if self._window_proc else None,
+                    requested_mode=requested_mode,
+                    selected_mode=mode,
+                    opened_mode=opened_mode,
+                    window_authorized=bool(
+                        self._window_proc and self._window_control_port
+                    ),
+                    fallback_reason=fallback_reason,
                 )
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
@@ -3513,13 +3554,37 @@ def _run_direct(args: argparse.Namespace) -> None:
     )
     _stop_launcher_helper(splash_proc, name="splash_tk")
 
-    mode_for_state = "server" if args.server or args.no_open else "browser"
+    explicit_native = bool(getattr(args, "native", False))
+    explicit_browser = bool(getattr(args, "browser", False))
+    requested_mode = (
+        "server"
+        if args.server or args.no_open
+        else "native"
+        if explicit_native
+        else "browser"
+        if explicit_browser
+        else "saved"
+    )
+    selected_mode = "server" if args.server or args.no_open else "browser"
+    if not args.server and not args.no_open:
+        if explicit_native:
+            selected_mode = "native"
+        elif explicit_browser:
+            selected_mode = "browser"
+        else:
+            selected_mode = _load_window_mode()
+            if selected_mode == "ask":
+                selected_mode = (
+                    _ask_window_mode() if _has_display_server() else "browser"
+                )
+    mode_for_state = selected_mode
+    opened_mode = "server" if args.server or args.no_open else "browser"
+    fallback_reason: str | None = None
     window_control_port: int | None = None
     window_proc: subprocess.Popen | None = None
 
     if not args.no_open:
-        if args.native and _has_display_server():
-            mode_for_state = "native"
+        if selected_mode == "native" and _has_display_server():
             window_control_port = _find_free_port(port + 10000, max_tries=50)
             window_proc = _open_window(
                 port,
@@ -3528,14 +3593,39 @@ def _run_direct(args: argparse.Namespace) -> None:
             )
             if window_proc is None:
                 window_control_port = None
+                mode_for_state = "browser"
+                opened_mode = "browser"
+                fallback_reason = "native_window_start_failed"
+            else:
+                opened_mode = "native"
             _launch_event(
                 "native_window_requested",
                 port=port,
                 pid=window_proc.pid if window_proc else 0,
-                mode="native",
+                requested_mode=requested_mode,
+                selected_mode=selected_mode,
+                opened_mode=opened_mode,
+                authorized=bool(window_proc and window_control_port),
+                fallback_reason=fallback_reason or "",
+            )
+        elif selected_mode == "native":
+            mode_for_state = "browser"
+            opened_mode = "browser"
+            fallback_reason = "display_server_unavailable"
+            _open_in_browser(
+                port, client_v2=bool(getattr(args, "client_v2", True))
+            )
+            _launch_event(
+                "native_window_fallback",
+                port=port,
+                requested_mode=requested_mode,
+                selected_mode=selected_mode,
+                opened_mode=opened_mode,
+                fallback_reason=fallback_reason,
             )
         elif _has_display_server() or not args.server:
             mode_for_state = "browser"
+            opened_mode = "browser"
             _open_in_browser(
                 port, client_v2=bool(getattr(args, "client_v2", True))
             )
@@ -3551,6 +3641,11 @@ def _run_direct(args: argparse.Namespace) -> None:
         owns_server=owns_server,
         window_control_port=window_control_port,
         window_pid=window_proc.pid if window_proc else None,
+        requested_mode=requested_mode,
+        selected_mode=selected_mode,
+        opened_mode=opened_mode,
+        window_authorized=bool(window_proc and window_control_port),
+        fallback_reason=fallback_reason,
     )
 
     if owns_server:
@@ -3561,6 +3656,13 @@ def _run_direct(args: argparse.Namespace) -> None:
                 restart_in_progress=restart_lock.locked,
             )
         finally:
+            if window_proc is not None:
+                _RowBotProcess._terminate_process(
+                    window_proc,
+                    label=f"{APP_DISPLAY_NAME} window",
+                    timeout=3,
+                    kill_tree=True,
+                )
             if launcher_control is not None:
                 launcher_control.stop()
 
@@ -3901,9 +4003,8 @@ def main(argv: list[str] | None = None) -> None:
         tray.run()
     except ImportError as exc:
         logger.warning(
-            "System tray unavailable (%s); falling back to browser mode", exc
+            "System tray unavailable (%s); falling back to direct launch mode", exc
         )
-        args.browser = True
         args.no_tray = True
         _run_direct(args)
     except KeyboardInterrupt:

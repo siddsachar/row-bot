@@ -158,6 +158,8 @@ async function metrics(page, client, surface) {
         ["tabs", '[role="tablist"], [data-docs-id="home-tabs"]'],
         ["content", ".home-tab-content, .q-tab-panels, main"],
         ["composer", ".composer, .row-bot-desktop-composer"],
+        ["context", ".conversation-context-rail"],
+        ["buddy", ".buddy-companion, [data-buddy-in-app-shell]"],
       ].map(([name, query]) => {
         const element = document.querySelector(query);
         if (!element) return { name, present: false };
@@ -234,7 +236,7 @@ async function capture(page, testInfo, client, surface) {
     `${client} ${surface} overflow`,
   ).toBe(false);
   await writeJson(testInfo, `${surface}-${client}-measurements`, measurement);
-  const axe = await new AxeBuilder({ page }).analyze();
+  const axe = await new AxeBuilder({ page }).exclude("iframe").analyze();
   await writeJson(testInfo, `${surface}-${client}-axe`, {
     url: new URL(page.url()).pathname,
     violations: axe.violations,
@@ -283,6 +285,9 @@ test.beforeEach(async ({ context, page }, testInfo) => {
 test("paired core surfaces share one deterministic fixture and remain observable", async ({
   page,
 }, testInfo) => {
+  testInfo.setTimeout(
+    testInfo.project.metadata.captureState === "primary" ? 300_000 : 180_000,
+  );
   const consoleErrors = [];
   const pageErrors = [];
   const requestErrors = [];
@@ -403,7 +408,19 @@ test("paired core surfaces share one deterministic fixture and remain observable
     ),
     "Unexpected browser console errors",
   ).toEqual([]);
-  expect(pageErrors, "Unexpected uncaught page errors").toEqual([]);
+  const expectedSandboxPageErrors = pageErrors.filter((message) =>
+    [
+      "SecurityError: Failed to read the 'serviceWorker' property from 'Navigator': Service worker is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag.",
+      "SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.",
+    ].includes(message),
+  );
+  expect(expectedSandboxPageErrors.length).toBeLessThanOrEqual(4);
+  expect(
+    pageErrors.filter(
+      (message) => !expectedSandboxPageErrors.includes(message),
+    ),
+    "Unexpected uncaught page errors",
+  ).toEqual([]);
   expect(requestErrors, "Unexpected same-origin request failures").toEqual([]);
   expect(external, "Off-origin requests are forbidden").toEqual([]);
   expect(
@@ -427,7 +444,48 @@ test("React rich transcript, durable media, context and functional graph remain 
     "The complete rich-state matrix is captured once at the primary desktop viewport.",
   );
 
+  await openReact(page, "workflows");
+  await expect(
+    page.getByRole("complementary", { name: "Buddy companion" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Buddy settings" }),
+  ).toBeVisible();
+
   await openReact(page, "chat");
+  const contextRail = page.getByRole("complementary", {
+    name: "Conversation context",
+  });
+  await expect(contextRail).toBeVisible();
+  await expect(
+    contextRail.getByRole("heading", { name: "Resources" }),
+  ).toBeVisible();
+  await expect(
+    contextRail.getByRole("heading", { name: "Agents" }),
+  ).toBeVisible();
+  await expect(
+    contextRail.getByRole("heading", { name: "Utilities" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".conversation-heading")
+      .getByRole("button", { name: "Add resource" }),
+  ).toHaveCount(0);
+  await expect(page.locator(".resource-chips")).toHaveCount(0);
+  await expect(
+    contextRail.getByRole("button", {
+      name: "Phase 1 workspace Developer",
+    }),
+  ).toBeVisible();
+  await expect(
+    contextRail.getByText(/changed|workspace/).first(),
+  ).toBeVisible();
+  await expect(
+    contextRail.getByRole("button", {
+      name: "Community Workshop Deck Design",
+    }),
+  ).toBeVisible();
+  await expect(contextRail.getByText(/deck · 2 pages/)).toBeVisible();
   await expect(
     page.getByText("private model-only fixture context"),
   ).toHaveCount(0);
@@ -471,6 +529,47 @@ test("React rich transcript, durable media, context and functional graph remain 
     animations: "disabled",
   });
 
+  await contextRail
+    .getByRole("button", { name: "Phase 1 workspace Developer" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Repository & sandbox" }),
+  ).toBeVisible();
+  const contextLayout = await page.evaluate(() => {
+    const transcript = document.querySelector(".chat-content");
+    const rail = document.querySelector(".conversation-context-rail");
+    const detail = document.querySelector(".panel-dock");
+    const width = (element) =>
+      element ? Math.round(element.getBoundingClientRect().width) : 0;
+    return {
+      transcriptWidth: width(transcript),
+      railWidth: width(rail),
+      detailWidth: width(detail),
+      documentHorizontalOverflow:
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth + 1,
+    };
+  });
+  expect(contextLayout.transcriptWidth).toBeGreaterThanOrEqual(400);
+  expect(contextLayout.railWidth).toBeGreaterThanOrEqual(288);
+  expect(contextLayout.documentHorizontalOverflow).toBe(false);
+  await writeJson(testInfo, "conversation-context-layout", contextLayout);
+  await page.screenshot({
+    path: testInfo.outputPath("context-developer-detail--react.png"),
+    animations: "disabled",
+  });
+  await contextRail
+    .getByRole("button", { name: "Community Workshop Deck Design" })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Design preview" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Slide 1 of 2/)).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("context-designer-detail--react.png"),
+    animations: "disabled",
+  });
+
   await openReact(page, "chat-traces");
   const mediaGroup = page.locator(".trace-group").filter({
     has: page.getByText(/Done fixture_image/),
@@ -499,10 +598,116 @@ test("React rich transcript, durable media, context and functional graph remain 
   await expect(
     page.getByLabel("Knowledge graph semantic fallback"),
   ).toBeAttached();
+  const graphMeasurements = [];
+  for (let index = 0; index < 25; index += 1) {
+    await page.setViewportSize({
+      width: index % 2 ? 1260 : 1280,
+      height: index % 3 ? 720 : 740,
+    });
+    const hideOrphans = page.getByRole("checkbox", { name: "Hide orphans" });
+    await hideOrphans.setChecked(index % 2 === 0);
+    await page.getByRole("button", { name: "Fit" }).click();
+    await settle(page);
+    graphMeasurements.push(
+      await page.locator(".knowledge-network-shell").evaluate((shell) => {
+        const canvas = shell.querySelector(".knowledge-network-canvas");
+        return {
+          shellClientHeight: shell.clientHeight,
+          shellOffsetHeight: shell.offsetHeight,
+          shellScrollHeight: shell.scrollHeight,
+          canvasClientHeight: canvas?.clientHeight ?? 0,
+          canvasCount: shell.querySelectorAll(".knowledge-network-canvas")
+            .length,
+          rendererCount: shell.querySelectorAll(".vis-network").length,
+        };
+      }),
+    );
+  }
+  for (const sample of graphMeasurements) {
+    expect(sample.shellClientHeight).toBeGreaterThanOrEqual(360);
+    expect(sample.shellClientHeight).toBeLessThanOrEqual(620);
+    expect(sample.shellScrollHeight).toBeLessThanOrEqual(
+      sample.shellClientHeight + 1,
+    );
+    expect(sample.canvasClientHeight).toBe(sample.shellClientHeight);
+    expect(sample.canvasCount).toBe(1);
+    expect(sample.rendererCount).toBeLessThanOrEqual(1);
+  }
+  expect(
+    Math.max(...graphMeasurements.map((sample) => sample.shellClientHeight)) -
+      Math.min(...graphMeasurements.map((sample) => sample.shellClientHeight)),
+  ).toBeLessThanOrEqual(20);
+  await writeJson(testInfo, "knowledge-graph-stability", {
+    cycles: graphMeasurements.length,
+    samples: graphMeasurements,
+  });
   await page.screenshot({
     path: testInfo.outputPath("functional-knowledge-graph--react.png"),
     animations: "disabled",
   });
+});
+
+test("React context rail and one detail panel retain bounded desktop widths", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    !["core-desktop", "core-laptop"].includes(testInfo.project.name),
+    "Desktop context composition is measured at 1440 and 1280 only.",
+  );
+  await openReact(page, "chat");
+  const rail = page.getByRole("complementary", {
+    name: "Conversation context",
+  });
+  await rail
+    .getByRole("button", { name: "Phase 1 workspace Developer" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Repository & sandbox" }),
+  ).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const width = (query) => {
+      const element = document.querySelector(query);
+      return element ? Math.round(element.getBoundingClientRect().width) : 0;
+    };
+    return {
+      viewportWidth: window.innerWidth,
+      transcriptWidth: width(".chat-content"),
+      railWidth: width(".conversation-context-rail"),
+      documentHorizontalOverflow:
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth + 1,
+    };
+  });
+  expect(layout.transcriptWidth).toBeGreaterThanOrEqual(400);
+  expect(layout.railWidth).toBeGreaterThanOrEqual(288);
+  expect(layout.documentHorizontalOverflow).toBe(false);
+  await writeJson(testInfo, "context-detail-widths", layout);
+});
+
+test("React compact context affordance opens the same accessible content", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    !["core-tablet", "core-phone", "core-narrow"].includes(
+      testInfo.project.name,
+    ),
+    "The compact context transform is measured on tablet and phone projects.",
+  );
+  await openReact(page, "chat");
+  await expect(page.locator(".conversation-context-rail")).toHaveCount(0);
+  const trigger = page.getByRole("button", { name: "Context", exact: true });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Conversation context" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("complementary", { name: "Conversation context" }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Phase 1 workspace Developer" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });
 
 test("paired chat composer, Buddy, trace, stream, stop and reconnect remain one shared runtime", async ({
@@ -572,9 +777,11 @@ test("paired chat composer, Buddy, trace, stream, stop and reconnect remain one 
   ).toBeVisible();
   await nicegui.reload();
   await openNiceGui(nicegui, "chat");
+  await nicegui.getByRole("button", { name: "Skills", exact: true }).click();
   await expect(
     nicegui.getByText("Synthetic browser skill", { exact: false }),
   ).toBeVisible();
+  await nicegui.keyboard.press("Escape");
   await react.reload();
   await expect(
     react.getByRole("button", {

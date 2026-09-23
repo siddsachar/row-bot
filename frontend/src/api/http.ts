@@ -680,6 +680,30 @@ export class HttpTransport implements ClientTransport {
   buddy(conversation: string, signal?: AbortSignal) {
     return wire.getBuddy(this.base, this.session(), conversation, signal);
   }
+  globalBuddy(signal?: AbortSignal) {
+    return wire.getGlobalBuddy(this.base, this.session(), signal);
+  }
+  globalBuddyPacks(cursor?: string, signal?: AbortSignal) {
+    return wire.getGlobalBuddyPacks(this.base, this.session(), cursor, signal);
+  }
+  globalBuddyPack(pack: string, signal?: AbortSignal) {
+    return wire.getGlobalBuddyPack(this.base, this.session(), pack, signal);
+  }
+  globalBuddyMedia(
+    pack: string,
+    asset: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getGlobalBuddyMedia(
+      this.base,
+      this.session(),
+      pack,
+      asset,
+      revision,
+      signal,
+    );
+  }
   buddyPacks(conversation: string, cursor?: string, signal?: AbortSignal) {
     return wire.getBuddyPacks(
       this.base,

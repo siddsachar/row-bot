@@ -23,11 +23,13 @@ export default function Navigation({
   onOpenHome,
   onNewChat,
   creatingChat = false,
+  showBuddy = true,
 }: {
   onOpenConversation?: () => void;
   onOpenHome?: () => void;
   onNewChat?: () => void;
   creatingChat?: boolean;
+  showBuddy?: boolean;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -88,7 +90,7 @@ export default function Navigation({
   return (
     <nav className="navigation" aria-label="Workspace navigation">
       <Brand />
-      <BuddySurface />
+      {showBuddy && <BuddySurface />}
       <div
         className="nav-primary-actions"
         role="group"

@@ -77,8 +77,16 @@ def test_launcher_local_url_and_browser_helper_use_explicit_loopback(monkeypatch
 def test_launcher_native_window_helper_uses_explicit_loopback(monkeypatch):
     captured = {}
 
+    class _FakeStdin:
+        def write(self, value):
+            captured["script"] = value
+
+        def close(self):
+            captured["stdin_closed"] = True
+
     class _FakePopen:
         pid = 4242
+        stdin = _FakeStdin()
 
         def poll(self):
             return None
@@ -95,15 +103,26 @@ def test_launcher_native_window_helper_uses_explicit_loopback(monkeypatch):
     process = launcher._open_window(8124)
 
     assert process is not None
+    assert captured["args"][1] == "-"
     assert "http://127.0.0.1:8124/app-v2/" in captured["args"]
     assert captured["args"][-1] == "1"
+    assert captured["script"] == launcher._WINDOW_SCRIPT
+    assert captured["stdin_closed"] is True
 
 
 def test_launcher_legacy_fallback_is_explicit_and_disables_narrow_bridge(monkeypatch):
     captured = {}
 
+    class _FakeStdin:
+        def write(self, value):
+            captured["script"] = value
+
+        def close(self):
+            captured["stdin_closed"] = True
+
     class _FakePopen:
         pid = 4243
+        stdin = _FakeStdin()
 
         def poll(self):
             return None
@@ -119,9 +138,13 @@ def test_launcher_legacy_fallback_is_explicit_and_disables_narrow_bridge(monkeyp
     process = launcher._open_window(8124, client_v2=False)
 
     assert process is not None
+    assert captured["args"][1] == "-"
     assert "http://127.0.0.1:8124" in captured["args"]
     assert captured["args"][-1] == "0"
+    assert captured["script"] == launcher._WINDOW_SCRIPT
+    assert captured["stdin_closed"] is True
     assert "attach_native_client" in launcher._WINDOW_SCRIPT
+    assert "client-v2 native bridge ready; terminal capability registered" in launcher._WINDOW_SCRIPT
     assert '**({} if _CLIENT_V2 else {"js_api": _JS_API})' in launcher._WINDOW_SCRIPT
 
 

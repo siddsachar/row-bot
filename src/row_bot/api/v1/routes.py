@@ -6104,9 +6104,86 @@ def create_router(
             validate_confirmation=confirmation,
         )
 
+    @router.get("/buddy")
+    async def global_buddy_snapshot(request: Request) -> JSONResponse:
+        """Return passive shell Buddy state without choosing a conversation."""
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import read_buddy
+
+        result = await call(
+            read_buddy,
+            validate=dispatch_validation(request, current),
+        )
+        value = asdict(result)
+        value.update(conversation_id=None, activity="idle")
+        return await respond(request, dto.BuddySnapshot, value)
+
+    @router.get("/buddy/packs")
+    async def global_buddy_packs(
+        request: Request, cursor: str | None = None
+    ) -> JSONResponse:
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import list_buddy_packs
+
+        result = await call(
+            list_buddy_packs,
+            cursor=cursor,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.BuddyPackPage, asdict(result))
+
+    @router.get("/buddy/packs/{pack_id}")
+    async def global_buddy_pack(pack_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import _pack
+
+        validate = dispatch_validation(request, current)
+
+        def read() -> dict:
+            validate()
+            result = asdict(_pack(pack_id)[0])
+            validate()
+            return result
+
+        return await respond(request, dto.BuddyPack, await call(read))
+
+    @router.get("/buddy/packs/{pack_id}/media/{asset_id}")
+    async def global_buddy_media(
+        pack_id: str,
+        asset_id: str,
+        revision: str,
+        request: Request,
+    ) -> Response:
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import read_buddy_media
+
+        validate = dispatch_validation(request, current)
+        data, content_type = await call(
+            read_buddy_media,
+            pack_id,
+            asset_id,
+            expected_revision=revision,
+            validate=validate,
+        )
+
+        async def chunks() -> Any:
+            for offset in range(0, len(data), EVENT_LIMIT):
+                security.session(await _context(request), current.id, current.csrf)
+                yield data[offset : offset + EVENT_LIMIT]
+
+        return StreamingResponse(
+            chunks(),
+            media_type=content_type,
+            headers={
+                **HEADERS,
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+
     @router.get("/conversations/{conversation_id}/buddy")
     async def buddy_snapshot(conversation_id: str, request: Request) -> JSONResponse:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import read_buddy
 
         result = await call(
@@ -6142,7 +6219,7 @@ def create_router(
     async def buddy_packs(
         conversation_id: str, request: Request, cursor: str | None = None
     ) -> JSONResponse:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import list_buddy_packs
 
         result = await call(
@@ -6156,7 +6233,7 @@ def create_router(
     async def buddy_pack(
         conversation_id: str, pack_id: str, request: Request
     ) -> JSONResponse:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import _pack
 
         validate = dictation_validation(request, current, conversation_id)
@@ -6179,7 +6256,7 @@ def create_router(
         revision: str,
         request: Request,
     ) -> Response:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import read_buddy_media
 
         data, content_type = await call(

@@ -22,10 +22,13 @@ from row_bot.access.request_context import (
     RequestProvenance,
     request_origin_matches,
 )
-from row_bot.access.service import AccessService, InvitationClaimError
+from row_bot.access.service import (
+    REMOTE_CLIENT_PATH,
+    AccessService,
+    InvitationClaimError,
+)
 
 ACCESS_REQUEST_BODY_LIMIT = 32 * 1024
-REMOTE_CLIENT_PATH = "/app-v2/"
 _CLAIM_RATE_LIMIT = 20
 _MANAGEMENT_RATE_LIMIT = 30
 

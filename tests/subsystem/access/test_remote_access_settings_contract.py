@@ -113,9 +113,9 @@ def test_owner_actions_create_both_layouts_and_lifetimes(tmp_path) -> None:
 
     assert desktop.invitation.session_lifetime is SessionLifetime.TRUSTED
     assert desktop.invitation.intended_origin == ORIGIN
-    assert desktop.next_path == "/"
+    assert desktop.next_path == "/app-v2/"
     assert compact.invitation.session_lifetime is SessionLifetime.TEMPORARY
-    assert compact.next_path == "/?mobile=1"
+    assert compact.next_path == "/app-v2/"
 
 
 def test_owner_actions_trust_origins_hot_apply_and_create_invitations(
@@ -151,12 +151,12 @@ def test_owner_actions_trust_origins_hot_apply_and_create_invitations(
     assert desktop.invitation.intended_origin == ORIGIN
     assert desktop.invitation.created_by == "settings_owner"
     assert desktop.invitation.access_route == "settings_trusted_origin"
-    assert desktop.next_path == "/"
+    assert desktop.next_path == "/app-v2/"
     assert compact.invitation.session_lifetime is SessionLifetime.TEMPORARY
     assert compact.invitation.intended_origin == ("https://tablet.row-bot.example:8443")
     assert compact.invitation.created_by == "settings_owner"
     assert compact.invitation.access_route == "settings_trusted_origin"
-    assert compact.next_path == "/?mobile=1"
+    assert compact.next_path == "/app-v2/"
     assert store.load().configured_origins == (
         ORIGIN,
         "https://tablet.row-bot.example:8443",

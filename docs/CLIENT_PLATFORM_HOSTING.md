@@ -9,7 +9,7 @@ build/test work only.
 
 | Route | Behavior |
 | --- | --- |
-| `/` | Retained NiceGUI application and explicit local fallback |
+| `/` | Retained NiceGUI application for direct desktop loopback; authenticated server/remote browser navigation redirects to `/app-v2/` |
 | `/app-v2` | Redirect to `/app-v2/` |
 | `/app-v2/` and extensionless HTML navigation below it | Local shell, `Cache-Control: no-store` |
 | `/app-v2/assets/<hashed-name>` | Verified local assets, private immutable caching |
@@ -20,8 +20,13 @@ build/test work only.
 routes. It does not replace lifespan or exception handlers. The existing
 middleware authenticates navigation/assets just as it authenticates the API.
 The helper itself also requires the resolved access context; installing it
-without access middleware fails closed. Unauthenticated server-mode navigation
-goes through `/connect`; direct desktop loopback retains its existing policy.
+without access middleware fails closed. Unauthenticated server/remote root
+navigation goes through `/connect` with a safe `/app-v2/` continuation. After
+authentication, server, LAN, and managed-tunnel root navigation redirects to
+the React shell. Direct desktop loopback `/` remains the explicit NiceGUI
+diagnostic fallback. This routing distinction does not grant native desktop
+authority: terminal and other native operations still require the separately
+attested pywebview window.
 
 In a source checkout the default asset root is `frontend/dist`. Installed and
 frozen builds use `row_bot/static/client-v2` beside the Python modules.

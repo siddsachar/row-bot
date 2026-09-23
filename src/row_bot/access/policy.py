@@ -97,7 +97,7 @@ def _header_values(scope: Mapping[str, object], name: bytes) -> tuple[bytes, ...
 
 
 def is_browser_navigation(scope: Mapping[str, object]) -> bool:
-    if scope.get("type") != "http" or _method(scope) != "GET":
+    if scope.get("type") != "http" or _method(scope) not in {"GET", "HEAD"}:
         return False
     path = _path(scope)
     if path.startswith(("/api/", "/_nicegui/", "/_media/", "/published/")):
