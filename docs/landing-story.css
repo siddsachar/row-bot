@@ -562,6 +562,7 @@ html:not(.js) .product-stage .story-panel:not(:first-of-type) { display: none; }
     .journey-header { margin-bottom: 34px; }
     .journey-header h1,
     .product-journey.is-intro .journey-header h1 { margin-top: 28px; max-width: none; font-size: clamp(3.25rem, 15.4vw, 5.5rem); line-height: .86; white-space: normal; }
+    .product-journey:not(.is-intro) .journey-header h1 { font-size: clamp(2.25rem, 9.8vw, 3.1rem); line-height: .9; }
     .journey-header h1 span, .journey-header h1 em { display: block; }
     .journey-intro { display: block; }
     .journey-intro > p { font-size: .94rem; }

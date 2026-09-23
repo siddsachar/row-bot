@@ -83,6 +83,11 @@ def test_reviewed_manifest_hashes_every_public_story_asset() -> None:
     for state, expected_hash in manifest["buddy"]["motion"]["states"].items():
         video = MEDIA / "buddy" / f"{state}.webm"
         assert hashlib.sha256(video.read_bytes()).hexdigest() == expected_hash
+    idle_edit = manifest["buddy"]["motion"]["edits"]["idle"]
+    assert idle_edit["source_sha256"] == "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca"
+    assert idle_edit["result_sha256"] == manifest["buddy"]["motion"]["states"]["idle"]
+    assert idle_edit["kept_segment_seconds"] == [5.333, 9.916]
+    assert idle_edit["result_duration_seconds"] < idle_edit["source_duration_seconds"]
     assert len(manifest["demo_posters"]) == 4
     for poster in manifest["demo_posters"]:
         assert poster["source"].startswith("https://img.youtube.com/vi/")

@@ -3,7 +3,7 @@
   "story_id": "sovereignty-workbench-v1",
   "run_id": "20260921T230035Z-f3ed05",
   "review_status": "approved",
-  "reviewed_at": "2026-09-23T09:59:02Z",
+  "reviewed_at": "2026-09-23T10:37:41Z",
   "recording_receipt": "recording-receipt.json",
   "assets": [
     {
@@ -101,16 +101,28 @@
       "scene_durations_seconds": {
         "research": 12.042,
         "create": 12.042,
-        "automate": 12.042,
+        "automate": 4.583,
         "ship": 6.042
       },
       "states": {
-        "idle": "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca",
+        "idle": "00344446d1e9bb4624e7ed4cbbfadfc0972d905372d3fb4fa3d7f2e2a1003369",
         "thinking": "7cffda47e017f0fc2fbe0e80f1d09f4bef54de8fd2009a8af49b767d47e9bb0c",
         "working": "7363131a02264797cf88443f558ea0882aa08becccddc10308010a8253053650",
         "approval": "5332f0136c7e3307ea8249cb77d45f8640b45c4b89796c3b283b675570bb845b",
         "success": "96f0bb0d8e3176aba5163250d8ff02cebcc079ecb6151dcc94d8b97fa3dedd73",
         "error": "9b59552f8f9cb680779e11cb4b590eb9d06637879c1a965224e889b50fb56e1f"
+      },
+      "edits": {
+        "idle": {
+          "source_commit": "b614d94f",
+          "source_sha256": "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca",
+          "source_duration_seconds": 12.042,
+          "kept_segment_seconds": [5.333, 9.916],
+          "method": "VP9/WebM packet remux without re-encoding; alpha preserved",
+          "reason": "Remove the violet opening orbs and retain the cyan Automate motion",
+          "result_sha256": "00344446d1e9bb4624e7ed4cbbfadfc0972d905372d3fb4fa3d7f2e2a1003369",
+          "result_duration_seconds": 4.583
+        }
       }
     }
   },

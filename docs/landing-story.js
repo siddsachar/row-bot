@@ -3,7 +3,9 @@
 
     const STATES = ['idle', 'thinking', 'working', 'approval', 'success', 'error'];
     const BEATS = ['research', 'create', 'automate', 'ship'];
-    const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'working', ship: 'approval' };
+    const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'approval' };
+    const BUDDY_REVEAL_AT = { idle: .16, thinking: .2, working: .2 };
+    const IDLE_HOLD_AT = 4.4;
     // The reviewed Ship cut clears its approval dialog at 2.25 seconds.
     const SHIP_APPROVAL_AT = 2.25;
     const BEAT_LABELS = {
@@ -47,6 +49,9 @@
     const sovereigntyBuddy = document.querySelector('[data-sovereignty-buddy]');
     const sovereigntyBuddyVideo = document.querySelector('[data-sovereignty-buddy-video]');
     const appStack = document.querySelector('.app-stack');
+    const productStage = document.querySelector('.product-stage');
+    const journeyTitle = document.querySelector('#journey-title');
+    const siteNav = document.querySelector('.site-nav');
 
     let stateIndex = STATES.indexOf('working');
     let currentBeat = 'research';
@@ -55,14 +60,18 @@
     let scrollFrame = 0;
     let autoAdvanceTimer = 0;
     let introTimer = 0;
+    let autoCenterTimer = 0;
     let buddyTransitionTimer = 0;
     let buddyRevealToken = 0;
     let buddyTransitionToken = 0;
+    let buddyTransitionPending = false;
     let clipPlayToken = 0;
+    let buddyPlayPending = null;
     let sovereigntyVisible = false;
     let pendingBuddyPoster = null;
     let introDismissed = !controller?.classList.contains('is-intro');
     let introHolding = !introDismissed;
+    let introUserInteracted = false;
 
     function playbackAllowed() {
         return !reduceMotionQuery.matches && !saveData && !document.hidden && !mediaFrozen && !introHolding;
@@ -85,6 +94,7 @@
 
     function pauseBuddyVideos() {
         buddyRevealToken += 1;
+        buddyPlayPending = null;
         buddyVideos.forEach(video => {
             video.pause();
             video.classList.remove('is-active');
@@ -113,6 +123,7 @@
         window.clearTimeout(buddyTransitionTimer);
         buddyTransitionTimer = 0;
         buddyTransitionToken += 1;
+        buddyTransitionPending = false;
         stage?.classList.remove('is-repositioning');
         applyPendingBuddyPoster(STATES[stateIndex]);
         stage?.classList.add('is-paused');
@@ -121,6 +132,8 @@
     }
 
     function dismissIntro(startScene = true, collapse = true) {
+        window.clearTimeout(autoCenterTimer);
+        autoCenterTimer = 0;
         if (collapse) {
             controller?.classList.remove('is-intro', 'is-story-active');
             applyPendingBuddyPoster(STATES[stateIndex]);
@@ -135,6 +148,28 @@
         if (startScene) setBuddyState(BEAT_STATES[currentBeat], false, true);
     }
 
+    function startIntroStory() {
+        if (introDismissed) return;
+        const shouldCenter = !introUserInteracted && window.scrollY < 4 && storyVisible && !document.hidden;
+        dismissIntro(true, true);
+        if (!shouldCenter || !productStage) return;
+        // Measure after the headline's 800 ms transition, then move the viewport
+        // once. Scrolling during that layout transition would chase a moving target.
+        autoCenterTimer = window.setTimeout(() => {
+            autoCenterTimer = 0;
+            if (introUserInteracted || !storyVisible || document.hidden || window.scrollY >= 4) return;
+            const rect = productStage.getBoundingClientRect();
+            const centered = window.scrollY + rect.top + rect.height / 2 - window.innerHeight / 2;
+            const bottomFit = window.scrollY + rect.bottom - (window.innerHeight - 32);
+            const navHeight = siteNav?.getBoundingClientRect().height || 66;
+            const titleTop = journeyTitle?.getBoundingClientRect().top ?? rect.top;
+            const titleLimit = window.scrollY + titleTop - navHeight - 14;
+            const framed = Math.max(window.innerWidth <= 760 ? 40 : 32, bottomFit);
+            const top = Math.max(0, framed <= titleLimit + 4 ? framed : centered);
+            window.scrollTo({ top, behavior: 'smooth' });
+        }, 850);
+    }
+
     function resumeBuddy(restart = false) {
         stage?.classList.toggle('is-paused', !buddyMotionAllowed());
         if (buddyMotionAllowed()) playBuddyState(STATES[stateIndex], restart);
@@ -144,37 +179,50 @@
     function playBuddyState(state, restart = true) {
         const target = buddyVideos.find(video => video.dataset.buddyMotion === state);
         if (!target || !buddyMotionAllowed()) return;
-        if (!restart && target.classList.contains('is-active') && !target.paused) return;
+        if (!restart && state === 'idle' && target.classList.contains('is-active') && target.currentTime >= IDLE_HOLD_AT) return;
+        if (!restart && ((target.classList.contains('is-active') && !target.paused) || buddyPlayPending === state)) return;
         if (!target.getAttribute('src') && target.dataset.src) {
             target.src = target.dataset.src;
             target.load();
         }
         pauseBuddyVideos();
         const token = buddyRevealToken;
+        buddyPlayPending = state;
         target.hidden = false;
+        const revealAt = BUDDY_REVEAL_AT[state] || 0;
+        const playReadyFrame = () => {
+            if (token !== buddyRevealToken || !buddyMotionAllowed()) return;
+            target.play().then(() => {
+                const reveal = () => window.requestAnimationFrame(() => {
+                    if (token !== buddyRevealToken || state !== STATES[stateIndex] || !buddyMotionAllowed()) return;
+                    buddyPlayPending = null;
+                    target.classList.add('is-active');
+                    stage?.classList.add('is-video-ready');
+                    applyPendingBuddyPoster(state);
+                });
+                // Keep the reviewed still up until clean decoded frames arrive.
+                if ('requestVideoFrameCallback' in target) {
+                    const waitForFrame = () => target.requestVideoFrameCallback((_, frame) => {
+                        if (token !== buddyRevealToken) return;
+                        if (frame && frame.mediaTime < revealAt - .04) waitForFrame();
+                        else target.requestVideoFrameCallback(reveal);
+                    });
+                    waitForFrame();
+                }
+                else window.requestAnimationFrame(() => window.requestAnimationFrame(reveal));
+            }).catch(() => {
+                if (token === buddyRevealToken) {
+                    buddyPlayPending = null;
+                    target.hidden = true;
+                    stage?.classList.remove('is-video-ready');
+                    applyPendingBuddyPoster(state);
+                }
+            });
+        };
         if (restart) {
             try { target.currentTime = 0; } catch (_) { /* Metadata may not be ready. */ }
         }
-        target.play().then(() => {
-            const reveal = () => window.requestAnimationFrame(() => {
-                if (token !== buddyRevealToken || state !== STATES[stateIndex] || !buddyMotionAllowed()) return;
-                target.classList.add('is-active');
-                stage?.classList.add('is-video-ready');
-                applyPendingBuddyPoster(state);
-            });
-            // Keep the reviewed still up through two decoded frames. The first
-            // transparent WebM frame can contain a transient compositor color.
-            if ('requestVideoFrameCallback' in target) {
-                target.requestVideoFrameCallback(() => target.requestVideoFrameCallback(reveal));
-            }
-            else window.requestAnimationFrame(() => window.requestAnimationFrame(reveal));
-        }).catch(() => {
-            if (token === buddyRevealToken) {
-                target.hidden = true;
-                stage?.classList.remove('is-video-ready');
-                applyPendingBuddyPoster(state);
-            }
-        });
+        playReadyFrame();
     }
 
     function revealMotionVideo(video, host) {
@@ -225,6 +273,7 @@
         const nextIndex = STATES.indexOf(nextState);
         if (nextIndex < 0 || !stage) return;
         const token = ++buddyTransitionToken;
+        buddyTransitionPending = true;
         pendingBuddyPoster = null;
         window.clearTimeout(buddyTransitionTimer);
         buddyTransitionTimer = 0;
@@ -241,6 +290,7 @@
         const finish = () => posterReady.then(() => {
             if (token !== buddyTransitionToken) return;
             buddyTransitionTimer = 0;
+            buddyTransitionPending = false;
             stage.classList.remove('is-repositioning');
             resumeBuddy(true);
         });
@@ -351,11 +401,16 @@
     buddyVideos.forEach(video => video.addEventListener('error', () => {
         video.classList.remove('is-active');
         if (video.dataset.buddyMotion === STATES[stateIndex]) {
+            buddyPlayPending = null;
             stage?.classList.remove('is-video-ready');
             applyPendingBuddyPoster(STATES[stateIndex]);
         }
         video.removeAttribute('src');
     }));
+    buddyVideos.find(video => video.dataset.buddyMotion === 'idle')?.addEventListener('timeupdate', event => {
+        const video = event.currentTarget;
+        if (video.currentTime >= IDLE_HOLD_AT && STATES[stateIndex] === 'idle') video.pause();
+    });
     buddyVideos.find(video => video.dataset.buddyMotion === 'success')?.addEventListener('ended', () => {
         if (currentBeat === 'ship' && STATES[stateIndex] === 'success') setBuddyState('idle', false);
     });
@@ -442,7 +497,8 @@
             if (storyVisible) {
                 sovereigntyBuddyVideo?.pause();
                 sovereigntyBuddy?.classList.remove('is-video-ready');
-                if (!images[0]?.src.endsWith(SOURCES[STATES[stateIndex]])) setBuddyState(STATES[stateIndex], false);
+                if (buddyTransitionPending) { /* The current transition owns the poster and motion. */ }
+                else if (!images[0]?.src.endsWith(SOURCES[STATES[stateIndex]])) setBuddyState(STATES[stateIndex], false);
                 else resumeBuddy();
                 playStoryClip(currentBeat);
             } else {
@@ -476,6 +532,9 @@
     });
     window.addEventListener('scroll', queueScrollUpdate, { passive: true });
     window.addEventListener('resize', queueScrollUpdate);
+    ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => {
+        window.addEventListener(type, () => { introUserInteracted = true; }, { passive: true });
+    });
 
     function drawSovereigntyField() {
         const canvas = document.querySelector('[data-sovereignty-canvas]');
@@ -530,7 +589,7 @@
     if (params.get('motion') === 'freeze') mediaFrozen = true;
     setStoryBeat(BEATS.includes(requestedScene) ? requestedScene : 'research');
     if (mediaFrozen || reduceMotionQuery.matches || requestedScene) dismissIntro();
-    else introTimer = window.setTimeout(() => dismissIntro(true, false), 3200);
+    else introTimer = window.setTimeout(startIntroStory, 3200);
     if (mediaFrozen) pauseAll();
     drawSovereigntyField();
     queueScrollUpdate();

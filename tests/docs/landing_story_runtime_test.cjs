@@ -45,6 +45,12 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
     controller.offsetHeight = 4400;
     controller.getBoundingClientRect = () => ({top: 0});
     const stage = element();
+    const productStage = element();
+    productStage.getBoundingClientRect = () => ({top: 300, bottom: 900, height: 600});
+    const journeyTitle = element();
+    journeyTitle.getBoundingClientRect = () => ({top: 180});
+    const siteNav = element();
+    siteNav.getBoundingClientRect = () => ({height: 66});
     const control = element();
     const status = element();
     status.textContent = '';
@@ -86,6 +92,8 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
     const buddyVideos = ['idle', 'thinking', 'working', 'approval', 'success', 'error'].map(state => {
         const video = element({buddyMotion: state});
         video.currentTime = 0;
+        video.readyState = 1;
+        video.seeking = false;
         video.duration = 12;
         video.paused = true;
         video.ended = false;
@@ -110,6 +118,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
     const documentListeners = {};
     const windowListeners = {};
     const timers = new Map();
+    const scrollCalls = [];
     let nextTimer = 1;
     const document = {
         hidden: false,
@@ -123,7 +132,9 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
             if (selector === '[data-sovereignty-buddy]') return null;
             if (selector === '[data-sovereignty-buddy-video]') return null;
             if (selector === '.app-stack') return null;
-            if (selector === '.product-stage') return null;
+            if (selector === '.product-stage') return productStage;
+            if (selector === '#journey-title') return journeyTitle;
+            if (selector === '.site-nav') return siteNav;
             const match = selector.match(/^\[data-story-video="(.+)"\]$/);
             return match ? videos.find(video => video.dataset.storyVideo === match[1]) : null;
         },
@@ -163,7 +174,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
             return id;
         },
         clearTimeout(id) { timers.delete(id); },
-        scrollTo() {},
+        scrollTo(options) { scrollCalls.push(options); runtimeWindow.scrollY = options.top; },
         IntersectionObserver: FakeIntersectionObserver,
     };
     const context = {
@@ -182,6 +193,8 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
         api: runtimeWindow.RowBotLandingStory,
         controller,
         stage,
+        productStage,
+        scrollCalls,
         control,
         status,
         images,
@@ -248,8 +261,18 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     runtime.triggers[3].emit('keydown', left);
     assert.equal(left.prevented, true);
     assert.equal(runtime.api.getState().beat, 'automate');
-    assert.equal(runtime.api.getState().buddy, 'working');
+    assert.equal(runtime.api.getState().buddy, 'idle');
     assert.equal(runtime.triggers[2].focused, true);
+    runtime.runTimers(1000);
+    await flush();
+    const idleMotion = runtime.buddyVideos.find(video => video.dataset.buddyMotion === 'idle');
+    assert.equal(idleMotion.currentTime, 0);
+    idleMotion.currentTime = 4.5;
+    idleMotion.emit('timeupdate', {currentTarget: idleMotion});
+    assert.equal(idleMotion.paused, true);
+    const idlePlayCalls = idleMotion.playCalls;
+    runtime.observers.at(-1).callback([{isIntersecting: true}]);
+    assert.equal(idleMotion.playCalls, idlePlayCalls);
 
     const space = preventDefaultEvent(' ');
     runtime.control.emit('keydown', space);
@@ -355,14 +378,28 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(intro.videos.every(video => video.playCalls === 0), true);
     intro.runTimers(3200);
     await flush();
-    assert.equal(intro.controller.classList.contains('is-intro'), true);
-    assert.equal(intro.controller.classList.contains('is-story-active'), true);
+    assert.equal(intro.controller.classList.contains('is-intro'), false);
+    assert.equal(intro.controller.classList.contains('is-story-active'), false);
     assert.equal(intro.api.getState().buddy, 'thinking');
     assert.equal(intro.videos[0].playCalls > 0, true);
+    intro.runTimers(1000);
+    await flush();
+    assert.equal(intro.buddyVideos.find(video => video.dataset.buddyMotion === 'thinking').currentTime, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(intro.scrollCalls)), [{top: 32, behavior: 'smooth'}]);
     intro.controller.getBoundingClientRect = () => ({top: -5});
     intro.windowListeners.scroll();
     assert.equal(intro.controller.classList.contains('is-intro'), false);
     assert.equal(intro.controller.classList.contains('is-story-active'), false);
+    const interruptedIntro = makeRuntime({intro: true});
+    interruptedIntro.windowListeners.wheel();
+    interruptedIntro.runTimers(3200);
+    interruptedIntro.runTimers(1000);
+    assert.equal(interruptedIntro.scrollCalls.length, 0);
+    const interruptedCenter = makeRuntime({intro: true});
+    interruptedCenter.runTimers(3200);
+    interruptedCenter.windowListeners.wheel();
+    interruptedCenter.runTimers(1000);
+    assert.equal(interruptedCenter.scrollCalls.length, 0);
     const failedMotion = makeRuntime({intro: true});
     failedMotion.buddyVideos.find(video => video.dataset.buddyMotion === 'thinking').play = () => Promise.reject(new Error('decode failed'));
     failedMotion.runTimers(3200);
@@ -391,6 +428,24 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     buddyFrames.shift()();
     assert.equal(frameGate.videos[1].classList.contains('is-playing'), true);
     assert.equal(frameGate.stage.classList.contains('is-video-ready'), true);
+
+    const idleGate = makeRuntime({intro: true});
+    await flush();
+    const idleFrames = [];
+    const idleVideo = idleGate.buddyVideos.find(video => video.dataset.buddyMotion === 'idle');
+    idleVideo.requestVideoFrameCallback = callback => idleFrames.push(callback);
+    idleGate.api.setScene('automate');
+    assert.equal(idleGate.stage.classList.contains('is-repositioning'), true);
+    idleGate.observers.at(-1).callback([{isIntersecting: true}]);
+    assert.equal(idleGate.stage.classList.contains('is-repositioning'), true);
+    idleGate.runTimers(1000);
+    await flush();
+    assert.equal(idleVideo.classList.contains('is-active'), false);
+    idleFrames.shift()(0, {mediaTime: .08});
+    assert.equal(idleVideo.classList.contains('is-active'), false);
+    idleFrames.shift()(0, {mediaTime: .18});
+    idleFrames.shift()(0, {mediaTime: .22});
+    assert.equal(idleVideo.classList.contains('is-active'), true);
 })().catch(error => {
     console.error(error);
     process.exitCode = 1;
