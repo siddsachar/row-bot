@@ -161,3 +161,10 @@ def test_scrollable_linux_command_is_keyboard_focusable() -> None:
 def test_story_controller_runtime_contract() -> None:
     runtime_test = ROOT / "tests" / "docs" / "landing_story_runtime_test.cjs"
     subprocess.run(["node", str(runtime_test)], check=True, cwd=ROOT)
+
+
+def test_knowledge_field_runtime_contract() -> None:
+    assert '<canvas class="knowledge-field" data-knowledge-field aria-hidden="true"></canvas>' in HTML
+    assert '<script src="knowledge-field.js?' in HTML
+    runtime_test = ROOT / "tests" / "docs" / "knowledge_field_runtime_test.cjs"
+    subprocess.run(["node", str(runtime_test)], check=True, cwd=ROOT)

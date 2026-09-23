@@ -5,7 +5,6 @@
     const BEATS = ['research', 'create', 'automate', 'ship'];
     const BEAT_STATES = { research: 'thinking', create: 'working', automate: 'idle', ship: 'approval' };
     const BUDDY_REVEAL_AT = { idle: .16, thinking: .2, working: .2 };
-    const IDLE_HOLD_AT = 4.4;
     // The reviewed Ship cut clears its approval dialog at 2.25 seconds.
     const SHIP_APPROVAL_AT = 2.25;
     const BEAT_LABELS = {
@@ -179,7 +178,6 @@
     function playBuddyState(state, restart = true) {
         const target = buddyVideos.find(video => video.dataset.buddyMotion === state);
         if (!target || !buddyMotionAllowed()) return;
-        if (!restart && state === 'idle' && target.classList.contains('is-active') && target.currentTime >= IDLE_HOLD_AT) return;
         if (!restart && ((target.classList.contains('is-active') && !target.paused) || buddyPlayPending === state)) return;
         if (!target.getAttribute('src') && target.dataset.src) {
             target.src = target.dataset.src;
@@ -407,10 +405,6 @@
         }
         video.removeAttribute('src');
     }));
-    buddyVideos.find(video => video.dataset.buddyMotion === 'idle')?.addEventListener('timeupdate', event => {
-        const video = event.currentTarget;
-        if (video.currentTime >= IDLE_HOLD_AT && STATES[stateIndex] === 'idle') video.pause();
-    });
     buddyVideos.find(video => video.dataset.buddyMotion === 'success')?.addEventListener('ended', () => {
         if (currentBeat === 'ship' && STATES[stateIndex] === 'success') setBuddyState('idle', false);
     });
@@ -476,6 +470,8 @@
             appStack.style.setProperty('--stage-parallax-y', '0px');
             appStack.style.setProperty('--stage-tilt-x', '0deg');
             appStack.style.setProperty('--stage-tilt-y', '0deg');
+            appStack.style.setProperty('--light-shift-x', '0px');
+            appStack.style.setProperty('--light-shift-y', '0px');
         };
         appStack.addEventListener('pointermove', event => {
             if (reduceMotionQuery.matches || event.pointerType === 'touch') return;
@@ -486,6 +482,8 @@
             appStack.style.setProperty('--stage-parallax-y', `${Math.round(vertical * 2)}px`);
             appStack.style.setProperty('--stage-tilt-x', `${(-vertical * .8).toFixed(2)}deg`);
             appStack.style.setProperty('--stage-tilt-y', `${(horizontal * 1.1).toFixed(2)}deg`);
+            appStack.style.setProperty('--light-shift-x', `${Math.round(horizontal * 28)}px`);
+            appStack.style.setProperty('--light-shift-y', `${Math.round(vertical * 20)}px`);
         });
         appStack.addEventListener('pointerleave', resetStageTilt);
         reduceMotionQuery.addEventListener?.('change', resetStageTilt);
@@ -597,7 +595,7 @@
     window.RowBotLandingStory = {
         setScene(scene) { dismissIntro(false); setStoryBeat(sceneAliases[scene] || scene, { restart: true }); },
         setBuddyState,
-        freezeMotion() { mediaFrozen = true; pauseAll(); sovereigntyBuddyVideo?.pause(); },
+        freezeMotion() { mediaFrozen = true; pauseAll(); sovereigntyBuddyVideo?.pause(); window.RowBotKnowledgeField?.freeze(); },
         getState() { return { beat: currentBeat, buddy: STATES[stateIndex], motionAllowed: buddyMotionAllowed() }; }
     };
 })();

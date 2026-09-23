@@ -269,7 +269,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(idleMotion.currentTime, 0);
     idleMotion.currentTime = 4.5;
     idleMotion.emit('timeupdate', {currentTarget: idleMotion});
-    assert.equal(idleMotion.paused, true);
+    assert.equal(idleMotion.paused, false);
     const idlePlayCalls = idleMotion.playCalls;
     runtime.observers.at(-1).callback([{isIntersecting: true}]);
     assert.equal(idleMotion.playCalls, idlePlayCalls);
