@@ -3,7 +3,7 @@
   "story_id": "sovereignty-workbench-v1",
   "run_id": "20260921T230035Z-f3ed05",
   "review_status": "approved",
-  "reviewed_at": "2026-09-22T16:18:16.8740165Z",
+  "reviewed_at": "2026-09-23T09:04:18Z",
   "recording_receipt": "recording-receipt.json",
   "assets": [
     {
@@ -17,9 +17,9 @@
       "still": "screenshots/research.webp",
       "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
       "clip": "clips/research.webm",
-      "clip_sha256": "744ade42a04fed94df0f3a7c2f54528db1f1f1ea9493b73d319180b343bec161",
+      "clip_sha256": "97e8e0238875d785da1d3ecab244c41705e10257d17b4f37cbd1d249e62483e1",
       "clip_fallback": "clips/research.mp4",
-      "clip_fallback_sha256": "957a6e143eba9fcee79dadace928ffd3f9cb11a63b8ce1628e46e25255eb3ca2",
+      "clip_fallback_sha256": "32aa733d8e7f63be8bd7069bb1ad99c771c2fb9e9a69896eb28b08342e567b1f",
       "alt": "Local-model research with source activity followed by a populated node-and-edge knowledge graph."
     },
     {
@@ -27,9 +27,9 @@
       "still": "screenshots/create.webp",
       "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
       "clip": "clips/create.webm",
-      "clip_sha256": "b2767bb1fc67a6b2c0c12b06a8546a8b5dafcff47021c0fed4c90bdd38bb6539",
+      "clip_sha256": "b4429bfbd43f6be42bd072af7273d563e989590187365fa4207292e7fad9b466",
       "clip_fallback": "clips/create.mp4",
-      "clip_fallback_sha256": "e65dd768d82ae2331e522ec3d196ca96a3d24496d693ff8cebc0e1af13adc364",
+      "clip_fallback_sha256": "f7cc3f8b29c4fdff22649a321e34584cdb2bc97ded7038a5cc5bf7410e9a826c",
       "alt": "An explicit frontier-model handoff followed by a real editable Designer artifact."
     },
     {
@@ -37,7 +37,7 @@
       "still": "screenshots/research.webp",
       "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
       "clip": "clips/research.webm",
-      "clip_sha256": "744ade42a04fed94df0f3a7c2f54528db1f1f1ea9493b73d319180b343bec161",
+      "clip_sha256": "97e8e0238875d785da1d3ecab244c41705e10257d17b4f37cbd1d249e62483e1",
       "alt": "A genuine Row-Bot knowledge graph with many connected nodes and edges from the research workspace."
     },
     {
@@ -45,7 +45,7 @@
       "still": "screenshots/create.webp",
       "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
       "clip": "clips/create.webm",
-      "clip_sha256": "b2767bb1fc67a6b2c0c12b06a8546a8b5dafcff47021c0fed4c90bdd38bb6539",
+      "clip_sha256": "b4429bfbd43f6be42bd072af7273d563e989590187365fa4207292e7fad9b466",
       "alt": "A real editable launch visual open in Row-Bot Designer Studio."
     },
     {
@@ -53,19 +53,19 @@
       "still": "screenshots/automate.webp",
       "sha256": "c980145f3439741e79b567764ed0423f3ae57af1d4d7069d21ae65c9639f4e8e",
       "clip": "clips/automate.webm",
-      "clip_sha256": "e9cf006412231eb369a6576da3fa858be5e05b5a86edd1b646f49713eae8521c",
+      "clip_sha256": "5cdadc636b961ad471fecd3ab58413211948871741099eecb5f36235ad3fcccf",
       "clip_fallback": "clips/automate.mp4",
-      "clip_fallback_sha256": "6a32e0fd179b82541174fcff847c07a03779a762a51a7621000cce060174b764",
+      "clip_fallback_sha256": "bce62f19eaac16156a18834884679a251d96b671a900ed4044e2cecde31374f3",
       "alt": "A local-model workflow being configured and saved with external delivery disabled."
     },
     {
       "scene_id": "approval-boundary",
       "still": "screenshots/ship.webp",
-      "sha256": "1fbef103698e7afd11825b83d67bc08f32fa384bef3576a899ad75bf5510f453",
+      "sha256": "37c1f310ed1201f05ee916d5d7709897aee1288bfa062fbecd904b9e667bdeb6",
       "clip": "clips/ship.webm",
-      "clip_sha256": "44ee737c981cc6ae77d0e6346e1ccf7e76957d4ce6e1a82b689194b21ddc185c",
+      "clip_sha256": "12bb1ee4e1faf736bc66b4fd3428594afd78cf5a7c5d14f25ef3ab24a4495e60",
       "clip_fallback": "clips/ship.mp4",
-      "clip_fallback_sha256": "cee37096bbe345799ee184f14055b5108944128360bb45bc3fc1c6ffc6bdfd7e",
+      "clip_fallback_sha256": "7d72c19347d937f52fad94061e7104f5c7ab18d37e01f84f2cdfa8034a89a234",
       "alt": "Row-Bot requesting approval before creating a reviewed local campaign artifact."
     },
     {
@@ -113,5 +113,22 @@
         "error": "9b59552f8f9cb680779e11cb4b590eb9d06637879c1a965224e889b50fb56e1f"
       }
     }
-  }
+  },
+  "demo_posters": [
+    {
+      "file": "demos/launch-campaign.jpg",
+      "source": "https://img.youtube.com/vi/hRLuOEqbsds/maxresdefault.jpg",
+      "sha256": "e8f0ce9f9ccd3ff6d44d7e6c6c7c7b713f8aad1e0dc845c4d1ae832e446deb34"
+    },
+    {
+      "file": "demos/research-report.jpg",
+      "source": "https://img.youtube.com/vi/GA2Tnlt4jNk/maxresdefault.jpg",
+      "sha256": "d37c46ec5ec97993d51697798bee21e78f346322c0b53f3b49d997db87764c6c"
+    },
+    {
+      "file": "demos/background-workflow.jpg",
+      "source": "https://img.youtube.com/vi/Vuk2xz-vPcA/maxresdefault.jpg",
+      "sha256": "3425733154b2572374ca363261e8f47832fcad554f9e5a91d158753f9114fa87"
+    }
+  ]
 }
