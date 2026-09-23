@@ -200,11 +200,22 @@ def test_exclusive_target_claim_uses_independent_connections_and_preserves_repla
 def test_live_owner_without_registry_never_claims_quiescence_or_restarts(owner, monkeypatch):
     service, calls, _ = owner
     monkeypatch.setattr(service, "_finish", lambda _: None)
+    entered, release = threading.Event(), threading.Event()
+    resolve = requirements.resolve_managed_runtime_plan
+    def blocked(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return resolve(*args, **kwargs)
+    monkeypatch.setattr(requirements, "resolve_managed_runtime_plan", blocked)
     value = command(service)
-    execute(service, value)
-    active = controls._OPERATIONS.get("node")
-    if active:
-        active.thread.join(5)
+    try:
+        execute(service, value)
+        assert entered.wait(5)
+    finally:
+        release.set()
+    active = controls._OPERATIONS["node"]
+    active.thread.join(5)
+    assert not active.thread.is_alive()
     # Emulate lost in-memory ownership after the worker wrote its private return,
     # without claiming that the still-alive host process died.
     controls._OPERATIONS.clear()
