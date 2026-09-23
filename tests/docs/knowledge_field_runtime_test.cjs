@@ -7,11 +7,12 @@ const source = fs.readFileSync(path.resolve(__dirname, '../../docs/knowledge-fie
 const listeners = {};
 const callbacks = new Map();
 const colors = [];
+let drawCount = 0;
 let nextFrame = 1;
 let mutation;
-let visibility;
+const observers = new Map();
 const context = {
-    clearRect() {},
+    clearRect() { drawCount += 1; },
     createRadialGradient() { return { addColorStop() {} }; },
     fillRect() {},
     beginPath() {},
@@ -34,12 +35,17 @@ const canvas = {
     width: 0,
     height: 0,
     getContext() { return context; },
-    getBoundingClientRect() { return { width: 1440, height: 900 }; },
+    getBoundingClientRect() { return { left: 0, top: 0, width: 1440, height: 900 }; },
 };
 const story = { dataset: { scene: 'research' } };
 const media = { matches: false, addEventListener(type, callback) { listeners[`media:${type}`] = callback; } };
 const document = {
     hidden: false,
+    body: { classList: {
+        values: new Set(),
+        toggle(name, enabled) { if (enabled) this.values.add(name); else this.values.delete(name); },
+        contains(name) { return this.values.has(name); },
+    } },
     querySelector(selector) { return selector === '[data-knowledge-field]' ? canvas : story; },
     addEventListener(type, callback) { listeners[`document:${type}`] = callback; },
 };
@@ -56,8 +62,8 @@ class MutationObserver {
     observe() {}
 }
 class IntersectionObserver {
-    constructor(callback) { visibility = callback; }
-    observe() {}
+    constructor(callback) { this.callback = callback; }
+    observe(target) { observers.set(target, this.callback); }
 }
 class ResizeObserver {
     observe() {}
@@ -80,10 +86,27 @@ render(100);
 assert.ok(colors.some(value => typeof value === 'string' && value.includes('116,221,190')),
     'the field responds to the selected scene');
 
-visibility([{ isIntersecting: false }]);
+observers.get(story)([{ isIntersecting: false }]);
+assert.equal(document.body.classList.contains('is-field-beyond-story'), true,
+    'the field becomes quieter outside the product story');
+const beforeQuieterFrame = drawCount;
+const beforeQuieterColors = colors.length;
+const [quieterFrameId, quieterFrame] = callbacks.entries().next().value;
+callbacks.delete(quieterFrameId);
+quieterFrame(140);
+assert.equal(drawCount, beforeQuieterFrame, 'the full-page field throttles between story sections');
+const [nextQuieterFrameId, nextQuieterFrame] = callbacks.entries().next().value;
+callbacks.delete(nextQuieterFrameId);
+nextQuieterFrame(160);
+assert.ok(drawCount > beforeQuieterFrame, 'the field still animates below the story');
+assert.ok(colors.slice(beforeQuieterColors).some(value => typeof value === 'string' && value.includes('71,217,255')),
+    'the field returns to a neutral cyan below the story');
+observers.get(host)([{ isIntersecting: false }]);
 assert.equal(callbacks.size, 0, 'animation stops offscreen');
-visibility([{ isIntersecting: true }]);
+observers.get(host)([{ isIntersecting: true }]);
 assert.equal(callbacks.size, 1, 'animation resumes when visible');
+observers.get(story)([{ isIntersecting: true }]);
+assert.equal(document.body.classList.contains('is-field-beyond-story'), false);
 media.matches = true;
 listeners['media:change']();
 assert.equal(canvas.hidden, true, 'reduced motion hides the animated field');

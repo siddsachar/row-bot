@@ -22,6 +22,7 @@
     let width = 0;
     let height = 0;
     let visible = true;
+    let storyVisible = true;
     let frame = 0;
     let lastDraw = 0;
     const pointer = { x: .5, y: .52 };
@@ -180,7 +181,8 @@
 
     function tick(time) {
         frame = window.requestAnimationFrame(tick);
-        if (time - lastDraw < (width < 760 ? 50 : 33)) return;
+        const interval = storyVisible ? (width < 760 ? 50 : 33) : (width < 760 ? 83 : 50);
+        if (time - lastDraw < interval) return;
         lastDraw = time;
         draw(time);
     }
@@ -198,17 +200,23 @@
 
     host.addEventListener('pointermove', event => {
         if (event.pointerType === 'touch' || canvas.hidden) return;
-        const bounds = host.getBoundingClientRect();
+        const bounds = canvas.getBoundingClientRect();
         pointer.x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
         pointer.y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
     }, { passive: true });
     host.addEventListener('pointerleave', () => { pointer.x = .5; pointer.y = .52; });
-    new MutationObserver(() => setScene(story.dataset.scene)).observe(story, { attributes: true, attributeFilter: ['data-scene'] });
+    new MutationObserver(() => { if (storyVisible) setScene(story.dataset.scene); })
+        .observe(story, { attributes: true, attributeFilter: ['data-scene'] });
     if ('IntersectionObserver' in window) {
         new IntersectionObserver(entries => {
             visible = Boolean(entries[0]?.isIntersecting);
             syncMotion();
         }, { threshold: .01 }).observe(host);
+        new IntersectionObserver(entries => {
+            storyVisible = Boolean(entries[0]?.isIntersecting);
+            document.body?.classList?.toggle('is-field-beyond-story', !storyVisible);
+            setScene(storyVisible ? story.dataset.scene : 'research');
+        }, { threshold: .01 }).observe(story);
     }
     if ('ResizeObserver' in window) new ResizeObserver(resize).observe(canvas);
     else window.addEventListener('resize', resize);
