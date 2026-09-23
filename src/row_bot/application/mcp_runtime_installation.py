@@ -177,7 +177,9 @@ def _dead_owner(private: dict) -> bool:
     if type(pid) is not int or pid <= 0 or type(birth) not in {int, float} or not math.isfinite(birth) or birth <= 0:
         return False
     try:
-        return psutil.Process(pid).create_time() != birth
+        # Match the process-birth tolerance used by admission recovery. Some
+        # platforms round repeated create_time() reads by a few microseconds.
+        return abs(psutil.Process(pid).create_time() - birth) >= 0.001
     except psutil.NoSuchProcess:
         return True
     except (psutil.Error, OSError):

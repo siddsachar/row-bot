@@ -142,7 +142,7 @@ def test_current_policy_withdrawal_before_download_prevents_bytes(owner):
     assert result["status"] == "partial" and calls == ["resolve"]
 
 
-@pytest.mark.parametrize("mode,dead", [("missing", True), ("reused", True), ("same", False), ("denied", False)])
+@pytest.mark.parametrize("mode,dead", [("missing", True), ("reused", True), ("same", False), ("same-jitter", False), ("denied", False)])
 def test_dead_owner_requires_exact_process_birth_and_access_denied_is_unknown(owner, monkeypatch, mode, dead):
     class Process:
         def __init__(self, pid):
@@ -151,7 +151,7 @@ def test_dead_owner_requires_exact_process_birth_and_access_denied_is_unknown(ow
             if mode == "denied":
                 raise psutil.AccessDenied(pid)
         def create_time(self):
-            return 23.0 if mode == "reused" else 12.0
+            return 23.0 if mode == "reused" else 12.0005 if mode == "same-jitter" else 12.0
     monkeypatch.setattr(controls.psutil, "Process", Process)
     assert controls._dead_owner({"owner_pid": 123, "owner_birth": 12.0}) is dead
 
