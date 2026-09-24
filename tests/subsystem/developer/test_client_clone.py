@@ -1,6 +1,8 @@
 """Clone is explicit, locally scoped and never repeated after uncertainty."""
 
 import subprocess
+import stat
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +11,20 @@ from row_bot.developer import client_clone
 from tests.subsystem.developer.test_client_empty_workspace import domain as empty_domain, COMMAND
 
 pytestmark = pytest.mark.subsystem
+
+
+def test_clone_recovery_accepts_linux_ctime_change_only_after_write(tmp_path, monkeypatch):
+    target = tmp_path / 'demo'
+    target.mkdir()
+    original_lstat = Path.lstat
+    info = SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_dev=4, st_ino=7,
+                           st_ctime_ns=200, st_file_attributes=0)
+    monkeypatch.setattr(Path, 'lstat',
+                        lambda path: info if path == target else original_lstat(path))
+
+    assert not client_clone._same_clone_directory(target, '4:7:100', mutated=False)
+    assert client_clone._same_clone_directory(target, '4:7:100', mutated=True)
+    assert not client_clone._same_clone_directory(target, '4:8:100', mutated=True)
 
 
 @pytest.fixture

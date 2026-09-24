@@ -56,11 +56,30 @@ def source_name(repo_url: str) -> tuple[str, str]:
     return source, name
 
 
+def _same_clone_directory(target: Path, identity: str, *, mutated: bool) -> bool:
+    try:
+        info = target.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or target.is_symlink()
+                or bool(getattr(info, 'st_file_attributes', 0) & 0x400)):
+            return False
+        base = f'{info.st_dev}:{info.st_ino}'
+        stamp = getattr(info, 'st_birthtime_ns', info.st_ctime_ns)
+        if identity == f'{base}:{stamp}':
+            return True
+        # Linux ctime changes when clone writes into the new directory. After
+        # clone starts, the original device/inode plus Git evidence identifies it.
+        saved_base, separator, saved_stamp = identity.rpartition(':')
+        return (mutated and not hasattr(info, 'st_birthtime_ns')
+                and separator == ':' and saved_base == base and saved_stamp.isdigit())
+    except OSError:
+        return False
+
+
 def _verified_clone(target: Path, source: str, directory_identity: str) -> bool:
     try:
         git_dir = target / '.git'
         git_stat = git_dir.lstat()
-        if (_directory_identity(target) != directory_identity
+        if (not _same_clone_directory(target, directory_identity, mutated=True)
                 or not stat.S_ISDIR(git_stat.st_mode)
                 or git_dir.is_symlink()
                 or bool(getattr(git_stat, 'st_file_attributes', 0) & 0x400)):
@@ -108,7 +127,10 @@ def clone_selected_repository(
     target = parent / name
     if (empty.folder_name != name or empty.command_id != command_id
             or empty.parent_identity != _directory_identity(parent, parent=True)
-            or empty.directory_identity != _directory_identity(target)
+            or not _same_clone_directory(
+                target, empty.directory_identity,
+                mutated=recovery.stage != 'empty_created',
+            )
             or empty.resource_id != storage._workspace_id_for_path(target)):
         raise CloneCreationError('workspace_recovery_conflict', recovery)
     validate()
