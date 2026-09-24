@@ -1054,7 +1054,9 @@ def build_chat(
         ),
     )
 
-    with ui.column().classes("w-full shrink-0 gap-0 row-bot-desktop-composer").style(
+    with ui.column().classes("w-full shrink-0 gap-0 row-bot-desktop-composer").props(
+        "data-docs-id=chat-composer"
+    ).style(
         "border: 1px solid rgba(255,255,255,0.15); border-radius: 18px; "
         "background: rgba(255,255,255,0.04); padding: 0; overflow: hidden; "
         "position: relative;"
@@ -1788,7 +1790,10 @@ def build_chat(
         p.chat_input = (
             ui.textarea(placeholder="Do anything…")
             .classes("w-full")
-            .props('borderless autogrow input-style="padding: 12px 16px 4px 16px; max-height: 200px; overflow-y: auto;"')
+            .props(
+                'borderless autogrow input-style="padding: 12px 16px 4px 16px; '
+                'max-height: 200px; overflow-y: auto;" data-docs-id=chat-input'
+            )
             .style("font-size: 0.95rem;")
         )
 

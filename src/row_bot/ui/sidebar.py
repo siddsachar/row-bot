@@ -602,19 +602,23 @@ def build_sidebar(
 
             ui.button("＋ New", on_click=_new_thread).classes("flex-grow").props("color=primary")
 
-        with ui.column().classes("w-full gap-1 q-mt-sm row-bot-inner-panel"):
+        with ui.column().classes("w-full gap-1 q-mt-sm row-bot-inner-panel").props(
+            "data-docs-id=sidebar-conversations"
+        ):
             ui.label("Conversations").classes("text-subtitle2")
             # Filter pill row - rebuilt by _rebuild_thread_list so counts stay current
             p.thread_filter_container = ui.row().classes(
                 "w-full gap-1 items-center no-wrap q-mb-xs"
-            ).style(
+            ).props("data-docs-id=sidebar-thread-filters").style(
                 "display: flex; flex-wrap: nowrap; overflow: hidden; "
                 "column-gap: 4px; row-gap: 0;"
             )
             p.thread_container = ui.column().classes("w-full gap-0")
 
         # Agent Profile library
-        with ui.column().classes("w-full gap-1 q-mt-sm row-bot-inner-panel"):
+        with ui.column().classes("w-full gap-1 q-mt-sm row-bot-inner-panel").props(
+            "data-docs-id=sidebar-agent-profiles"
+        ):
             from row_bot.ui.profile_library import build_profile_library
 
             build_profile_library(
@@ -1058,7 +1062,7 @@ def build_sidebar(
                     item_style += " margin-left: 18px; width: calc(100% - 18px);"
 
                 with ui.item(on_click=_select).classes(item_classes).props(
-                    "clickable" + (" active" if is_active else "")
+                    f'clickable data-thread-id="{tid}"' + (" active" if is_active else "")
                 ).style(item_style):
                     if activity_label:
                         _render_thread_activity_indicator(activity_label)
@@ -1566,7 +1570,9 @@ def build_sidebar(
 
                 ui.button(
                     f"Show all ({counts['all']})", on_click=_show_all
-                ).classes("w-full q-mt-xs").props("flat dense size=sm")
+                ).classes("w-full q-mt-xs").props(
+                    "flat dense size=sm data-docs-id=sidebar-show-all"
+                )
 
     _rebuild_thread_list_ref[0] = _rebuild_thread_list
     _rebuild_thread_list()

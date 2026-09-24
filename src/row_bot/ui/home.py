@@ -553,7 +553,7 @@ def build_home(
                                         ).tooltip("Stop running task")
                                     else:
                                         run_btn = ui.button(icon="play_arrow", on_click=_run_tk).props(
-                                            "round color=green size=sm"
+                                            "round color=green size=sm data-docs-id=workflow-run"
                                         ).tooltip("Run now")
                                         if _is_disabled:
                                             run_btn.disable()

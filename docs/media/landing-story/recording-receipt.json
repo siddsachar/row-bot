@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "story_id": "sovereignty-workbench-v1",
+  "editing": "normal-speed editorial cuts with four-frame dissolves; sharpened encodes from matching reviewed source recordings; no global acceleration; Ship approval remains unmodified from the test-machine recording",
+  "clips": {
+    "research": {
+      "source_name": "1.mp4",
+      "source_sha256": "975367434a6e5f9c1349a9e48d8474385d752fa6214a068fd00f73c6fc40cd84",
+      "source_duration_seconds": 47.133,
+      "segments_seconds": [
+        [
+          3.0,
+          8.6
+        ],
+        [
+          44.0,
+          47.05
+        ]
+      ],
+      "duration_seconds": 8.533,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/research.webm",
+      "webm_sha256": "97e8e0238875d785da1d3ecab244c41705e10257d17b4f37cbd1d249e62483e1",
+      "webm_bytes": 602239,
+      "mp4": "media/landing-story/clips/research.mp4",
+      "mp4_sha256": "32aa733d8e7f63be8bd7069bb1ad99c771c2fb9e9a69896eb28b08342e567b1f",
+      "mp4_bytes": 339781,
+      "poster": "media/landing-story/screenshots/research.webp",
+      "poster_sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "poster_bytes": 89492,
+      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions."
+    },
+    "create": {
+      "source_name": "2.mp4",
+      "source_sha256": "6624ace4e8f218a934899f6a9ff81d0208b2b886e68c75988e55a103a01f8055",
+      "source_duration_seconds": 50.0,
+      "segments_seconds": [
+        [
+          2.0,
+          4.5
+        ],
+        [
+          12.0,
+          14.5
+        ],
+        [
+          22.5,
+          25.5
+        ],
+        [
+          47.0,
+          48.5
+        ]
+      ],
+      "duration_seconds": 9.1,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/create.webm",
+      "webm_sha256": "b4429bfbd43f6be42bd072af7273d563e989590187365fa4207292e7fad9b466",
+      "webm_bytes": 733183,
+      "mp4": "media/landing-story/clips/create.mp4",
+      "mp4_sha256": "f7cc3f8b29c4fdff22649a321e34584cdb2bc97ded7038a5cc5bf7410e9a826c",
+      "mp4_bytes": 445845,
+      "poster": "media/landing-story/screenshots/create.webp",
+      "poster_sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "poster_bytes": 86514,
+      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions."
+    },
+    "automate": {
+      "source_name": "3.mp4",
+      "source_sha256": "b52e3b3ff45824f452c3b20d76ca54a5831f5e4becfce86947154a7d639477cf",
+      "source_duration_seconds": 23.133,
+      "segments_seconds": [
+        [
+          0.2,
+          2.2
+        ],
+        [
+          2.4,
+          4.0
+        ],
+        [
+          7.2,
+          9.8
+        ],
+        [
+          12.0,
+          14.8
+        ]
+      ],
+      "duration_seconds": 8.6,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/automate.webm",
+      "webm_sha256": "5cdadc636b961ad471fecd3ab58413211948871741099eecb5f36235ad3fcccf",
+      "webm_bytes": 330721,
+      "mp4": "media/landing-story/clips/automate.mp4",
+      "mp4_sha256": "bce62f19eaac16156a18834884679a251d96b671a900ed4044e2cecde31374f3",
+      "mp4_bytes": 213856,
+      "poster": "media/landing-story/screenshots/automate.webp",
+      "poster_sha256": "c980145f3439741e79b567764ed0423f3ae57af1d4d7069d21ae65c9639f4e8e",
+      "poster_bytes": 39512,
+      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions."
+    },
+    "ship": {
+      "source_name": "4.mp4",
+      "source_sha256": "e4441c570bb7c4c27137ca61c40a0757597c6fadfb2145e1c6d2cbeb8d786d28",
+      "source_duration_seconds": 21.6,
+      "segments_seconds": [
+        [
+          9.1,
+          11.7
+        ]
+      ],
+      "duration_seconds": 2.6,
+      "dimensions": [
+        1440,
+        810
+      ],
+      "fps": 30,
+      "webm": "media/landing-story/clips/ship.webm",
+      "webm_sha256": "12bb1ee4e1faf736bc66b4fd3428594afd78cf5a7c5d14f25ef3ab24a4495e60",
+      "webm_bytes": 125411,
+      "mp4": "media/landing-story/clips/ship.mp4",
+      "mp4_sha256": "7d72c19347d937f52fad94061e7104f5c7ab18d37e01f84f2cdfa8034a89a234",
+      "mp4_bytes": 84508,
+      "poster": "media/landing-story/screenshots/ship.webp",
+      "poster_sha256": "37c1f310ed1201f05ee916d5d7709897aee1288bfa062fbecd904b9e667bdeb6",
+      "poster_bytes": 39676,
+      "editorial_note": "Reviewed source frames retained at natural 30 fps; four-frame dissolves join selected actions.",
+      "approval_moment_seconds": 2.25
+    }
+  }
+}

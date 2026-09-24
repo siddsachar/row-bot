@@ -99,8 +99,6 @@ def test_landing_page_is_evergreen_and_current() -> None:
     assert all(image.get("width") and image.get("height") for image in parser.images)
     assert parser.sections == [
         "top",
-        "proof",
-        "product",
         "demos",
         "architecture",
         "faq",
@@ -108,14 +106,11 @@ def test_landing_page_is_evergreen_and_current() -> None:
     ]
     assert "Row-Bot 4.9.1 available" in HTML
     assert "Row-Bot &middot; v4.9.1 &middot; Apache 2.0" in HTML
-    assert 'src="img/screenshots/real-ui/home-knowledge.png?v=4.9.1-r1"' in HTML
-    assert (
-        "agents, models, tools, memory, documents, workflows, code, design, "
-        "messaging, and voice"
-    ) in HTML
-    assert "Move across the workbench" in HTML
-    assert "A visible context meter and rolling compaction" in HTML
-    assert "external capabilities can be discovered only when needed" in HTML
+    assert 'src="media/landing-story/screenshots/research.webp"' in HTML
+    assert "One private workspace to reason, build, automate, and act." in HTML
+    assert "Row-Bot · Real app capture" in HTML
+    assert "Recorded in-product" in HTML
+    assert "Reason.<br>Orchestrate.<br>Work.<br><em>Keep it yours.</em>" in HTML
     assert "PARENT-LED ORCHESTRATION" not in HTML
 
 
@@ -127,7 +122,7 @@ def test_landing_page_fallbacks_and_links_are_complete() -> None:
             assert href[1:] in parser.ids, href
 
     os_primary = [link for link in parser.links if "data-os-primary" in link]
-    assert {link["href"] for link in os_primary} == {"#demos", "#install"}
+    assert {link["href"] for link in os_primary} == {"#install"}
     assert all(not link["href"].endswith((".exe", ".dmg")) for link in os_primary)
 
     hrefs = [link.get("href") for link in parser.links]
@@ -150,12 +145,28 @@ def test_mobile_handoff_and_product_media_contracts() -> None:
     assert "document.execCommand?.('copy')" in JS
 
     parser = _parse()
-    video_images = [image for image in parser.images if "img.youtube.com" in image.get("src", "")]
-    assert len(video_images) == 3
+    video_images = [image for image in parser.images if image.get("src", "").startswith("media/landing-story/demos/")]
+    deferred_images = [image for image in parser.images if image.get("data-src", "").startswith("media/landing-story/demos/")]
+    assert len(video_images) == len(deferred_images) == 4
+    assert all(not image.get("src") and image.get("loading") == "lazy" for image in deferred_images)
     assert all(image.get("loading") == "lazy" for image in video_images)
     assert all(image.get("width") and image.get("height") for image in video_images)
     assert "background-image:url" not in HTML
     assert "youtube-nocookie.com/embed" in JS
+    assert "img.youtube.com" not in HTML
+    story_css = (ROOT / "docs" / "landing-story.css").read_text(encoding="utf-8")
+    assert ".video-grid .video-card:not(:first-child) .video-facade { display: none; }" not in CSS
+    assert "#demos .video-card .video-facade { display: grid" in story_css
+    assert ".mobile-direct-disclosure[open] summary::after" in story_css
+    assert ".mobile-direct-disclosure summary:focus-visible" in story_css
+
+
+def test_six_topic_comparison_is_a_closed_semantic_disclosure() -> None:
+    assert '<details class="comparison-disclosure ownership-compare" id="comparison">' in HTML
+    assert '<div class="comparison-table-wrap" role="region"' in HTML
+    assert HTML.count('<th scope="row">') == 6
+    assert HTML.count('<th scope="col">') == 3
+    assert "Hosted providers and networked tools receive the context required" in HTML
 
 
 def test_device_states_and_intent_events_remain_distinct() -> None:
@@ -305,7 +316,7 @@ def test_all_marketing_internal_links_and_images_resolve() -> None:
                 assert parts.fragment in target_parser.ids, f"{name}: {href}"
 
         for image in parser.images:
-            source = image.get("src", "")
+            source = image.get("src") or image.get("data-src", "")
             source_parts = urlsplit(source)
             if source_parts.scheme:
                 continue

@@ -99,19 +99,46 @@ def _read_immutable_secret_ref(provider_id: str, reference: dict, slot: str) -> 
     return "".join(parts)
 
 
+def _delete_immutable_secret_ref(provider_id: str, reference: object, slot: str) -> None:
+    """Best-effort deletion for an unpublished or superseded generation."""
+    if not isinstance(reference, dict) or reference in ({"cleared": True}, {"legacy": True}):
+        return
+    generation, count = reference.get("generation"), reference.get("chunks")
+    if not isinstance(generation, str) or not re.fullmatch(r"[a-f0-9]{32}", generation) or type(count) is not int or not 1 <= count <= 32:
+        return
+    for index in range(count):
+        try:
+            secret_store.delete_secret(f"{slot}.g.{generation}.{index:02d}", namespace=_namespace(provider_id))
+        except secret_store.SecretStoreError:
+            logger.warning("Could not retire superseded provider credential storage for %s", provider_id)
+
+
 def _stage_immutable_secret(provider_id: str, value: str, slot: str, validate: Callable[[], None]) -> dict:
     generation = uuid.uuid4().hex
     chunks = [value[index:index + PROVIDER_SECRET_CHUNK_SIZE] for index in range(0, len(value), PROVIDER_SECRET_CHUNK_SIZE)]
     storage = ""
-    for index, chunk in enumerate(chunks):
-        validate()
-        storage = secret_store.set_secret(f"{slot}.g.{generation}.{index:02d}", chunk, namespace=_namespace(provider_id))
-        if storage not in {"keyring", "encrypted_file"}:
-            raise secret_store.SecretStoreError("durable credential storage unavailable")
     reference = {"generation": generation, "chunks": len(chunks), "storage": storage}
-    if not hmac.compare_digest(_read_immutable_secret_ref(provider_id, reference, slot).encode(), value.encode()):
-        raise secret_store.SecretStoreError("credential storage verification failed")
+    try:
+        for index, chunk in enumerate(chunks):
+            validate()
+            storage = secret_store.set_secret(f"{slot}.g.{generation}.{index:02d}", chunk, namespace=_namespace(provider_id))
+            reference["storage"] = storage
+            if storage not in {"keyring", "encrypted_file"}:
+                raise secret_store.SecretStoreError("durable credential storage unavailable")
+        if not hmac.compare_digest(_read_immutable_secret_ref(provider_id, reference, slot).encode(), value.encode()):
+            raise secret_store.SecretStoreError("credential storage verification failed")
+    except Exception:
+        _delete_immutable_secret_ref(provider_id, reference, slot)
+        raise
     return reference
+
+
+def _delete_oauth_bundle_ref(provider_id: str, reference: object) -> None:
+    if not isinstance(reference, dict) or not isinstance(reference.get("values"), dict):
+        return
+    for name, secret_reference in reference["values"].items():
+        if name in OAUTH_SECRET_NAMES:
+            _delete_immutable_secret_ref(provider_id, secret_reference, f"oauth.{name}")
 
 
 def _external_api_key(provider_id: str) -> str:
@@ -157,8 +184,10 @@ def replace_provider_api_key(provider_id: str, value: str | None, *,
     endpoint = _custom_credential_endpoint(provider_id, cfg) if custom_provider else None
     if custom_provider and endpoint is None and (value is not None or restore):
         raise ValueError("not_found")
+    superseded = entry.get("credential_previous")
     previous = entry.get("credential_ref", {"legacy": True})
     reference = {"cleared": True}
+    staged_reference: dict | None = None
     storage = ""
     if restore:
         reference = entry.get("credential_ref", {"legacy": True}) if custom_provider and not _custom_credential_scope_matches(provider_id, cfg) else entry.get("credential_previous")
@@ -176,34 +205,42 @@ def replace_provider_api_key(provider_id: str, value: str | None, *,
         storage = str(reference.get("storage") or "keyring")
     elif value is not None:
         reference = _stage_immutable_secret(provider_id, value, "api_key", validate)
+        staged_reference = reference
         storage = reference["storage"]
-    validate()
-    if _external_api_key(provider_id):
-        raise secret_store.SecretStoreError("externally managed provider secret is read-only")
-    if reference == {"legacy": True}:
-        entry.pop("credential_ref", None)
-    else:
-        entry["credential_ref"] = reference
-    entry["credential_previous"] = previous
-    entry.update({"provider_id": provider_id, "auth_method": AuthMethod.API_KEY.value,
-                  "configured": reference != {"cleared": True}, "source": storage,
-                  "secret_storage": storage, "health": ProviderHealth.UNKNOWN.value,
-                  "fingerprint": "", "last_error": "",
-                  "updated_at": datetime.now(timezone.utc).isoformat()})
-    if command_proof is not None:
-        entry["credential_command"] = dict(command_proof)
-    else:
-        entry.pop("credential_command", None)
-    if endpoint is not None:
-        scope = endpoint.get("credential_scope")
-        if not isinstance(scope, str) or not re.fullmatch(r"[a-f0-9]{32}", scope):
-            scope = uuid.uuid4().hex
-            endpoint["credential_scope"] = scope
-        entry["credential_scope"] = scope
-    if publish is not None:
-        publish(cfg)
-    validate()
-    save_provider_config(cfg, expected_revision=revision)
+    try:
+        validate()
+        if _external_api_key(provider_id):
+            raise secret_store.SecretStoreError("externally managed provider secret is read-only")
+        if reference == {"legacy": True}:
+            entry.pop("credential_ref", None)
+        else:
+            entry["credential_ref"] = reference
+        entry["credential_previous"] = previous
+        entry.update({"provider_id": provider_id, "auth_method": AuthMethod.API_KEY.value,
+                      "configured": reference != {"cleared": True}, "source": storage,
+                      "secret_storage": storage, "health": ProviderHealth.UNKNOWN.value,
+                      "fingerprint": "", "last_error": "",
+                      "updated_at": datetime.now(timezone.utc).isoformat()})
+        if command_proof is not None:
+            entry["credential_command"] = dict(command_proof)
+        else:
+            entry.pop("credential_command", None)
+        if endpoint is not None:
+            scope = endpoint.get("credential_scope")
+            if not isinstance(scope, str) or not re.fullmatch(r"[a-f0-9]{32}", scope):
+                scope = uuid.uuid4().hex
+                endpoint["credential_scope"] = scope
+            entry["credential_scope"] = scope
+        if publish is not None:
+            publish(cfg)
+        validate()
+        save_provider_config(cfg, expected_revision=revision)
+    except Exception:
+        if staged_reference is not None:
+            _delete_immutable_secret_ref(provider_id, staged_reference, "api_key")
+        raise
+    if superseded not in (reference, previous):
+        _delete_immutable_secret_ref(provider_id, superseded, "api_key")
     # A saved legacy key may have been copied into os.environ by api_keys.apply_keys.
     # Retire only that exact app projection after publication; retain stored bytes.
     env_var = PROVIDER_API_KEY_ENV.get(provider_id)
@@ -264,26 +301,39 @@ def replace_provider_oauth_bundle(provider_id: str, values: dict[str, str] | Non
     if expected_revision is not None and revision != expected_revision:
         raise ProviderConfigError("revision_conflict")
     old = cfg.get("providers", {}).get(provider_id, {})
+    old_previous = old.get("oauth_bundle_previous")
+    superseded = old_previous.get("reference") if isinstance(old_previous, dict) else None
     previous = {"reference": old.get("oauth_bundle_ref", {"legacy": True}),
                 "metadata": {key: value for key, value in old.items() if key not in {"oauth_bundle_previous", "oauth_bundle_ref", "oauth_bundle_command"}}}
     if values is None and old.get("oauth_bundle_ref") == {"cleared": True} and isinstance(old.get("oauth_bundle_previous"), dict):
         previous = old["oauth_bundle_previous"]
-    reference = {"cleared": True} if values is None else {"values": {
-        name: _stage_immutable_secret(provider_id, value, f"oauth.{name}", validate)
-        for name, value in values.items() if value}}
-    update_metadata(cfg)
-    entry = cfg.setdefault("providers", {}).setdefault(provider_id, {})
-    entry.update({"provider_id": provider_id, "oauth_bundle_ref": reference, "oauth_bundle_previous": previous})
-    if values is None:
-        entry.update({"configured": False, "health": ProviderHealth.MISSING_AUTH.value})
-    else:
-        entry["secret_storage"] = "keyring" if all(ref["storage"] == "keyring" for ref in reference["values"].values()) else "encrypted_file"
-    if command_proof is not None:
-        entry["oauth_bundle_command"] = dict(command_proof)
-    else:
-        entry.pop("oauth_bundle_command", None)
-    validate()
-    save_provider_config(cfg, expected_revision=revision)
+    staged_values: dict[str, dict] = {}
+    reference: dict = {"cleared": True}
+    try:
+        if values is not None:
+            for name, value in values.items():
+                if value:
+                    staged_values[name] = _stage_immutable_secret(provider_id, value, f"oauth.{name}", validate)
+            reference = {"values": staged_values}
+        update_metadata(cfg)
+        entry = cfg.setdefault("providers", {}).setdefault(provider_id, {})
+        entry.update({"provider_id": provider_id, "oauth_bundle_ref": reference, "oauth_bundle_previous": previous})
+        if values is None:
+            entry.update({"configured": False, "health": ProviderHealth.MISSING_AUTH.value})
+        else:
+            entry["secret_storage"] = "keyring" if all(ref["storage"] == "keyring" for ref in reference["values"].values()) else "encrypted_file"
+        if command_proof is not None:
+            entry["oauth_bundle_command"] = dict(command_proof)
+        else:
+            entry.pop("oauth_bundle_command", None)
+        validate()
+        save_provider_config(cfg, expected_revision=revision)
+    except Exception:
+        _delete_oauth_bundle_ref(provider_id, {"values": staged_values})
+        raise
+    retained_references = (reference, previous.get("reference"))
+    if superseded not in retained_references:
+        _delete_oauth_bundle_ref(provider_id, superseded)
     for name in OAUTH_SECRET_NAMES:
         _delete_session_provider_secret(provider_id, name)
     return dict(entry)

@@ -310,6 +310,12 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Host source identifiers feed public environment attribution; inventory and generated references must retain canonical metadata without matching unrelated identifiers.",
     ),
     SourceTestRule(
+        "marketing_capture",
+        ("scripts/marketing/**", "docs-content/LANDING_PAGE_OVERHAUL_PLAN.md"),
+        ("tests/marketing",),
+        "Landing story preparation and capture remain provider-qualified, budgeted, public-safe, and client-neutral.",
+    ),
+    SourceTestRule(
         "normalized_dependency_requirements",
         (
             "scripts/dependency_requirements.py",
