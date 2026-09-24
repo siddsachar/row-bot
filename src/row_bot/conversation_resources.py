@@ -194,6 +194,10 @@ def bind(conversation_id: str, kind: ResourceKind, resource_id: str, *,
             raise ResourceError("resource_revision_conflict")
         if any(item.kind == kind and item.resource_id == resource_id for item in snapshot.bindings):
             return snapshot
+        if kind == "workspace" and any(item.kind == "workspace" for item in snapshot.bindings):
+            # One execution checkout per ordinary conversation. Child worktrees
+            # are installed by inherit_bindings, not by an additive UI bind.
+            raise ResourceError("resource_ambiguous")
         if role == "primary" and any(item.kind == kind and item.role == "primary" for item in snapshot.bindings):
             raise ResourceError("resource_ambiguous")
         if len(snapshot.bindings) >= _MAX_BINDINGS:

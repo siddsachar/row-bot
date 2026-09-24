@@ -391,12 +391,51 @@ svg {
   align-items: center;
 }
 .context-resource-title > .button {
-  display: grid;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
   min-width: 0;
   justify-items: start;
   text-align: start;
   white-space: normal;
+}
+.context-resource-title > .button small {
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.context-resource-title > .button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.context-completed-badge {
+  color: var(--status-success-text);
+  align-self: center;
+}
+.context-writer-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--status-warning-text);
+  font-size: var(--type-size-metadata);
+}
+.context-output {
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.context-output summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 .context-resource-title span,
 .context-resource-title small,
@@ -5636,6 +5675,13 @@ details[open] > summary > .settings-disclosure-chevron {
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-shell);
+}
+.dock.maximized {
+  position: fixed;
+  inset: 12px;
+  z-index: 60;
+  width: auto;
+  height: auto;
 }
 .dock-header {
   padding: 4px 8px;

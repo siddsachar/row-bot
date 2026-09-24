@@ -5,7 +5,19 @@ import type {
   ResourceView,
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
+import { clientError } from '../../api/errors';
 import { Button, Menu, Skeleton } from '../../ui/primitives';
+import {
+  Code2,
+  FileImage,
+  FolderPlus,
+  Globe,
+  MoreHorizontal,
+  Palette,
+  Search,
+  Terminal,
+} from 'lucide-react';
+import { MediaPreview } from './MediaPreview';
 
 type ResourceSummary = {
   primary: string;
@@ -15,12 +27,18 @@ type ResourceSummary = {
 
 type Props = {
   conversationId: string;
+  conversationRevision: string;
   resources: ResourceView[];
   suggestions: ClientPanelSuggestion[];
   ready: boolean;
   connectionStatus: ClientStatus;
   terminalAvailable: boolean;
   agents: ReactNode;
+  outputs?: { id: string; reference: string; mime: string }[];
+  completedDesignId?: string;
+  writerQueued?: boolean;
+  onCancelWait?: () => void;
+  onUseOutputInCode?: (output: { reference: string; mime: string }) => void;
   onAddResource: () => void;
   onOpenResource: (resource: ResourceView) => void;
   onUnbindResource: (resource: ResourceView) => void;
@@ -39,12 +57,18 @@ function resourceKind(resource: ResourceView) {
 
 export default function ConversationContextRail({
   conversationId,
+  conversationRevision,
   resources,
   suggestions,
   ready,
   connectionStatus,
   terminalAvailable,
   agents,
+  outputs = [],
+  completedDesignId,
+  writerQueued = false,
+  onCancelWait,
+  onUseOutputInCode,
   onAddResource,
   onOpenResource,
   onUnbindResource,
@@ -56,11 +80,87 @@ export default function ConversationContextRail({
   onOpenSuggestion,
   onDismissSuggestion,
 }: Props) {
-  const { controller } = useRuntime();
+  const { controller, artifactDesignSessions } = useRuntime();
   const [summaries, setSummaries] = useState<Record<string, ResourceSummary>>(
     {},
   );
   const [loading, setLoading] = useState(false);
+  const [outputBusy, setOutputBusy] = useState('');
+  const [outputError, setOutputError] = useState('');
+  const [savedOutputs, setSavedOutputs] = useState<Record<string, string>>({});
+  const [writerStatus, setWriterStatus] = useState('');
+  const hasWorkspace = resources.some(
+    (resource) => resource.binding.kind === 'workspace',
+  );
+  useEffect(() => {
+    setWriterStatus('');
+    if (!hasWorkspace) return;
+    let disposed = false;
+    const poll = () => {
+      void controller
+        .workspaceFor(conversationId)
+        .then((workspace) => {
+          if (!disposed) setWriterStatus(workspace.writer_status ?? '');
+        })
+        .catch(() => {});
+    };
+    poll();
+    const timer = window.setInterval(poll, 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [controller, conversationId, hasWorkspace]);
+
+  async function saveOutput(output: { reference: string }) {
+    if (outputBusy) return;
+    setOutputBusy(output.reference);
+    setOutputError('');
+    try {
+      const receipt = await controller.intent(
+        conversationId,
+        'media.save',
+        { media_ref: output.reference },
+        conversationRevision,
+      );
+      if (receipt.status !== 'completed' || !receipt.saved_name)
+        throw new Error('media_save_uncertain');
+      setSavedOutputs((current) => ({
+        ...current,
+        [output.reference]: receipt.saved_name!,
+      }));
+    } catch (cause) {
+      setOutputError(clientError(cause).message);
+    } finally {
+      setOutputBusy('');
+    }
+  }
+
+  async function addOutputToDesign(
+    output: { reference: string; mime: string },
+    design: ResourceView,
+  ) {
+    if (!artifactDesignSessions || outputBusy || !design.available) return;
+    setOutputBusy(output.reference);
+    setOutputError('');
+    try {
+      const blob = await controller.download(output.reference);
+      if (blob.size > 25 * 1024 * 1024 || blob.type !== output.mime)
+        throw new Error('media_identity_conflict');
+      const extension =
+        output.mime === 'image/jpeg' ? 'jpg' : output.mime.split('/')[1];
+      const filename = `generated-${output.reference.split(':').at(-1)}.${extension}`;
+      const file = new File([blob], filename, { type: output.mime });
+      const session = artifactDesignSessions.get(conversationId, design);
+      const result = await session.upload(file, design.resource_revision);
+      if (result.status === 'partial')
+        throw new Error('media_import_needs_review');
+    } catch (cause) {
+      setOutputError(clientError(cause).message);
+    } finally {
+      setOutputBusy('');
+    }
+  }
 
   useEffect(() => {
     const request = new AbortController();
@@ -160,21 +260,34 @@ export default function ConversationContextRail({
                 : `Context ${connectionStatus}`}
           </small>
         </div>
-        <Button disabled={!ready} onClick={onAddResource}>
-          Add resource
+        <Button
+          iconOnly
+          variant="ghost"
+          aria-label="Add resource"
+          title="Add resource"
+          disabled={!ready}
+          onClick={onAddResource}
+        >
+          <FolderPlus size={18} aria-hidden />
         </Button>
       </header>
+
+      {(writerQueued || writerStatus === 'queued') && (
+        <p className="context-writer-status" role="status">
+          Checkout busy · Waiting for the other coding run
+          <Button variant="ghost" onClick={onCancelWait}>
+            Cancel wait
+          </Button>
+        </p>
+      )}
 
       <section
         className="context-rail-section"
         aria-labelledby="context-resources"
       >
-        <h3 id="context-resources">Resources</h3>
+        <h3 id="context-resources">Working on</h3>
         {loading && !Object.keys(summaries).length && (
           <Skeleton label="Loading resource summaries" />
-        )}
-        {!resources.length && (
-          <p className="muted">No coding workspace or design is bound yet.</p>
         )}
         <ul className="context-resource-list">
           {resources.slice(0, 20).map((resource) => {
@@ -187,20 +300,33 @@ export default function ConversationContextRail({
                 <div className="context-resource-title">
                   <Button
                     variant="ghost"
+                    title={`Open ${resource.title}`}
                     onClick={() => onOpenResource(resource)}
                   >
+                    {resource.binding.kind === 'artifact' ? (
+                      <Palette size={16} aria-hidden />
+                    ) : (
+                      <Code2 size={16} aria-hidden />
+                    )}
                     <span>{resource.title}</span>
                     <small>{resourceKind(resource)}</small>
                   </Button>
+                  {completedDesignId === resource.binding.binding_id && (
+                    <small className="context-completed-badge">Completed</small>
+                  )}
                   <Menu
                     label={`Actions for ${resource.title}`}
+                    iconOnly
+                    variant="ghost"
                     actions={[
                       {
                         label: 'Unbind resource',
                         onSelect: () => onUnbindResource(resource),
                       },
                     ]}
-                  />
+                  >
+                    <MoreHorizontal size={16} aria-hidden />
+                  </Menu>
                 </div>
                 {summary && (
                   <p
@@ -217,12 +343,88 @@ export default function ConversationContextRail({
         </ul>
       </section>
 
-      {!!suggestions.length && (
+      {(!!suggestions.length || !!outputs.length) && (
         <section
           className="context-rail-section"
-          aria-labelledby="context-suggestions"
+          aria-labelledby="context-outputs"
         >
-          <h3 id="context-suggestions">Suggested panels</h3>
+          <h3 id="context-outputs">Outputs</h3>
+          {outputs.slice(-20).map((output) => (
+            <details className="context-output" key={output.id}>
+              <summary>
+                <FileImage size={16} aria-hidden />{' '}
+                {output.mime.startsWith('video/') ? 'Video' : 'Image'} output
+              </summary>
+              <MediaPreview reference={output.reference} mime={output.mime} />
+              <div className="button-row">
+                <Button
+                  variant="ghost"
+                  disabled={Boolean(outputBusy)}
+                  onClick={() => void saveOutput(output)}
+                >
+                  Save to workspace
+                </Button>
+                {onUseOutputInCode &&
+                  resources.some(
+                    (resource) =>
+                      resource.binding.kind === 'workspace' &&
+                      resource.available,
+                  ) && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => onUseOutputInCode(output)}
+                    >
+                      Use in code folder
+                    </Button>
+                  )}
+              </div>
+              {savedOutputs[output.reference] && (
+                <small role="status">
+                  Saved outputs/{savedOutputs[output.reference]}
+                </small>
+              )}
+              {resources.filter(
+                (resource) =>
+                  resource.binding.kind === 'artifact' && resource.available,
+              ).length === 1 && (
+                <Button
+                  variant="ghost"
+                  disabled={Boolean(outputBusy)}
+                  onClick={() =>
+                    void addOutputToDesign(
+                      output,
+                      resources.find(
+                        (resource) =>
+                          resource.binding.kind === 'artifact' &&
+                          resource.available,
+                      )!,
+                    )
+                  }
+                >
+                  Add to design
+                </Button>
+              )}
+              {resources.filter(
+                (resource) =>
+                  resource.binding.kind === 'artifact' && resource.available,
+              ).length > 1 && (
+                <Menu
+                  label="Add output to design"
+                  actions={resources
+                    .filter(
+                      (resource) =>
+                        resource.binding.kind === 'artifact' &&
+                        resource.available,
+                    )
+                    .map((resource) => ({
+                      label: resource.title,
+                      onSelect: () => void addOutputToDesign(output, resource),
+                    }))}
+                />
+              )}
+            </details>
+          ))}
+          {outputError && <p role="alert">{outputError}</p>}
           {suggestions.slice(0, 10).map((suggestion) => (
             <div
               className="context-suggestion"
@@ -259,11 +461,15 @@ export default function ConversationContextRail({
       >
         <h3 id="context-utilities">Utilities</h3>
         <div className="context-utility-list">
-          <Button variant="ghost" onClick={onFind}>
-            Find in conversation
+          <Button variant="ghost" onClick={onFind} title="Find in conversation">
+            <Search size={16} aria-hidden /> Find in conversation
           </Button>
-          <Button variant="ghost" onClick={onManageBrowser}>
-            Managed browser
+          <Button
+            variant="ghost"
+            onClick={onManageBrowser}
+            title="Managed browser"
+          >
+            <Globe size={16} aria-hidden /> Managed browser
           </Button>
           <Button
             variant="ghost"
@@ -275,7 +481,7 @@ export default function ConversationContextRail({
             }
             onClick={onOpenTerminal}
           >
-            Interactive terminal
+            <Terminal size={16} aria-hidden /> Interactive terminal
           </Button>
           {!terminalAvailable && (
             <small className="muted">

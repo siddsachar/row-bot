@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -33,6 +34,7 @@ class ClientPlatformError(ValueError):
 
 
 _COMMAND_LOCK = threading.RLock()
+_LOG = logging.getLogger(__name__)
 
 
 def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, maximum: int = 128 * 1024) -> list[tuple[int, dict]]:
@@ -414,7 +416,7 @@ class ClientPlatformService:
             if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
                 return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
         from row_bot.application.workspace_setup import reconcile_setup_receipt
-        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_clone_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
+        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_clone_workspace", "draft_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
                 validate: Callable[[], None] | None = None, authorized_folder: Any = None,
@@ -463,7 +465,7 @@ class ClientPlatformService:
                     validate()
                 replay = admissions.claim_command(owner_id, idempotency_key, command, target)
                 if replay is not None:
-                    return {key: value for key, value in replay.items() if key not in {"_empty_workspace", "_clone_workspace"}}
+                    return {key: value for key, value in replay.items() if key not in {"_empty_workspace", "_clone_workspace", "draft_workspace"}}
                 claimed = True
                 if validate:
                     validate()
@@ -488,7 +490,7 @@ class ClientPlatformService:
                     )
                 result["command_id"] = command["command_id"]
                 admissions.complete_command(owner_id, idempotency_key, result)
-                return {key: value for key, value in result.items() if key not in {"_empty_workspace", "_clone_workspace"}}
+                return {key: value for key, value in result.items() if key not in {"_empty_workspace", "_clone_workspace", "draft_workspace"}}
             except admissions.AdmissionError as exc:
                 if str(exc) == "operation_uncertain" and command["type"] == "conversation.create":
                     recovered = self.receipt(owner_id, command["command_id"])
@@ -526,6 +528,14 @@ class ClientPlatformService:
         expected = command.get("expected_revision")
         if expected is None or str(expected) != str(row["client_revision"]):
             raise ClientPlatformError("revision_conflict", str(row["client_revision"]))
+        if kind == "media.save":
+            from row_bot.application.conversation_media_copy import save_output
+            try:
+                name = save_output(target, str(payload["media_ref"]))
+            except ValueError as exc:
+                raise ClientPlatformError(str(exc)) from exc
+            return {"conversation_id": target, "revision": str(row["client_revision"]),
+                    "saved_name": name, "status": "completed"}
         if kind in {"conversation.rename", "conversation.pin"}:
             with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
                 if kind.endswith("rename"):
@@ -690,9 +700,27 @@ class ClientPlatformService:
                    "agent_profile_id": frozen_config.get("agent_profile_id"),
                    "client_runtime_mode": frozen_config.get("runtime_mode")}
         runtime_mode = row.get("client_runtime_mode") or "agent"
+        auto_setup = None
+        if not resume and frozen_context is None and command_id:
+            from row_bot.application.conversation_creation import ensure_for_submission
+            auto_setup = ensure_for_submission(self, conversation_id, str(payload.get("text") or ""), command_id)
+            if auto_setup is not None and auto_setup.get("status") != "completed":
+                raise ClientPlatformError("resource_setup_partial")
         from row_bot.conversation_resources import list_bindings, describe
         captured_bindings = list_bindings(conversation_id).bindings
         targets = frozen_context.get("write_targets") if frozen_context is not None else payload.get("write_targets")
+        if auto_setup is not None:
+            selected_auto = next((binding for binding in captured_bindings
+                                  if binding.binding_id == auto_setup.get("binding_id")), None)
+            if selected_auto is None:
+                raise ClientPlatformError("resource_binding_revoked")
+            targets = [*(targets or []), {
+                "kind": selected_auto.kind,
+                "binding_id": selected_auto.binding_id,
+                "resource_id": selected_auto.resource_id,
+                "binding_revision": selected_auto.revision,
+                "resource_revision": describe(selected_auto).resource_revision,
+            }]
         if frozen_context is not None:
             from row_bot.conversation_resources import ResourceBinding
             frozen_bindings = tuple(ResourceBinding(**value) for value in frozen_context["bindings"])
@@ -784,10 +812,33 @@ class ClientPlatformService:
                 from row_bot.agent import stream_agent, resume_stream_agent
                 from row_bot.tools import registry as tool_registry
                 enabled = [tool.name for tool in tool_registry.get_enabled_tools()]
+                if not resume:
+                    from row_bot.application.conversation_creation import media_tool_selection
+                    enabled = media_tool_selection(
+                        text, enabled,
+                        has_design=any(binding.kind == "artifact" for binding in captured_bindings),
+                    )
                 from row_bot.conversation_resources import execution_context
+                from row_bot.application.conversation_writer import writer_run
                 from row_bot.application.attachment_context import prepared_attachments
+                from contextlib import nullcontext
                 self.registry.check_dispatch(handle)
-                with execution_context(conversation_id, captured_bindings=captured_bindings), prepared_attachments(conversation_id, files, model_ref=model_ref) as attachment_context:
+                write_workspace = next((binding.resource_id for binding in captured_bindings
+                                        if binding.kind == "workspace"), "")
+                if write_workspace:
+                    # A code-targeted turn uses Developer's ledger and lease.
+                    enabled = [name for name in enabled if name not in {"filesystem", "shell"}]
+                lease = writer_run(conversation_id, write_workspace, handle.execution_id,
+                                   handle.cancel_scope.stop_event,
+                                   final_status=lambda: status,
+                                   on_status=lambda status, run_id: self.projection.publish(
+                                       conversation_id, "agent.activity", {
+                                           "run_id": run_id, "status": status, "revision": "1",
+                                       },
+                                   )) if write_workspace else nullcontext("")
+                with lease as writer_id, execution_context(conversation_id, captured_bindings=captured_bindings), prepared_attachments(conversation_id, files, model_ref=model_ref) as attachment_context:
+                    if writer_id:
+                        config["configurable"]["agent_run_id"] = writer_id
                     self.registry.check_dispatch(handle)
                     prepared_text = text + ("\n\n" + attachment_context if attachment_context else "")
                     if attachment_context and not resume:
@@ -829,6 +880,7 @@ class ClientPlatformService:
             except InterruptedError:
                 status = "stopped"
             except Exception:
+                _LOG.exception("Conversation generation failed for %s", conversation_id)
                 self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
             finally:
                 self.finish_execution(handle, status)

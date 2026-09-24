@@ -18,6 +18,7 @@ export type PanelPresentationInput = {
   hints?: readonly PanelDescriptor[];
   capabilities?: ReadonlySet<string>;
   source: 'restore' | 'update' | 'explicit';
+  autoOpenResources?: boolean;
   descriptor?: PanelDescriptor;
   placement?: PanelPlacement;
 };
@@ -190,12 +191,14 @@ export function reconcilePanelPresentation(
       ? input.descriptor
         ? [input.descriptor]
         : []
-      : [
-          ...resources
-            .map(resourcePanelDescriptor)
-            .filter((value): value is PanelDescriptor => value !== null),
-          ...(input.hints ?? []),
-        ];
+      : input.autoOpenResources === false
+        ? []
+        : [
+            ...resources
+              .map(resourcePanelDescriptor)
+              .filter((value): value is PanelDescriptor => value !== null),
+            ...(input.hints ?? []),
+          ];
   const available: PanelDescriptor[] = [];
   for (const descriptor of candidates) {
     if (

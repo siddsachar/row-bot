@@ -52,6 +52,7 @@ const mock = vi.hoisted(() => ({
   routeKey: 'conversation-route',
   navigate: vi.fn(),
   intent: vi.fn(),
+  workspaceFor: vi.fn(),
   approval: vi.fn(),
   receipt: vi.fn(),
   showHistory: vi.fn(),
@@ -90,6 +91,7 @@ vi.mock('../../runtime', () => {
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
       intent: mock.intent,
+      workspaceFor: mock.workspaceFor,
       approval: mock.approval,
       receipt: mock.receipt,
       showHistory: mock.showHistory,
@@ -158,6 +160,7 @@ beforeEach(() => {
     status: 'ok',
     value: { kind: 'browser', platform: 'browser', capabilities: [] },
   });
+  mock.workspaceFor.mockResolvedValue({ writer_status: '' });
   mock.selectConversation.mockImplementation(async (id: string) => {
     mock.version++;
     mock.state.selectedConversationId = id;
@@ -480,7 +483,7 @@ it('keeps resources, agents, and utilities in the persistent context rail', asyn
     name: 'Conversation context',
   });
   expect(
-    within(rail).getByRole('heading', { name: 'Resources' }),
+    within(rail).getByRole('heading', { name: 'Working on' }),
   ).toBeVisible();
   expect(within(rail).getByRole('heading', { name: 'Agents' })).toBeVisible();
   expect(
@@ -634,6 +637,7 @@ it('follows media and pane size changes without moving older readers or acceptin
   const observers: {
     callback: () => void;
     disconnect: ReturnType<typeof vi.fn>;
+    observe: ReturnType<typeof vi.fn>;
   }[] = [];
   vi.stubGlobal(
     'ResizeObserver',
@@ -641,7 +645,11 @@ it('follows media and pane size changes without moving older readers or acceptin
       disconnect = vi.fn();
       observe = vi.fn();
       constructor(callback: () => void) {
-        observers.push({ callback, disconnect: this.disconnect });
+        observers.push({
+          callback,
+          disconnect: this.disconnect,
+          observe: this.observe,
+        });
       }
     },
   );
@@ -652,7 +660,9 @@ it('follows media and pane size changes without moving older readers or acceptin
     view = conversation();
   });
   const log = screen.getByRole('log');
-  const first = observers.at(-1)!;
+  const first = observers.find(
+    (observer) => observer.observe.mock.calls.length === 2,
+  )!;
   height(1200);
   act(() => first.callback());
   expect(log.scrollTop).toBe(1100);
@@ -669,7 +679,9 @@ it('follows media and pane size changes without moving older readers or acceptin
   log.scrollTop = 123;
   act(() => first.callback());
   expect(log.scrollTop).toBe(123);
-  const latest = observers.at(-1)!;
+  const latest = [...observers]
+    .reverse()
+    .find((observer) => observer.observe.mock.calls.length === 2)!;
   view.unmount();
   act(() => latest.callback());
   expect(latest.disconnect).toHaveBeenCalledOnce();

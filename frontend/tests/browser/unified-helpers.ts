@@ -47,7 +47,7 @@ export async function fixtureState(page: Page): Promise<{
   calls: FixtureCall[];
   external_calls: number;
 }> {
-  const response = await page.request.get('/__p1_fixture/state', {
+  const response = await page.request.get('/__p3_fixture/calls', {
     headers: fixtureHeaders(),
   });
   expect(response.ok()).toBe(true);
@@ -133,6 +133,30 @@ export async function fixtureResources(page: Page): Promise<{
   return response.json();
 }
 
+export async function naturalResourceResult(
+  page: Page,
+  conversation: string,
+): Promise<{
+  bindings: {
+    kind: 'workspace' | 'artifact';
+    id: string;
+    file_exists?: boolean;
+    git_present?: boolean;
+    page_count?: number;
+    first_title?: string;
+  }[];
+}> {
+  const response = await page.request.get(
+    `/__p3_fixture/natural/${conversation}`,
+    {
+      headers: fixtureHeaders(),
+    },
+  );
+  if (!response.ok())
+    throw new Error(`Natural resource fixture ${response.status()}`);
+  return response.json();
+}
+
 export async function advanceOrchestration(
   page: Page,
   conversation: string,
@@ -191,6 +215,11 @@ export async function conversationState(
   workspace: {
     controls: unknown;
     resources: { resource_revision: string; title: string }[];
+    writer_status: string;
+  };
+  draft: {
+    text: string;
+    attachments: { attachment_ref: string; name: string }[];
   };
 }> {
   const response = await page.request.get(`/__p3_fixture/conversation/${id}`, {
@@ -495,9 +524,14 @@ export async function captureActualResourcePanels(
   label: string,
 ): Promise<void> {
   const desktop = page.viewportSize()!.width >= 1024;
+  const contextToggle = page.getByRole('button', {
+    name: 'Context',
+    exact: true,
+  });
+  if (await contextToggle.isVisible()) await contextToggle.click();
   await page
-    .locator('.resource-chips')
-    .getByRole('button', { name: deck, exact: true })
+    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('button', { name: `${deck} Design` })
     .click();
   const preview = page.getByRole('region', {
     name: 'Design preview',
@@ -589,9 +623,10 @@ export async function captureActualResourcePanels(
       .getByRole('button', { name: 'Back to conversation', exact: true })
       .click();
   }
+  if (await contextToggle.isVisible()) await contextToggle.click();
   await page
-    .locator('.resource-chips')
-    .getByRole('button', { name: 'Phase 1 workspace', exact: true })
+    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('button', { name: 'Phase 1 workspace Developer' })
     .click();
   const inspector = page.getByRole('region', {
     name: 'Phase 1 workspace inspector',

@@ -4189,6 +4189,10 @@ class CloneWorkspaceSetupPayload(WireModel):
     repo_url: str = Field(min_length=1, max_length=2048)
 
 
+class MediaSavePayload(WireModel):
+    media_ref: Reference
+
+
 class ResourceSetupPayload(WireModel):
     kind: Literal["artifact", "workspace"]
     intent: Literal["create", "open", "add", "repair", "new_conversation"]
@@ -4198,6 +4202,7 @@ class ResourceSetupPayload(WireModel):
     deck: DeckSetupPayload | None = None
     artifact: ArtifactSetupPayload | None = None
     empty_workspace: EmptyWorkspaceSetupPayload | None = None
+    draft_workspace: bool | None = None
     clone_workspace: CloneWorkspaceSetupPayload | None = None
     folder_grant: OpaqueId | None = None
 
@@ -4210,6 +4215,7 @@ class ResourceSetupPayload(WireModel):
             or self.folder_grant is not None
             or self.resource_id is not None
             or self.empty_workspace is not None
+            or self.draft_workspace is not None
             or self.clone_workspace is not None
         ):
             raise ValueError(
@@ -4223,10 +4229,20 @@ class ResourceSetupPayload(WireModel):
             or self.deck is not None
             or self.artifact is not None
             or self.clone_workspace is not None
+            or self.draft_workspace is not None
         ):
             raise ValueError(
                 "Empty workspace creation requires an explicit parent grant and name."
             )
+        if self.draft_workspace is not None and (
+            self.draft_workspace is not True or self.kind != "workspace"
+            or self.intent != "create" or self.folder_grant is not None
+            or self.resource_id is not None
+            or any(value is not None for value in (
+                self.deck, self.artifact, self.empty_workspace, self.clone_workspace
+            ))
+        ):
+            raise ValueError("A draft workspace uses the configured local Drafts folder.")
         if self.clone_workspace is not None and (
             self.kind != 'workspace' or self.intent != 'create'
             or self.folder_grant is None or self.resource_id is not None
@@ -5251,6 +5267,7 @@ class Command(WireModel):
         "conversation.skills",
         "resource.setup",
         "resource.continue",
+        "media.save",
         "conversation.queue.edit",
         "conversation.queue.remove",
         "conversation.queue.dispatch",
@@ -5388,7 +5405,7 @@ class Command(WireModel):
         if self.type == "conversation.controls" and "reasoning" not in supplied:
             self.payload.pop("reasoning", None)
         if self.type == "resource.setup":
-            for field in ("artifact", "empty_workspace", "clone_workspace"):
+            for field in ("artifact", "empty_workspace", "draft_workspace", "clone_workspace"):
                 if field not in supplied:
                     self.payload.pop(field, None)
         if self.type == "resource.continue" and "folder_grant" not in supplied:
@@ -5420,6 +5437,7 @@ COMMAND_PAYLOADS = {
     "conversation.skills": ConversationSkillPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
+    "media.save": MediaSavePayload,
     "conversation.queue.edit": QueueEditPayload,
     "conversation.queue.remove": QueueItemCommand,
     "conversation.queue.dispatch": QueueItemCommand,
@@ -5943,6 +5961,7 @@ class CommandReceipt(WireModel):
     revision: Revision | None = None
     approval_id: OpaqueId | None = None
     attachment_ref: Reference | None = None
+    saved_name: str | None = Field(default=None, max_length=128)
     binding_id: OpaqueId | None = None
     code: str | None = Field(default=None, max_length=80)
     current_revision: str | None = Field(default=None, min_length=1, max_length=128)
@@ -6475,6 +6494,8 @@ class ConversationWorkspace(WireModel):
     controls: ConversationControls
     profiles: list[ProfileChoice] = Field(max_length=256)
     resources: list[ResourceView] = Field(max_length=200)
+    generated_outputs: list[MediaAvailable] = Field(default_factory=list, max_length=20)
+    writer_status: str = Field(default="", max_length=40)
     actions: list[ActionReadiness] = Field(max_length=6)
     context_usage: ContextUsageView | None = None
     reasoning: ReasoningView | None = None

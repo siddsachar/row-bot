@@ -142,6 +142,10 @@ def apply_patch_to_workspace(
     recovery: dict | None = None,
     validate: Callable[[], None] | None = None,
 ) -> tuple[ChangeSet | None, ApprovalDecision]:
+    from row_bot.conversation_resources import current_execution_context
+    if current_execution_context() is not None:
+        from row_bot.application.conversation_writer import require_execution_writer
+        require_execution_writer(workspace_id)
     if prepared_import is not None:
         return _apply_reviewed_patch(workspace_id=workspace_id, thread_id=thread_id, patch=patch,
             approval_mode=approval_mode, summary=summary, confirmed=confirmed, prepared=prepared_import,
@@ -648,6 +652,7 @@ def write_file_to_workspace(
     approval_mode: ApprovalMode,
     summary: str = "",
     confirmed: bool = False,
+    expected_sha256: str = "",
 ) -> tuple[ChangeSet | None, ApprovalDecision]:
     decision = ordinary_edit_decision(approval_mode)
     if decision.decision == "block":
@@ -657,6 +662,13 @@ def write_file_to_workspace(
 
     root = _workspace_root(workspace_id)
     target = _validate_relative_path(root, path)
+    from row_bot.conversation_resources import current_execution_context
+    if current_execution_context() is not None:
+        from row_bot.application.conversation_writer import require_execution_writer
+        require_execution_writer(workspace_id)
+        current = hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else ""
+        if expected_sha256 != current:
+            raise ValueError("file_revision_conflict")
     before_text = target.read_text(encoding="utf-8", errors="replace") if target.exists() else None
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
@@ -692,8 +704,12 @@ def revert_change_set(workspace_id: str, change_set_id: str) -> str:
         raise ValueError("workspace_undo_review_required")
     for file_change in change_set.files:
         target = _validate_relative_path(root, file_change.path, strip_git_prefix=False)
-        current = target.read_text(encoding="utf-8", errors="replace") if target.exists() else None
-        if change_ledger.text_hash(current) != file_change.after_hash:
+        current_hash = (
+            hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else ""
+        ) if file_change.binary else change_ledger.text_hash(
+            target.read_text(encoding="utf-8", errors="replace") if target.exists() else None
+        )
+        if current_hash != file_change.after_hash:
             raise ValueError(
                 f"Refusing to revert {file_change.path}: file changed after the agent edit."
             )
@@ -706,6 +722,67 @@ def revert_change_set(workspace_id: str, change_set_id: str) -> str:
         target.write_text(file_change.before_text, encoding="utf-8")
     change_ledger.mark_reverted(change_set.id)
     return f"Reverted {len(change_set.files)} file(s) from change set {change_set.id}."
+
+
+def import_conversation_media(*, workspace_id: str, thread_id: str, media_ref: str,
+                              path: str, approval_mode: ApprovalMode,
+                              confirmed: bool = False) -> tuple[ChangeSet | None, ApprovalDecision]:
+    """Copy one conversation-owned image or video into an existing folder path."""
+    from row_bot.application.attachments import read_attachment
+    from row_bot.application.conversation_writer import require_execution_writer
+
+    require_execution_writer(workspace_id)
+    decision = ordinary_edit_decision(approval_mode)
+    if decision.decision == "block" or decision.requires_approval and not confirmed:
+        return None, decision
+    if not media_ref.startswith(thread_id + ":"):
+        raise ValueError("media_scope_conflict")
+    metadata, data = read_attachment(media_ref)
+    suffix = {"image/png": ".png", "image/jpeg": ".jpg", "video/mp4": ".mp4"}.get(
+        metadata["mime_type"]
+    )
+    if suffix is None or not path.casefold().endswith(suffix):
+        raise ValueError("media_type_conflict")
+    if len(data) > 25 * 1024 * 1024:
+        raise ValueError("media_too_large")
+    root = _workspace_root(workspace_id)
+    target = _validate_relative_path(root, path, strip_git_prefix=False)
+    lexical = root / path.replace("\\", "/")
+    if (lexical.absolute() != target or not target.parent.is_dir()
+            or target.parent.resolve() != target.parent):
+        raise ValueError("media_destination_unavailable")
+    digest = hashlib.sha256(data).hexdigest()
+    if target.exists():
+        if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+            return None, decision
+        raise ValueError("media_destination_conflict")
+    change_ledger.validate_client_ledger()
+    require_execution_writer(workspace_id)
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                         getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            descriptor = -1
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    try:
+        if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+            raise ValueError("media_destination_conflict")
+        change_set = change_ledger.record_change_set(
+            workspace_id=workspace_id, thread_id=thread_id,
+            summary=f"Import generated media {path}",
+            files=[FileChange(path=path.replace("\\", "/"), action="create", before_hash="",
+                              after_hash=digest, binary=True)],
+        )
+    except BaseException:
+        if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+            target.unlink()
+        raise
+    return change_set, decision
 
 # Explicit client edits share the file owner but require a complete revision
 # and a durable command-owned recovery receipt. Legacy tool signatures stay intact.

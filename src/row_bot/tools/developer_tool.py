@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import pathlib
 import subprocess
 
@@ -30,7 +31,7 @@ from row_bot.tools import registry
 from row_bot.tools.base import BaseTool
 
 
-def _active_workspace():
+def _active_workspace(*, write: bool = False):
     workspace_id = get_workspace_id()
     if not workspace_id:
         workspace_id = infer_workspace_id_from_thread(get_thread_id())
@@ -39,6 +40,8 @@ def _active_workspace():
     workspace = get_workspace(workspace_id)
     if workspace is None:
         raise ValueError("The active Developer workspace could not be found.")
+    from row_bot.application.conversation_writer import require_execution_writer
+    require_execution_writer(workspace_id, write=write)
     root = pathlib.Path(workspace.path).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"Developer workspace folder does not exist: {root}")
@@ -124,10 +127,11 @@ def _read_file(path: str, max_chars: int = 20000) -> str:
     if not target.is_file():
         return f"File not found: {path}"
     text = target.read_text(encoding="utf-8", errors="replace")
+    revision = hashlib.sha256(target.read_bytes()).hexdigest()
     limit = max(1000, min(max_chars, 100_000))
     if len(text) > limit:
-        return text[:limit] + "\n...[file truncated]"
-    return text
+        return f"SHA256: {revision}\n" + text[:limit] + "\n...[file truncated]"
+    return f"SHA256: {revision}\n" + text
 
 
 class _SearchInput(BaseModel):
@@ -220,7 +224,7 @@ class _RunDetectedInput(BaseModel):
 
 
 def _run_detected(command: str) -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
     specs = detect_project_commands(workspace.path)
     chosen = next((spec for spec in specs if spec.label == command or spec.command == command), None)
@@ -246,7 +250,7 @@ class _RunCommandInput(BaseModel):
 
 
 def _run_command(command: str, timeout: int = 120, approval_reason: str = "") -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
     result = run_workspace_shell_command(
         workspace.path,
@@ -284,7 +288,7 @@ class _GitBranchInput(BaseModel):
 
 
 def _create_branch(branch_name: str) -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
         approval = interrupt({
@@ -300,7 +304,7 @@ def _create_branch(branch_name: str) -> str:
 
 
 def _switch_branch(branch_name: str) -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
         approval = interrupt({
@@ -321,7 +325,7 @@ class _GitCommitInput(BaseModel):
 
 
 def _commit_changes(message: str, paths: list[str] | None = None) -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_commit")
     if not decision.allowed:
         approval = interrupt({
@@ -338,7 +342,7 @@ def _commit_changes(message: str, paths: list[str] | None = None) -> str:
 
 
 def _push_current_branch() -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     result = push_current_branch(workspace.path, _active_approval_mode(), confirmed=False)
     if result.decision and result.decision.requires_approval:
         approval = interrupt({
@@ -358,7 +362,7 @@ class _GitFastForwardInput(BaseModel):
 
 
 def _fast_forward_merge(branch_name: str) -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
         approval = interrupt({
@@ -379,7 +383,7 @@ class _ImportSandboxInput(BaseModel):
 
 
 def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
     pending = get_pending_change(pending_change_id)
     if pending is None or pending.workspace_id != workspace.id:
@@ -428,7 +432,7 @@ def _preview_patch(patch: str, summary: str = "") -> str:
 
 
 def _apply_patch(patch: str, summary: str = "") -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
     if workspace.execution_mode == "docker":
         decision = developer_edits.ordinary_edit_decision(_active_approval_mode())
@@ -495,10 +499,42 @@ class _WriteFileInput(BaseModel):
     path: str = Field(description="Workspace-relative file path to create or replace.")
     content: str = Field(description="Complete UTF-8 text content for the file.")
     summary: str = Field(default="", description="Short summary of the intended file change.")
+    expected_sha256: str = Field(default="", description="SHA256 from developer_read_file when replacing an existing file. Leave empty only for a new file.")
 
 
-def _write_file(path: str, content: str, summary: str = "") -> str:
-    workspace, _root = _active_workspace()
+class _ImportMediaInput(BaseModel):
+    media_ref: str = Field(description="Opaque generated-media reference owned by this conversation.")
+    path: str = Field(description="New workspace-relative .png, .jpg, or .mp4 file path in an existing folder. Never overwrite a file.")
+
+
+def _import_media(media_ref: str, path: str) -> str:
+    workspace, _root = _active_workspace(write=True)
+    if workspace.execution_mode == "docker":
+        return "Import into the real code folder is unavailable while Docker Sandbox mode is active."
+    change_set, decision = developer_edits.import_conversation_media(
+        workspace_id=workspace.id, thread_id=get_thread_id(), media_ref=media_ref,
+        path=path, approval_mode=_active_approval_mode(),
+    )
+    if decision.requires_approval:
+        approval = interrupt({
+            "tool": "developer_import_media",
+            "label": "Import generated media",
+            "description": f"Copy one conversation output to {path} in {workspace.name}",
+            "args": {"workspace": workspace.name, "media_ref": media_ref, "path": path},
+        })
+        if not approval:
+            return "Media import cancelled by user."
+        change_set, decision = developer_edits.import_conversation_media(
+            workspace_id=workspace.id, thread_id=get_thread_id(), media_ref=media_ref,
+            path=path, approval_mode=_active_approval_mode(), confirmed=True,
+        )
+    if change_set is None:
+        return decision.reason if decision.decision == "block" or decision.requires_approval else "Media already exists at that path."
+    return f"Imported {path} as change set {change_set.id}."
+
+
+def _write_file(path: str, content: str, summary: str = "", expected_sha256: str = "") -> str:
+    workspace, _root = _active_workspace(write=True)
     thread_id = get_thread_id()
     if workspace.execution_mode == "docker":
         decision = developer_edits.ordinary_edit_decision(_active_approval_mode())
@@ -535,6 +571,7 @@ def _write_file(path: str, content: str, summary: str = "") -> str:
         approval_mode=_active_approval_mode(),
         summary=summary,
         confirmed=False,
+        expected_sha256=expected_sha256,
     )
     if decision.requires_approval:
         approval = interrupt({
@@ -553,6 +590,7 @@ def _write_file(path: str, content: str, summary: str = "") -> str:
             approval_mode=_active_approval_mode(),
             summary=summary,
             confirmed=True,
+            expected_sha256=expected_sha256,
         )
     if change_set is None:
         return decision.reason
@@ -564,7 +602,7 @@ class _RevertInput(BaseModel):
 
 
 def _revert_change_set(change_set_id: str) -> str:
-    workspace, _root = _active_workspace()
+    workspace, _root = _active_workspace(write=True)
     saved, _ = change_ledger.read_change_set(change_set_id)
     if change_ledger.requires_guarded_undo(saved):
         from row_bot import agent, conversation_resources
@@ -632,7 +670,7 @@ class DeveloperTool(BaseTool):
 
     @property
     def enabled_by_default(self) -> bool:
-        return False
+        return True
 
     def execute(self, query: str) -> str:
         return _workspace_info()
@@ -657,6 +695,7 @@ class DeveloperTool(BaseTool):
             StructuredTool.from_function(func=_preview_patch, name="developer_preview_patch", description="Validate and preview a unified diff patch without writing files.", args_schema=_PatchInput),
             StructuredTool.from_function(func=_apply_patch, name="developer_apply_patch", description="Apply a validated unified diff patch inside the active Developer workspace and record an agent-owned change set.", args_schema=_PatchInput),
             StructuredTool.from_function(func=_write_file, name="developer_write_file", description="Create or replace a workspace-relative text file and record an agent-owned change set.", args_schema=_WriteFileInput),
+            StructuredTool.from_function(func=_import_media, name="developer_import_media", description="Copy one generated image or video from this conversation into a new code-folder file through Developer's writer lease and change ledger. Requires the exact media reference and an unused path.", args_schema=_ImportMediaInput),
             StructuredTool.from_function(func=_list_agent_changes, name="developer_list_agent_changes", description="List agent-owned change sets recorded for this Developer thread."),
             StructuredTool.from_function(func=_revert_change_set, name="developer_revert_agent_changes", description="Revert an agent-owned change set if files have not drifted.", args_schema=_RevertInput),
         ]

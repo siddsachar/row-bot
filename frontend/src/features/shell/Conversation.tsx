@@ -333,14 +333,18 @@ function ApprovalBar({
 
 export default function Conversation({
   onPanel,
+  completedDesignId,
+  onResourceOpened,
   onNewChat = () => undefined,
   focusConversationId,
   onComposerFocused,
   firstPrompt,
   onFirstPromptConsumed,
-  compactContext = false,
+  compactContext: compactFromViewport = false,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
+  completedDesignId?: string;
+  onResourceOpened?: (bindingId: string) => void;
   onNewChat?: () => void;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
@@ -553,6 +557,18 @@ export default function Conversation({
     steeringClaim?.key === steeringKey ? steeringClaim.claim : null;
   const [steeringOpen, setSteeringOpen] = useState(false);
   const chatContentRef = useRef<HTMLDivElement>(null);
+  const chatWorkspaceRef = useRef<HTMLDivElement>(null);
+  const [narrowChat, setNarrowChat] = useState(false);
+  const compactContext = compactFromViewport || narrowChat;
+  useEffect(() => {
+    const element = chatWorkspaceRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrowChat(entry.contentRect.width < 720);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptContentRef = useRef<HTMLDivElement>(null);
   const followingLatest = useRef(true);
@@ -576,6 +592,16 @@ export default function Conversation({
   const running = generation && !generation.quiesced;
   const controls = state.workspace?.controls;
   const resources = state.workspace?.resources ?? [];
+  const defaultTargetIds = resources
+    .filter(
+      (resource) =>
+        resource.available &&
+        (resource.binding.kind === 'workspace' ||
+          (resource.binding.kind === 'artifact' &&
+            resources.filter((item) => item.binding.kind === 'artifact')
+              .length === 1)),
+    )
+    .map((resource) => resource.binding.binding_id);
   const sendActionReady = Boolean(
     state.workspace?.actions.find((action) => action.action === 'send')?.ready,
   );
@@ -1114,7 +1140,11 @@ export default function Conversation({
       return;
     }
     const targets: WriteTarget[] = (example ? [] : resources)
-      .filter((r) => (targetSelection[id] ?? []).includes(r.binding.binding_id))
+      .filter((r) =>
+        (targetSelection[id] ?? defaultTargetIds).includes(
+          r.binding.binding_id,
+        ),
+      )
       .map((r) => ({
         kind: r.binding.kind as 'artifact' | 'workspace',
         binding_id: r.binding.binding_id,
@@ -1449,6 +1479,7 @@ export default function Conversation({
     }
   }
   function resourcePanel(resource: ResourceView) {
+    onResourceOpened?.(resource.binding.binding_id);
     onPanel({
       panel_kind:
         resource.binding.kind === 'artifact'
@@ -1459,6 +1490,17 @@ export default function Conversation({
       resource_kind: resource.binding.kind,
       resource_revision: resource.resource_revision,
     });
+    overlay.close();
+  }
+  function useOutputInCode(output: { reference: string; mime: string }) {
+    if (!id) return;
+    const current = controller.getDraft(id);
+    const instruction = `Import conversation output ${output.reference} (${output.mime}) into the primary code folder with Developer's media import. Choose an unused workspace-relative filename. Use the existing output; do not generate it again.`;
+    controller.setDraft(id, {
+      ...current,
+      text: [current.text.trim(), instruction].filter(Boolean).join('\n\n'),
+    });
+    composerRef.current?.focus();
   }
   function setup() {
     overlay.open({
@@ -1582,9 +1624,57 @@ export default function Conversation({
   ) : (
     <p className="muted">Agents appear after a conversation is created.</p>
   );
+  const lastWriterEvent = [...state.activity]
+    .reverse()
+    .find(
+      (item) =>
+        item.event.type === 'agent.activity' &&
+        item.event.payload.run_id.startsWith('chat-'),
+    )?.event;
+  const writerQueued =
+    lastWriterEvent?.type === 'agent.activity' &&
+    lastWriterEvent.payload.status === 'queued';
+  const durableOutputs = rows.flatMap((row) =>
+    (row.traces ?? []).flatMap((group) =>
+      group.items.flatMap((item) =>
+        (item.specialization?.media ?? []).map((media) => ({
+          id: media.media_ref,
+          reference: media.media_ref,
+          mime: media.mime_type,
+        })),
+      ),
+    ),
+  );
+  const liveOutputs = state.activity
+    .filter((item) => item.event.type === 'media.available')
+    .map((item) => ({
+      id: item.event.event_id,
+      reference:
+        item.event.type === 'media.available'
+          ? item.event.payload.media_ref
+          : '',
+      mime:
+        item.event.type === 'media.available'
+          ? item.event.payload.mime_type
+          : '',
+    }));
+  const outputs = [
+    ...new Map(
+      [
+        ...(state.workspace?.generated_outputs ?? []).map((output) => ({
+          id: output.media_ref,
+          reference: output.media_ref,
+          mime: output.mime_type,
+        })),
+        ...durableOutputs,
+        ...liveOutputs,
+      ].map((output) => [output.reference, output]),
+    ).values(),
+  ];
   const contextRail = id ? (
     <ConversationContextRail
       conversationId={id}
+      conversationRevision={state.workspace?.revision ?? '0'}
       resources={resources}
       suggestions={(state.suggestions ?? []).filter(
         (suggestion) => suggestion.conversation_id === id,
@@ -1593,6 +1683,11 @@ export default function Conversation({
       connectionStatus={state.status}
       terminalAvailable={terminalAvailable}
       agents={delegatedActivity}
+      outputs={outputs}
+      completedDesignId={completedDesignId}
+      writerQueued={writerQueued}
+      onCancelWait={() => void action('conversation.stop')}
+      onUseOutputInCode={useOutputInCode}
       onAddResource={setup}
       onOpenResource={resourcePanel}
       onUnbindResource={unbindResource}
@@ -1619,6 +1714,7 @@ export default function Conversation({
   return (
     <div
       className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
+      ref={chatWorkspaceRef}
     >
       <div
         className="chat-content"
@@ -1948,12 +2044,12 @@ export default function Conversation({
           {!!resources.length && (
             <ResourceTargets
               resources={resources}
-              selected={targetSelection[id] ?? []}
+              selected={targetSelection[id] ?? defaultTargetIds}
               onChange={(kind, bindingId) =>
                 setTargets((previous) => ({
                   ...previous,
                   [id]: [
-                    ...(previous[id] ?? []).filter(
+                    ...(previous[id] ?? defaultTargetIds).filter(
                       (binding) =>
                         !resources.some(
                           (resource) =>
@@ -2079,9 +2175,9 @@ export default function Conversation({
                           model_selection: controls.model_selection,
                           write_targets: resources
                             .filter((resource) =>
-                              (targetSelection[id ?? ''] ?? []).includes(
-                                resource.binding.binding_id,
-                              ),
+                              (
+                                targetSelection[id ?? ''] ?? defaultTargetIds
+                              ).includes(resource.binding.binding_id),
                             )
                             .map((resource) => ({
                               kind: resource.binding.kind as
@@ -2096,7 +2192,7 @@ export default function Conversation({
                   }
                   targets={resources
                     .filter((resource) =>
-                      (targetSelection[id ?? ''] ?? []).includes(
+                      (targetSelection[id ?? ''] ?? defaultTargetIds).includes(
                         resource.binding.binding_id,
                       ),
                     )

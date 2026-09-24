@@ -467,6 +467,52 @@
       "title": "ConversationControls",
       "type": "object"
     },
+    "MediaAvailable": {
+      "additionalProperties": false,
+      "properties": {
+        "media_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Media Ref",
+          "type": "string"
+        },
+        "message_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "mime_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "video/mp4",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/wav",
+            "audio/flac",
+            "audio/aac",
+            "application/pdf",
+            "application/octet-stream"
+          ],
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Tool Call Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_ref",
+        "mime_type"
+      ],
+      "title": "MediaAvailable",
+      "type": "object"
+    },
     "ModelSelection": {
       "additionalProperties": false,
       "properties": {
@@ -920,6 +966,14 @@
       "title": "Conversation Id",
       "type": "string"
     },
+    "generated_outputs": {
+      "items": {
+        "$ref": "#/$defs/MediaAvailable"
+      },
+      "maxItems": 20,
+      "title": "Generated Outputs",
+      "type": "array"
+    },
     "profiles": {
       "items": {
         "$ref": "#/$defs/ProfileChoice"
@@ -950,6 +1004,12 @@
     "revision": {
       "pattern": "^(0|[1-9][0-9]{0,19})$",
       "title": "Revision",
+      "type": "string"
+    },
+    "writer_status": {
+      "default": "",
+      "maxLength": 40,
+      "title": "Writer Status",
       "type": "string"
     }
   },

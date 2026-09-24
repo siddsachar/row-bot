@@ -702,6 +702,28 @@ const descriptions: Record<string, ClientError> = {
     message: 'This resource changed. Reload and review your action.',
     recovery: 'review',
   },
+  resource_setup_partial: {
+    code: 'resource_setup_partial',
+    message:
+      'Resource setup needs recovery. Retry the same message to reconcile its receipt, or open Context to review the saved resource.',
+    recovery: 'retry',
+  },
+  media_destination_is_code_folder: {
+    code: 'media_destination_is_code_folder',
+    message:
+      'The configured workspace is a code folder. Use the Developer import action instead.',
+    recovery: 'review',
+  },
+  media_destination_conflict: {
+    code: 'media_destination_conflict',
+    message: 'A different file already occupies this saved output name.',
+    recovery: 'review',
+  },
+  media_destination_unavailable: {
+    code: 'media_destination_unavailable',
+    message: 'The configured workspace cannot be used for this saved output.',
+    recovery: 'review',
+  },
   origin_repair_required: {
     code: 'origin_repair_required',
     message:

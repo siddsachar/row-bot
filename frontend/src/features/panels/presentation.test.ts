@@ -84,6 +84,18 @@ describe('one deterministic conversation panel presentation policy', () => {
     expect(replay.layout).toBe(first);
     expect(replay.available).toEqual([]);
   });
+  it('keeps newly bound resources closed when Context owns discovery', () => {
+    const result = reconcilePanelPresentation(
+      createPanelLayout(),
+      input({
+        resources: [workspace, deck],
+        source: 'update',
+        autoOpenResources: false,
+      }),
+    );
+    expect(result.layout.panels).toEqual([]);
+    expect(result.available).toEqual([]);
+  });
   it.each([deck, workspace])(
     'explicit successful setup opens $binding.kind after confirmed binding',
     (value) => {

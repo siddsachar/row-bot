@@ -344,8 +344,70 @@ def resources(x_fixture_token: str = Header(default="")) -> dict:
             "git_present": (folder / ".git").exists()}
 
 
+@app.get("/__p3_fixture/calls")
+def phase3_calls(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    with predecessor._lock:
+        return {"calls": [dict(call) for call in predecessor._calls], "external_calls": 0}
+
+
+@app.get("/__p3_fixture/natural/{conversation_id}")
+def natural_result(conversation_id: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot.conversation_resources import list_bindings
+    from row_bot.developer.storage import get_workspace
+    from row_bot.designer.client_service import read_artifact
+    result = {"bindings": []}
+    for binding in list_bindings(conversation_id).bindings:
+        if binding.kind == "workspace":
+            workspace = get_workspace(binding.resource_id)
+            folder = Path(workspace.path).resolve()
+            if not folder.is_relative_to(predecessor.DATA):
+                raise HTTPException(status_code=403)
+            file = folder / "index.html"
+            result["bindings"].append({"kind": "workspace", "id": binding.resource_id,
+                "file_exists": file.is_file(), "git_present": (folder / ".git").exists()})
+        else:
+            project = read_artifact(binding.resource_id)
+            result["bindings"].append({"kind": "artifact", "id": binding.resource_id,
+                "page_count": len(project.pages), "first_title": project.pages[0].title if project.pages else ""})
+    return result
+
+
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
+    if "natural code fixture" in text or "natural design fixture" in text:
+        from row_bot import agent
+        from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_revision
+        from row_bot.conversation_resources import current_execution_context
+        call = predecessor._record("submit", config, "natural-resource")
+        thread = call["conversation_id"]
+        agent._set_active_runtime_context(thread_id=thread, runtime_surface="normal_chat",
+            approval_mode=config["configurable"]["approval_mode"],
+            agent_run_id=config["configurable"].get("agent_run_id", ""))
+        context = current_execution_context()
+        try:
+            if "natural code fixture" in text:
+                from row_bot.tools.developer_tool import _write_file
+                assert context and context.resolve("workspace")
+                outcome = _write_file("index.html", "<!doctype html><title>Fixture landing</title>")
+                assert outcome.startswith("Wrote index.html")
+                final = "Built the synthetic landing page in the bound draft."
+            else:
+                from row_bot.designer.tool import _set_pages
+                assert context and context.resolve("artifact")
+                outcome = _set_pages([{"title": "Fixture cover", "html": "<!doctype html><html><body><h1>Fixture deck</h1></body></html>"}])
+                assert outcome.startswith("Set 1 pages")
+                final = "Created the synthetic presentation in the bound design."
+            native_id = fixture_id("natural:" + call["generation_id"])
+            append_checkpoint_messages(thread, [AIMessage(id=native_id, content=final)])
+            yield "token", final
+            yield "output_binding", {"native_message_id": native_id,
+                "checkpoint_revision": get_latest_checkpoint_revision(thread)}
+            yield "done", final
+        finally:
+            call["quiesced"] = True
+        return
     if any(marker in text for marker in ("rich fixture", "steering fixture", "burst fixture", "cadence fixture", "exhaustion fixture", "target fixture", "fail first draft")):
         from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages
         settings = config["configurable"]
@@ -661,9 +723,11 @@ def conversation_state(conversation_id: str, x_fixture_token: str = Header(defau
     predecessor._authorize(x_fixture_token)
     from row_bot.application.client_platform import client_platform_service
     from row_bot.application.workspace_setup import conversation_workspace
+    from row_bot.application.conversation_drafts import read_draft
 
     return {"conversation": client_platform_service.get_conversation(conversation_id),
             "snapshot": client_platform_service.snapshot(conversation_id),
+            "draft": read_draft(client_platform_service, conversation_id),
             "workspace": conversation_workspace(client_platform_service, conversation_id)}
 
 
@@ -1620,6 +1684,10 @@ def main() -> None:
     seeded = json.loads(state_path.read_text(encoding="utf-8"))
     seeded["developer"]["workspace_id"] = storage._workspace_id_for_path(predecessor.DATA / "fixture-workspace")
     state_path.write_text(json.dumps(seeded), encoding="utf-8")
+    # Test mode omits optional tools. Register the two real workspace tools so
+    # natural chat exercises the same capability discovery as an install.
+    import row_bot.tools.developer_tool  # noqa: F401
+    import row_bot.designer.tool  # noqa: F401
     import row_bot.agent as agent
     from row_bot import models
     from row_bot.providers import reasoning

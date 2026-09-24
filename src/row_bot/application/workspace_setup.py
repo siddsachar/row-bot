@@ -23,11 +23,13 @@ def _empty_workspace(command: dict, target: str, *, owner_id: str, key: str,
     if authorized_folder is None:
         raise ClientPlatformError("capability_revoked")
     saved = (previous or {}).get("_empty_workspace")
+    draft = bool(command["payload"].get("draft_workspace") or (previous or {}).get("draft_workspace"))
     recovery = EmptyWorkspaceRecovery(**saved) if saved else None
     original = str((previous or {}).get("setup_command_id") or command["command_id"])
     name = recovery.folder_name if recovery else command["payload"]["empty_workspace"]["folder_name"]
     result = {**(previous or {}), "command_id": command["command_id"], "setup_command_id": original,
               "status": "admitting", "resource_kind": "workspace", "setup_intent": "create",
+              "draft_workspace": draft,
               "association_required": True, "confirmed_stages": (previous or {}).get("confirmed_stages", []),
               **({"conversation_id": target} if target != "resources" else {})}
     result.pop("code", None)
@@ -35,7 +37,7 @@ def _empty_workspace(command: dict, target: str, *, owner_id: str, key: str,
 
     def confirmed(value: EmptyWorkspaceRecovery) -> None:
         result.update(resource_id=value.resource_id, _empty_workspace=asdict(value),
-                      folder_reselection_required=True)
+                      folder_reselection_required=not draft)
         admissions.command_progress(owner_id, key, result)
 
     try:
@@ -45,7 +47,7 @@ def _empty_workspace(command: dict, target: str, *, owner_id: str, key: str,
         if exc.recovery is None and exc.code != "workspace_creation_unconfirmed":
             raise ClientPlatformError(exc.code) from exc
         result.update(status="partial", code=exc.code,
-                      folder_reselection_required=bool(result.get("_empty_workspace")))
+                      folder_reselection_required=bool(result.get("_empty_workspace")) and not draft)
         admissions.command_progress(owner_id, key, result)
         return result, None
     result.update(resource_id=registration.workspace.resource_id,
@@ -176,6 +178,10 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                 return previous
         elif raw_previous.get("_empty_workspace"):
             previous["_empty_workspace"] = raw_previous["_empty_workspace"]
+            previous["draft_workspace"] = bool(raw_previous.get("draft_workspace"))
+            if previous["draft_workspace"]:
+                from row_bot.application.conversation_creation import _draft_parent
+                authorized_folder = _draft_parent()
             previous, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
                 authorized_folder=authorized_folder, previous=previous, validate=validate)
             if registration is None:
@@ -196,7 +202,7 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
         if intent == "new_conversation" and (
             kind != "workspace" or target != "resources"
             or not payload.get("resource_id") or not payload.get("expected_resource_revision")
-            or any(payload.get(field) is not None for field in ("deck", "artifact", "empty_workspace", "clone_workspace", "folder_grant", "expected_origin_id"))
+            or any(payload.get(field) is not None for field in ("deck", "artifact", "empty_workspace", "draft_workspace", "clone_workspace", "folder_grant", "expected_origin_id"))
         ):
             raise ClientPlatformError("invalid_command")
         if intent == "add" and target == "resources":
@@ -205,6 +211,10 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
             current = service._metadata(target)
             if str(current["client_revision"]) != command["expected_revision"]:
                 raise ClientPlatformError("revision_conflict", str(current["client_revision"]))
+            if kind == "workspace" and intent == "create" and any(
+                item.kind == "workspace" for item in list_bindings(target).bindings
+            ):
+                raise ClientPlatformError("resource_ambiguous")
         identity = payload.get("resource_id")
         created = False
         if intent == "create":
@@ -230,6 +240,17 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                 if validate:
                     validate()
                 empty_result, registration = _clone_workspace(command, target, owner_id=owner_id, key=key,
+                                                               authorized_folder=authorized_folder, validate=validate)
+                if registration is None:
+                    return empty_result
+                identity, created = registration.workspace.resource_id, registration.created
+            elif payload.get("draft_workspace") is True:
+                from row_bot.application.conversation_creation import _draft_parent
+                authorized_folder = _draft_parent()
+                command = {**command, "payload": {**payload, "empty_workspace": {
+                    "folder_name": f"Draft-{str(command['command_id'])[:12]}",
+                }}}
+                empty_result, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
                                                                authorized_folder=authorized_folder, validate=validate)
                 if registration is None:
                     return empty_result
@@ -269,7 +290,9 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                               folder_reselection_required=True)
                 result['confirmed_stages'] = empty_result['confirmed_stages']
             else:
-                result.update(_empty_workspace=empty_result["_empty_workspace"], folder_reselection_required=True)
+                result.update(_empty_workspace=empty_result["_empty_workspace"],
+                              draft_workspace=bool(empty_result.get("draft_workspace")),
+                              folder_reselection_required=not bool(empty_result.get("draft_workspace")))
         conversation = target if target != "resources" else choice["origin_conversation_id"]
         if intent == "new_conversation":
             # An explicit separate history never changes a saved origin, even
@@ -410,7 +433,11 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     ready = generation_readiness(service, controls)
     from row_bot.application.context_status import read_usage
     from row_bot.application.reasoning_controls import reasoning_view
+    from row_bot.application.attachments import list_generated_outputs
+    from row_bot.application.conversation_writer import writer_status
     return {"conversation_id": identity, "revision": str(row["client_revision"]), "controls": controls,
+            "generated_outputs": list_generated_outputs(identity),
+            "writer_status": writer_status(identity),
             "context_usage": read_usage(service, identity, controls),
             "reasoning": reasoning_view(identity, model),
             "composer": read_conversation_composer(

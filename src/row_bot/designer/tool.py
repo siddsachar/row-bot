@@ -1578,7 +1578,7 @@ class DesignerTool(BaseTool):
         ]
 
     def as_langchain_tools(self) -> list:
-        if get_ui_active_project() is None:
+        if get_active_project() is None:
             return []
         base_tools = [
             StructuredTool.from_function(
