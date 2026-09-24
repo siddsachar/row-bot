@@ -131,6 +131,11 @@ class HttpResult:
             raise SmokeError("Server returned invalid JSON during Docker smoke") from exc
 
 
+def assert_unauthenticated_root_connection_flow(response: HttpResult) -> None:
+    if response.status != 303 or response.header("Location") != "/connect?next=%2Fapp-v2%2F":
+        raise SmokeError("Unauthenticated root did not use the neutral connection flow")
+
+
 class HttpTransport(Protocol):
     def send(
         self,
@@ -753,8 +758,7 @@ print(json.dumps({'configured': bool(value), 'digest': hashlib.sha256(value.enco
                     stage="unauthenticated root check",
                     retry_transient=True,
                 )
-                if neutral.status != 303 or neutral.header("Location") != "/connect?next=%2F":
-                    raise SmokeError("Unauthenticated root did not use the neutral connection flow")
+                assert_unauthenticated_root_connection_flow(neutral)
 
                 doctor = self._exec_json(
                     "row-bot",

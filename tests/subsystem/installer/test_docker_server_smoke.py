@@ -112,6 +112,26 @@ class SequenceHttp:
         return ()
 
 
+@pytest.mark.parametrize(
+    ("status", "location", "valid"),
+    (
+        (303, "/connect?next=%2Fapp-v2%2F", True),
+        (303, "/connect?next=%2F", False),
+        (200, "/connect?next=%2Fapp-v2%2F", False),
+    ),
+)
+def test_unauthenticated_root_connects_to_react_client(
+    status: int, location: str, valid: bool
+) -> None:
+    response = smoke.HttpResult(status, (("Location", location),), b"")
+
+    if valid:
+        smoke.assert_unauthenticated_root_connection_flow(response)
+    else:
+        with pytest.raises(smoke.SmokeError, match="neutral connection flow"):
+            smoke.assert_unauthenticated_root_connection_flow(response)
+
+
 def test_container_command_matches_compose_security_and_never_builds_or_pulls() -> None:
     command = smoke.container_run_args(
         image="row-bot:test",
