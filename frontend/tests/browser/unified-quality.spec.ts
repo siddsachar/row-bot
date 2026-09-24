@@ -125,7 +125,11 @@ test('real tools and media keep one composer through every colour theme and syst
         lineHeight: getComputedStyle(element).lineHeight,
       }));
     expect(responseReading).toEqual({ fontSize: '16px', lineHeight: '24px' });
-    await writeEvidence(testInfo, 'actual-response-reading-type', responseReading);
+    await writeEvidence(
+      testInfo,
+      'actual-response-reading-type',
+      responseReading,
+    );
     await screenshot(page, testInfo, 'settled-tools-media');
     await writeEvidence(testInfo, 'appearance-after-generation', {
       conversation,
