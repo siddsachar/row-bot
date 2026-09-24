@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "backup_required": {
+      "title": "Backup Required",
+      "type": "boolean"
+    },
+    "conflicts": {
+      "maximum": 4096,
+      "minimum": 0,
+      "title": "Conflicts",
+      "type": "integer"
+    },
+    "overwrite": {
+      "title": "Overwrite",
+      "type": "boolean"
+    },
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "review_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Review Digest",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "selected": {
+      "maximum": 4096,
+      "minimum": 1,
+      "title": "Selected",
+      "type": "integer"
+    },
+    "sensitive": {
+      "maximum": 4096,
+      "minimum": 0,
+      "title": "Sensitive",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "plan_id",
+    "revision",
+    "review_digest",
+    "selected",
+    "conflicts",
+    "sensitive",
+    "overwrite",
+    "backup_required"
+  ],
+  "title": "MigrationApplyReview",
+  "type": "object"
+}

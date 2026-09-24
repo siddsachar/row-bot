@@ -6,12 +6,17 @@ import type {
   EntitySummaryPage,
   KnowledgeEntityDetail,
   KnowledgeSettingsSnapshot,
+  SettingsSnapshot,
 } from '../../api/types';
 import DocumentsCatalog from './DocumentsCatalog';
 import KnowledgeCatalog, {
   type KnowledgeMaintenanceIO,
   type KnowledgePageLoader,
 } from './KnowledgeCatalog';
+import {
+  SettingsDraftOwner,
+  type SettingsMutationIO,
+} from './SettingsSnapshotPanels';
 
 const revision = 'a'.repeat(64);
 const catalogRevision = 'b'.repeat(64);
@@ -132,6 +137,74 @@ it('renders the memory switch, lifecycle totals, four filters, and debounced sea
     expect.any(AbortSignal),
   );
   vi.useRealTimers();
+});
+
+it('saves the Memory switch on one click with its exact reviewed request', async () => {
+  const saved = { revision: 'saved-b' } as SettingsSnapshot;
+  const mutation = {
+    revision: 'saved-a',
+    page: 'knowledge',
+    review: vi.fn<SettingsMutationIO['review']>(async (request) => ({
+      schema_version: 1,
+      operation: 'settings.update',
+      settings_revision: request.settings_revision,
+      page: request.page,
+      field: request.field,
+      value_summary: 'disabled',
+      secret: false,
+      action_digest: 'd'.repeat(64),
+      review_id: 'review-memory',
+    })),
+    execute: vi.fn<SettingsMutationIO['execute']>(
+      async (_request, _review, commandId) => ({
+        command_id: commandId,
+        status: 'completed',
+        settings_revision: 'saved-b',
+        snapshot: saved,
+      }),
+    ),
+    receipt: vi.fn<SettingsMutationIO['receipt']>(),
+    drafts: new SettingsDraftOwner(),
+    onSnapshot: vi.fn(),
+  } satisfies SettingsMutationIO;
+  render(<KnowledgeCatalog snapshot={snapshot} settingsMutation={mutation} />);
+  fireEvent.click(screen.getByRole('switch', { name: 'Enable Memory' }));
+  await act(async () => undefined);
+  expect(mutation.review).toHaveBeenCalledWith({
+    settings_revision: 'saved-a',
+    page: 'knowledge',
+    field: 'memory_enabled',
+    value: false,
+  });
+  expect(mutation.execute).toHaveBeenCalledTimes(1);
+  expect(mutation.execute.mock.calls[0][0]).toEqual(
+    mutation.review.mock.calls[0][0],
+  );
+  expect(mutation.onSnapshot).toHaveBeenCalledWith(saved);
+});
+
+it('archives a saved entity on one click with its loaded revision', async () => {
+  const onLifecycle = vi.fn(async () => undefined);
+  render(
+    <KnowledgeCatalog
+      loadFiltered={async (filters) =>
+        filters.status === 'needs_review' ? { ...page(), items: [] } : page()
+      }
+      loadDetail={async () => detail()}
+      onLifecycle={onLifecycle}
+    />,
+  );
+  fireEvent.click(await screen.findByLabelText('Saved thought · fact'));
+  fireEvent.click(await screen.findByRole('button', { name: /Archive/ }));
+  await act(async () => undefined);
+  expect(onLifecycle).toHaveBeenCalledExactlyOnceWith(
+    'Saved_thought',
+    revision,
+    'knowledge.archive',
+  );
+  expect(
+    screen.queryByText(/Confirm lifecycle change/),
+  ).not.toBeInTheDocument();
 });
 
 it('loads rich details only on first expansion and renders safe provenance and actions', async () => {
@@ -260,9 +333,7 @@ it('reviews exact selected revisions and executes captured bulk deletion', async
     screen.getByRole('checkbox', { name: 'Select Saved thought' }),
   );
   await screen.findByText('1 selected · maximum 100');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review delete selected' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete selected' }));
   expect(maintenance.review).toHaveBeenCalledWith(
     'knowledge.delete.bulk',
     catalogRevision,

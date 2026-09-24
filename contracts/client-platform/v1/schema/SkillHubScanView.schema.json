@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "SkillHubFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 256,
+          "title": "Path",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "block",
+            "warn",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "code",
+        "message",
+        "path"
+      ],
+      "title": "SkillHubFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blocked": {
+      "title": "Blocked",
+      "type": "boolean"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/SkillHubFinding"
+      },
+      "maxItems": 50,
+      "title": "Findings",
+      "type": "array"
+    },
+    "token_estimate": {
+      "minimum": 0,
+      "title": "Token Estimate",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "blocked",
+    "findings",
+    "token_estimate"
+  ],
+  "title": "SkillHubScanView",
+  "type": "object"
+}

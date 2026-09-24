@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "confirmed": {
+      "title": "Confirmed",
+      "type": "boolean"
+    },
+    "overwrite": {
+      "default": false,
+      "title": "Overwrite",
+      "type": "boolean"
+    },
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "review_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Review Digest",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "selected_ids": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 4096,
+      "title": "Selected Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "revision",
+    "selected_ids",
+    "command_id",
+    "review_digest",
+    "confirmed"
+  ],
+  "title": "MigrationApplyCommand",
+  "type": "object"
+}

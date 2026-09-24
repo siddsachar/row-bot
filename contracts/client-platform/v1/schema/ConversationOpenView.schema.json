@@ -617,6 +617,17 @@
     "ConversationView": {
       "additionalProperties": false,
       "properties": {
+        "category": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "designer",
+            "code",
+            "workflow"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
         "generation_state": {
           "items": {
             "$ref": "#/$defs/GenerationState"

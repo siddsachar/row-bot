@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "SkillHubEntryView": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "maxLength": 160,
+          "title": "Author",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1000,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "title": "Id",
+          "type": "string"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 160,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Tags",
+          "type": "array"
+        },
+        "trust_level": {
+          "maxLength": 80,
+          "title": "Trust Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "source",
+        "author",
+        "trust_level",
+        "tags",
+        "installed"
+      ],
+      "title": "SkillHubEntryView",
+      "type": "object"
+    },
+    "SkillHubSourceStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 300,
+          "title": "Message",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 80,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 40,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "status",
+        "message"
+      ],
+      "title": "SkillHubSourceStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/SkillHubEntryView"
+      },
+      "maxItems": 24,
+      "title": "Entries",
+      "type": "array"
+    },
+    "error": {
+      "maxLength": 500,
+      "title": "Error",
+      "type": "string"
+    },
+    "mode": {
+      "maxLength": 40,
+      "title": "Mode",
+      "type": "string"
+    },
+    "query": {
+      "maxLength": 2000,
+      "title": "Query",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_statuses": {
+      "items": {
+        "$ref": "#/$defs/SkillHubSourceStatus"
+      },
+      "maxItems": 12,
+      "title": "Source Statuses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "mode",
+    "query",
+    "entries",
+    "source_statuses",
+    "error"
+  ],
+  "title": "SkillHubSearchResult",
+  "type": "object"
+}

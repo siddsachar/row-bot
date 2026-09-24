@@ -195,9 +195,7 @@ def api(tmp_path, monkeypatch):
             "tools": {"shell": True, "tracker": False, "gmail": True},
             "tool_configs": {
                 "shell": {"blocked_commands": "unsafe"},
-                "filesystem": {
-                    "workspace_root": str(data / "private-workspace")
-                },
+                "filesystem": {"workspace_root": str(data / "private-workspace")},
                 "web_search": {"api_key": "PRIVATE_SENTINEL"},
                 "gmail": {"selected_operations": ["search_gmail"]},
             },
@@ -727,7 +725,13 @@ def test_voice_actions_are_passive_during_review_and_execute_once(
     assert result.status_code == 200, result.text
     assert result.json()["status"] == "completed"
     assert calls == [field]
-    assert _execute(client, headers, request, review, command_id).json() == result.json()
+    assert (
+        _execute(client, headers, request, review, command_id).json() == result.json()
+    )
+    assert calls == [field]
+    assert (
+        _execute(client, headers, request, review, command_id).json() == result.json()
+    )
     assert calls == [field]
 
 
@@ -736,15 +740,15 @@ def test_voice_actions_are_passive_during_review_and_execute_once(
     [
         "browser.install",
         "computer_use.install",
+        "computer_use.test",
+        "computer_use.use_managed_runtime",
         "tunnel.check",
         "tunnel.start_main",
         "tunnel.stop_main",
         "logging.open",
     ],
 )
-def test_system_actions_are_reviewed_passive_and_execute_once(
-    api, monkeypatch, field
-):
+def test_system_actions_are_reviewed_passive_and_execute_once(api, monkeypatch, field):
     from row_bot.application import settings_commands
 
     client, headers, data, _ = api
@@ -767,8 +771,379 @@ def test_system_actions_are_reviewed_passive_and_execute_once(
     assert result.status_code == 200, result.text
     assert result.json()["status"] == "completed"
     assert calls == [field]
-    assert _execute(client, headers, request, review, command_id).json() == result.json()
-    assert calls == [field]
+
+
+def test_computer_use_disclosure_and_check_are_explicit_and_recoverable(
+    api, monkeypatch
+):
+    from row_bot.computer_use import readiness
+
+    client, headers, data, _ = api
+    calls = []
+
+    def check():
+        calls.append("check")
+        return readiness.CuaReadiness(
+            readiness.ReadinessCode.PERMISSION_MISSING,
+            "Cua Driver diagnostics need attention.",
+            remediation="Grant the required screen and control permissions, then check again.",
+        )
+
+    monkeypatch.setattr(readiness, "run_cua_diagnostics", check)
+    snapshot = client.get(BASE, headers=headers).json()
+    assert (
+        snapshot["system"]["computer_use"]["disclosure_text"]
+        == readiness.DISCLOSURE_TEXT
+    )
+    assert snapshot["system"]["computer_use"]["runtime_state"] == "disabled"
+    assert calls == []
+    assert not (data / "computer_use_settings.json").exists()
+
+    accept = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "computer_use.disclosure_acknowledged",
+        "value": True,
+    }
+    review = _review(client, headers, accept)
+    assert "Cua Driver telemetry notice" in review["value_summary"]
+    assert not (data / "computer_use_settings.json").exists()
+    result = _execute(client, headers, accept, review, str(uuid4()))
+    assert result.status_code == 200, result.text
+    assert result.json()["snapshot"]["system"]["computer_use"][
+        "disclosure_acknowledged"
+    ]
+
+    check = {
+        "settings_revision": result.json()["settings_revision"],
+        "page": "system",
+        "field": "computer_use.check",
+        "value": True,
+    }
+    reviewed_check = _review(client, headers, check)
+    assert calls == []
+    command_id = str(uuid4())
+    first = _execute(client, headers, check, reviewed_check, command_id)
+    assert first.status_code == 200, first.text
+    assert first.json()["action_result"]["code"] == "permission_missing"
+    assert "Grant the required" in first.json()["action_result"]["remediation"]
+    assert calls == ["check"]
+    assert (
+        _execute(client, headers, check, reviewed_check, command_id).json()
+        == first.json()
+    )
+    assert calls == ["check"]
+
+
+def test_system_cua_override_requires_disclosure_and_redacts_path(api, monkeypatch):
+    from row_bot.application.settings_commands import _apply, _intent
+    from row_bot.computer_use import readiness
+
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "computer_use.system_binary_verify",
+        "value": str(data / "synthetic-cua-binary"),
+    }
+    before = _tree(data)
+    review = _review(client, headers, request)
+    assert request["value"] not in str(review)
+    assert _tree(data) == before
+
+    with pytest.raises(readiness.CuaDisclosureRequired):
+        _apply(_intent(**request), validate=lambda: None)
+    assert _tree(data) == before
+
+    readiness.acknowledge_disclosure()
+    snapshot = client.get(BASE, headers=headers).json()
+    request["settings_revision"] = snapshot["revision"]
+    review = _review(client, headers, request)
+    calls = []
+
+    def fake_verify():
+        calls.append("verify")
+        return readiness.CuaReadiness(
+            readiness.ReadinessCode.VERSION_MISMATCH,
+            "System Cua is outside the reviewed version pin.",
+            remediation="Use the reviewed version.",
+        )
+
+    monkeypatch.setattr(readiness, "verify_system_cua", fake_verify)
+    command_id = str(uuid4())
+    result = _execute(client, headers, request, review, command_id)
+    assert result.status_code == 200, result.text
+    assert result.json()["action_result"]["code"] == "version_mismatch"
+    assert request["value"] not in result.text
+    assert calls == ["verify"]
+    assert (
+        _execute(client, headers, request, review, command_id).json() == result.json()
+    )
+    assert calls == ["verify"]
+
+
+def test_managed_cua_removal_is_explicit_and_deduplicated(api, monkeypatch):
+    from row_bot.computer_use import readiness
+
+    client, headers, data, _ = api
+    calls = []
+    monkeypatch.setattr(
+        readiness, "uninstall_cua_runtime", lambda: calls.append("remove") or True
+    )
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "computer_use.remove",
+        "value": True,
+    }
+    before = _tree(data)
+    review = _review(client, headers, request)
+    assert "Remove" in review["value_summary"]
+    assert calls == [] and _tree(data) == before
+    command_id = str(uuid4())
+    result = _execute(client, headers, request, review, command_id)
+    assert result.status_code == 200, result.text
+    assert result.json()["action_result"]["code"] == "removed"
+    assert result.json()["snapshot"]["system"]["computer_use"]["enabled"] is False
+    assert calls == ["remove"]
+    assert (
+        _execute(client, headers, request, review, command_id).json() == result.json()
+    )
+    assert calls == ["remove"]
+
+
+def test_macos_privacy_actions_open_only_fixed_local_panes(monkeypatch):
+    import platform
+    from row_bot.application.settings_commands import (
+        SettingsCommandError,
+        _run_system_action,
+    )
+    from row_bot.computer_use import readiness
+
+    calls = []
+    monkeypatch.setattr(readiness, "open_macos_privacy_settings", calls.append)
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    with pytest.raises(SettingsCommandError, match="settings_action_unavailable"):
+        _run_system_action("computer_use.open_accessibility")
+    assert calls == []
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    result = _run_system_action("computer_use.open_accessibility")
+    assert result["code"] == "opened"
+    _run_system_action("computer_use.open_screen_recording")
+    assert calls == ["accessibility", "screen_recording"]
+
+
+def test_reviewed_main_tunnel_persists_restart_choice_and_reports_webhook_url(
+    api, monkeypatch
+):
+    from row_bot.tunnel import tunnel_manager
+
+    client, headers, data, _ = api
+    active: dict[int, str] = {}
+    opened: list[int] = []
+    closed: list[int] = []
+
+    def start(port: int, *, label: str) -> str:
+        assert label == "main_app"
+        opened.append(port)
+        active[port] = "https://synthetic.ngrok.example"
+        return active[port]
+
+    def stop(port: int) -> None:
+        closed.append(port)
+        active.pop(port, None)
+
+    monkeypatch.setattr(tunnel_manager, "get_url", active.get)
+    monkeypatch.setattr(tunnel_manager, "start_tunnel", start)
+    monkeypatch.setattr(tunnel_manager, "stop_tunnel", stop)
+    before = _tree(data)
+    initial = client.get(BASE, headers=headers).json()
+    assert initial["system"]["tunnel"]["main_app_enabled"] is False
+    assert initial["system"]["tunnel"]["main_app_url"] is None
+    assert _tree(data) == before
+
+    request = {
+        "settings_revision": initial["revision"],
+        "page": "system",
+        "field": "tunnel.start_main",
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    assert _tree(data) == before
+    identity = str(uuid4())
+    response = _execute(client, headers, request, review, identity)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "completed"
+    tunnel = response.json()["snapshot"]["system"]["tunnel"]
+    assert tunnel["main_app_enabled"] is True
+    assert tunnel["main_app_url"] == "https://synthetic.ngrok.example"
+    assert tunnel["local_owner_control_available"] is True
+    assert (
+        json.loads((data / "channels_config.json").read_text())["tunnel"][
+            "tunnel_main_app"
+        ]
+        is True
+    )
+    assert (
+        _execute(client, headers, request, review, identity).json() == response.json()
+    )
+    assert len(opened) == 1
+
+    request = {
+        **request,
+        "settings_revision": response.json()["snapshot"]["revision"],
+        "field": "tunnel.stop_main",
+    }
+    review = _review(client, headers, request)
+    response = _execute(client, headers, request, review)
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["system"]["tunnel"]["main_app_enabled"] is False
+    assert response.json()["snapshot"]["system"]["tunnel"]["main_app_url"] is None
+    assert (
+        json.loads((data / "channels_config.json").read_text())["tunnel"][
+            "tunnel_main_app"
+        ]
+        is False
+    )
+    assert len(closed) == 1
+
+
+def test_failed_main_tunnel_start_does_not_save_restart_choice(api, monkeypatch):
+    from row_bot.tunnel import tunnel_manager
+
+    client, headers, data, _ = api
+    monkeypatch.setattr(tunnel_manager, "get_url", lambda port: None)
+    monkeypatch.setattr(
+        tunnel_manager,
+        "start_tunnel",
+        lambda port, *, label: (_ for _ in ()).throw(RuntimeError("synthetic failure")),
+    )
+    before = _tree(data)
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "tunnel.start_main",
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    result = _execute(client, headers, request, review)
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "partial"
+    assert _tree(data) == before
+
+
+@pytest.mark.parametrize("already_active", [False, True])
+def test_main_tunnel_save_failure_closes_only_newly_opened_tunnel(
+    api, monkeypatch, already_active
+):
+    from row_bot.application import settings_commands
+    from row_bot.app_port import get_app_port
+    from row_bot.tunnel import tunnel_manager
+
+    client, headers, data, _ = api
+    active: dict[int, str] = {}
+    if already_active:
+        active[get_app_port()] = "https://synthetic.ngrok.example"
+    closed: list[int] = []
+    monkeypatch.setattr(tunnel_manager, "get_url", active.get)
+
+    def start(port: int, *, label: str) -> str:
+        active[port] = "https://synthetic.ngrok.example"
+        return active[port]
+
+    def stop(port: int) -> None:
+        closed.append(port)
+        active.pop(port, None)
+
+    monkeypatch.setattr(tunnel_manager, "start_tunnel", start)
+    monkeypatch.setattr(tunnel_manager, "stop_tunnel", stop)
+    monkeypatch.setattr(
+        settings_commands,
+        "_write_json_setting",
+        lambda *args: (_ for _ in ()).throw(OSError("synthetic save failure")),
+    )
+    before = _tree(data)
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {
+        "settings_revision": snapshot["revision"],
+        "page": "system",
+        "field": "tunnel.start_main",
+        "value": True,
+    }
+    review = _review(client, headers, request)
+    command_id = str(uuid4())
+    result = _execute(client, headers, request, review, command_id)
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "partial"
+    assert result.json()["code"] == "settings_save_unconfirmed"
+    assert bool(closed) is not already_active
+    assert bool(active) is already_active
+    assert _tree(data) == before
+    receipt = client.get(BASE + "/commands/" + command_id, headers=headers)
+    assert receipt.status_code == 200 and receipt.json() == result.json()
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["tunnel.start_main", "computer_use.check", "computer_use.disclosure_acknowledged"],
+)
+def test_remote_settings_hide_webhook_url_and_deny_local_system_actions(
+    tmp_path, monkeypatch, field
+):
+    from row_bot.tunnel import tunnel_manager
+    from tests.subsystem.client_protocol.test_protocol_security import client_app
+
+    data = tmp_path / "remote-tunnel"
+    data.mkdir()
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    _write(data / "channels_config.json", {"tunnel": {"tunnel_main_app": [True]}})
+    monkeypatch.setattr(
+        tunnel_manager, "get_url", lambda port: "https://synthetic.ngrok.example"
+    )
+    local, _, _ = client_app()
+    remote, _, _ = client_app(remote=True)
+    with local, remote:
+        _, local_headers = bootstrap(local)
+        remote_handshake, remote_headers = bootstrap(remote)
+        local_response = local.get(BASE, headers=local_headers)
+        remote_response = remote.get(BASE, headers=remote_headers)
+        assert local_response.status_code == remote_response.status_code == 200
+        local_tunnel = local_response.json()["system"]["tunnel"]
+        remote_tunnel = remote_response.json()["system"]["tunnel"]
+        assert local_tunnel["main_app_url"] == "https://synthetic.ngrok.example"
+        assert local_tunnel["main_app_enabled"] is True
+        assert local_tunnel["local_owner_control_available"] is True
+        assert remote_tunnel["main_app_url"] is None
+        assert remote_tunnel["local_owner_control_available"] is False
+        request = {
+            "settings_revision": remote_response.json()["revision"],
+            "page": "system",
+            "field": field,
+            "value": True,
+        }
+        review = remote.post(BASE + "/review", headers=remote_headers, json=request)
+        assert review.status_code == 403
+        assert review.json()["code"] == "action_denied"
+        command_id = str(uuid4())
+        command = remote.post(
+            BASE + "/commands",
+            headers={**remote_headers, "Idempotency-Key": command_id},
+            json={
+                "command_id": command_id,
+                "client_session_id": remote_handshake["client_session_id"],
+                "type": "settings.update",
+                "payload": {
+                    **request,
+                    "action_digest": "a" * 64,
+                    "review_id": "b" * 64,
+                },
+            },
+        )
+        assert command.status_code == 403
+        assert command.json()["code"] == "action_denied"
 
 
 @pytest.mark.parametrize(
@@ -810,7 +1185,9 @@ def test_document_maintenance_actions_are_reviewed_passive_and_execute_once(
     assert result.status_code == 200, result.text
     assert result.json()["status"] == "completed"
     assert calls == [(field, data.absolute())]
-    assert _execute(client, headers, request, review, command_id).json() == result.json()
+    assert (
+        _execute(client, headers, request, review, command_id).json() == result.json()
+    )
     assert calls == [(field, data.absolute())]
 
 

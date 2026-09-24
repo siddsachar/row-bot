@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "save_profile",
+        "finish_models",
+        "mark_done",
+        "skip_step",
+        "dismiss_home",
+        "add_starters"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "expected_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "profile": {
+      "items": {
+        "maxLength": 32,
+        "type": "string"
+      },
+      "maxItems": 7,
+      "title": "Profile",
+      "type": "array"
+    },
+    "step": {
+      "default": "",
+      "maxLength": 32,
+      "title": "Step",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "expected_revision",
+    "action"
+  ],
+  "title": "OnboardingCommand",
+  "type": "object"
+}

@@ -309,17 +309,18 @@ export default function McpRuntimeControls({
         result.runtime_id !== command.payload.expected_runtime_id
       )
         throw Error();
+      const attempt = { command, review: result, runtimeId: result.runtime_id };
       session.updateSlot(name, {
-        reviewed: { command, review: result, runtimeId: result.runtime_id },
+        reviewed: attempt,
         busy: false,
-        message: `Review complete. ${operation === 'disconnect' ? 'Disconnect explicitly stops this connection.' : operation === 'test' ? 'Test explicitly opens a temporary connection and then closes it.' : 'Connect explicitly starts this saved server.'}`,
+        message: '',
       });
+      void submit(name, attempt);
     } catch {
       if (!abort.signal.aborted)
         session.updateSlot(name, {
           busy: false,
-          message:
-            'The action could not be reviewed. Refresh and review again.',
+          message: 'The action could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -460,24 +461,14 @@ export default function McpRuntimeControls({
           disabled={launchLocked}
           onClick={() => void requestReview('connect')}
         >
-          Review Connect
+          Connect
         </Button>
         <Button
           disabled={launchLocked}
           onClick={() => void requestReview('test')}
         >
-          Review Test
+          Test
         </Button>
-        {launch.reviewed && (
-          <Button
-            disabled={launchLocked}
-            onClick={() => void submit('launch', launch.reviewed)}
-          >
-            {launch.reviewed.command.payload.operation === 'test'
-              ? 'Test now'
-              : 'Connect now'}
-          </Button>
-        )}
         {launch.pending && (
           <Button
             disabled={launch.busy || !state.active}
@@ -493,16 +484,8 @@ export default function McpRuntimeControls({
           disabled={cleanupLocked}
           onClick={() => void requestReview('disconnect')}
         >
-          Review Disconnect
+          Disconnect
         </Button>
-        {cleanup.reviewed && (
-          <Button
-            disabled={cleanupLocked}
-            onClick={() => void submit('cleanup', cleanup.reviewed)}
-          >
-            Disconnect now
-          </Button>
-        )}
         {cleanup.pending && (
           <Button
             disabled={cleanup.busy || !state.active}

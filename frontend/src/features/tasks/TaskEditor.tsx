@@ -10,7 +10,14 @@ import type {
   TaskSaveResult,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  Skeleton,
+  Toggle,
+} from '../../ui/primitives';
 
 export interface TaskEditorProps {
   session?: TaskEditSession;
@@ -497,20 +504,18 @@ export default function TaskEditor({
             />
           </Field>
         )}
-        <label className="field">
-          <span>
-            <input
-              type="checkbox"
-              checked={fields.enabled}
-              onChange={(event) => change('enabled', event.target.checked)}
-            />{' '}
-            Enabled
-          </span>
+        <div className="field">
+          <span>Enabled</span>
+          <Toggle
+            label="Enabled"
+            checked={fields.enabled}
+            onChange={(event) => change('enabled', event.target.checked)}
+          />
           <small>
             Enabled scheduled tasks use the existing scheduler. Saving does not
             manually run a workflow.
           </small>
-        </label>
+        </div>
         {snapshot && (
           <p className="muted">
             Agent profile: {snapshot.agent_profile_id || 'Unspecified'}.

@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "WriteTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "binding_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Binding Revision",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "artifact",
+            "workspace"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "resource_id",
+        "kind",
+        "binding_revision",
+        "resource_revision"
+      ],
+      "title": "WriteTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Page Id",
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/WriteTarget"
+    }
+  },
+  "required": [
+    "target",
+    "page_id"
+  ],
+  "title": "ArtifactNotesGeneratePayload",
+  "type": "object"
+}

@@ -1,5 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Select } from '../../ui/primitives';
+import { Bug, Trash2 } from 'lucide-react';
+import { ModalTask } from '../../ui/overlays';
+import { clientError } from '../../api/errors';
+import {
+  Button,
+  CompactAction,
+  Field,
+  Input,
+  Select,
+} from '../../ui/primitives';
 
 export type McpConfigurationPage = {
   schema_version: 1;
@@ -15,12 +24,20 @@ export type McpConfigurationPage = {
     configured_fields: string[];
     tool_count: number | null;
     connection_present: boolean | null;
+    requirements?: {
+      id: 'node' | 'uv' | 'playwright-chrome' | 'other';
+      label: string;
+      available: boolean;
+      managed: boolean;
+      installable: boolean;
+      source: string;
+    }[];
   }[];
   total: number | null;
   next_cursor: string | null;
 };
 export type McpConfigurationIntent = {
-  operation: 'add' | 'edit' | 'rename' | 'import';
+  operation: 'add' | 'edit' | 'rename' | 'import' | 'delete';
   server_id?: string;
   fields?: Record<string, unknown>;
   import_json?: string;
@@ -41,6 +58,7 @@ export type McpConfigurationReceipt = {
   mcp_configuration?: {
     status: string;
     revision: string | null;
+    runtime_cleanup?: string;
     code?: string | null;
   };
 };
@@ -164,6 +182,25 @@ export type CapabilitySettingsProps = {
     command: McpConfigurationCommand,
     review: McpConfigurationReview,
   ) => Promise<McpConfigurationReceipt>;
+  searchDirectory?: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<{
+    schema_version: 1;
+    mode: 'live' | 'cache' | 'curated';
+    items: {
+      id: string;
+      name: string;
+      description: string;
+      source: string;
+      publisher: string;
+      transport: string;
+      risk_level: string;
+      requires_auth: boolean;
+      recommended: boolean;
+      import_json: string;
+    }[];
+  }>;
 };
 
 function boundedPage(page: McpConfigurationPage): McpConfigurationPage {
@@ -217,10 +254,22 @@ export default function CapabilitySettings({
   load,
   review,
   execute,
+  searchDirectory,
 }: CapabilitySettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [editorOpen, setEditorOpen] = useState(session.hasRetained());
-  const { page, draft, busy, pending, reviewed } = state;
+  const [directoryQuery, setDirectoryQuery] = useState('');
+  const [directoryResult, setDirectoryResult] = useState<Awaited<
+    ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
+  > | null>(null);
+  const [directoryBusy, setDirectoryBusy] = useState(false);
+  const [directoryError, setDirectoryError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{
+    server_id: string;
+    name: string;
+  } | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const { page, draft, busy, pending } = state;
   const locked = Boolean(busy || pending || !state.active);
   const canSave =
     state.active &&
@@ -282,7 +331,7 @@ export default function CapabilitySettings({
       reviewed: null,
       message: '',
     });
-  const requestReview = async () => {
+  const requestReview = async (override?: McpConfigurationIntent) => {
     if (
       session.getSnapshot().busy ||
       session.getSnapshot().pending ||
@@ -294,7 +343,7 @@ export default function CapabilitySettings({
     const abort = session.beginRead();
     session.update({ busy: 'review', reviewed: null, message: '' });
     try {
-      const intent = buildIntent(draft);
+      const intent = override ?? buildIntent(draft);
       if (new TextEncoder().encode(JSON.stringify(intent)).length > 128 * 1024)
         throw Error();
       const command: McpConfigurationCommand = {
@@ -307,22 +356,48 @@ export default function CapabilitySettings({
         result.configuration_revision !== command.payload.configuration_revision
       )
         throw Error();
-      if (!abort.signal.aborted)
+      if (!abort.signal.aborted) {
+        const attempt = { command, review: result };
         session.update({
-          reviewed: { command, review: result },
+          reviewed: attempt,
           busy: '',
-          message:
-            'Review complete. Save Disabled applies these settings without connecting the server.',
+          message: '',
         });
+        void save(attempt);
+      }
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The settings could not be reviewed. Check the fields and refresh saved settings.',
+            'The settings could not be validated. Check the fields and refresh saved settings.',
         });
     } finally {
       session.endRead(abort);
+    }
+  };
+  const search = async () => {
+    if (!searchDirectory || directoryBusy || !state.active) return;
+    const abort = session.beginRead();
+    setDirectoryBusy(true);
+    setDirectoryError('');
+    try {
+      const result = await searchDirectory(directoryQuery.trim(), abort.signal);
+      if (!abort.signal.aborted) {
+        if (result.schema_version !== 1 || result.items.length > 24)
+          throw Error();
+        setDirectoryResult(result);
+      }
+    } catch (cause) {
+      if (!abort.signal.aborted)
+        setDirectoryError(
+          clientError(cause).code === 'action_denied'
+            ? 'Directory search is available from the local owner device.'
+            : 'Directory unavailable. Search again or add a server manually.',
+        );
+    } finally {
+      session.endRead(abort);
+      if (!abort.signal.aborted) setDirectoryBusy(false);
     }
   };
   const save = async (attempt: Attempt | null) => {
@@ -341,13 +416,36 @@ export default function CapabilitySettings({
         result.status === 'completed' &&
         result.mcp_configuration?.status === 'saved'
       ) {
+        const deleted = attempt.command.payload.intent.operation === 'delete';
         session.update({
           pending: null,
           draft: emptyDraft(),
           busy: '',
+          page: page
+            ? {
+                ...page,
+                revision: null,
+                items: deleted
+                  ? page.items.filter(
+                      (item) =>
+                        item.server_id !==
+                        attempt.command.payload.intent.server_id,
+                    )
+                  : page.items,
+                total:
+                  deleted && page.total !== null ? page.total - 1 : page.total,
+              }
+            : null,
+          message: deleted
+            ? 'Server deleted. Its connection is stopped or no longer running. Refresh to load the current configuration.'
+            : 'Saved disabled. Refresh to view the current configuration. Connection cleanup was not requested.',
+        });
+      } else if (result.mcp_configuration?.code === 'mcp_cleanup_incomplete') {
+        session.update({
+          busy: '',
           page: page ? { ...page, revision: null } : null,
           message:
-            'Saved disabled. Refresh to view the current configuration. Connection cleanup was not requested.',
+            'Server settings were deleted, but connection cleanup is incomplete. Retry the original command.',
         });
       } else if (result.status === 'rejected')
         session.update({
@@ -355,7 +453,7 @@ export default function CapabilitySettings({
           busy: '',
           page: page ? { ...page, revision: null } : null,
           message:
-            'The save was rejected. Refresh and review your settings again.',
+            'The save was rejected. Refresh and check your settings again.',
         });
       else
         session.update({
@@ -455,7 +553,121 @@ export default function CapabilitySettings({
             >
               Refresh
             </Button>
+            <CompactAction
+              label="MCP diagnostics"
+              aria-expanded={diagnosticsOpen}
+              onClick={() => setDiagnosticsOpen((value) => !value)}
+            >
+              <Bug size={18} aria-hidden="true" />
+            </CompactAction>
           </div>
+          {diagnosticsOpen && (
+            <section className="card stack" aria-label="MCP diagnostics">
+              <h3>MCP diagnostics</h3>
+              <p>
+                Saved configuration: {page.availability}. Global access:{' '}
+                {page.enabled === null
+                  ? 'unknown'
+                  : page.enabled
+                    ? 'enabled'
+                    : 'disabled'}
+                .
+              </p>
+              <p>
+                {page.total ?? 'Unknown'} configured servers;{' '}
+                {page.items.length} on this page. Refresh to recheck connection
+                status.
+              </p>
+              {page.items.map((server) => (
+                <p key={server.server_id}>
+                  {server.name}: {server.runtime_status ?? 'not started'};
+                  connection{' '}
+                  {server.connection_present === null
+                    ? 'unknown'
+                    : server.connection_present
+                      ? 'present'
+                      : 'absent'}
+                  ; {server.tool_count ?? 'unknown'} tools.
+                </p>
+              ))}
+            </section>
+          )}
+          {searchDirectory && (
+            <details className="settings-supplemental-disclosure">
+              <summary>
+                <span>
+                  <strong>Browse MCP servers</strong>
+                  <small>
+                    Directory results are saved disabled until tested
+                  </small>
+                </span>
+              </summary>
+              <div className="stack settings-supplemental-content">
+                <p>
+                  Directory information is from third parties and is not audited
+                  by Row-Bot. Search contacts public directories only when you
+                  click Search.
+                </p>
+                <Field label="Search MCP directory">
+                  <Input
+                    value={directoryQuery}
+                    maxLength={128}
+                    disabled={locked || directoryBusy}
+                    onChange={(event) => setDirectoryQuery(event.target.value)}
+                  />
+                </Field>
+                <Button
+                  disabled={locked || directoryBusy}
+                  onClick={() => void search()}
+                >
+                  Search directories
+                </Button>
+                {directoryBusy && <p role="status">Searching directory…</p>}
+                {directoryError && <p role="alert">{directoryError}</p>}
+                {directoryResult && (
+                  <p role="status">
+                    {directoryResult.items.length} {directoryResult.mode}{' '}
+                    results
+                  </p>
+                )}
+                {directoryResult?.items.map((entry) => (
+                  <article
+                    className="card stack"
+                    key={`${entry.source}:${entry.id}`}
+                  >
+                    <strong>{entry.name}</strong>
+                    <p>{entry.description || 'No description provided.'}</p>
+                    <small>
+                      {entry.source} · {entry.publisher || 'Publisher unknown'}{' '}
+                      · {entry.transport} · {entry.risk_level || 'Risk unknown'}
+                      {entry.requires_auth ? ' · Account required' : ''}
+                    </small>
+                    <details>
+                      <summary>Configuration preview</summary>
+                      <pre className="text-preview">{entry.import_json}</pre>
+                    </details>
+                    <Button
+                      disabled={locked || !canSave}
+                      onClick={() =>
+                        void requestReview({
+                          operation: 'import',
+                          import_json: entry.import_json,
+                        })
+                      }
+                    >
+                      Import {entry.name} disabled
+                    </Button>
+                  </article>
+                ))}
+                {directoryResult?.items.length === 0 && (
+                  <p>
+                    No matching servers found. Try another query or add one
+                    manually.
+                  </p>
+                )}
+              </div>
+            </details>
+          )}
           <details className="settings-supplemental-disclosure">
             <summary>
               <span>
@@ -508,6 +720,51 @@ export default function CapabilitySettings({
                     {server.runtime_status ?? 'Runtime status unknown'} ·
                     Configured: {server.configured_fields.join(', ') || 'none'}
                   </small>
+                  {server.requirements && server.requirements.length > 0 && (
+                    <div
+                      className="stack"
+                      aria-label={`${server.name} requirements`}
+                    >
+                      {server.requirements.map((requirement) => (
+                        <div key={requirement.id} className="field-row">
+                          <span>
+                            {requirement.label}:{' '}
+                            {requirement.available
+                              ? `Available (${requirement.source})`
+                              : requirement.source === 'unknown'
+                                ? 'Status unavailable'
+                                : 'Missing'}
+                          </span>
+                          {!requirement.available &&
+                            requirement.installable && (
+                              <Button
+                                onClick={() => {
+                                  const controls = document.getElementById(
+                                    'managed-mcp-runtimes',
+                                  ) as HTMLDetailsElement | null;
+                                  if (controls) {
+                                    controls.open = true;
+                                    controls.scrollIntoView({
+                                      block: 'nearest',
+                                    });
+                                  }
+                                }}
+                              >
+                                Open {requirement.label} installer
+                              </Button>
+                            )}
+                          {!requirement.available &&
+                            !requirement.installable && (
+                              <small>
+                                {requirement.source === 'unknown'
+                                  ? 'Refresh to check again.'
+                                  : 'Set up this runtime, then refresh the server.'}
+                              </small>
+                            )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="settings-mcp-server-actions">
                   {onConnection && (
@@ -559,6 +816,18 @@ export default function CapabilitySettings({
                   >
                     Rename
                   </Button>
+                  <CompactAction
+                    label={`Delete ${server.name}`}
+                    disabled={locked || !canSave}
+                    onClick={() =>
+                      setDeleteTarget({
+                        server_id: server.server_id,
+                        name: server.name,
+                      })
+                    }
+                  >
+                    <Trash2 size={18} aria-hidden="true" />
+                  </CompactAction>
                 </div>
               </li>
             ))}
@@ -695,19 +964,40 @@ export default function CapabilitySettings({
             </>
           )}
           <div className="action-cluster">
-            <Button onClick={() => void requestReview()}>
-              Review settings
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!reviewed}
-              onClick={() => void save(reviewed)}
-            >
+            <Button variant="primary" onClick={() => void requestReview()}>
               Save Disabled
             </Button>
           </div>
         </fieldset>
       </details>
+      <ModalTask
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete MCP server"
+        description="This removes the saved configuration and stops its connection."
+      >
+        <p>{deleteTarget?.name}</p>
+        <div className="button-row">
+          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button
+            variant="danger"
+            disabled={locked}
+            onClick={() => {
+              if (!deleteTarget) return;
+              const target = deleteTarget;
+              setDeleteTarget(null);
+              void requestReview({
+                operation: 'delete',
+                server_id: target.server_id,
+              });
+            }}
+          >
+            Delete server
+          </Button>
+        </div>
+      </ModalTask>
       {pending && (
         <Button
           disabled={Boolean(busy) || !state.active}

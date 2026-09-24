@@ -67,7 +67,7 @@ function props(
   };
 }
 
-it('retains reviewed configuration through remount and observes late save without another effect', async () => {
+it('retains an unsent configuration through remount and observes late save without another effect', async () => {
   const session = new TaskEditSession('settings', 'task-a');
   const response = deferred<TaskSettingsSnapshot>();
   const callbacks = props({
@@ -78,9 +78,6 @@ it('retains reviewed configuration through remount and observes late save withou
   fireEvent.change(await screen.findByLabelText(/Concurrency group/), {
     target: { value: 'Retained group' },
   });
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
-  );
   first.unmount();
   const second = render(<TaskSettingsEditor {...callbacks} />);
   expect(await screen.findByLabelText(/Concurrency group/)).toHaveValue(
@@ -88,6 +85,10 @@ it('retains reviewed configuration through remount and observes late save withou
   );
   expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
   second.unmount();
   const third = render(<TaskSettingsEditor {...callbacks} />);
   expect(await screen.findByLabelText(/Concurrency group/)).toBeDisabled();
@@ -146,7 +147,7 @@ it('allows only original receipt recovery while a stale settings rejection is st
   expect(save).toHaveBeenCalledTimes(2);
 });
 
-it('loads settings without effects and reviews changed fields before saving', async () => {
+it('loads settings without effects and validates changed fields while saving', async () => {
   const callbacks = props();
   render(<TaskSettingsEditor {...callbacks} />);
   await screen.findByLabelText(/Agent profile ID/);
@@ -157,16 +158,12 @@ it('loads settings without effects and reviews changed fields before saving', as
   fireEvent.change(screen.getByLabelText(/Concurrency group/), {
     target: { value: 'synthetic-group' },
   });
-  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
-  );
-  expect(screen.getByRole('status')).toHaveTextContent(
-    'Reviewed effective approval policy: Block.',
-  );
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
+  expect(
+    screen.getByText('Saved workflow settings. No workflow was run.'),
+  ).toBeVisible();
   expect(callbacks.save).toHaveBeenCalledWith(
     'task-a',
     'a'.repeat(64),
@@ -177,17 +174,17 @@ it('loads settings without effects and reviews changed fields before saving', as
 });
 
 it('uses canonical reviewed profile and shows stricter effective policy', async () => {
+  const canonical = snapshot({
+    fields: {
+      ...fields,
+      agent_profile_id: 'builtin:review',
+      approval_mode: 'allow_all',
+    },
+    effective_approval_mode: 'block',
+  });
   const callbacks = props({
-    review: vi.fn().mockResolvedValue(
-      snapshot({
-        fields: {
-          ...fields,
-          agent_profile_id: 'builtin:review',
-          approval_mode: 'allow_all',
-        },
-        effective_approval_mode: 'block',
-      }),
-    ),
+    review: vi.fn().mockResolvedValue(canonical),
+    save: vi.fn().mockResolvedValue(canonical),
   });
   render(<TaskSettingsEditor {...callbacks} />);
   await screen.findByLabelText(/Agent profile ID/);
@@ -198,12 +195,14 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
     target: { value: 'allow_all' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
   expect(screen.getByLabelText(/Agent profile ID/)).toHaveValue(
     'builtin:review',
   );
-  expect(screen.getByRole('status')).toHaveTextContent('Block');
+  expect(
+    screen.getByText(/Reviewed effective approval policy: Block/),
+  ).toBeVisible();
   expect(screen.getByText(/Auto permits actions/)).toBeInTheDocument();
 });
 
@@ -221,7 +220,7 @@ it('clears inactive trigger target when changing trigger kind without creating a
     target: { value: 'webhook' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
   expect(callbacks.review).toHaveBeenCalledWith(
     'task-a',
@@ -278,19 +277,23 @@ it('keeps webhook download explicit and rotates only after acknowledgement', asy
   expect(callbacks.download).toHaveBeenLastCalledWith('task-a', 'c'.repeat(64));
 });
 
-it('does not discard reviewed unsaved settings through webhook rotation', async () => {
+it('does not rotate a webhook while a settings save is pending', async () => {
   const webhook = snapshot({
     fields: { ...fields, trigger_type: 'webhook' },
     webhook_configured: true,
   });
-  const callbacks = props({ load: vi.fn().mockResolvedValue(webhook) });
+  const pending = deferred<TaskSettingsSnapshot>();
+  const callbacks = props({
+    load: vi.fn().mockResolvedValue(webhook),
+    save: vi.fn().mockReturnValue(pending.promise),
+  });
   render(<TaskSettingsEditor {...callbacks} />);
   await screen.findByLabelText(/Concurrency group/);
   fireEvent.change(screen.getByLabelText(/Concurrency group/), {
     target: { value: 'unsaved' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
   expect(
     screen.getByRole('button', {
@@ -301,6 +304,7 @@ it('does not discard reviewed unsaved settings through webhook rotation', async 
     screen.getByRole('checkbox', { name: /I will update existing callers/ }),
   ).toBeDisabled();
   expect(callbacks.rotate).not.toHaveBeenCalled();
+  await act(async () => pending.resolve(webhook));
 });
 
 it('aborts a stale review and cannot overwrite newer edits with its result', async () => {
@@ -311,7 +315,7 @@ it('aborts a stale review and cannot overwrite newer edits with its result', asy
   fireEvent.change(screen.getByLabelText(/Concurrency group/), {
     target: { value: 'first' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
   fireEvent.change(screen.getByLabelText(/Concurrency group/), {
     target: { value: 'second' },
   });
@@ -322,7 +326,7 @@ it('aborts a stale review and cannot overwrite newer edits with its result', asy
     ),
   );
   expect(screen.getByLabelText(/Concurrency group/)).toHaveValue('second');
-  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+  expect(callbacks.save).not.toHaveBeenCalled();
 });
 
 it('retains draft on stale profile revision and requires explicit reload', async () => {
@@ -334,9 +338,6 @@ it('retains draft on stale profile revision and requires explicit reload', async
   fireEvent.change(screen.getByLabelText(/Concurrency group/), {
     target: { value: 'retained' },
   });
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
-  );
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
@@ -359,6 +360,10 @@ it('blocks duplicate effect submission and late save callbacks after unmount', a
   const save = screen.getByRole('button', { name: 'Save settings' });
   fireEvent.click(save);
   fireEvent.click(save);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
   expect(callbacks.save).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   view.unmount();
@@ -377,12 +382,12 @@ it('allows unavailable profile recovery without silently selecting another profi
   render(<TaskSettingsEditor {...callbacks} />);
   await screen.findByLabelText(/Agent profile ID/);
   expect(screen.getByLabelText(/Agent profile ID/)).toHaveValue('missing');
-  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
   fireEvent.change(screen.getByLabelText(/Agent profile ID/), {
     target: { value: 'builtin:worker' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review settings' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
   expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
 });
@@ -392,16 +397,16 @@ it('fences an old task review while the next task loads', async () => {
   const callbacks = props({ review: vi.fn().mockReturnValue(pending.promise) });
   const view = render(<TaskSettingsEditor {...callbacks} />);
   await screen.findByLabelText(/Agent profile ID/);
-  fireEvent.click(screen.getByRole('button', { name: 'Review settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
   view.rerender(<TaskSettingsEditor {...callbacks} taskId="task-b" />);
-  await screen.findByRole('button', { name: 'Review settings' });
+  await screen.findByRole('button', { name: 'Save settings' });
   await act(async () =>
     pending.resolve(
       snapshot({ fields: { ...fields, concurrency_group: 'old' } }),
     ),
   );
   expect(screen.getByLabelText(/Concurrency group/)).toHaveValue('');
-  expect(screen.getByRole('button', { name: 'Review settings' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
 });
 
 it('bounds optional suggestions and displays authored labels as plain text', async () => {

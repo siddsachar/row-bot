@@ -1,4 +1,11 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  memo,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import type {
   ApprovalView,
@@ -45,6 +52,7 @@ import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import { ComposerSkillChips } from './ComposerSkills';
+import { EXAMPLE_PROMPTS } from './welcome-prompts';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 
@@ -328,12 +336,16 @@ export default function Conversation({
   onNewChat = () => undefined,
   focusConversationId,
   onComposerFocused,
+  firstPrompt,
+  onFirstPromptConsumed,
   compactContext = false,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
   onNewChat?: () => void;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
+  firstPrompt?: { conversationId: string; text: string } | null;
+  onFirstPromptConsumed?: (conversationId: string) => void;
   compactContext?: boolean;
 }) {
   const state = useClientState();
@@ -453,6 +465,7 @@ export default function Conversation({
     conversation: string;
     value: ReturnType<typeof controller.getDraft>;
   } | null>(null);
+  const firstPromptSent = useRef<string | null>(null);
   useEffect(() => {
     receiptAlive.current = true;
     return () => {
@@ -1053,10 +1066,13 @@ export default function Conversation({
       if (receiptAlive.current) setBusy(false);
     }
   }
-  function send() {
+  function send(example?: string) {
+    const outgoing = example
+      ? { text: example, attachments: [] as typeof draft.attachments }
+      : draft;
     if (
       !id ||
-      !draft.text.trim() ||
+      !outgoing.text.trim() ||
       pendingSteering ||
       pendingSubmit ||
       pendingResume ||
@@ -1064,17 +1080,17 @@ export default function Conversation({
       !sendActionReady
     )
       return;
-    const commandText = draft.text.trim().toLocaleLowerCase();
+    const commandText = outgoing.text.trim().toLocaleLowerCase();
     const exactCommand = composerSnapshot?.commands.find((command) =>
       [command.token, ...command.aliases].some(
         (token) => token.toLocaleLowerCase() === commandText,
       ),
     );
     if (exactCommand) {
-      const start = draft.text.indexOf(draft.text.trim());
+      const start = outgoing.text.indexOf(outgoing.text.trim());
       void chooseSlash(exactCommand, {
         start,
-        end: start + draft.text.trim().length,
+        end: start + outgoing.text.trim().length,
       });
       return;
     }
@@ -1097,7 +1113,7 @@ export default function Conversation({
       );
       return;
     }
-    const targets: WriteTarget[] = resources
+    const targets: WriteTarget[] = (example ? [] : resources)
       .filter((r) => (targetSelection[id] ?? []).includes(r.binding.binding_id))
       .map((r) => ({
         kind: r.binding.kind as 'artifact' | 'workspace',
@@ -1106,26 +1122,47 @@ export default function Conversation({
         binding_revision: r.binding.revision,
         resource_revision: r.resource_revision,
       }));
-    const text = draft.text;
+    const text = outgoing.text;
     const selectedVersion = controller.getSelectionVersion();
-    if (targets.length)
-      overlay.open({
-        kind: 'alert',
-        title: 'Confirm resource targets',
-        description: `This message may change ${resources
-          .filter((r) =>
-            targets.some((t) => t.binding_id === r.binding.binding_id),
-          )
-          .map((r) => r.title)
-          .join(' and ')}. The selection stays fixed for this request.`,
-        confirmLabel: 'Send with these targets',
-        onConfirm: () => {
-          overlay.close();
-          void dispatch(text, targets, draft, selectedVersion);
-        },
-      });
-    else void dispatch(text, [], draft, selectedVersion);
+    void dispatch(text, targets, outgoing, selectedVersion);
   }
+  const sendFirstPrompt = useEffectEvent(() => send());
+  useEffect(() => {
+    if (
+      !firstPrompt ||
+      firstPrompt.conversationId !== id ||
+      firstPromptSent.current === id ||
+      !historyReady ||
+      state.status !== 'ready' ||
+      !sendActionReady ||
+      !controls?.model_selection ||
+      busy ||
+      talkBusy ||
+      pendingSubmit ||
+      pendingSteering ||
+      pendingResume ||
+      draft.text !== firstPrompt.text ||
+      draft.attachments.length
+    )
+      return;
+    firstPromptSent.current = id;
+    onFirstPromptConsumed?.(id);
+    sendFirstPrompt();
+  }, [
+    firstPrompt,
+    id,
+    historyReady,
+    state.status,
+    sendActionReady,
+    controls,
+    busy,
+    talkBusy,
+    pendingSubmit,
+    pendingSteering,
+    pendingResume,
+    draft,
+    onFirstPromptConsumed,
+  ]);
   async function action(
     type: 'conversation.stop' | 'conversation.steer' | 'conversation.resume',
   ) {
@@ -1483,24 +1520,14 @@ export default function Conversation({
   }
   function unbindResource(resource: ResourceView) {
     if (!id || !state.conversation) return;
-    overlay.open({
-      kind: 'alert',
-      title: 'Unbind resource?',
-      description:
-        'Remove this relationship. The resource and its original conversation remain saved.',
-      confirmLabel: 'Unbind',
-      onConfirm: () => {
-        overlay.close();
-        void controller
-          .intent(
-            id,
-            'conversation.unbind',
-            { binding_id: resource.binding.binding_id },
-            state.conversation!.revision,
-          )
-          .catch((e) => setError(clientError(e).message));
-      },
-    });
+    void controller
+      .intent(
+        id,
+        'conversation.unbind',
+        { binding_id: resource.binding.binding_id },
+        state.conversation.revision,
+      )
+      .catch((e) => setError(clientError(e).message));
   }
   function deleteConversation() {
     if (!id || !state.conversation) return;
@@ -1617,7 +1644,7 @@ export default function Conversation({
                 missingReceipt.key === submitKey ||
                 missingReceipt.key === resumeKey) && (
                 <Button disabled={busy} onClick={reviewMissingReceipt}>
-                  Review pending receipt
+                  Check pending receipt
                 </Button>
               )}
             {id && compactContext && (
@@ -1732,9 +1759,31 @@ export default function Conversation({
                     ? 'What would you like to work on?'
                     : 'A place for your ideas'
                 }
+                action={
+                  id && (
+                    <div className="stack" aria-label="Example prompts">
+                      {EXAMPLE_PROMPTS.map((prompt) => (
+                        <Button
+                          key={prompt}
+                          disabled={
+                            !sendActionReady ||
+                            busy ||
+                            !!pendingSubmit ||
+                            !!pendingResume ||
+                            !!pendingSteering
+                          }
+                          onClick={() => send(prompt)}
+                        >
+                          {prompt}
+                        </Button>
+                      ))}
+                    </div>
+                  )
+                }
               >
-                Start with a message. Resources can be added whenever you need
-                them.
+                Chat, reason, browse, use tools, and work with your local
+                knowledge, workflows, and designs. Settings can be finished
+                anytime.
               </EmptyState>
             )}
             {thinkingActive && (
@@ -2196,14 +2245,14 @@ export default function Conversation({
               <Button
                 onClick={() =>
                   overlay.open({
-                    title: 'Review draft conflict',
+                    title: 'Resolve draft conflict',
                     description:
                       'Choose which draft to keep. Messages are unchanged.',
                     content: <DraftConflict id={id} />,
                   })
                 }
               >
-                Review draft conflict
+                Resolve draft conflict
               </Button>
             )}
             {state.draftStatus === 'failed' && (

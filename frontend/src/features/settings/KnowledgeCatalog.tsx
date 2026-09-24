@@ -26,6 +26,7 @@ import {
   Field,
   Input,
   Skeleton,
+  Toggle,
 } from '../../ui/primitives';
 import WikiSettings, {
   type WikiSettingsSession,
@@ -358,12 +359,8 @@ export default function KnowledgeCatalog({
   );
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Record<string, string>>({});
-  const [lifecycleReview, setLifecycleReview] = useState<{
-    id: string;
-    revision: string;
-    action: 'knowledge.archive' | 'knowledge.restore' | 'knowledge.resolve';
-  } | null>(null);
   const [lifecyclePending, setLifecyclePending] = useState(false);
+  const lifecycleBusy = useRef(false);
   const [maintenanceReview, setMaintenanceReview] =
     useState<KnowledgeMaintenanceReview | null>(null);
   const [maintenancePending, setMaintenancePending] = useState<{
@@ -371,16 +368,13 @@ export default function KnowledgeCatalog({
   } | null>(null);
   const [maintenanceResult, setMaintenanceResult] =
     useState<KnowledgeMaintenanceReceipt | null>(null);
-  const [memoryReview, setMemoryReview] = useState<{
-    review: Awaited<ReturnType<SettingsMutationIO['review']>>;
-    value: boolean;
-  } | null>(null);
   const [memoryCommand, setMemoryCommand] = useState<{
     commandId: string;
     request: Parameters<SettingsMutationIO['execute']>[0];
     review: Parameters<SettingsMutationIO['execute']>[1];
   } | null>(null);
   const [memoryPending, setMemoryPending] = useState(false);
+  const memoryBusy = useRef(false);
   const epoch = useRef(0);
 
   useEffect(() => {
@@ -455,21 +449,22 @@ export default function KnowledgeCatalog({
     }
   }
 
-  async function applyLifecycle() {
-    if (!onLifecycle || !lifecycleReview || lifecyclePending) return;
+  async function applyLifecycle(
+    id: string,
+    revision: string,
+    action: 'knowledge.archive' | 'knowledge.restore' | 'knowledge.resolve',
+  ) {
+    if (!onLifecycle || lifecycleBusy.current) return;
+    lifecycleBusy.current = true;
     setLifecyclePending(true);
     try {
-      await onLifecycle(
-        lifecycleReview.id,
-        lifecycleReview.revision,
-        lifecycleReview.action,
-      );
-      setLifecycleReview(null);
+      await onLifecycle(id, revision, action);
       setDetails({});
       setReload((value) => value + 1);
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
+      lifecycleBusy.current = false;
       setLifecyclePending(false);
     }
   }
@@ -545,43 +540,28 @@ export default function KnowledgeCatalog({
   }
 
   async function reviewMemory(enabled: boolean) {
-    if (!settingsMutation || !snapshot || memoryPending || memoryCommand)
+    if (
+      !settingsMutation ||
+      !snapshot ||
+      memoryPending ||
+      memoryCommand ||
+      memoryBusy.current
+    )
       return;
-    setMemoryPending(true);
-    try {
-      setMemoryReview({
-        review: await settingsMutation.review({
-          settings_revision: settingsMutation.revision,
-          page: 'knowledge',
-          field: 'memory_enabled',
-          value: enabled,
-        }),
-        value: enabled,
-      });
-    } catch (cause) {
-      setError(clientError(cause).message);
-    } finally {
-      setMemoryPending(false);
-    }
-  }
-
-  async function applyMemory() {
-    if (!settingsMutation || !memoryReview || memoryPending || memoryCommand)
-      return;
+    memoryBusy.current = true;
     const request = {
       settings_revision: settingsMutation.revision,
       page: 'knowledge' as const,
       field: 'memory_enabled',
-      value: memoryReview.value,
+      value: enabled,
     };
-    const captured = {
-      commandId: crypto.randomUUID(),
-      request,
-      review: memoryReview.review,
-    };
-    setMemoryCommand(captured);
+    let admitted = false;
     setMemoryPending(true);
     try {
+      const review = await settingsMutation.review(request);
+      const captured = { commandId: crypto.randomUUID(), request, review };
+      setMemoryCommand(captured);
+      admitted = true;
       const receipt = await settingsMutation.execute(
         captured.request,
         captured.review,
@@ -589,17 +569,19 @@ export default function KnowledgeCatalog({
       );
       if (receipt.status === 'completed' && receipt.snapshot) {
         settingsMutation.onSnapshot(receipt.snapshot);
-        setMemoryReview(null);
         setMemoryCommand(null);
       } else
         setError(
           'The memory setting outcome is uncertain. Check its original receipt before retrying.',
         );
-    } catch {
+    } catch (cause) {
       setError(
-        'The memory setting outcome is uncertain. Check its original receipt before retrying.',
+        admitted
+          ? 'The memory setting outcome is uncertain. Check its original receipt before retrying.'
+          : clientError(cause).message,
       );
     } finally {
+      memoryBusy.current = false;
       setMemoryPending(false);
     }
   }
@@ -611,7 +593,6 @@ export default function KnowledgeCatalog({
       const receipt = await settingsMutation.receipt(memoryCommand.commandId);
       if (receipt.status === 'completed' && receipt.snapshot) {
         settingsMutation.onSnapshot(receipt.snapshot);
-        setMemoryReview(null);
         setMemoryCommand(null);
         setError('');
       } else
@@ -633,7 +614,7 @@ export default function KnowledgeCatalog({
   return (
     <div
       className="stack settings-knowledge-page"
-      aria-busy={loading || loadingMore}
+      aria-busy={loading || loadingMore || lifecyclePending}
     >
       {snapshot && (
         <KnowledgeGraphSummary
@@ -644,42 +625,13 @@ export default function KnowledgeCatalog({
           onToggle={(enabled) => void reviewMemory(enabled)}
         />
       )}
-      {memoryReview && (
-        <section
-          className="settings-reviewed-action stack"
-          aria-label="Reviewed memory setting"
+      {memoryCommand && (
+        <Button
+          disabled={memoryPending}
+          onClick={() => void checkMemoryReceipt()}
         >
-          <strong>
-            Memory will be {memoryReview.value ? 'enabled' : 'disabled'}.
-          </strong>
-          <p>
-            The reviewed saved tool configuration will be updated and the tool
-            registry refreshed.
-          </p>
-          <div className="actions">
-            <Button
-              disabled={memoryPending || Boolean(memoryCommand)}
-              onClick={() => setMemoryReview(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={memoryPending || Boolean(memoryCommand)}
-              onClick={() => void applyMemory()}
-            >
-              Apply memory setting
-            </Button>
-          </div>
-          {memoryCommand && (
-            <Button
-              disabled={memoryPending}
-              onClick={() => void checkMemoryReceipt()}
-            >
-              Check original receipt
-            </Button>
-          )}
-        </section>
+          Check original memory setting receipt
+        </Button>
       )}
       {wikiSession && (
         <WikiSettings compact session={wikiSession} snapshot={wikiSnapshot} />
@@ -803,27 +755,29 @@ export default function KnowledgeCatalog({
                 <div className="actions">
                   <Button onClick={() => onOpen?.(item.id)}>Edit</Button>
                   <Button
+                    disabled={lifecyclePending}
                     onClick={async () => {
                       const detail = await ensureDetail(item.id);
                       if (detail)
-                        setLifecycleReview({
-                          id: item.id,
-                          revision: detail.revision,
-                          action: 'knowledge.resolve',
-                        });
+                        await applyLifecycle(
+                          item.id,
+                          detail.revision,
+                          'knowledge.resolve',
+                        );
                     }}
                   >
                     Resolve
                   </Button>
                   <Button
+                    disabled={lifecyclePending}
                     onClick={async () => {
                       const detail = await ensureDetail(item.id);
                       if (detail)
-                        setLifecycleReview({
-                          id: item.id,
-                          revision: detail.revision,
-                          action: 'knowledge.archive',
-                        });
+                        await applyLifecycle(
+                          item.id,
+                          detail.revision,
+                          'knowledge.archive',
+                        );
                     }}
                   >
                     Archive
@@ -847,7 +801,7 @@ export default function KnowledgeCatalog({
                 void beginDelete('knowledge.delete.bulk', selectedTargets)
               }
             >
-              Review delete selected
+              Delete selected
             </Button>
           </div>
         )}
@@ -951,9 +905,10 @@ export default function KnowledgeCatalog({
                           {detail && detail.availability === 'available' && (
                             <KnowledgeDetail
                               detail={detail}
+                              pending={lifecyclePending}
                               onOpen={onOpen}
                               onLifecycle={(id, revision, action) =>
-                                setLifecycleReview({ id, revision, action })
+                                applyLifecycle(id, revision, action)
                               }
                               onDelete={() =>
                                 void beginDelete('knowledge.delete', [
@@ -1015,33 +970,6 @@ export default function KnowledgeCatalog({
           </div>
         </section>
       )}
-      {lifecycleReview && (
-        <section
-          className="settings-reviewed-action stack"
-          aria-label="Reviewed knowledge lifecycle action"
-        >
-          <h3>Review {lifecycleReview.action.split('.').at(-1)}</h3>
-          <p>
-            This exact saved revision will be changed through the reviewed
-            knowledge owner.
-          </p>
-          <div className="actions">
-            <Button
-              disabled={lifecyclePending}
-              onClick={() => setLifecycleReview(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={lifecyclePending}
-              onClick={() => void applyLifecycle()}
-            >
-              Confirm lifecycle change
-            </Button>
-          </div>
-        </section>
-      )}
       {maintenanceResult?.status !== 'completed' && maintenanceResult && (
         <p role="alert">
           Deletion was {maintenanceResult.status}. Deleted{' '}
@@ -1078,11 +1006,13 @@ export default function KnowledgeCatalog({
 
 function KnowledgeDetail({
   detail,
+  pending,
   onOpen,
   onLifecycle,
   onDelete,
 }: {
   detail: KnowledgeEntityDetail;
+  pending: boolean;
   onOpen?: (id: string) => void;
   onLifecycle?: (
     id: string,
@@ -1207,6 +1137,7 @@ function KnowledgeDetail({
         </Button>
         {detail.can_archive && (
           <Button
+            disabled={pending}
             onClick={() =>
               void onLifecycle?.(
                 detail.id,
@@ -1220,6 +1151,7 @@ function KnowledgeDetail({
         )}
         {detail.can_restore && (
           <Button
+            disabled={pending}
             onClick={() =>
               void onLifecycle?.(
                 detail.id,
@@ -1233,6 +1165,7 @@ function KnowledgeDetail({
         )}
         {detail.can_resolve && (
           <Button
+            disabled={pending}
             onClick={() =>
               void onLifecycle?.(
                 detail.id,
@@ -1280,10 +1213,8 @@ function KnowledgeGraphSummary({
         </div>
         <label className="settings-knowledge-switch">
           <span>{memoryStatus}</span>
-          <input
-            type="checkbox"
-            role="switch"
-            aria-label="Enable Memory"
+          <Toggle
+            label="Enable Memory"
             checked={snapshot.memory_enabled === true}
             disabled={disabled || !snapshot.memory_available}
             onChange={(event) => onToggle(event.target.checked)}

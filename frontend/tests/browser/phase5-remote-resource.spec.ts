@@ -74,8 +74,7 @@ test('browser resource setup uses server IDs and exports through a bounded downl
   ).toBeVisible();
 
   await page
-    .locator('.resource-chips')
-    .getByRole('button', { name: deckName, exact: true })
+    .getByRole('button', { name: `${deckName} Design`, exact: true })
     .click();
   const preview = page.getByRole('region', {
     name: 'Design preview',

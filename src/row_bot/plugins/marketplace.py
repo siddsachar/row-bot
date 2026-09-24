@@ -9,7 +9,7 @@ import pathlib
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -224,6 +224,31 @@ def get_entry(plugin_id: str, index: MarketplaceIndex | None = None) -> Marketpl
         if plugin.id == plugin_id:
             return plugin
     return None
+
+
+def source_dir_for_entry(entry: MarketplaceEntry) -> pathlib.Path | None:
+    """Resolve a directory-backed entry from an explicitly configured index."""
+    if not entry.path:
+        return None
+    path = pathlib.Path(entry.path).expanduser()
+    if path.is_absolute() and path.is_dir():
+        return path.resolve()
+    source = str(entry.index_source or "")
+    root: pathlib.Path | None = None
+    if source.startswith("file://"):
+        parsed = urlparse(source)
+        root = pathlib.Path(unquote(parsed.path)).expanduser()
+    elif source and source not in {"local", "unit-test"}:
+        candidate = pathlib.Path(source).expanduser()
+        if candidate.is_dir():
+            root = candidate
+    candidate = (root / entry.path if root is not None else path).resolve()
+    if root is not None:
+        try:
+            candidate.relative_to(root.resolve())
+        except ValueError:
+            return None
+    return candidate if candidate.is_dir() else None
 
 
 def check_updates(installed_manifests: list) -> list[dict[str, str]]:

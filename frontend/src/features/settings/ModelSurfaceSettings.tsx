@@ -145,7 +145,7 @@ export default function ModelSurfaceSettings({
     'surfaceSelection',
     emptySelections(),
   );
-  const [reviewed, setReviewed] = useProviderSettingsValue<Reviewed | null>(
+  const [, setReviewed] = useProviderSettingsValue<Reviewed | null>(
     session,
     'surfaceReviewed',
     null,
@@ -266,7 +266,13 @@ export default function ModelSurfaceSettings({
 
   async function review(surface: Surface) {
     const model = selected(surface);
-    if (locked || !configurationRevision || !model) return;
+    if (
+      locked ||
+      session.get('surfaceBusy', '') ||
+      !configurationRevision ||
+      !model
+    )
+      return;
     const abort = session.read();
     const fields: Fields = {
       provider_id: model.provider_id,
@@ -280,6 +286,7 @@ export default function ModelSurfaceSettings({
     setReviewed(null);
     setError('');
     setNotice('');
+    let approved: Reviewed | null = null;
     try {
       const result = await reviewChange(
         operation,
@@ -294,16 +301,14 @@ export default function ModelSurfaceSettings({
       )
         throw { code: 'revision_conflict' };
       if (!abort.signal.aborted && session.active) {
-        setReviewed({
+        approved = {
           operation,
           configurationRevision,
           fields,
           selectionRef: model.selection_ref,
           review: structuredClone(result),
-        });
-        setNotice(
-          `Review ready to ${operation.endsWith('.pin') ? 'add' : 'remove'} ${model.display_name} ${operation.endsWith('.pin') ? 'to' : 'from'} ${surface}.`,
-        );
+        };
+        setReviewed(approved);
       }
     } catch (cause) {
       if (!abort.signal.aborted) setError(clientError(cause).message);
@@ -311,6 +316,7 @@ export default function ModelSurfaceSettings({
       session.finishRead(abort);
       setBusy('');
     }
+    if (approved) await confirm(approved);
   }
 
   function settle(change: Reviewed, revision: string) {
@@ -326,8 +332,9 @@ export default function ModelSurfaceSettings({
     onChanged();
   }
 
-  async function confirm() {
-    const captured = session.get<Reviewed | null>('surfaceReviewed', null);
+  async function confirm(approved?: Reviewed) {
+    const captured =
+      approved ?? session.get<Reviewed | null>('surfaceReviewed', null);
     if (locked || !captured) return;
     const original: Pending = {
       ...structuredClone(captured),
@@ -434,7 +441,6 @@ export default function ModelSurfaceSettings({
             const pinned = available.filter((model) =>
               model.pinned_surfaces.includes(id),
             );
-            const reviewing = reviewed?.fields.surface === id;
             return (
               <section
                 className="settings-model-surface stack"
@@ -500,33 +506,11 @@ export default function ModelSurfaceSettings({
                         disabled={locked || !current}
                         onClick={() => void review(id)}
                       >
-                        Review{' '}
                         {current?.pinned_surfaces.includes(id)
-                          ? 'remove'
-                          : 'add'}{' '}
+                          ? 'Remove'
+                          : 'Add'}{' '}
                         {label} picker choice
                       </Button>
-                      {reviewing && (
-                        <>
-                          <Button
-                            variant="primary"
-                            disabled={locked}
-                            onClick={() => void confirm()}
-                          >
-                            Save reviewed picker change
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            disabled={locked}
-                            onClick={() => {
-                              setReviewed(null);
-                              setNotice('');
-                            }}
-                          >
-                            Edit
-                          </Button>
-                        </>
-                      )}
                     </div>
                   </>
                 ) : (

@@ -249,9 +249,9 @@ export async function openConversation(
   await expect(
     page.getByRole('button', { name: 'Browse history', exact: true }),
   ).toBeEnabled();
-  await expect(
-    page.getByRole('status').filter({ hasText: /^Connected$/ }),
-  ).toBeVisible();
+  await expect(page.locator('.connection-status.connected')).toHaveText(
+    'Connected',
+  );
   await expect(composer(page)).toBeVisible();
   await expect(composer(page)).toHaveCount(1);
 }

@@ -304,7 +304,7 @@ def test_settings_github_status_load_runs_off_ui_thread():
     load_body = source[load_start:load_end]
 
     assert "await run.io_bound" in load_body
-    assert "get_verified_github_account_status" in load_body
+    assert "_github_status_for_settings" in load_body
 
 
 def test_status_bar_registers_github_account_pill():

@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "make_available": {
+      "default": false,
+      "title": "Make Available",
+      "type": "boolean"
+    },
+    "preview_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Preview Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "preview_id",
+    "content_hash"
+  ],
+  "title": "SkillHubInstallCommand",
+  "type": "object"
+}

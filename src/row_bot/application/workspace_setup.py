@@ -55,6 +55,55 @@ def _empty_workspace(command: dict, target: str, *, owner_id: str, key: str,
     return result, registration
 
 
+def _clone_workspace(command: dict, target: str, *, owner_id: str, key: str,
+                     authorized_folder: Any, previous: dict | None = None,
+                     validate: Any = None) -> tuple[dict, Any | None]:
+    """Persist each clone stage; continuation never repeats uncertain network work."""
+    from row_bot.developer.client_clone import (
+        CloneCreationError, CloneRecovery, clone_selected_repository, source_name,
+    )
+    if authorized_folder is None:
+        raise ClientPlatformError('capability_revoked')
+    saved = (previous or {}).get('_clone_workspace')
+    recovery = CloneRecovery(**saved) if saved else None
+    original = str((previous or {}).get('setup_command_id') or command['command_id'])
+    source = recovery.source if recovery else command['payload']['clone_workspace']['repo_url']
+    try:
+        source_name(source)
+    except CloneCreationError as exc:
+        raise ClientPlatformError(exc.code) from exc
+    result = {**(previous or {}), 'command_id': command['command_id'],
+              'setup_command_id': original, 'status': 'admitting',
+              'resource_kind': 'workspace', 'setup_intent': 'create',
+              'association_required': True,
+              'confirmed_stages': list((previous or {}).get('confirmed_stages', [])),
+              **({'conversation_id': target} if target != 'resources' else {})}
+    result.pop('code', None)
+    admissions.command_progress(owner_id, key, result)
+
+    def persist(value: CloneRecovery) -> None:
+        result.update(resource_id=value.empty['resource_id'], _clone_workspace=asdict(value),
+                      folder_reselection_required=True)
+        if 'created' not in result['confirmed_stages']:
+            result['confirmed_stages'].append('created')
+        if value.stage == 'cloned' and 'cloned' not in result['confirmed_stages']:
+            result['confirmed_stages'].append('cloned')
+        admissions.command_progress(owner_id, key, result)
+
+    try:
+        registration = clone_selected_repository(
+            authorized_folder, source, command_id=original, persist=persist,
+            recovery=recovery, validate=validate or (lambda: None))
+    except CloneCreationError as exc:
+        result.update(status='partial', code=exc.code,
+                      folder_reselection_required=bool(result.get('_clone_workspace')))
+        admissions.command_progress(owner_id, key, result)
+        return result, None
+    result.update(resource_id=registration.workspace.resource_id,
+                  resource_revision=registration.workspace.revision)
+    return result, registration
+
+
 def resource_choice(kind: str, identity: str, revision: str | None = None) -> dict:
     from row_bot import threads
     if kind == "artifact":
@@ -119,7 +168,13 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
         if validate:
             validate()
         raw_previous = admissions.receipt(owner_id, str(payload["setup_command_id"])) or {}
-        if raw_previous.get("_empty_workspace"):
+        if raw_previous.get('_clone_workspace'):
+            previous['_clone_workspace'] = raw_previous['_clone_workspace']
+            previous, registration = _clone_workspace(command, target, owner_id=owner_id, key=key,
+                authorized_folder=authorized_folder, previous=previous, validate=validate)
+            if registration is None:
+                return previous
+        elif raw_previous.get("_empty_workspace"):
             previous["_empty_workspace"] = raw_previous["_empty_workspace"]
             previous, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
                 authorized_folder=authorized_folder, previous=previous, validate=validate)
@@ -141,7 +196,7 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
         if intent == "new_conversation" and (
             kind != "workspace" or target != "resources"
             or not payload.get("resource_id") or not payload.get("expected_resource_revision")
-            or any(payload.get(field) is not None for field in ("deck", "artifact", "empty_workspace", "folder_grant", "expected_origin_id"))
+            or any(payload.get(field) is not None for field in ("deck", "artifact", "empty_workspace", "clone_workspace", "folder_grant", "expected_origin_id"))
         ):
             raise ClientPlatformError("invalid_command")
         if intent == "add" and target == "resources":
@@ -171,6 +226,14 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                 else:
                     create_deck(identity, DeckSetup(**(payload.get("deck") or {})))
                 created = True
+            elif payload.get('clone_workspace') is not None:
+                if validate:
+                    validate()
+                empty_result, registration = _clone_workspace(command, target, owner_id=owner_id, key=key,
+                                                               authorized_folder=authorized_folder, validate=validate)
+                if registration is None:
+                    return empty_result
+                identity, created = registration.workspace.resource_id, registration.created
             elif payload.get("empty_workspace") is not None:
                 if validate:
                     validate()
@@ -201,7 +264,12 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                   "status": "partial", "resource_id": identity, "resource_kind": kind,
                   "resource_revision": choice["revision"], "confirmed_stages": ["created"] if created else []}
         if empty_result:
-            result.update(_empty_workspace=empty_result["_empty_workspace"], folder_reselection_required=True)
+            if '_clone_workspace' in empty_result:
+                result.update(_clone_workspace=empty_result['_clone_workspace'],
+                              folder_reselection_required=True)
+                result['confirmed_stages'] = empty_result['confirmed_stages']
+            else:
+                result.update(_empty_workspace=empty_result["_empty_workspace"], folder_reselection_required=True)
         conversation = target if target != "resources" else choice["origin_conversation_id"]
         if intent == "new_conversation":
             # An explicit separate history never changes a saved origin, even

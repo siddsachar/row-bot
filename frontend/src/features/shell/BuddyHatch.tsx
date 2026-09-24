@@ -262,7 +262,15 @@ export default function BuddyHatch(props: BuddyHatchProps) {
             approved.config_revision !== revision
           )
             throw new Error('hatch_review_changed');
-          setReview(approved);
+          if (request.action === 'remove') setReview(approved);
+          else {
+            const outcome = await props.confirm(approved.review_id);
+            if (!stillCurrent()) return;
+            if (!('command_id' in outcome))
+              throw new Error('hatch_result_changed');
+            setResult(outcome);
+            setReview(null);
+          }
         }
       }
     } catch {
@@ -314,7 +322,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
           disabled={busy || running || !prompt.trim()}
           onClick={() => void run('full')}
         >
-          Review Generate full Buddy
+          Generate full Buddy
         </Button>
         {props.selectedPack?.available &&
           props.selectedPack.assets.some((asset) => asset.id === 'preview') && (
@@ -322,44 +330,39 @@ export default function BuddyHatch(props: BuddyHatchProps) {
               disabled={busy || running}
               onClick={() => void run('motion')}
             >
-              Review motion
+              Generate motion
             </Button>
           )}
         {result?.has_still && !running && (
           <>
             <Button disabled={busy} onClick={() => void run('still')}>
-              Review still only
+              Use retained still
             </Button>
             <Button disabled={busy} onClick={() => void run('retained-motion')}>
-              Review motion from still
+              Generate motion from still
             </Button>
           </>
         )}
         {props.selectedPack?.generated && (
           <Button disabled={busy || running} onClick={() => void run('remove')}>
-            Review removal
+            Remove generated look
           </Button>
         )}
       </div>
-      {review && (
+      {review?.action === 'remove' && (
         <section
           className="buddy-hatch-review"
-          aria-label="Review Hatch action"
+          aria-label="Confirm generated look removal"
         >
           <p>
-            {review.action === 'remove'
-              ? 'Remove this generated look from the catalog. Its files will be retained; the default look is selected if needed.'
-              : review.action === 'still'
-                ? 'Create a new look from the retained still without contacting a provider.'
-                : `Generate ${review.action === 'full' ? 'a new look and six clips' : 'six new motion clips'}.`}
+            Remove this generated look from the catalog? Its files will be
+            retained; the default look is selected if needed.
           </p>
           {review.image_model && <p>Image model: {review.image_model}</p>}
           {review.video_model && <p>Video model: {review.video_model}</p>}
           <p>Provider calls: {review.provider_calls}</p>
           <Button disabled={busy} onClick={() => void run('confirm')}>
-            {review.action === 'remove'
-              ? 'Confirm removal'
-              : 'Confirm Hatch action'}
+            Confirm removal
           </Button>
           <Button
             disabled={busy}
@@ -369,7 +372,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
               setReview(null);
             }}
           >
-            Dismiss review
+            Keep generated look
           </Button>
         </section>
       )}

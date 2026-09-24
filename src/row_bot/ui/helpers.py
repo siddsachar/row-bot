@@ -64,9 +64,9 @@ def is_first_run() -> bool:
 
 
 def mark_onboarding_seen() -> None:
-    cfg = load_app_config()
-    cfg["onboarding_seen"] = True
-    save_app_config(cfg)
+    from row_bot.application.client_onboarding import update_onboarding_config
+
+    update_onboarding_config(lambda cfg: cfg.update(onboarding_seen=True))
 
 
 def is_setup_complete() -> bool:
@@ -75,9 +75,9 @@ def is_setup_complete() -> bool:
 
 
 def mark_setup_complete() -> None:
-    cfg = load_app_config()
-    cfg["setup_complete"] = True
-    save_app_config(cfg)
+    from row_bot.application.client_onboarding import update_onboarding_config
+
+    update_onboarding_config(lambda cfg: cfg.update(setup_complete=True))
 
 
 # ═════════════════════════════════════════════════════════════════════════════

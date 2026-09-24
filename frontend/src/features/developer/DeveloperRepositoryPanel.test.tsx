@@ -124,7 +124,7 @@ it('reads repository state without starting a Git, sandbox, or network action', 
   expect(props.execute).not.toHaveBeenCalled();
 });
 
-it('reviews an exact confined commit before applying it', async () => {
+it('commits exact confined paths from one click', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} />);
   await screen.findByRole('heading', { name: 'Repository & sandbox' });
@@ -134,9 +134,7 @@ it('reviews an exact confined commit before applying it', async () => {
   fireEvent.change(screen.getByLabelText(/Commit paths/), {
     target: { value: 'src/one.py\nsrc/two.py' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review commit' }));
-  await screen.findByText('Synthetic reviewed repository effect.');
-  expect(props.execute).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Commit changes' }));
   expect(props.review).toHaveBeenCalledWith(
     'developer.repository.commit',
     {
@@ -145,9 +143,6 @@ it('reviews an exact confined commit before applying it', async () => {
       paths: ['src/one.py', 'src/two.py'],
     },
     expect.any(AbortSignal),
-  );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed repository change' }),
   );
   await screen.findByText('Developer repository change completed.');
   expect(props.execute).toHaveBeenCalledOnce();
@@ -172,7 +167,7 @@ it('keeps unavailable clone install network and delete outside this authority', 
   ).toBeVisible();
 });
 
-it('reviews exact sandbox policy fields without probing or rebuilding it', async () => {
+it('saves exact sandbox policy fields in one click without rebuilding', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} />);
   await screen.findByRole('heading', { name: 'Execution sandbox' });
@@ -186,9 +181,9 @@ it('reviews exact sandbox policy fields without probing or rebuilding it', async
     target: { value: 'local/synthetic:1' },
   });
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review sandbox settings' }),
+    screen.getByRole('button', { name: 'Save sandbox settings' }),
   );
-  await screen.findByText('Synthetic reviewed repository effect.');
+  await screen.findByText('Developer repository change completed.');
   expect(props.review).toHaveBeenCalledWith(
     'developer.repository.sandbox.configure',
     {
@@ -199,7 +194,7 @@ it('reviews exact sandbox policy fields without probing or rebuilding it', async
     },
     expect.any(AbortSignal),
   );
-  expect(props.execute).not.toHaveBeenCalled();
+  expect(props.execute).toHaveBeenCalledOnce();
 });
 
 it('shows a blocked policy review without making it executable', async () => {
@@ -221,11 +216,8 @@ it('shows a blocked policy review without making it executable', async () => {
   }));
   render(<DeveloperRepositoryPanel {...props} />);
   await screen.findByRole('heading', { name: 'Git repository' });
-  fireEvent.click(screen.getByRole('button', { name: 'Review push' }));
-  await screen.findByText('Policy: block');
-  expect(
-    screen.getByRole('button', { name: 'Apply reviewed repository change' }),
-  ).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
+  await screen.findByText(/policy blocks this action/);
   expect(props.execute).not.toHaveBeenCalled();
 });
 
@@ -234,10 +226,10 @@ it('retains one unconfirmed command across remount and checks only that command'
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const rendered = render(<DeveloperRepositoryPanel {...props} />);
   await screen.findByRole('heading', { name: 'Repository & sandbox' });
-  fireEvent.click(screen.getByRole('button', { name: 'Review push' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
   await screen.findByText('Synthetic reviewed repository effect.');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed repository change' }),
+    screen.getByRole('button', { name: 'Confirm repository action' }),
   );
   await screen.findByText(/original change is unconfirmed/i);
   const original = props.execute.mock.calls[0];
@@ -266,10 +258,10 @@ it('tombstones drafts and an in-flight command when authentication ends', async 
   fireEvent.change(screen.getByLabelText('Pull request body'), {
     target: { value: 'private draft' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review push' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
   await screen.findByText('Synthetic reviewed repository effect.');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed repository change' }),
+    screen.getByRole('button', { name: 'Confirm repository action' }),
   );
   const command = props.execute.mock.calls[0][0];
   act(() => props.session.dispose());
@@ -311,10 +303,10 @@ it('rejects a response for another resource and retains the original recovery id
   }));
   render(<DeveloperRepositoryPanel {...props} />);
   await screen.findByRole('heading', { name: 'Repository & sandbox' });
-  fireEvent.click(screen.getByRole('button', { name: 'Review push' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
   await screen.findByText('Synthetic reviewed repository effect.');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed repository change' }),
+    screen.getByRole('button', { name: 'Confirm repository action' }),
   );
   await screen.findByText(/receipt target did not match/i);
   expect(

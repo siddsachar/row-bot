@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "DesignerPaletteItem": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "tool",
+            "page",
+            "asset"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "hint": {
+          "maxLength": 128,
+          "title": "Hint",
+          "type": "string"
+        },
+        "identity": {
+          "maxLength": 128,
+          "title": "Identity",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "prefill": {
+          "maxLength": 256,
+          "title": "Prefill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "label",
+        "hint",
+        "identity",
+        "prefill"
+      ],
+      "title": "DesignerPaletteItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "has_more_matches": {
+      "title": "Has More Matches",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/DesignerPaletteItem"
+      },
+      "maxItems": 60,
+      "title": "Items",
+      "type": "array"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "tools_available": {
+      "title": "Tools Available",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "tools_available",
+    "items",
+    "has_more_matches"
+  ],
+  "title": "DesignerPalette",
+  "type": "object"
+}

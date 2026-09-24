@@ -1,7 +1,23 @@
 import { useState } from 'react';
-import { BedDouble, BookOpenText, FileText, RefreshCw } from 'lucide-react';
+import {
+  BedDouble,
+  BookOpenText,
+  ClipboardCopy,
+  FileText,
+  RefreshCw,
+  Stethoscope,
+} from 'lucide-react';
+import type { SystemDiagnosis } from '../../api/types';
+import type { ClientPlatform } from '../../platform';
+import { writeClipboardText } from '../../platform/clipboard';
 import { ModalTask } from '../../ui/overlays';
-import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  CompactAction,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+} from '../../ui/primitives';
 
 export type MonitorAvailability =
   'available' | 'missing' | 'unavailable' | 'corrupt';
@@ -80,12 +96,14 @@ export type MonitorHomeProps = {
   loading: boolean;
   error?: string | null;
   onRefresh: () => void;
+  onRunDiagnosis: () => Promise<SystemDiagnosis>;
   onLoadFullLogs: () => void;
   fullLogsOpen: boolean;
   fullLogsLoading?: boolean;
   fullLogsError?: string | null;
   fullLogEntries: MonitorLogEntry[];
   onCloseFullLogs: () => void;
+  writeClipboard?: ClientPlatform['writeClipboard'];
 };
 
 const MAX_JOURNAL_ENTRIES = 20;
@@ -333,15 +351,55 @@ export default function MonitorHome({
   loading,
   error,
   onRefresh,
+  onRunDiagnosis,
   onLoadFullLogs,
   fullLogsOpen,
   fullLogsLoading = false,
   fullLogsError,
   fullLogEntries,
   onCloseFullLogs,
+  writeClipboard,
 }: MonitorHomeProps) {
   const [extractionJournalOpen, setExtractionJournalOpen] = useState(false);
   const [dreamJournalOpen, setDreamJournalOpen] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<SystemDiagnosis | null>(null);
+  const [diagnosisBusy, setDiagnosisBusy] = useState(false);
+  const [diagnosisError, setDiagnosisError] = useState('');
+  const [copyNotice, setCopyNotice] = useState('');
+
+  async function runDiagnosis() {
+    if (diagnosisBusy) return;
+    setDiagnosisBusy(true);
+    setDiagnosisError('');
+    setCopyNotice('');
+    try {
+      setDiagnosis(await onRunDiagnosis());
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : 'Diagnosis unavailable';
+      setDiagnosisError(message);
+    } finally {
+      setDiagnosisBusy(false);
+    }
+  }
+
+  async function copyDiagnosis() {
+    if (!diagnosis) return;
+    const report = [
+      'Row-Bot System Diagnosis',
+      '========================================',
+      ...diagnosis.checks.map(
+        (check) => `${check.name}: ${check.status} — ${check.detail}`,
+      ),
+    ].join('\n');
+    if (await writeClipboardText(report, writeClipboard)) {
+      setCopyNotice('Diagnosis report copied.');
+    } else {
+      setCopyNotice(
+        'Could not copy the report. Check clipboard permission and retry.',
+      );
+    }
+  }
 
   return (
     <section className="stack" aria-labelledby="monitor-heading">
@@ -358,6 +416,63 @@ export default function MonitorHome({
           {loading ? 'Refreshing…' : 'Refresh'}
         </Button>
       </header>
+
+      <section
+        className="capability-section stack"
+        aria-label="System diagnosis"
+      >
+        <div className="section-heading">
+          <div>
+            <h3>
+              <Stethoscope size={18} aria-hidden /> System diagnosis
+            </h3>
+            <p>
+              Check local services on request. This check may contact configured
+              local services and test network reachability.
+            </p>
+          </div>
+          <Button disabled={diagnosisBusy} onClick={() => void runDiagnosis()}>
+            <Stethoscope size={17} aria-hidden />{' '}
+            {diagnosisBusy
+              ? 'Checking…'
+              : diagnosis
+                ? 'Run again'
+                : 'Run diagnosis'}
+          </Button>
+        </div>
+        {diagnosisBusy && <Skeleton label="Running system diagnosis" />}
+        {diagnosisError && (
+          <ErrorState title="Diagnosis unavailable">
+            {diagnosisError}
+          </ErrorState>
+        )}
+        {diagnosis && !diagnosisBusy && (
+          <>
+            <div className="section-heading">
+              <p role="status">Checked {diagnosis.checks.length} services.</p>
+              <CompactAction
+                label="Copy diagnosis report"
+                onClick={() => void copyDiagnosis()}
+              >
+                <ClipboardCopy size={17} aria-hidden />
+              </CompactAction>
+            </div>
+            <ul aria-label="Diagnosis results">
+              {diagnosis.checks.map((check, index) => (
+                <li key={`${check.name}-${index}`}>
+                  <details>
+                    <summary>
+                      {check.name} · {check.status}
+                    </summary>
+                    <p>{check.detail}</p>
+                  </details>
+                </li>
+              ))}
+            </ul>
+            {copyNotice && <p role="status">{copyNotice}</p>}
+          </>
+        )}
+      </section>
 
       {error && (
         <ErrorState

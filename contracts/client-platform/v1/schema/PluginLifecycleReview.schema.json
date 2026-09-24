@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "install",
+        "update",
+        "remove",
+        "refresh"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "checksum": {
+      "maxLength": 128,
+      "title": "Checksum",
+      "type": "string"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "permissions": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Permissions",
+      "type": "array"
+    },
+    "plugin_id": {
+      "maxLength": 128,
+      "title": "Plugin Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 2048,
+      "title": "Source",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "plugin_id",
+    "name",
+    "version",
+    "source",
+    "checksum",
+    "permissions",
+    "disclosures",
+    "revision"
+  ],
+  "title": "PluginLifecycleReview",
+  "type": "object"
+}

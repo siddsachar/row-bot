@@ -94,6 +94,10 @@ function renderMonitor(overrides: Partial<MonitorHomeProps> = {}) {
     loading: false,
     error: null,
     onRefresh: vi.fn(),
+    onRunDiagnosis: vi.fn(async () => ({
+      schema_version: 1 as const,
+      checks: [],
+    })),
     onLoadFullLogs: vi.fn(),
     fullLogsOpen: false,
     fullLogsLoading: false,
@@ -104,6 +108,77 @@ function renderMonitor(overrides: Partial<MonitorHomeProps> = {}) {
   };
   return { ...render(<MonitorHome {...props} />), props };
 }
+
+it('runs diagnosis only on click and presents bounded results with a retry', async () => {
+  const run = vi.fn(async () => ({
+    schema_version: 1 as const,
+    checks: [
+      {
+        name: 'Ollama',
+        status: 'warn' as const,
+        detail: 'Server offline',
+        checked_at: 1,
+        settings_tab: 'Models',
+      },
+    ],
+  }));
+  renderMonitor({ onRunDiagnosis: run });
+  expect(run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+  expect(await screen.findByText('Checked 1 services.')).toBeVisible();
+  expect(screen.getByText('Ollama · warn')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Run again' }));
+  expect(run).toHaveBeenCalledTimes(2);
+});
+
+it('shows diagnosis failure and allows an explicit retry', async () => {
+  const run = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('Local owner required'))
+    .mockResolvedValueOnce({ schema_version: 1, checks: [] });
+  renderMonitor({ onRunDiagnosis: run });
+  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+  expect(await screen.findByText('Local owner required')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+  expect(await screen.findByText('Checked 0 services.')).toBeVisible();
+});
+
+it('copies the diagnosis report and reports clipboard failure', async () => {
+  const writeText = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('blocked'))
+    .mockResolvedValueOnce(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  renderMonitor({
+    onRunDiagnosis: vi.fn(async () => ({
+      schema_version: 1 as const,
+      checks: [
+        {
+          name: 'Disk',
+          status: 'ok' as const,
+          detail: 'Ready',
+          checked_at: 1,
+          settings_tab: 'System',
+        },
+      ],
+    })),
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Copy diagnosis report' }),
+  );
+  expect(await screen.findByText(/Could not copy the report/)).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Copy diagnosis report' }),
+  );
+  expect(await screen.findByText('Diagnosis report copied.')).toBeVisible();
+  expect(writeText).toHaveBeenCalledWith(
+    expect.stringContaining('Disk: ok — Ready'),
+  );
+});
 
 it('announces loading without reading or mutating monitor state on mount', () => {
   const onRefresh = vi.fn();
@@ -238,6 +313,10 @@ function FullLogHarness() {
       snapshot={snapshot}
       loading={false}
       onRefresh={vi.fn()}
+      onRunDiagnosis={vi.fn(async () => ({
+        schema_version: 1 as const,
+        checks: [],
+      }))}
       onLoadFullLogs={() => setOpen(true)}
       fullLogsOpen={open}
       fullLogEntries={[

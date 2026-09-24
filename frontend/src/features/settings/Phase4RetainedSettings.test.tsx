@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type {
@@ -105,8 +111,13 @@ const snapshot = {
       available: true,
       enabled: false,
       runtime_state: 'cached_unknown',
+      local_owner_control_available: true,
+      platform: 'windows' as const,
       disclosure_acknowledged: true,
       system_binary_configured: false,
+      status_message: 'Computer Use is off.',
+      remediation: '',
+      disclosure_text: 'Cua Driver telemetry notice.',
     },
     file_operations: {
       available: true,
@@ -123,6 +134,9 @@ const snapshot = {
       },
       runtime_state: 'not_checked',
       active_count: null,
+      main_app_enabled: false,
+      main_app_url: null,
+      local_owner_control_available: true,
     },
     remote_access: {
       listen_mode: 'local_only',
@@ -317,6 +331,7 @@ const snapshot = {
 
 let mutation: SettingsMutationIO;
 beforeEach(() => {
+  sessionStorage.clear();
   mutation = {
     revision: snapshot.revision,
     page: 'voice',
@@ -408,7 +423,7 @@ it('renders real voice controls without probing a device or provider', () => {
   expect(
     screen.getByLabelText('Fallback to local Talk if Realtime is unavailable'),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Revert Talk provider' }));
   expect(screen.queryByLabelText('Realtime voice')).toBeNull();
   expect(
     screen.getByRole('link', { name: 'Open conversation voice' }),
@@ -443,9 +458,7 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
   expect(screen.getByText('Kokoro not installed')).toBeVisible();
   expect(screen.queryByLabelText('Enable text-to-speech')).toBeNull();
   expect(screen.queryByLabelText('Speech speed')).toBeNull();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review Install Kokoro TTS' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Install Kokoro TTS' }));
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
       page: 'voice',
@@ -458,7 +471,7 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
 
 it('reviews local voice output and SenseVoice setup only after explicit actions', async () => {
   renderSetting('voice');
-  fireEvent.click(screen.getByRole('button', { name: 'Review Test voice' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Test voice' }));
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
       expect.objectContaining({ field: 'tts.test', value: true }),
@@ -467,7 +480,7 @@ it('reviews local voice output and SenseVoice setup only after explicit actions'
   );
   fireEvent.click(screen.getByText('Models & setup'));
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review Install SenseVoice Small' }),
+    screen.getByRole('button', { name: 'Install SenseVoice Small' }),
   );
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -523,6 +536,215 @@ it('groups available filesystem operations and keeps runtime detail supplemental
   ).not.toHaveAttribute('open');
 });
 
+it('shows the Cua disclosure before enabling and accepts it with one toggle', async () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        computer_use: {
+          ...snapshot.system.computer_use,
+          disclosure_acknowledged: false,
+          runtime_state: 'disclosure_required',
+        },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(screen.getByText('Cua Driver telemetry notice.')).toBeVisible();
+  expect(screen.queryByLabelText('Computer Use (Beta)')).toBeNull();
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText('Accept Cua Driver telemetry notice'));
+  await waitFor(() =>
+    expect(mutation.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'system',
+        field: 'computer_use.disclosure_acknowledged',
+        value: true,
+      }),
+      expect.anything(),
+      expect.any(String),
+    ),
+  );
+});
+
+it('runs Computer Use diagnostics only after the explicit click', async () => {
+  mutation.page = 'system';
+  mutation.execute = vi.fn(async (_request, _review, commandId) => ({
+    command_id: commandId,
+    status: 'completed' as const,
+    settings_revision: snapshot.revision,
+    snapshot,
+    action_result: {
+      code: 'permission_missing',
+      message: 'Cua Driver diagnostics need attention.',
+      remediation: 'Grant the required permissions, then check again.',
+    },
+  }));
+  render(
+    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+  );
+  expect(screen.getByText('Computer Use is off.')).toBeVisible();
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Check Computer Use setup' }),
+  );
+  await waitFor(() =>
+    expect(mutation.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'system',
+        field: 'computer_use.check',
+        value: true,
+      }),
+      expect.anything(),
+      expect.any(String),
+    ),
+  );
+  expect(
+    await screen.findByText(/Grant the required permissions, then check again/),
+  ).toBeVisible();
+});
+
+it('shows Computer Use status without host actions in a remote session', () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        computer_use: {
+          ...snapshot.system.computer_use,
+          local_owner_control_available: false,
+        },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(screen.getByText('Host setup is local only')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Check Computer Use setup' }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Install Computer Use runtime' }),
+  ).toBeNull();
+  expect(mutation.review).not.toHaveBeenCalled();
+});
+
+it('tests a ready Computer Use runtime and verifies an explicit system binary', async () => {
+  mutation.page = 'system';
+  mutation.execute = vi.fn(async (_request, _review, commandId) => ({
+    command_id: commandId,
+    status: 'completed' as const,
+    settings_revision: snapshot.revision,
+    snapshot,
+    action_result: {
+      code: 'ready',
+      message: 'Local Computer Use check passed.',
+      remediation: '',
+    },
+  }));
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        computer_use: {
+          ...snapshot.system.computer_use,
+          runtime_state: 'ready',
+          system_binary_configured: true,
+        },
+      }}
+      mutation={mutation}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Test with Calculator' }));
+  await waitFor(() =>
+    expect(mutation.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ field: 'computer_use.test' }),
+      expect.anything(),
+      expect.any(String),
+    ),
+  );
+  fireEvent.click(screen.getByText('Advanced system Cua executable'));
+  const input = screen.getByLabelText('Verify system Cua executable');
+  fireEvent.change(input, {
+    target: { value: 'C:\\synthetic\\cua-driver.exe' },
+  });
+  const control = input.closest('.settings-saved-control');
+  expect(control).not.toBeNull();
+  fireEvent.click(
+    within(control as HTMLElement).getByRole('button', { name: 'Save' }),
+  );
+  await waitFor(() =>
+    expect(mutation.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'computer_use.system_binary_verify',
+        value: 'C:\\synthetic\\cua-driver.exe',
+      }),
+      expect.anything(),
+      expect.any(String),
+    ),
+  );
+  expect(input).toHaveValue('');
+  expect(
+    screen.getByRole('button', { name: 'Use managed Cua runtime' }),
+  ).toBeVisible();
+});
+
+it('requires confirmation only for removing the managed Computer Use runtime', async () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+  );
+  fireEvent.click(screen.getByText('Manage Computer Use runtime'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove managed Cua runtime' }),
+  );
+  expect(mutation.review).not.toHaveBeenCalled();
+  expect(
+    screen.getByText(/This deletes the managed runtime files/),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove managed Cua runtime' }),
+  );
+  fireEvent.click(
+    screen
+      .getAllByRole('button', { name: 'Remove managed Cua runtime' })
+      .at(-1)!,
+  );
+  await waitFor(() =>
+    expect(mutation.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ field: 'computer_use.remove' }),
+      expect.anything(),
+      expect.any(String),
+    ),
+  );
+});
+
+it('offers one-click macOS permission recovery only on the local Mac host', async () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        computer_use: { ...snapshot.system.computer_use, platform: 'macos' },
+      }}
+      mutation={mutation}
+    />,
+  );
+  fireEvent.click(screen.getByText('macOS permission recovery'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Open Accessibility settings' }),
+  );
+  await waitFor(() =>
+    expect(mutation.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ field: 'computer_use.open_accessibility' }),
+      expect.anything(),
+      expect.any(String),
+    ),
+  );
+});
+
 it('keeps System install network tunnel and OS actions explicit and reviewed', async () => {
   mutation.page = 'system';
   render(
@@ -531,7 +753,7 @@ it('keeps System install network tunnel and OS actions explicit and reviewed', a
   expect(mutation.review).not.toHaveBeenCalled();
   expect(mutation.execute).not.toHaveBeenCalled();
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review Install browser runtime' }),
+    screen.getByRole('button', { name: 'Install browser runtime' }),
   );
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -543,6 +765,142 @@ it('keeps System install network tunnel and OS actions explicit and reviewed', a
       expect.any(AbortSignal),
     ),
   );
+});
+
+it('shows ngrok setup links only after opening the guide without a tunnel action', () => {
+  renderSetting('system');
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText('Tunnel setup'));
+  const provider = screen.getByRole('link', { name: 'ngrok.com' });
+  const dashboard = screen.getByRole('link', { name: 'ngrok dashboard' });
+  expect(provider).toHaveAttribute('href', 'https://ngrok.com/');
+  expect(dashboard).toHaveAttribute(
+    'href',
+    'https://dashboard.ngrok.com/get-started/your-authtoken',
+  );
+  expect(provider).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(dashboard).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(mutation.review).not.toHaveBeenCalled();
+  expect(mutation.execute).not.toHaveBeenCalled();
+});
+
+it('shows the saved webhook exposure choice and an active local-owner URL', async () => {
+  mutation.page = 'system';
+  const writeText = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('clipboard blocked'))
+    .mockResolvedValueOnce(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        tunnel: {
+          ...snapshot.system.tunnel,
+          main_app_enabled: true,
+          main_app_url: 'https://synthetic.ngrok.example',
+        },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(
+    screen.getByText('Expose task webhook endpoint after restart'),
+  ).toBeVisible();
+  expect(
+    screen.getByText('https://synthetic.ngrok.example/api/webhook/{task_id}'),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy URL' }));
+  expect(await screen.findByText(/Could not copy/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy URL' }));
+  expect(await screen.findByText('Copied')).toBeVisible();
+  expect(writeText).toHaveBeenCalledWith(
+    'https://synthetic.ngrok.example/api/webhook/{task_id}',
+  );
+  expect(mutation.review).not.toHaveBeenCalled();
+});
+
+it('shows remote tunnel availability without exposing the URL or owner controls', () => {
+  mutation.page = 'system';
+  render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        tunnel: {
+          ...snapshot.system.tunnel,
+          main_app_enabled: true,
+          main_app_url: null,
+          local_owner_control_available: false,
+        },
+      }}
+      mutation={mutation}
+    />,
+  );
+  expect(
+    screen.getByText(
+      'Tunnel controls are available in the local owner session.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Start app tunnel' })).toBeNull();
+  expect(screen.queryByText(/api\/webhook/)).toBeNull();
+});
+
+it('recovers an interrupted tunnel command from its original receipt after remount', async () => {
+  mutation.page = 'system';
+  mutation.sessionId = 'fixture-tunnel-session';
+  mutation.execute = vi.fn(async () => {
+    throw new Error('synthetic response lost');
+  });
+  mutation.receipt = vi.fn(async (commandId) => ({
+    command_id: commandId,
+    status: 'partial' as const,
+    code: 'settings_save_unconfirmed',
+    settings_revision: null,
+    snapshot: null,
+  }));
+  mutation.refreshSnapshot = vi.fn(async () => snapshot);
+  const first = render(
+    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start app tunnel' }));
+  expect(
+    await screen.findByRole('button', { name: 'Check original receipt' }),
+  ).toBeVisible();
+  const priorReviews = vi.mocked(mutation.review).mock.calls.length;
+  first.unmount();
+  render(
+    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+  );
+  expect(
+    screen.getByRole('button', { name: 'Check original receipt' }),
+  ).toBeVisible();
+  expect(vi.mocked(mutation.review).mock.calls.length).toBe(priorReviews);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Check original receipt' }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Inspect current tunnel state' }),
+  ).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Inspect current tunnel state' }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Try another tunnel action' }),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/Current saved restart choice: disabled/),
+  ).toBeVisible();
+  expect(mutation.refreshSnapshot).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Try another tunnel action' }),
+  );
+  expect(
+    screen.getByRole('button', { name: 'Start app tunnel' }),
+  ).toBeVisible();
+  expect(mutation.execute).toHaveBeenCalledTimes(1);
 });
 
 it('uses an opaque local-owner folder grant and never renders a workspace path', async () => {
@@ -564,7 +922,7 @@ it('uses an opaque local-owner folder grant and never renders a workspace path',
     screen.getByRole('button', { name: 'Choose workspace folder' }),
   );
   expect(await screen.findByText('Selected: Selected workspace')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -582,9 +940,7 @@ it('reviews and saves one retained setting without replaying it', async () => {
   fireEvent.change(screen.getByLabelText('Talk model'), {
     target: { value: 'medium' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
-  await screen.findByText('Review ready: saved locally');
-  fireEvent.click(screen.getByRole('button', { name: 'Save reviewed change' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -614,9 +970,7 @@ it('checks the original receipt instead of replaying an uncertain save', async (
   fireEvent.change(screen.getByLabelText('Talk model'), {
     target: { value: 'medium' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
-  await screen.findByText('Review ready: saved locally');
-  fireEvent.click(screen.getByRole('button', { name: 'Save reviewed change' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   fireEvent.click(
     await screen.findByRole('button', { name: 'Check original receipt' }),
   );
@@ -726,7 +1080,7 @@ it('retains a dirty page draft until it is explicitly reverted', () => {
   expect(mutation.execute).not.toHaveBeenCalled();
   renderSetting('voice');
   expect(screen.getByLabelText('Talk model')).toHaveValue('medium');
-  fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Revert Talk model' }));
   expect(screen.getByLabelText('Talk model')).toHaveValue('small');
 });
 
@@ -822,13 +1176,13 @@ it('renders editable document, tool, and preference owners', async () => {
   ).not.toHaveAttribute('open');
   fireEvent.click(screen.getByText('Index & model maintenance'));
   expect(
-    screen.getByRole('button', { name: 'Review rebuild document vectors' }),
+    screen.getByRole('button', { name: 'rebuild document vectors' }),
   ).toBeEnabled();
   expect(
-    screen.getByRole('button', { name: 'Review repair local model' }),
+    screen.getByRole('button', { name: 'repair local model' }),
   ).toBeEnabled();
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review rebuild document vectors' }),
+    screen.getByRole('button', { name: 'rebuild document vectors' }),
   );
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -845,7 +1199,7 @@ it('renders editable document, tool, and preference owners', async () => {
   });
   expect(screen.getByLabelText('Cloud model')).toBeVisible();
   expect(screen.queryByLabelText('Local model')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Revert Provider' }));
   expect(screen.getByLabelText('Local model')).toBeVisible();
   expect(screen.queryByLabelText('Cloud model')).toBeNull();
   documents.unmount();
@@ -892,7 +1246,7 @@ it('renders editable document, tool, and preference owners', async () => {
   expect(
     screen.getByText('Cached update details').closest('details'),
   ).not.toHaveAttribute('open');
-  expect(screen.getByText(/Update status is cached/)).toBeVisible();
+  expect(screen.getByText(/Cached release state/)).toBeVisible();
 });
 
 it('uses NiceGUI friendly research-tool labels and owner order', () => {

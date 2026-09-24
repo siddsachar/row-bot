@@ -29,6 +29,10 @@ export default function useNewChat() {
   const [focusConversationId, setFocusConversationId] = useState<string | null>(
     null,
   );
+  const [firstPrompt, setFirstPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   const operation = useRef(false);
   const alive = useRef(true);
   useEffect(() => {
@@ -42,6 +46,7 @@ export default function useNewChat() {
     setMissing(null);
     setError('');
     setFocusConversationId(null);
+    setFirstPrompt(null);
     if (!key) return;
     try {
       setPending(commandReceipts.read(key)?.commandId ?? null);
@@ -54,7 +59,7 @@ export default function useNewChat() {
     }
   }, [key]);
 
-  async function newChat() {
+  async function newChat(firstMessage = '') {
     if (
       operation.current ||
       !key ||
@@ -62,6 +67,7 @@ export default function useNewChat() {
     )
       return;
     operation.current = true;
+    setFirstPrompt(null);
     setCreatingChat(true);
     const selection = controller.getSelectionVersion();
     const instance = state.handshake?.instance_id;
@@ -100,6 +106,16 @@ export default function useNewChat() {
         setPending(null);
         setMissing(null);
         setFocusConversationId(result.conversation_id);
+        if (firstMessage.trim()) {
+          controller.setDraft(result.conversation_id, {
+            text: firstMessage.trim(),
+            attachments: [],
+          });
+          setFirstPrompt({
+            conversationId: result.conversation_id,
+            text: firstMessage.trim(),
+          });
+        }
         if (
           controller.getSnapshot().selectedConversationId !==
           result.conversation_id
@@ -173,6 +189,11 @@ export default function useNewChat() {
     reviewMissingReceipt,
     canReview: missing?.key === key,
     focusConversationId,
+    firstPrompt,
+    onFirstPromptConsumed: (conversationId: string) =>
+      setFirstPrompt((value) =>
+        value?.conversationId === conversationId ? null : value,
+      ),
     onComposerFocused: () => setFocusConversationId(null),
   };
 }

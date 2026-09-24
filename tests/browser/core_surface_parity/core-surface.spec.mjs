@@ -100,11 +100,12 @@ async function openReact(page, surface) {
     "Connected",
   );
   const tabs = page.getByRole("tablist", { name: "Home capabilities" });
-  await expect(tabs.getByRole("tab")).toHaveCount(3);
+  await expect(tabs.getByRole("tab")).toHaveCount(4);
   expect(await tabs.getByRole("tab").allTextContents()).toEqual([
     "Workflows",
     "Knowledge",
     "Monitor",
+    "Insights",
   ]);
   await expect(
     tabs.getByRole("tab", { name: surface, exact: false }),
@@ -414,7 +415,7 @@ test("paired core surfaces share one deterministic fixture and remain observable
       "SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.",
     ].includes(message),
   );
-  expect(expectedSandboxPageErrors.length).toBeLessThanOrEqual(4);
+  expect(expectedSandboxPageErrors.length).toBeLessThanOrEqual(6);
   expect(
     pageErrors.filter(
       (message) => !expectedSandboxPageErrors.includes(message),
@@ -604,7 +605,7 @@ test("React rich transcript, durable media, context and functional graph remain 
       width: index % 2 ? 1260 : 1280,
       height: index % 3 ? 720 : 740,
     });
-    const hideOrphans = page.getByRole("checkbox", { name: "Hide orphans" });
+    const hideOrphans = page.getByRole("switch", { name: "Hide orphans" });
     await hideOrphans.setChecked(index % 2 === 0);
     await page.getByRole("button", { name: "Fit" }).click();
     await settle(page);

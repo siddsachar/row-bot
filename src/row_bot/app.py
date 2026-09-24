@@ -1346,6 +1346,7 @@ _runtime_access_policy = RuntimeAccessPolicy(
         else _access_route_config.configured_origins
     ),
 )
+app.state.row_bot_access_runtime_policy = _runtime_access_policy
 from row_bot.tunnel import tunnel_manager as _managed_tunnel_manager
 
 _managed_tunnel_manager.set_managed_origin_registrar(_runtime_access_policy)

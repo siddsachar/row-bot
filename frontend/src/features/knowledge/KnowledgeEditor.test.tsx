@@ -65,7 +65,7 @@ function setup(target: string | null = entity.id) {
   return { session, transport };
 }
 describe('retained knowledge editor', () => {
-  it('opens passively then explicitly reviews and confirms one mutation', async () => {
+  it('opens passively then saves one exact mutation in one click', async () => {
     const { session, transport } = setup();
     render(<KnowledgeEditor session={session} />);
     expect(transport.load).not.toHaveBeenCalled();
@@ -74,12 +74,7 @@ describe('retained knowledge editor', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Subject' }), {
       target: { value: 'Changed subject' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Review save' }));
-    await screen.findByRole('button', { name: 'Confirm knowledge change' });
-    expect(transport.execute).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Confirm knowledge change' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save knowledge' }));
     await screen.findByText(/Knowledge saved./);
     expect(transport.execute).toHaveBeenCalledTimes(1);
     expect(session.getSnapshot().draft.subject).toBe('Changed subject');
@@ -100,7 +95,9 @@ describe('retained knowledge editor', () => {
     expect(screen.getByRole('textbox', { name: 'Subject' })).toHaveValue(
       'My draft',
     );
-    expect(screen.getByRole('button', { name: 'Review save' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Save knowledge' }),
+    ).toBeDisabled();
     fireEvent.click(
       screen.getByRole('button', {
         name: 'Refresh original knowledge command',
@@ -221,9 +218,7 @@ describe('retained knowledge editor', () => {
     });
     await session.review('knowledge.create');
     render(<KnowledgeEditor session={session} />);
-    expect(
-      screen.getByText(/canonical User already exists/),
-    ).toBeInTheDocument();
+    expect(session.getSnapshot().review?.reuse_entity_id).toBe('user-one');
     expect(session.getTarget()).toBeNull();
     vi.mocked(transport.execute).mockResolvedValue({
       command_id: id,
@@ -253,8 +248,8 @@ describe('retained knowledge editor', () => {
           name: status === 'archived' ? 'Restore' : 'Resolve review',
         }),
       );
-      await screen.findByRole('button', { name: 'Confirm knowledge change' });
-      expect(transport.execute).not.toHaveBeenCalled();
+      await screen.findByText(/Knowledge saved./);
+      expect(transport.execute).toHaveBeenCalledTimes(1);
     },
   );
 });

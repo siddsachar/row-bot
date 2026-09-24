@@ -48,15 +48,11 @@ function props(
     ...overrides,
   };
 }
-async function reviewReference() {
+async function saveReference(p: SubscriptionOptionsProps) {
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Review Codex CLI reference' }),
+    await screen.findByRole('button', { name: 'Save Codex CLI reference' }),
   );
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Confirm account option' }),
-    ).toBeEnabled(),
-  );
+  await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
 }
 it('keeps account metadata options collapsed at rest while loading passively', async () => {
   const p = props({ collapsedAtRest: true });
@@ -69,19 +65,13 @@ it('keeps account metadata options collapsed at rest while loading passively', a
   expect(p.review).not.toHaveBeenCalled();
 });
 
-it('loads metadata passively and confirms one exact reviewed reference', async () => {
+it('loads metadata passively and saves one exact reference on click', async () => {
   const p = props();
   render(<SubscriptionOptions {...p} />);
   await screen.findByText(/xAI OAuth client source: default/);
   expect(p.review).not.toHaveBeenCalled();
   expect(p.apply).not.toHaveBeenCalled();
-  await reviewReference();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  );
+  await saveReference(p);
   await screen.findByText(
     'CLI reference saved as metadata only. No credentials were imported.',
   );
@@ -92,7 +82,7 @@ it('loads metadata passively and confirms one exact reviewed reference', async (
     operation: 'reference',
   });
 });
-it('retains an unsent client option across remount and invalidates its review on edit', async () => {
+it('retains an unsent client option across remount and allows editing', async () => {
   const session = new SubscriptionOptionsSession();
   const p = props({ session });
   const view = render(<SubscriptionOptions {...p} />);
@@ -100,14 +90,6 @@ it('retains an unsent client option across remount and invalidates its review on
   fireEvent.change(screen.getByLabelText('xAI OAuth client ID override'), {
     target: { value: 'synthetic-client' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review client ID override' }),
-  );
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Confirm account option' }),
-    ).toBeEnabled(),
-  );
   expect(session.hasRetained()).toBe(true);
   view.unmount();
   render(<SubscriptionOptions {...p} />);
@@ -115,14 +97,12 @@ it('retains an unsent client option across remount and invalidates its review on
     'synthetic-client',
   );
   expect(
-    screen.getByRole('button', { name: 'Confirm account option' }),
+    screen.getByRole('button', { name: 'Save client ID override' }),
   ).toBeEnabled();
   fireEvent.change(screen.getByLabelText('xAI OAuth client ID override'), {
     target: { value: 'changed-client' },
   });
-  expect(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  ).toBeDisabled();
+  expect(p.apply).not.toHaveBeenCalled();
   expect(p.load).toHaveBeenCalledTimes(1);
 });
 it('keeps an uncertain original intent locked after remount and never replays it', async () => {
@@ -132,10 +112,7 @@ it('keeps an uncertain original intent locked after remount and never replays it
     apply: vi.fn().mockRejectedValue({ code: 'operation_uncertain' }),
   });
   const view = render(<SubscriptionOptions {...p} />);
-  await reviewReference();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  );
+  await saveReference(p);
   await screen.findByText(/The original outcome is unconfirmed/);
   const id = vi.mocked(p.apply).mock.calls[0][1];
   view.unmount();
@@ -164,10 +141,7 @@ it('settles an in-flight command in the retained session after panel unmount', a
     ),
   });
   const view = render(<SubscriptionOptions {...p} />);
-  await reviewReference();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  );
+  await saveReference(p);
   view.unmount();
   await act(async () =>
     resolve({
@@ -198,10 +172,7 @@ it('purges retained fields and fences late completion after authentication dispo
     ),
   });
   render(<SubscriptionOptions {...p} />);
-  await reviewReference();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  );
+  await saveReference(p);
   act(() => session.dispose());
   await act(async () => resolve(snapshot));
   expect(p.onSaved).not.toHaveBeenCalled();
@@ -225,12 +196,9 @@ it('rejects a mismatched review and renders client IDs as plain text', async () 
     target: { value: '<script>synthetic</script>' },
   });
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review client ID override' }),
+    screen.getByRole('button', { name: 'Save client ID override' }),
   );
   await screen.findByRole('alert');
-  expect(
-    screen.getByRole('button', { name: 'Confirm account option' }),
-  ).toBeDisabled();
   expect(document.querySelector('script')).toBeNull();
   expect(p.apply).not.toHaveBeenCalled();
 });

@@ -3,7 +3,14 @@ import {
   useProviderSettingsValue,
 } from '../settings/provider-settings-sessions';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Button, ErrorState, Field, Input, Select } from '../../ui/primitives';
+import {
+  Button,
+  ErrorState,
+  Field,
+  Input,
+  Select,
+  Toggle,
+} from '../../ui/primitives';
 
 export type BuddyPreferences = {
   visible: boolean;
@@ -300,9 +307,8 @@ export default function BuddyControls(props: BuddyControlsProps) {
             </div>
             <div className="settings-buddy-visibility-grid">
               <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  aria-label="Show Buddy"
+                <Toggle
+                  label="Show Buddy"
                   checked={draft.visible}
                   disabled={busy}
                   onChange={(e) => edit('visible', e.target.checked)}
@@ -379,9 +385,8 @@ export default function BuddyControls(props: BuddyControlsProps) {
             </summary>
             <div className="settings-buddy-advanced-content">
               <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  aria-label="Compact Buddy"
+                <Toggle
+                  label="Compact Buddy"
                   checked={draft.collapsed}
                   disabled={busy}
                   onChange={(event) => edit('collapsed', event.target.checked)}

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import base64
 import platform
-import secrets
-import subprocess
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,12 +20,13 @@ from row_bot.computer_use.readiness import (
     readiness,
     run_cua_diagnostics,
     selected_asset,
-    mark_cua_observation_verified,
+    test_local_computer_use,
+    open_macos_privacy_settings,
     configure_system_cua,
     verify_system_cua,
     uninstall_cua_runtime,
 )
-from row_bot.computer_use.service import LeaseOwner, get_computer_use_service
+from row_bot.computer_use.service import get_computer_use_service
 
 
 @dataclass(frozen=True)
@@ -99,30 +98,6 @@ def computer_use_permission_recovery(
         steps=tuple(steps),
         missing_accessibility=missing_accessibility,
         missing_screen_recording=missing_screen_recording,
-    )
-
-
-_MACOS_PRIVACY_URLS = {
-    "accessibility": (
-        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-    ),
-    "screen_recording": (
-        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-    ),
-}
-
-
-def open_macos_privacy_settings(permission: str) -> None:
-    """Open a macOS privacy pane after an explicit user action."""
-
-    try:
-        url = _MACOS_PRIVACY_URLS[permission]
-    except KeyError as exc:
-        raise ValueError(f"Unknown macOS privacy permission: {permission}") from exc
-    subprocess.Popen(  # noqa: S603 - fixed executable and fixed deep links
-        ["open", url],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
 
 
@@ -215,11 +190,7 @@ def computer_use_settings_view(
             ),
             "build_circle",
             "warning",
-            primary_action=(
-                "Repair Computer Use"
-                if needs_repair
-                else "Check setup"
-            ),
+            primary_action=("Repair Computer Use" if needs_repair else "Check setup"),
             needs_install=needs_repair,
             allow_check=True,
             show_manage=has_runtime,
@@ -241,7 +212,9 @@ def computer_use_settings_view(
         "negative",
         primary_action="Check setup",
         allow_check=True,
-        show_manage=has_runtime or code in {
+        show_manage=has_runtime
+        or code
+        in {
             ReadinessCode.HASH_MISMATCH,
             ReadinessCode.VERSION_MISMATCH,
             ReadinessCode.PERMISSION_MISSING,
@@ -254,8 +227,10 @@ def build_active_session_card(*, compact: bool = False) -> Any:
     """Render direct Stop/Take over/Resume controls with ephemeral thumbnail."""
 
     service = get_computer_use_service()
-    card = ui.card().classes("w-full q-pa-sm").style(
-        "border: 1px solid rgba(56,189,248,.35); background: rgba(8,47,73,.22);"
+    card = (
+        ui.card()
+        .classes("w-full q-pa-sm")
+        .style("border: 1px solid rgba(56,189,248,.35); background: rgba(8,47,73,.22);")
     )
     with card:
         container = ui.column().classes("w-full gap-2")
@@ -268,14 +243,22 @@ def build_active_session_card(*, compact: bool = False) -> Any:
         container.clear()
         with container:
             with ui.row().classes("w-full items-center justify-between gap-2"):
-                title = f"Computer · {snapshot['app']}" if snapshot["app"] else "Computer Use"
+                title = (
+                    f"Computer · {snapshot['app']}"
+                    if snapshot["app"]
+                    else "Computer Use"
+                )
                 ui.label(title).classes("text-sm font-bold")
-                ui.badge(str(snapshot["state"]).replace("_", " ").title(), color="blue-grey")
+                ui.badge(
+                    str(snapshot["state"]).replace("_", " ").title(), color="blue-grey"
+                )
             if snapshot["window"]:
                 ui.label(str(snapshot["window"])[:120]).classes("text-xs text-grey-5")
             if snapshot["last_action"]:
                 receipt_parts = [
-                    "completed" if snapshot.get("last_action_completed") else "dispatch pending",
+                    "completed"
+                    if snapshot.get("last_action_completed")
+                    else "dispatch pending",
                     f"requested {snapshot.get('last_requested_delivery') or 'auto'}",
                     f"delivered {snapshot.get('last_delivery_mode') or 'unknown'}",
                     f"driver {snapshot.get('last_driver_effect') or 'unverifiable'}",
@@ -284,27 +267,48 @@ def build_active_session_card(*, compact: bool = False) -> Any:
                     f"escalation {snapshot.get('last_escalation_recommendation') or 'none'}",
                     f"verdict {snapshot.get('last_verdict') or 'none'}",
                     f"next {snapshot.get('last_next_step') or 'none'}",
-                    "outcome verified" if snapshot.get("last_effect_verified") else "outcome unverified",
+                    "outcome verified"
+                    if snapshot.get("last_effect_verified")
+                    else "outcome unverified",
                 ]
-                ui.label(f"{snapshot['last_action']} · {' · '.join(receipt_parts)}").classes("text-xs")
+                ui.label(
+                    f"{snapshot['last_action']} · {' · '.join(receipt_parts)}"
+                ).classes("text-xs")
             image = service.ephemeral_screenshot()
             if image and not compact:
-                source = "data:image/png;base64," + base64.b64encode(image).decode("ascii")
-                ui.image(source).classes("w-full").style("max-height: 220px; object-fit: contain;")
+                source = "data:image/png;base64," + base64.b64encode(image).decode(
+                    "ascii"
+                )
+                ui.image(source).classes("w-full").style(
+                    "max-height: 220px; object-fit: contain;"
+                )
             with ui.row().classes("items-center gap-2"):
-                ui.button("Stop", icon="stop", on_click=service.stop).props("color=negative dense no-caps")
+                ui.button("Stop", icon="stop", on_click=service.stop).props(
+                    "color=negative dense no-caps"
+                )
                 if snapshot["paused"]:
+
                     async def _resume() -> None:
                         try:
                             await run.io_bound(service.resume_from_local_ui)
-                            ui.notify("Computer session resumed from a fresh capture.", type="positive")
+                            ui.notify(
+                                "Computer session resumed from a fresh capture.",
+                                type="positive",
+                            )
                         except Exception as exc:
                             ui.notify(str(exc), type="negative")
-                    ui.button("Resume", icon="play_arrow", on_click=_resume).props("color=positive dense no-caps")
+
+                    ui.button("Resume", icon="play_arrow", on_click=_resume).props(
+                        "color=positive dense no-caps"
+                    )
                 elif snapshot["active"]:
-                    ui.button("Take over", icon="pan_tool", on_click=service.take_over).props("outline dense no-caps")
+                    ui.button(
+                        "Take over", icon="pan_tool", on_click=service.take_over
+                    ).props("outline dense no-caps")
                 if snapshot["action_count"]:
-                    ui.label(f"{snapshot['action_count']} dispatched action(s)").classes("text-xs text-grey-6")
+                    ui.label(
+                        f"{snapshot['action_count']} dispatched action(s)"
+                    ).classes("text-xs text-grey-6")
 
     _refresh()
     ui.timer(0.5, _refresh)
@@ -318,7 +322,9 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
     asset = selected_asset()
     tool = tool_registry.get_tool("computer_use")
     if tool is None:
-        ui.label("Computer Use is unavailable in this build.").classes("text-grey-6 text-sm")
+        ui.label("Computer Use is unavailable in this build.").classes(
+            "text-grey-6 text-sm"
+        )
         return
 
     with ui.row().classes("w-full items-center justify-between"):
@@ -340,11 +346,19 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
     developer_section: Any = None
 
     disclosure = ui.dialog().props("persistent")
-    with disclosure, ui.card().classes("q-pa-lg").style("width: 680px; max-width: 94vw;"):
+    with (
+        disclosure,
+        ui.card().classes("q-pa-lg").style("width: 680px; max-width: 94vw;"),
+    ):
         ui.label("Cua Driver telemetry warning").classes("text-h6")
         ui.label(DISCLOSURE_TEXT).classes("text-sm")
-        ui.link("Learn more", "https://github.com/trycua/cua/blob/cua-driver-rs-v0.20.0/libs/cua-driver/rust/crates/cua-driver/src/telemetry.rs", new_tab=True)
+        ui.link(
+            "Learn more",
+            "https://github.com/trycua/cua/blob/cua-driver-rs-v0.20.0/libs/cua-driver/rust/crates/cua-driver/src/telemetry.rs",
+            new_tab=True,
+        )
         with ui.row().classes("w-full justify-end gap-2"):
+
             def _cancel() -> None:
                 cancel_disclosure()
                 diagnostic_state["value"] = None
@@ -426,7 +440,9 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
                 ui.notify(
                     result.message
                     + (f" {result.remediation}" if result.remediation else ""),
-                    type="positive" if result.code is ReadinessCode.READY else "warning",
+                    type="positive"
+                    if result.code is ReadinessCode.READY
+                    else "warning",
                 )
         except Exception as exc:
             ui.notify(str(exc), type="negative")
@@ -435,38 +451,26 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
         _refresh_status()
 
     async def _calculator_test() -> None:
-        service = get_computer_use_service()
-        owner = LeaseOwner("settings-calculator", f"ui-{secrets.token_urlsafe(8)}", "settings-calculator")
         operation["value"] = "testing"
         _refresh_status()
         try:
-            await run.io_bound(service.acquire, owner, validate_context=False)
-            service.grant_app_permission_for_local_ui(owner, "Calculator")
-            windows = await run.io_bound(
-                service.launch_app,
-                "Calculator",
-                owner,
-                approval_mode="allow_all",
-            )
-            if not windows:
-                raise RuntimeError("Calculator launched but no target window was reported.")
-            if service.current_observation(windows[0]["target_id"]) is None:
-                raise RuntimeError("Calculator opened, but Row-Bot could not verify its window.")
-            mark_cua_observation_verified()
+            await run.io_bound(test_local_computer_use)
             ui.notify("Computer Use test passed.", type="positive")
         except Exception as exc:
             ui.notify(str(exc), type="negative")
         finally:
-            service.stop()
             operation["value"] = ""
             _refresh_status()
 
     uninstall_dialog = ui.dialog()
     with uninstall_dialog, ui.card().classes("q-pa-lg"):
         ui.label("Uninstall managed Cua Driver?").classes("text-h6")
-        ui.label("This removes only Row-Bot's private Cua runtime. Computer Use will be disabled until it is installed and checked again.").classes("text-sm")
+        ui.label(
+            "This removes only Row-Bot's private Cua runtime. Computer Use will be disabled until it is installed and checked again."
+        ).classes("text-sm")
         with ui.row().classes("w-full justify-end gap-2"):
             ui.button("Cancel", on_click=uninstall_dialog.close).props("flat no-caps")
+
             def _confirm_uninstall() -> None:
                 removed = uninstall_cua_runtime()
                 tool_registry.set_enabled("computer_use", False)
@@ -474,10 +478,15 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
                 uninstall_dialog.close()
                 _refresh_status()
                 ui.notify(
-                    "Computer Use was removed." if removed else "Computer Use was not installed.",
+                    "Computer Use was removed."
+                    if removed
+                    else "Computer Use was not installed.",
                     type="info",
                 )
-            ui.button("Remove", on_click=_confirm_uninstall).props("color=negative no-caps")
+
+            ui.button("Remove", on_click=_confirm_uninstall).props(
+                "color=negative no-caps"
+            )
 
     technical_section = ui.expansion("Technical details", icon="info").classes("w-full")
     with technical_section:
@@ -487,41 +496,59 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
         ).classes("text-xs text-grey-6")
         if asset:
             ui.label(f"Artifact: {asset['name']}").classes("text-xs text-grey-6")
-            ui.label(f"SHA-256: {asset['sha256']}").classes("text-xs text-grey-6 break-all")
+            ui.label(f"SHA-256: {asset['sha256']}").classes(
+                "text-xs text-grey-6 break-all"
+            )
         ui.label(
             f"Vision provider: {vision['provider_label']} "
             f"({'cloud' if vision['is_cloud'] else 'local'})"
         ).classes("text-xs text-grey-6")
         technical_status = ui.column().classes("w-full gap-1")
 
-    manage_section = ui.expansion("Manage Computer Use", icon="settings").classes("w-full")
+    manage_section = ui.expansion("Manage Computer Use", icon="settings").classes(
+        "w-full"
+    )
     with manage_section:
         ui.label(
             "Use these recovery actions only if setup stops working or you no longer want Computer Use."
         ).classes("text-xs text-grey-5")
         with ui.row().classes("items-center gap-2"):
-            ui.button("Reinstall", icon="refresh", on_click=_install).props("flat dense no-caps")
+            ui.button("Reinstall", icon="refresh", on_click=_install).props(
+                "flat dense no-caps"
+            )
             ui.button("Remove", icon="delete", on_click=uninstall_dialog.open).props(
                 "flat dense no-caps color=negative"
             )
 
-    developer_section = ui.expansion(
-        "Developer options", icon="code"
-    ).classes("w-full")
+    developer_section = ui.expansion("Developer options", icon="code").classes("w-full")
     with developer_section:
         ui.label(
             "Use a separately reviewed Cua executable instead of Row-Bot's managed component."
         ).classes("text-xs text-grey-5")
-        system_path = ui.input("Absolute Cua executable path").classes("w-full").props("dense outlined")
-        use_system = ui.checkbox("Use this reviewed system binary instead of Row-Bot's managed runtime", value=False)
+        system_path = (
+            ui.input("Absolute Cua executable path")
+            .classes("w-full")
+            .props("dense outlined")
+        )
+        use_system = ui.checkbox(
+            "Use this reviewed system binary instead of Row-Bot's managed runtime",
+            value=False,
+        )
 
         async def _verify_system() -> None:
-            configure_system_cua(str(system_path.value or ""), enabled=bool(use_system.value))
+            configure_system_cua(
+                str(system_path.value or ""), enabled=bool(use_system.value)
+            )
             result = await run.io_bound(verify_system_cua)
-            ui.notify(result.message, type="positive" if result.code is ReadinessCode.READY else "warning")
+            ui.notify(
+                result.message,
+                type="positive" if result.code is ReadinessCode.READY else "warning",
+            )
             _refresh_status()
 
-        ui.button("Verify system Cua", icon="verified", on_click=_verify_system).props("flat dense no-caps")
+        ui.button("Verify system Cua", icon="verified", on_click=_verify_system).props(
+            "flat dense no-caps"
+        )
 
     def _refresh_status() -> None:
         state = readiness(enabled=tool_registry.is_enabled("computer_use"))
@@ -547,13 +574,13 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
                 "Install Computer Use",
                 "Repair Computer Use",
             }:
-                ui.button(view.primary_action, icon="download", on_click=_install).props(
-                    "unelevated dense no-caps color=primary"
-                )
+                ui.button(
+                    view.primary_action, icon="download", on_click=_install
+                ).props("unelevated dense no-caps color=primary")
             elif not operation["value"] and view.primary_action == "Check setup":
-                ui.button(view.primary_action, icon="health_and_safety", on_click=_diagnostics).props(
-                    "unelevated dense no-caps color=primary"
-                )
+                ui.button(
+                    view.primary_action, icon="health_and_safety", on_click=_diagnostics
+                ).props("unelevated dense no-caps color=primary")
             elif (
                 not operation["value"]
                 and view.primary_action == "Recheck"
@@ -569,16 +596,20 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
                     on_click=_calculator_test,
                 ).props("flat dense no-caps")
                 if view.allow_check:
-                    ui.button("Check setup", icon="health_and_safety", on_click=_diagnostics).props(
-                        "flat dense no-caps"
-                    )
+                    ui.button(
+                        "Check setup", icon="health_and_safety", on_click=_diagnostics
+                    ).props("flat dense no-caps")
 
         recovery_container.clear()
         if recovery is not None:
             with recovery_container:
-                with ui.card().classes("w-full q-pa-md").style(
-                    "border: 1px solid rgba(234,179,8,.55); "
-                    "background: rgba(113,63,18,.18);"
+                with (
+                    ui.card()
+                    .classes("w-full q-pa-md")
+                    .style(
+                        "border: 1px solid rgba(234,179,8,.55); "
+                        "background: rgba(113,63,18,.18);"
+                    )
                 ):
                     with ui.row().classes("items-center gap-2"):
                         ui.icon("privacy_tip", color="warning")
@@ -610,19 +641,23 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
                                 icon="screenshot_monitor",
                                 on_click=lambda: _open_permission("screen_recording"),
                             ).props("outline dense no-caps")
-                        ui.button("Recheck", icon="refresh", on_click=_diagnostics).props(
-                            "unelevated dense no-caps color=primary"
-                        )
+                        ui.button(
+                            "Recheck", icon="refresh", on_click=_diagnostics
+                        ).props("unelevated dense no-caps color=primary")
 
         technical_status.clear()
         with technical_status:
             if state.executable:
-                ui.label(f"Executable: {state.executable}").classes("text-xs text-grey-6 break-all")
+                ui.label(f"Executable: {state.executable}").classes(
+                    "text-xs text-grey-6 break-all"
+                )
             ui.label(f"Integrity: {state.hash_status or 'not yet verified'}").classes(
                 "text-xs text-grey-6"
             )
             if state.remediation and state.code is not ReadinessCode.PERMISSION_MISSING:
-                ui.label(f"Recovery detail: {state.remediation}").classes("text-xs text-grey-6")
+                ui.label(f"Recovery detail: {state.remediation}").classes(
+                    "text-xs text-grey-6"
+                )
             elif state.code is ReadinessCode.PERMISSION_MISSING:
                 ui.label(
                     "Recovery detail: macOS privacy permissions are incomplete."

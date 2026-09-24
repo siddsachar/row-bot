@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "install",
+        "update",
+        "remove",
+        "refresh"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 1024,
+      "title": "Message",
+      "type": "string"
+    },
+    "plugin_id": {
+      "maxLength": 128,
+      "title": "Plugin Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "action",
+    "plugin_id",
+    "message"
+  ],
+  "title": "PluginLifecycleReceipt",
+  "type": "object"
+}

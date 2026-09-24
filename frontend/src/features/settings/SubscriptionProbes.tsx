@@ -176,6 +176,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
     setBusy('review');
     setError('');
     setReviewed(null);
+    let approved: SubscriptionProbeReview | null = null;
     try {
       const value = await props.review(intent, abort.signal);
       if (!session.active || abort.signal.aborted) return;
@@ -186,13 +187,14 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
         value.model_ref !== intent.model_ref
       )
         throw { code: 'revision_conflict' };
-      setReviewed(structuredClone(value));
+      approved = structuredClone(value);
     } catch (cause) {
       if (!abort.signal.aborted) setError(clientError(cause).message);
     } finally {
       session.finishRead(abort);
       setBusy('');
     }
+    if (approved) await confirm(approved);
   }
   function verifyResult(value: SubscriptionProbeResult, original: Pending) {
     if (
@@ -210,21 +212,16 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
     setSnapshot(null);
     session.resolved();
   }
-  async function confirm() {
+  async function confirm(approved: SubscriptionProbeReview) {
     if (
       !session.active ||
       session.get('busy', '') ||
       session.get('pending', null)
     )
       return;
-    const captured = session.get<SubscriptionProbeReview | null>(
-      'reviewed',
-      null,
-    );
-    if (!captured) return;
     const original = {
       commandId: crypto.randomUUID(),
-      review: structuredClone(captured),
+      review: structuredClone(approved),
     };
     const generation = epoch.current;
     setPending(original);
@@ -241,7 +238,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
       verifyResult(value, original);
       settle(value);
       setNotice(
-        'The check completed. Reload saved checks before reviewing another check.',
+        'The check completed. Reload saved checks before running another check.',
       );
       if (generation === epoch.current) props.onSaved();
     } catch (cause) {
@@ -305,7 +302,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
         settle(value.result);
         setNotice(
           receipt?.status === 'rejected'
-            ? 'The original check was rejected. Reload saved checks before reviewing again.'
+            ? 'The original check was rejected. Reload saved checks before trying again.'
             : 'The original check is confirmed and its work has stopped. Reload saved checks to continue.',
         );
       } else if (value && !value.quiescent) {
@@ -444,16 +441,9 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
           {kind === 'tokens'
             ? 'This checks stored credentials and expiry only. It does not contact the provider or confirm remote readiness.'
             : kind === 'vision'
-              ? 'Confirmation sends a small synthetic image and prompt to this exact saved model. Provider usage may apply.'
-              : 'Confirmation sends synthetic chat and tool requests to this exact saved model. Provider usage may apply.'}
+              ? 'Running this check sends a small synthetic image and prompt to this exact saved model. Provider usage may apply.'
+              : 'Running this check sends synthetic chat and tool requests to this exact saved model. Provider usage may apply.'}
         </p>
-        {reviewed && (
-          <p role="status">
-            Reviewed: {names[reviewed.provider_id]} · {labels[reviewed.kind]}
-            {reviewed.model_ref ? ` · ${reviewed.model_ref}` : ''}. Confirm to
-            run this exact check.
-          </p>
-        )}
         {state && (
           <p>
             Original work: {state.state}.{' '}
@@ -470,10 +460,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
             disabled={locked || !snapshot || (kind !== 'tokens' && !model)}
             onClick={() => void review()}
           >
-            Review check
-          </Button>
-          <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
-            Confirm check
+            Run check
           </Button>
           <Button
             disabled={!pending || !!checking || !session.active}

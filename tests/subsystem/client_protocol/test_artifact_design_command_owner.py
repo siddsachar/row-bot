@@ -9,13 +9,14 @@ import sqlite3
 import threading
 from types import SimpleNamespace
 from uuid import uuid4
+from zipfile import ZipFile
 
 import pytest
 from PIL import Image
 
 from row_bot.application import artifact_design_commands as commands
 from row_bot.application.client_platform import ClientPlatformError
-from row_bot.designer import client_design_controls as controls, storage, history, brand, fonts
+from row_bot.designer import client_design_controls as controls, storage, history, brand, fonts, importer, ai_content
 from row_bot.designer.state import DesignerProject, DesignerPage, BrandConfig
 from row_bot.runtime import admissions
 from tests.subsystem.client_protocol.test_artifact_modes_setup import artifact_service  # noqa: F401
@@ -172,6 +173,53 @@ def test_confirmed_outcome_recovers_lost_command_completion_without_domain_call(
     monkeypatch.setattr(admissions, 'complete_command', complete)
     monkeypatch.setattr(controls, 'apply_control', lambda *_a, **_kw: pytest.fail('Completed project effect repeated'))
     assert owner.execute(body)['artifact_design']['status'] == 'saved'
+
+
+def test_document_import_reconciles_after_lost_completion_without_reparsing(owner, monkeypatch):
+    project = storage.load_project(owner.project.id)
+    project.mode = 'document'
+    storage.save_project(project)
+    stream = io.BytesIO()
+    with ZipFile(stream, 'w') as archive:
+        archive.writestr('word/document.xml', '<p>Synthetic</p>')
+    data = stream.getvalue()
+    monkeypatch.setattr(importer, 'import_docx', lambda _data: [
+        DesignerPage(title='Imported', html='<h1>Synthetic import</h1>')])
+    body = owner.body('artifact.document.import', upload_id='synthetic-stage',
+        filename='synthetic.docx', sha256=hashlib.sha256(data).hexdigest(),
+        size_bytes=len(data), replace=False)
+    original = admissions.complete_command
+    monkeypatch.setattr(admissions, 'complete_command', lambda *_a, **_k:
+        (_ for _ in ()).throw(OSError('synthetic lost completion')))
+    first = owner.execute(body, resolve_upload=lambda _id: data)
+    assert first['status'] == 'partial'
+    assert len(storage.load_project(project.id).pages) == 3
+    monkeypatch.setattr(admissions, 'complete_command', original)
+    monkeypatch.setattr(importer, 'import_docx', lambda _data: pytest.fail('Import parsed twice'))
+    replay = owner.execute(body, resolve_upload=lambda _id: pytest.fail('Upload read twice'))
+    assert replay['artifact_design']['status'] == 'saved'
+    assert len(storage.load_project(project.id).pages) == 3
+
+
+def test_speaker_notes_generate_once_and_reconcile_lost_receipt(owner, monkeypatch):
+    project = storage.load_project(owner.project.id)
+    project.mode = 'deck'
+    storage.save_project(project)
+    calls = []
+    monkeypatch.setattr(ai_content, 'generate_speaker_notes',
+        lambda title, summary, existing, *, strict=False: (calls.append((title, summary)), 'Synthetic notes')[1])
+    body = owner.body('artifact.notes.generate', page_id='first')
+    original = admissions.complete_command
+    monkeypatch.setattr(admissions, 'complete_command', lambda *_a, **_k:
+        (_ for _ in ()).throw(OSError('synthetic lost completion')))
+    first = owner.execute(body)
+    assert first['status'] == 'partial'
+    assert storage.load_project(project.id).pages[0].notes == 'Synthetic notes'
+    monkeypatch.setattr(admissions, 'complete_command', original)
+    replay = owner.execute(body)
+    assert replay['artifact_design']['status'] == 'saved'
+    assert len(calls) == 1
+    assert len(list((history.HISTORY_DIR / project.id).glob('*.json'))) == 1
 
 
 @pytest.mark.parametrize('stage', ['asset_prepared', 'asset_written', 'asset_attached'])

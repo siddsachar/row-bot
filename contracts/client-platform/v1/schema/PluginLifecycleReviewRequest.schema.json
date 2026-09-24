@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "install",
+        "update",
+        "remove",
+        "refresh"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "plugin_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Plugin Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "PluginLifecycleReviewRequest",
+  "type": "object"
+}

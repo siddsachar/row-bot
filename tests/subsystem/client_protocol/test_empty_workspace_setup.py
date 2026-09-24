@@ -68,8 +68,84 @@ def _public(response, parent):
     assert response.status_code == 200, response.text
     assert str(parent) not in response.text
     assert not any(secret in response.text for secret in
-                   ("_empty_workspace", "parent_identity", "directory_identity"))
+                   ("_empty_workspace", "_clone_workspace", "parent_identity", "directory_identity"))
     return response.json()
+
+
+def test_clone_setup_replays_without_network_and_binds_one_workspace(workspace_api, monkeypatch):
+    from types import SimpleNamespace
+    from row_bot.developer import client_clone
+
+    service, storage, parent, client, headers, _, _ = workspace_api
+    source = "https://example.test/team/demo.git"
+    calls = []
+
+    def fake_run(args, **_kwargs):
+        calls.append(args)
+        if "clone" in args:
+            (parent / "demo" / ".git").mkdir()
+            return SimpleNamespace(stdout="")
+        return SimpleNamespace(stdout=source + "\n")
+
+    monkeypatch.setattr(client_clone.subprocess, "run", fake_run)
+    command_id, key = str(uuid4()), str(uuid4())
+    payload = {"kind": "workspace", "intent": "create", "folder_grant": _grant(client, headers),
+               "clone_workspace": {"repo_url": source}}
+    response = _command(client, headers, payload, command_id=command_id, key=key)
+    from row_bot.runtime import admissions
+    assert response.status_code == 200, (response.text, admissions.receipt(service.instance_id, command_id))
+    first = _public(response, parent)
+    assert first["status"] == "completed"
+    assert first["confirmed_stages"] == ["created", "cloned", "conversation", "associated", "bound"]
+    assert _public(_command(client, headers, payload, command_id=command_id, key=key), parent) == first
+    assert _public(client.get(f"/api/v1/commands/{command_id}", headers=headers), parent) == first
+    assert sum("clone" in args for args in calls) == 1
+    saved = storage.get_workspace(first["resource_id"])
+    assert saved.repo_url == source and saved.path == str(parent / "demo")
+    assert len(storage.list_workspaces()) == len(service.list_conversations()["items"]) == 1
+
+
+def test_interrupted_clone_keeps_partial_and_continuation_never_restarts(workspace_api, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+    from row_bot.developer import client_clone
+
+    _, storage, parent, client, headers, _, _ = workspace_api
+    source = "https://example.test/team/demo.git"
+    calls = []
+
+    def fake_run(args, **_kwargs):
+        calls.append(args)
+        if "clone" in args:
+            (parent / "demo" / "partial.txt").write_text("retained")
+            raise subprocess.CalledProcessError(1, args)
+        return SimpleNamespace(stdout=source + "\n")
+
+    monkeypatch.setattr(client_clone.subprocess, "run", fake_run)
+    command_id = str(uuid4())
+    first = _public(_command(client, headers, {"kind": "workspace", "intent": "create",
+        "folder_grant": _grant(client, headers), "clone_workspace": {"repo_url": source}},
+        command_id=command_id), parent)
+    assert first["status"] == "partial" and first["code"] == "workspace_clone_unconfirmed"
+    assert first["confirmed_stages"] == ["created"]
+    continued = _public(_command(client, headers, {"setup_command_id": command_id,
+        "folder_grant": _grant(client, headers)}, kind="resource.continue"), parent)
+    assert continued["status"] == "partial" and continued["code"] == "workspace_clone_unconfirmed"
+    assert (parent / "demo" / "partial.txt").read_text() == "retained"
+    assert len(storage.list_workspaces()) == 1
+    assert sum("clone" in args for args in calls) == 1
+
+
+def test_clone_rejects_local_or_credential_source_before_creating_child(workspace_api):
+    service, storage, parent, client, headers, _, _ = workspace_api
+    for source in ("file:///private/repo", "https://user:token@example.test/repo.git"):
+        response = _command(client, headers, {"kind": "workspace", "intent": "create",
+            "folder_grant": _grant(client, headers), "clone_workspace": {"repo_url": source}})
+        assert response.status_code in {409, 422}, response.text
+        assert response.json()["code"] == "clone_source_invalid"
+    assert list(parent.iterdir()) == []
+    assert storage.list_workspaces() == []
+    assert service.list_conversations()["items"] == []
 
 
 @contextmanager

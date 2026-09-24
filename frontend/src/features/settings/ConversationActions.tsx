@@ -253,18 +253,21 @@ export default function ConversationActions({
             : {}),
         },
       };
-      if (!abort.signal.aborted)
+      if (!abort.signal.aborted) {
+        const attempt = { command, review: result };
         session.update({
-          reviewed: { command, review: result },
+          reviewed: attempt,
           busy: '',
-          message: 'Review complete. Apply this exact action to continue.',
+          message: '',
         });
+        void apply(attempt);
+      }
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The conversation changed or this action is unavailable. Refresh and review it again.',
+            'The conversation changed or this action is unavailable. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -299,6 +302,7 @@ export default function ConversationActions({
             exported: receipt.export,
             message: 'Conversation export is ready to download.',
           });
+          void saveExport();
         } else {
           if (
             !receipt.conversation ||
@@ -327,7 +331,7 @@ export default function ConversationActions({
           busy: '',
           pending: null,
           message:
-            'The conversation action was rejected. Refresh and review it again.',
+            'The conversation action was rejected. Refresh and try again.',
         });
       } else {
         session.update({
@@ -405,7 +409,7 @@ export default function ConversationActions({
                 })
               }
             >
-              Review rename
+              Rename
             </Button>
             <Button
               disabled={locked || !state.snapshot.capabilities.pin.available}
@@ -415,13 +419,13 @@ export default function ConversationActions({
                 })
               }
             >
-              Review {state.snapshot.pinned ? 'unpin' : 'pin'}
+              {state.snapshot.pinned ? 'Unpin' : 'Pin'}
             </Button>
             <Button
               disabled={locked || !state.snapshot.capabilities.export.available}
               onClick={() => void requestReview('conversation.export', {})}
             >
-              Review export
+              Export
             </Button>
           </div>
           {!state.snapshot.capabilities.archive.available && (
@@ -432,18 +436,6 @@ export default function ConversationActions({
             </p>
           )}
         </>
-      )}
-      {state.reviewed && (
-        <section aria-label="Conversation action review" className="surface">
-          <h3>Review action</h3>
-          <p>{state.reviewed.review.summary}</p>
-          {state.reviewed.review.disclosures.map((disclosure) => (
-            <p key={disclosure}>{disclosure}</p>
-          ))}
-          <Button disabled={locked} onClick={() => void apply(state.reviewed)}>
-            Apply reviewed action
-          </Button>
-        </section>
       )}
       {state.pending && (
         <Button

@@ -146,6 +146,7 @@ function BrowserPanel({ visible }: { visible: boolean }) {
     <BrowserLiveControls
       session={session}
       load={controller.browserControls}
+      loadPreview={controller.browserPreview}
       review={(action, payload, signal) =>
         controller.reviewBrowserControl(conversationId, action, payload, signal)
       }
@@ -412,14 +413,10 @@ export default function Workspace() {
             })),
             {
               label: 'Reset layout',
-              run: () =>
-                overlay.open({
-                  kind: 'alert',
-                  title: 'Reset layout?',
-                  description: 'Restore panel sizes and close panels.',
-                  confirmLabel: 'Reset layout',
-                  onConfirm: () => update(resetLayout),
-                }),
+              run: () => {
+                overlay.close();
+                update(resetLayout);
+              },
             },
           ]}
         />
@@ -861,7 +858,7 @@ export default function Workspace() {
           )}
           {creation.canReview && (
             <Button onClick={creation.reviewMissingReceipt}>
-              Review pending receipt
+              Check pending receipt
             </Button>
           )}
         </aside>
@@ -1015,10 +1012,17 @@ export default function Workspace() {
                     onNewChat={() => void creation.newChat()}
                     focusConversationId={creation.focusConversationId}
                     onComposerFocused={creation.onComposerFocused}
+                    firstPrompt={creation.firstPrompt}
+                    onFirstPromptConsumed={creation.onFirstPromptConsumed}
                     compactContext={!desktop}
                   />
                 </section>
-                {homeOpen && <Home />}
+                {homeOpen && (
+                  <Home
+                    onExamplePrompt={(prompt) => void creation.newChat(prompt)}
+                    exampleBusy={creation.creatingChat || !!creation.pending}
+                  />
+                )}
                 {compact && !routeOpen && (
                   <section className="compact-tab" aria-label="Compact panel">
                     <Button

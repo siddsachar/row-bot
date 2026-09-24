@@ -58,6 +58,89 @@ function snapshot(resource = 'deck-a', index = 0): Preview {
   };
 }
 
+it('opens the bound Designer palette on click and picks a page or draft', async () => {
+  const load = vi.fn(async (pageId?: string) =>
+    snapshot('deck-a', pageId === 'slide-1' ? 1 : 0),
+  );
+  const palette = vi.fn(async (_revision: string, _query: string) => ({
+    resource_id: 'deck-a',
+    resource_revision: 'resource-1',
+    tools_available: true,
+    has_more_matches: false,
+    items: [
+      {
+        category: 'tool' as const,
+        label: 'Generate notes',
+        hint: 'designer_generate_notes',
+        identity: 'designer_generate_notes',
+        prefill: 'Use designer_generate_notes for the current page',
+      },
+      {
+        category: 'page' as const,
+        label: 'Go to: Closing',
+        hint: 'page 2',
+        identity: 'slide-1',
+        prefill: '',
+      },
+      {
+        category: 'asset' as const,
+        label: 'image: Chart',
+        hint: 'asset-chart',
+        identity: 'asset-chart',
+        prefill: 'Reuse asset asset-chart on the current page: ',
+      },
+    ],
+  }));
+  const draft = vi.fn();
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadPalette={palette}
+        onDraftText={draft}
+      />,
+    ),
+  );
+  expect(palette).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole('button', { name: /Search design tools, pages/ }),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: /Go to: Closing/ }),
+  );
+  await waitFor(() =>
+    expect(load.mock.calls.some((call) => call[0] === 'slide-1')).toBe(true),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: /Search design tools, pages/ }),
+  );
+  fireEvent.change(
+    screen.getByRole('searchbox', {
+      name: 'Search design tools, pages, assets',
+    }),
+    { target: { value: 'notes' } },
+  );
+  await waitFor(() =>
+    expect(palette).toHaveBeenCalledWith(
+      'resource-1',
+      'notes',
+      expect.any(AbortSignal),
+    ),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: /Generate notes/ }),
+  );
+  expect(draft).toHaveBeenCalledWith(
+    'Use designer_generate_notes for the current page',
+  );
+  expect(
+    screen.queryByRole('dialog', { name: 'Design command palette' }),
+  ).toBeNull();
+});
+
 it('renders an opaque iframe and navigates through exact page IDs', async () => {
   const load = vi.fn(async (pageId?: string) =>
     snapshot('deck-a', pageId === 'slide-1' ? 1 : 0),

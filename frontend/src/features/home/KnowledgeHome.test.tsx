@@ -177,9 +177,9 @@ it('filters populated topology by search, type, source, User hub, and orphan sta
     screen.getByRole('combobox', { name: 'Source' }),
     '',
   );
-  await user.click(screen.getByRole('checkbox', { name: 'User hub' }));
+  await user.click(screen.getByRole('switch', { name: 'User hub' }));
   expect(container.querySelectorAll('.knowledge-graph-node')).toHaveLength(2);
-  await user.click(screen.getByRole('checkbox', { name: 'Hide orphans' }));
+  await user.click(screen.getByRole('switch', { name: 'Hide orphans' }));
   expect(container.querySelectorAll('.knowledge-graph-node')).toHaveLength(1);
 });
 
@@ -212,15 +212,15 @@ it('fits the visible graph and Show All restores every filter and toggle', async
   const user = userEvent.setup();
   const { container } = render(<KnowledgeHome {...props()} />);
   await user.type(screen.getByRole('searchbox'), 'project');
-  await user.click(screen.getByRole('checkbox', { name: 'User hub' }));
-  await user.click(screen.getByRole('checkbox', { name: 'Hide orphans' }));
+  await user.click(screen.getByRole('switch', { name: 'User hub' }));
+  await user.click(screen.getByRole('switch', { name: 'Hide orphans' }));
   await user.click(screen.getByRole('button', { name: 'Fit' }));
   expect(screen.getByText('Graph fitted to 1 memory.')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Show All' }));
   expect(screen.getByRole('searchbox')).toHaveValue('');
-  expect(screen.getByRole('checkbox', { name: 'User hub' })).toBeChecked();
+  expect(screen.getByRole('switch', { name: 'User hub' })).toBeChecked();
   expect(
-    screen.getByRole('checkbox', { name: 'Hide orphans' }),
+    screen.getByRole('switch', { name: 'Hide orphans' }),
   ).not.toBeChecked();
   expect(container.querySelectorAll('.knowledge-graph-node')).toHaveLength(3);
 });

@@ -511,8 +511,18 @@ def _system(
     routes = _mapping(_read_json(root / "access_routes.json", default={}))
     channel_config = _mapping(_read_json(root / "channels_config.json", default={}))
     tunnel = _mapping(channel_config.get("tunnel"))
+    raw_main_app_enabled = tunnel.get("tunnel_main_app")
+    from row_bot.app_port import get_app_port
+    from row_bot.tunnel import tunnel_manager
+
+    main_app_url = tunnel_manager.get_url(get_app_port())
     user = _mapping(_read_json(root / "user_config.json", default={}))
     cua = _mapping(_read_json(root / "computer_use_settings.json", default={}))
+    from row_bot.computer_use.readiness import DISCLOSURE_TEXT, readiness
+    import platform
+
+    cua_state = readiness(enabled=bool(_enabled("computer_use", tools, registered)))
+    cua_platform = platform.system().casefold()
     log_level = _text(user.get("file_log_level") or "DEBUG", 16).upper()
     if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
         log_level = "DEBUG"
@@ -546,11 +556,20 @@ def _system(
         "computer_use": {
             "available": "computer_use" in registered or "computer_use" in tools,
             "enabled": _enabled("computer_use", tools, registered),
+            "local_owner_control_available": True,
+            "platform": "macos"
+            if cua_platform == "darwin"
+            else "windows"
+            if cua_platform == "windows"
+            else "unsupported",
             "disclosure_acknowledged": int(cua.get("acknowledged_notice_version") or 0)
             == 2,
             "system_binary_configured": cua.get("allow_system_cua") is True
             and bool(_text(cua.get("system_cua_path"))),
-            "runtime_state": "cached_unknown",
+            "runtime_state": cua_state.code.value,
+            "status_message": cua_state.message[:256],
+            "remediation": cua_state.remediation[:256],
+            "disclosure_text": DISCLOSURE_TEXT,
         },
         "file_operations": {
             "available": "filesystem" in registered or "filesystem" in tools,
@@ -563,6 +582,12 @@ def _system(
             "credential": _credential_status("NGROK_AUTHTOKEN"),
             "runtime_state": "not_checked",
             "active_count": None,
+            "main_app_enabled": raw_main_app_enabled is True
+            or isinstance(raw_main_app_enabled, list)
+            and bool(raw_main_app_enabled)
+            and raw_main_app_enabled[0] is True,
+            "main_app_url": _text(main_app_url, 512) if main_app_url else None,
+            "local_owner_control_available": True,
         },
         "remote_access": {
             "listen_mode": listen_mode,

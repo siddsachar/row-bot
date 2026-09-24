@@ -125,7 +125,7 @@ it('creates a disabled workflow using inherited delivery, without run controls',
   const callbacks = props();
   render(<TaskEditor {...callbacks} />);
   fillNew();
-  expect(screen.getByRole('checkbox', { name: /^Enabled/ })).not.toBeChecked();
+  expect(screen.getByRole('switch', { name: 'Enabled' })).not.toBeChecked();
   expect(
     screen.queryByRole('button', { name: /^run/i }),
   ).not.toBeInTheDocument();

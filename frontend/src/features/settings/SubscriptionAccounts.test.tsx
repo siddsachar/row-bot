@@ -86,11 +86,9 @@ function props(
     ...overrides,
   };
 }
-async function reviewStart() {
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Review sign-in' }),
-  );
-  await screen.findByRole('button', { name: 'Confirm account action' });
+async function startSignIn(p: SubscriptionAccountsProps) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Start sign-in' }));
+  await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
 }
 it('starts subscription sign-in from the compact row action and shows its flow', async () => {
   const p = props({
@@ -143,19 +141,14 @@ it('keeps secondary account actions collapsed at rest while loading passively', 
   expect(p.review).not.toHaveBeenCalled();
 });
 
-it('loads saved state passively and sends one exact explicitly reviewed command', async () => {
+it('loads saved state passively and sends one exact command on click', async () => {
   const p = props();
   render(<SubscriptionAccounts {...p} />);
   await screen.findByText(/Saved status:/);
   expect(p.review).not.toHaveBeenCalled();
   expect(p.apply).not.toHaveBeenCalled();
   expect(p.readFlow).not.toHaveBeenCalled();
-  await reviewStart();
-  const confirm = screen.getByRole('button', {
-    name: 'Confirm account action',
-  });
-  fireEvent.click(confirm);
-  fireEvent.click(confirm);
+  await startSignIn(p);
   await screen.findByRole('link', { name: 'Open ChatGPT / Codex sign-in' });
   expect(p.apply).toHaveBeenCalledTimes(1);
   expect(vi.mocked(p.apply).mock.calls[0][1].nonce).toBe('original-nonce');
@@ -165,7 +158,7 @@ it('loads saved state passively and sends one exact explicitly reviewed command'
   await waitFor(() => expect(p.readFlow).toHaveBeenCalledTimes(1));
   expect(p.apply).toHaveBeenCalledTimes(1);
 });
-it('retains a private code across remount and invalidates the review when edited', async () => {
+it('retains an unsent private code across remount and allows editing', async () => {
   const session = new SubscriptionAccountsSession();
   const p = props({ session });
   const view = render(<SubscriptionAccounts {...p} />);
@@ -176,10 +169,6 @@ it('retains a private code across remount and invalidates the review when edited
   fireEvent.change(screen.getByLabelText('Claude setup token'), {
     target: { value: 'synthetic-private-token' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review setup token import' }),
-  );
-  await screen.findByRole('button', { name: 'Confirm account action' });
   view.unmount();
   render(<SubscriptionAccounts {...p} />);
   expect(screen.getByLabelText('Claude setup token')).toHaveValue(
@@ -190,8 +179,8 @@ it('retains a private code across remount and invalidates the review when edited
     target: { value: 'replacement-token' },
   });
   expect(
-    screen.queryByRole('button', { name: 'Confirm account action' }),
-  ).not.toBeInTheDocument();
+    screen.getByRole('button', { name: 'Import setup token' }),
+  ).toBeEnabled();
   expect(p.apply).not.toHaveBeenCalled();
   session.dispose();
 });
@@ -204,15 +193,12 @@ it('retains an uncertain original receipt and locks input without resending', as
       .mockRejectedValue({ code: 'operation_uncertain' }),
   });
   const view = render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   await screen.findByRole('button', { name: 'Read original account receipt' });
   const id = vi.mocked(p.apply).mock.calls[0][2];
   view.unmount();
   render(<SubscriptionAccounts {...p} />);
-  expect(screen.getByRole('button', { name: 'Review sign-in' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start sign-in' })).toBeDisabled();
   fireEvent.click(
     screen.getByRole('button', { name: 'Read original account receipt' }),
   );
@@ -247,16 +233,10 @@ it('supports explicit cancel while a login check is still running', async () => 
         ),
     );
   render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   await screen.findByRole('link', { name: 'Open ChatGPT / Codex sign-in' });
-  fireEvent.click(screen.getByRole('button', { name: 'Review login check' }));
-  await screen.findByRole('button', { name: 'Confirm account action' });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check login' }));
+  await waitFor(() => expect(apply).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
   await waitFor(() => expect(p.cancel).toHaveBeenCalledTimes(1));
   await act(async () => reject({ code: 'subscription_cancelled' }));
@@ -282,10 +262,7 @@ it('purges private intent on authentication disposal and ignores late success', 
     ),
   });
   render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   const id = vi.mocked(p.apply).mock.calls[0][2];
   act(() => session.dispose());
   await act(async () =>
@@ -305,10 +282,7 @@ it('never exposes an active link for an invalid login URL', async () => {
     })),
   });
   render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   await screen.findByText(/Sign-in: waiting/);
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
 });
@@ -317,10 +291,7 @@ it('recovers only the immutable original reviewed command after explicit request
   const p = props();
   vi.mocked(p.apply).mockRejectedValueOnce({ code: 'operation_uncertain' });
   render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   await screen.findByRole('button', {
     name: 'Recover original account action',
   });
@@ -347,10 +318,7 @@ it('can cancel the original Start before its public flow handle arrives', async 
     ),
   });
   render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   const id = vi.mocked(p.apply).mock.calls[0][2];
   fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
   await waitFor(() => expect(p.cancelStart).toHaveBeenCalledWith(id));
@@ -369,10 +337,7 @@ it('reports successful publication when cancellation arrives after connection', 
     })),
   });
   render(<SubscriptionAccounts {...p} />);
-  await reviewStart();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm account action' }),
-  );
+  await startSignIn(p);
   await screen.findByRole('link', { name: 'Open ChatGPT / Codex sign-in' });
   fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
   await screen.findByText('Sign-in completed before cancellation.');

@@ -121,8 +121,13 @@ it('reuses bounded settled command capacity rather than permanently blocking the
   }
 });
 
-it('dismisses the owned review as well as its visible card so a clean session is evictable', async () => {
+it('starts a generated look in one click and releases settled command state', async () => {
   const transport = api();
+  transport.execute = vi.fn(async (command) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    hatch: { ...result(command.command_id), status: 'completed' },
+  }));
   const session = createBuddyPanelSession(transport, () => {});
   render(
     <BuddyPanel
@@ -136,11 +141,10 @@ it('dismisses the owned review as well as its visible card so a clean session is
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
     target: { value: 'Synthetic look' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: /Review Generate full Buddy/i }),
-  );
-  await screen.findByRole('button', { name: 'Dismiss review' });
-  fireEvent.click(screen.getByRole('button', { name: 'Dismiss review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Generate full Buddy' }));
+  await waitFor(() => expect(transport.execute).toHaveBeenCalledTimes(1));
+  expect(transport.review).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('button', { name: 'Dismiss review' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
     target: { value: '' },
   });
@@ -150,7 +154,7 @@ it('dismisses the owned review as well as its visible card so a clean session is
     ).not.toBeInTheDocument(),
   );
   expect(session.hasRetained()).toBe(false);
-  expect(transport.execute).not.toHaveBeenCalled();
+  expect(transport.execute).toHaveBeenCalledTimes(1);
   act(() => session.purge());
 });
 

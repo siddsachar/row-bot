@@ -151,6 +151,8 @@ export type DesignReceipt = {
 export type DesignCommandType =
   | 'artifact.design.control'
   | 'artifact.asset.upload'
+  | 'artifact.document.import'
+  | 'artifact.notes.generate'
   | 'artifact.preset.mutate';
 export type DesignSessionOwner = {
   getSnapshot(): {
@@ -182,6 +184,11 @@ export type DesignSessionOwner = {
     commandId: string,
     signal: AbortSignal,
   ): Promise<{ upload_id: string; sha256: string; size_bytes: number }>;
+  importPreview?(
+    scope: DesignScope,
+    body: import('../../api/types').ArtifactDocumentImportPreviewRequest,
+    signal: AbortSignal,
+  ): Promise<import('../../api/types').ArtifactDocumentImportPreview>;
   presetReview(
     scope: DesignScope,
     options: DesignPresetIntent & {
@@ -310,7 +317,11 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
           ? attempt.payload.operation
           : attempt.type === 'artifact.asset.upload'
             ? 'asset_upload'
-            : 'preset_' + attempt.payload.action;
+            : attempt.type === 'artifact.document.import'
+              ? 'document_import'
+              : attempt.type === 'artifact.notes.generate'
+                ? 'notes_generate'
+                : 'preset_' + attempt.payload.action;
       if (
         outcome &&
         (outcome.resource_id !== scope.resource_id ||
@@ -485,6 +496,62 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
           },
         );
       },
+      prepareImport: async (file: File, revision: string) => {
+        const importPreview = owner.importPreview;
+        if (!importPreview) throw new Error('capability_unavailable');
+        if (
+          !/\.(pptx|docx)$/i.test(file.name) ||
+          !file.size ||
+          file.size > 25 * 1024 * 1024
+        )
+          throw new Error('invalid_document_import');
+        const staged = await query((signal) =>
+          owner.stageUpload(scope, file, crypto.randomUUID(), signal),
+        );
+        if (
+          staged.size_bytes !== file.size ||
+          !/^[a-f0-9]{64}$/.test(staged.sha256) ||
+          !staged.upload_id ||
+          staged.upload_id.length > 256
+        )
+          throw new Error('upload_identity_conflict');
+        const preview = await query((signal) =>
+          importPreview(
+            scope,
+            {
+              expected_revision: revision,
+              upload_id: staged.upload_id,
+              filename: file.name,
+              sha256: staged.sha256,
+              size_bytes: staged.size_bytes,
+            },
+            signal,
+          ),
+        );
+        if (
+          preview.resource_id !== scope.resource_id ||
+          preview.resource_revision !== revision ||
+          preview.source_sha256 !== staged.sha256 ||
+          preview.filename !== file.name
+        )
+          throw new Error('document_import_identity_conflict');
+        return { staged, preview };
+      },
+      importDocument: (input: {
+        staged: { upload_id: string; sha256: string; size_bytes: number };
+        filename: string;
+        revision: string;
+        replace: boolean;
+      }) =>
+        effect('artifact.document.import', input.revision, {
+          upload_id: input.staged.upload_id,
+          filename: input.filename,
+          sha256: input.staged.sha256,
+          size_bytes: input.staged.size_bytes,
+          replace: input.replace,
+        }),
+      generateNotes: (pageId: string, revision: string) =>
+        effect('artifact.notes.generate', revision, { page_id: pageId }),
       mutatePreset: async (options: DesignPresetIntent, revision: string) => {
         const outcome = await effect(
           'artifact.preset.mutate',

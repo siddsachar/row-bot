@@ -149,7 +149,7 @@ export default function McpPolicyControls({
   execute,
 }: McpPolicyControlsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const { page, pending, reviewed } = state;
+  const { page, pending } = state;
   const locked = !state.active || Boolean(state.busy || pending);
   const canSave = Boolean(
     page?.revision &&
@@ -232,6 +232,7 @@ export default function McpPolicyControls({
   const choose = (draft: McpPolicyIntent, draftLabel: string) => {
     if (locked || !canSave) return;
     session.update({ draft, draftLabel, reviewed: null, message: '' });
+    void requestReview();
   };
   const requestReview = async () => {
     const current = session.getSnapshot();
@@ -261,18 +262,15 @@ export default function McpPolicyControls({
         result.configuration_revision !== command.payload.configuration_revision
       )
         throw Error();
-      session.update({
-        reviewed: { command, review: result },
-        busy: '',
-        message:
-          'Review complete. Save permission explicitly applies this change.',
-      });
+      const attempt = { command, review: result };
+      session.update({ reviewed: attempt, busy: '', message: '' });
+      void save(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'This permission could not be reviewed. Refresh and review again.',
+            'This permission could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -475,19 +473,6 @@ export default function McpPolicyControls({
       )}
       {state.draft && <p>Selected change: {state.draftLabel}.</p>}
       <div className="action-cluster">
-        <Button
-          disabled={locked || !canSave || !state.draft}
-          onClick={() => void requestReview()}
-        >
-          Review permission
-        </Button>
-        <Button
-          variant="primary"
-          disabled={locked || !reviewed}
-          onClick={() => void save(reviewed)}
-        >
-          Save permission
-        </Button>
         {state.draft && (
           <Button
             disabled={locked}

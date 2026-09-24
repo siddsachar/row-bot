@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
@@ -181,10 +182,7 @@ it('retains actual component state on remount and retries only the original comm
   const first = render(
     createElement(WorkspaceUndo, { ...entry.api, session: entry.session }),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review Undo' }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Undo these changes' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Undo change' }));
   await screen.findByText(
     'Undo is incomplete. Keep this original operation for recovery.',
   );
@@ -227,13 +225,12 @@ it('settles a single in-flight success after navigation and component unmount', 
   const view = render(
     createElement(WorkspaceUndo, { ...entry.api, session: entry.session }),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review Undo' }));
-  const confirm = await screen.findByRole('button', {
-    name: 'Undo these changes',
-  });
-  fireEvent.click(confirm);
-  fireEvent.click(confirm);
-  expect(f.controller.executeWorkspaceUndo).toHaveBeenCalledTimes(1);
+  const undo = screen.getByRole('button', { name: 'Undo change' });
+  fireEvent.click(undo);
+  fireEvent.click(undo);
+  await waitFor(() =>
+    expect(f.controller.executeWorkspaceUndo).toHaveBeenCalledTimes(1),
+  );
   const command = f.controller.executeWorkspaceUndo.mock.calls[0][3];
   view.unmount();
   f.state.selectedConversationId = 'elsewhere';

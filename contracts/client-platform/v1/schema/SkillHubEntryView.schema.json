@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "author": {
+      "maxLength": 160,
+      "title": "Author",
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 1000,
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "title": "Id",
+      "type": "string"
+    },
+    "installed": {
+      "title": "Installed",
+      "type": "boolean"
+    },
+    "name": {
+      "maxLength": 160,
+      "title": "Name",
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 80,
+      "title": "Source",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Tags",
+      "type": "array"
+    },
+    "trust_level": {
+      "maxLength": 80,
+      "title": "Trust Level",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "author",
+    "trust_level",
+    "tags",
+    "installed"
+  ],
+  "title": "SkillHubEntryView",
+  "type": "object"
+}

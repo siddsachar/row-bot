@@ -1,4 +1,5 @@
 import type { SettingsSnapshot } from '../../api/types';
+import type { ClientPlatform } from '../../platform';
 import {
   AccountsSnapshotPanel,
   SystemSnapshotPanel,
@@ -18,12 +19,16 @@ export default function Phase4RetainedSettings({
   mutation,
   selectedConversationId,
   pickFolder,
+  showAccountActions = false,
+  writeClipboard,
 }: {
   setting: Phase4RetainedSetting;
   snapshot: SettingsSnapshot;
   mutation: SettingsMutationIO;
   selectedConversationId: string | null;
   pickFolder?: SettingsFolderPicker;
+  showAccountActions?: boolean;
+  writeClipboard?: ClientPlatform['writeClipboard'];
 }) {
   if (setting === 'voice')
     return (
@@ -35,7 +40,11 @@ export default function Phase4RetainedSettings({
     );
   if (setting === 'accounts')
     return (
-      <AccountsSnapshotPanel snapshot={snapshot.accounts} mutation={mutation} />
+      <AccountsSnapshotPanel
+        snapshot={snapshot.accounts}
+        mutation={mutation}
+        showActions={showAccountActions}
+      />
     );
   if (setting === 'tracker')
     return (
@@ -53,6 +62,7 @@ export default function Phase4RetainedSettings({
       snapshot={snapshot.system}
       mutation={mutation}
       pickFolder={pickFolder}
+      writeClipboard={writeClipboard}
     />
   );
 }

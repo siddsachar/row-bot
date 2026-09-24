@@ -328,6 +328,14 @@ class BrowserControlSnapshot(WireModel):
     availability: dict[str, BrowserAvailability] = Field(max_length=12)
 
 
+class BrowserPreview(WireModel):
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    revision: BrowserRevision
+    state: Literal["available", "waiting", "shielded", "inactive"]
+    image_base64: str | None = Field(default=None, max_length=2_000_000)
+
+
 class BrowserRevisionInput(WireModel):
     revision: BrowserRevision
 
@@ -672,12 +680,17 @@ class SettingsShellSnapshot(SettingsToggleSnapshot):
 
 
 class SettingsRuntimeToggleSnapshot(SettingsToggleSnapshot):
-    runtime_state: Literal["cached_unknown"]
+    runtime_state: str = Field(max_length=64)
 
 
 class SettingsComputerUseSnapshot(SettingsRuntimeToggleSnapshot):
+    local_owner_control_available: bool
+    platform: Literal["windows", "macos", "unsupported"]
     disclosure_acknowledged: bool
     system_binary_configured: bool
+    status_message: str = Field(max_length=256)
+    remediation: str = Field(max_length=256)
+    disclosure_text: str = Field(max_length=2400)
 
 
 class SettingsFileOperationsSnapshot(SettingsToggleSnapshot):
@@ -694,6 +707,9 @@ class SettingsTunnelSnapshot(WireModel):
     credential: SettingsCredentialState
     runtime_state: Literal["not_checked"]
     active_count: int | None = Field(ge=0)
+    main_app_enabled: bool
+    main_app_url: str | None = Field(max_length=512)
+    local_owner_control_available: bool
 
 
 class SettingsRemoteAccessSnapshot(WireModel):
@@ -894,6 +910,180 @@ class AccountSettingsSnapshot(WireModel):
     x: AccountSettingsItem
 
 
+class GitHubAccessSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal[
+        "not_configured",
+        "configured_unchecked",
+        "connected",
+        "anonymous",
+        "invalid_token",
+        "rate_limited",
+        "secondary_limited",
+        "offline",
+    ]
+    credential_source: Literal["none", "environment", "keyring", "github_cli"]
+    connected: bool
+    anonymous_ok: bool
+    cli_installed: bool
+    cli_authenticated: bool
+    remaining: int | None = Field(default=None, ge=0)
+    retry_after_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+
+class GitHubAccessCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["check", "cli_login", "cli_refresh", "anonymous"]
+
+
+class SkillHubEntryView(WireModel):
+    id: str = Field(max_length=256)
+    name: str = Field(max_length=160)
+    description: str = Field(max_length=1000)
+    source: str = Field(max_length=80)
+    author: str = Field(max_length=160)
+    trust_level: str = Field(max_length=80)
+    tags: list[str] = Field(max_length=8)
+    installed: bool
+
+
+class SkillHubSourceStatus(WireModel):
+    source_id: str = Field(max_length=80)
+    status: str = Field(max_length=40)
+    message: str = Field(max_length=300)
+
+
+class SkillHubSearchRequest(WireModel):
+    query: str = Field(default="", max_length=2000)
+    source: Literal["all", "github", "skills_sh", "browse_sh", "clawhub", "lobehub"] = (
+        "all"
+    )
+    refresh: bool = False
+
+
+class SkillHubSearchResult(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    mode: str = Field(max_length=40)
+    query: str = Field(max_length=2000)
+    entries: list[SkillHubEntryView] = Field(max_length=24)
+    source_statuses: list[SkillHubSourceStatus] = Field(max_length=12)
+    error: str = Field(max_length=500)
+
+
+class SkillHubPreviewRequest(WireModel):
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    entry_id: str = Field(min_length=1, max_length=256)
+
+
+class SkillHubFinding(WireModel):
+    severity: Literal["block", "warn", "info"]
+    code: str = Field(max_length=80)
+    message: str = Field(max_length=500)
+    path: str = Field(max_length=256)
+
+
+class SkillHubScanView(WireModel):
+    blocked: bool
+    findings: list[SkillHubFinding] = Field(max_length=50)
+    token_estimate: int = Field(ge=0)
+
+
+class SkillHubPreview(WireModel):
+    schema_version: Literal[1]
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    entry: SkillHubEntryView
+    primary_text: str = Field(max_length=6000)
+    files: list[str] = Field(max_length=100)
+    scan: SkillHubScanView
+
+
+class SkillHubInstallCommand(WireModel):
+    command_id: UUID
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    make_available: bool = False
+
+
+class SkillHubInstallReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    success: bool
+    message: str = Field(max_length=500)
+    skill_name: str = Field(max_length=160)
+
+
+class SkillHubInstalledRecord(WireModel):
+    name: str = Field(max_length=160)
+    source: str = Field(max_length=80)
+    enabled: bool
+    installed_at: str = Field(max_length=64)
+    updated_at: str = Field(max_length=64)
+    file_count: int = Field(ge=0)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SkillHubInstalledPage(WireModel):
+    schema_version: Literal[1]
+    items: list[SkillHubInstalledRecord] = Field(max_length=200)
+
+
+class SkillHubMaintenanceCommand(WireModel):
+    command_id: UUID
+    name: str = Field(min_length=1, max_length=160)
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["check", "update", "uninstall"]
+    confirmed: bool = False
+
+
+class SkillHubMaintenanceReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    action: Literal["check", "update", "uninstall"]
+    success: bool
+    message: str = Field(max_length=300)
+    record: SkillHubInstalledRecord | None
+
+
+class GitHubAccessReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    action: Literal["check", "cli_login", "cli_refresh", "anonymous"]
+    phase: Literal["completed", "started"]
+    snapshot: GitHubAccessSnapshot
+
+
+class AccountAuthSnapshot(WireModel):
+    schema_version: Literal[1]
+    account: Literal["google", "x"]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    configured: bool
+    state: Literal["not_configured", "not_authenticated", "saved_unchecked", "partial"]
+    token_files: int = Field(ge=0, le=2)
+
+
+class AccountAuthCommand(WireModel):
+    command_id: UUID
+    account: Literal["google", "x"]
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["import_credentials", "check", "start", "disconnect"]
+    confirmed: bool = False
+    credentials_json: str = Field(default="", max_length=65536)
+
+
+class AccountAuthReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    account: Literal["google", "x"]
+    action: Literal["import_credentials", "check", "start", "disconnect"]
+    phase: Literal["running", "cancel_requested", "cancelled", "completed", "failed"]
+    message: str = Field(max_length=256)
+    snapshot: AccountAuthSnapshot
+
+
 class UtilitySettingsItem(WireModel):
     utility_id: str = Field(min_length=1, max_length=128)
     label: str = Field(max_length=256)
@@ -1027,12 +1217,19 @@ class SettingsMutationCommand(WireModel):
     payload: SettingsMutationPayload
 
 
+class SettingsActionResult(WireModel):
+    code: str = Field(max_length=64)
+    message: str = Field(max_length=256)
+    remediation: str = Field(max_length=256)
+
+
 class SettingsMutationReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "rejected", "partial"]
     code: str | None = Field(default=None, max_length=128)
     settings_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     snapshot: SettingsSnapshot | None = None
+    action_result: SettingsActionResult | None = None
 
 
 class TaskSummary(WireModel):
@@ -1496,6 +1693,38 @@ class SubscriptionOptionsReview(SubscriptionOptionsRequest):
     nonce: str = Field(min_length=1, max_length=128)
 
 
+class McpRequirementSummary(WireModel):
+    id: Literal["node", "uv", "playwright-chrome", "other"]
+    label: str = Field(max_length=96)
+    available: bool
+    managed: bool
+    installable: bool
+    source: Literal["system", "managed", "environment", "missing", "unknown"]
+
+
+class McpDirectorySearchRequest(WireModel):
+    query: str = Field(max_length=128)
+
+
+class McpDirectoryEntry(WireModel):
+    id: str = Field(max_length=128)
+    name: str = Field(max_length=128)
+    description: str = Field(max_length=800)
+    source: str = Field(max_length=32)
+    publisher: str = Field(max_length=128)
+    transport: str = Field(max_length=32)
+    risk_level: str = Field(max_length=32)
+    requires_auth: bool
+    recommended: bool
+    import_json: str = Field(max_length=8192)
+
+
+class McpDirectoryResult(WireModel):
+    schema_version: Literal[1]
+    mode: Literal["live", "cache", "curated"]
+    items: list[McpDirectoryEntry] = Field(max_length=24)
+
+
 class McpServerSummary(WireModel):
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     name: str = Field(max_length=128)
@@ -1507,6 +1736,9 @@ class McpServerSummary(WireModel):
     ] = Field(max_length=6)
     tool_count: int | None = Field(ge=0, le=10000)
     connection_present: bool | None
+    requirements: list[McpRequirementSummary] = Field(
+        default_factory=list, max_length=8
+    )
 
 
 class McpConfigurationPage(WireModel):
@@ -1548,7 +1780,7 @@ class McpConfigurationFields(WireModel):
 
 
 class McpConfigurationIntent(WireModel):
-    operation: Literal["add", "edit", "rename", "import"]
+    operation: Literal["add", "edit", "rename", "import", "delete"]
     server_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     fields: McpConfigurationFields | None = None
     import_json: str | None = Field(default=None, max_length=131072)
@@ -1565,7 +1797,7 @@ class McpConfigurationPayload(McpConfigurationReviewRequest):
 
 class McpConfigurationReview(WireModel):
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    operation: Literal["add", "edit", "rename", "import"]
+    operation: Literal["add", "edit", "rename", "import", "delete"]
     action_digest: str = Field(min_length=1, max_length=128)
     server_ids: list[Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]] = (
         Field(max_length=64)
@@ -1582,8 +1814,10 @@ class McpConfigurationOutcome(WireModel):
         Field(max_length=64)
     )
     saved_disabled: Literal[True] | None
-    runtime_cleanup: Literal["not_requested"]
-    code: Literal["mcp_configuration_unconfirmed"] | None
+    runtime_cleanup: Literal[
+        "not_requested", "not_running", "stopped", "cleanup_incomplete"
+    ]
+    code: Literal["mcp_configuration_unconfirmed", "mcp_cleanup_incomplete"] | None
 
 
 class KnowledgeGraphNode(WireModel):
@@ -1716,6 +1950,214 @@ class MonitorLogs(WireModel):
     authorized: bool
     entries: list[MonitorLogEntry] = Field(max_length=200)
     full_available: bool
+
+
+class SystemDiagnosisCheck(WireModel):
+    name: str = Field(max_length=128)
+    status: Literal["ok", "warn", "error", "inactive"]
+    detail: str = Field(max_length=512)
+    checked_at: float
+    settings_tab: str = Field(max_length=64)
+
+
+class SystemDiagnosis(WireModel):
+    schema_version: Literal[1]
+    checks: list[SystemDiagnosisCheck] = Field(max_length=64)
+
+
+class UpdateRelease(WireModel):
+    version: str = Field(max_length=64)
+    channel: Literal["stable", "beta"]
+    published_at: str = Field(max_length=64)
+    notes: str = Field(max_length=16000)
+    html_url: str = Field(max_length=2048)
+    asset_size: int = Field(ge=0, le=1_000_000_000_000)
+    verified_manifest: bool
+
+
+class UpdateSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    channel: Literal["stable", "beta"]
+    current_version: str = Field(max_length=64)
+    last_check: str | None = Field(max_length=64)
+    last_success: str | None = Field(max_length=64)
+    skipped_versions: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        max_length=64
+    )
+    available: UpdateRelease | None
+    dev_install: bool
+
+
+class UpdateCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["check", "skip", "clear_skipped"]
+    version: str = Field(default="", max_length=64)
+
+
+class UpdateReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    status: Literal["completed", "failed"]
+    snapshot: UpdateSnapshot
+
+
+class UpdateInstallCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    version: str = Field(max_length=64)
+
+
+class UpdateInstallStatus(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    version: str = Field(max_length=64)
+    phase: Literal["downloading", "cancel_requested", "cancelled", "failed", "handoff"]
+    downloaded: int = Field(ge=0, le=1_000_000_000_000)
+    total: int = Field(ge=0, le=1_000_000_000_000)
+    message: str = Field(max_length=256)
+
+
+class MigrationScanRequest(WireModel):
+    provider: Literal["hermes", "openclaw"]
+    source: str = Field(min_length=1, max_length=2048)
+    target: str = Field(default="", max_length=2048)
+    include_secrets: bool = False
+
+
+class MigrationPreviewSummary(WireModel):
+    total: int = Field(ge=0, le=4096)
+    selected: int = Field(ge=0, le=4096)
+    ready: int = Field(ge=0, le=4096)
+    migrated: int = Field(ge=0, le=4096)
+    conflicts: int = Field(ge=0, le=4096)
+    sensitive: int = Field(ge=0, le=4096)
+    archive_only: int = Field(ge=0, le=4096)
+    skipped: int = Field(ge=0, le=4096)
+    blocked: int = Field(ge=0, le=4096)
+    errors: int = Field(ge=0, le=4096)
+
+
+class MigrationPreviewItem(WireModel):
+    id: str = Field(max_length=128)
+    category: str = Field(max_length=32)
+    action: str = Field(max_length=32)
+    status: str = Field(max_length=32)
+    label: str = Field(max_length=256)
+    reason: str = Field(max_length=512)
+    target: str = Field(max_length=256)
+    sensitivity: str = Field(max_length=32)
+    selected: bool
+    requires_confirmation: bool
+
+
+class MigrationPreview(WireModel):
+    schema_version: Literal[1]
+    plan_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    provider: Literal["hermes", "openclaw"]
+    source_found: bool
+    source_label: str = Field(max_length=128)
+    summary: MigrationPreviewSummary
+    warnings: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=64
+    )
+    items: list[MigrationPreviewItem] = Field(max_length=4096)
+
+
+class MigrationApplyReviewRequest(WireModel):
+    plan_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selected_ids: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=4096
+    )
+    overwrite: bool = False
+
+
+class MigrationApplyReview(WireModel):
+    schema_version: Literal[1]
+    plan_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selected: int = Field(ge=1, le=4096)
+    conflicts: int = Field(ge=0, le=4096)
+    sensitive: int = Field(ge=0, le=4096)
+    overwrite: bool
+    backup_required: bool
+
+
+class MigrationApplyCommand(MigrationApplyReviewRequest):
+    command_id: UUID
+    review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed: bool
+
+
+class MigrationFailedItem(WireModel):
+    id: str = Field(max_length=128)
+    status: str = Field(max_length=32)
+    reason: str = Field(max_length=512)
+
+
+class MigrationApplyReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    status: Literal["completed", "partial", "interrupted"]
+    summary: MigrationPreviewSummary
+    report: str = Field(max_length=256)
+    warnings: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=64
+    )
+    failed_items: list[MigrationFailedItem] = Field(max_length=4096)
+
+
+class OnboardingStep(WireModel):
+    id: str = Field(max_length=32)
+    title: str = Field(max_length=64)
+    description: str = Field(max_length=256)
+
+
+class OnboardingIntent(WireModel):
+    id: str = Field(max_length=32)
+    label: str = Field(max_length=64)
+
+
+class OnboardingSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    setup_complete: bool
+    starter_workflows_missing: int = Field(ge=0, le=32)
+    profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        max_length=7
+    )
+    completed_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        max_length=11
+    )
+    skipped_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        max_length=11
+    )
+    dismissed_home_card: bool
+    steps: list[OnboardingStep] = Field(max_length=11)
+    intents: list[OnboardingIntent] = Field(max_length=7)
+
+
+class OnboardingCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal[
+        "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters"
+    ]
+    profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        default_factory=list, max_length=7
+    )
+    step: str = Field(default="", max_length=32)
+
+
+class OnboardingReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    status: Literal["completed"]
+    snapshot: OnboardingSnapshot
 
 
 class MonitorSnapshot(WireModel):
@@ -2381,6 +2823,9 @@ class PluginCatalogItem(WireModel):
     permissions: list[str] = Field(max_length=64)
     provides: dict[str, int]
     manifest_revision: KnowledgeRevision | None
+    source_label: str = Field(default="", max_length=256)
+    checksum: str = Field(default="", max_length=128)
+    verified: bool = False
     capabilities: dict[str, PluginCapability]
 
 
@@ -2434,6 +2879,7 @@ PluginAction = Literal[
     "plugin.enable",
     "plugin.disable",
     "plugin.configure",
+    "plugin.test",
     "plugin.install",
     "plugin.update",
     "plugin.remove",
@@ -2482,6 +2928,39 @@ class PluginReceipt(WireModel):
     plugin: PluginReceiptItem | None = None
 
 
+class PluginLifecycleReviewRequest(WireModel):
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(default="", max_length=128)
+
+
+class PluginLifecycleReview(WireModel):
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=64)
+    source: str = Field(max_length=2048)
+    checksum: str = Field(max_length=128)
+    permissions: list[str] = Field(max_length=64)
+    disclosures: list[str] = Field(max_length=8)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginLifecycleCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(default="", max_length=128)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginLifecycleReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(max_length=128)
+    message: str = Field(max_length=1024)
+
+
 SkillAction = Literal[
     "skill.preference",
     "skill.create",
@@ -2500,6 +2979,7 @@ class SkillSummary(WireModel):
     icon: str = Field(max_length=32)
     description: str = Field(max_length=1024)
     source: Literal["user", "bundled"]
+    public: bool = False
     version: str = Field(max_length=32)
     tags: list[str] = Field(max_length=32)
     activation: dict[str, list[str]]
@@ -2857,6 +3337,127 @@ class DeveloperRepositorySnapshot(WireModel):
     worktrees: list[DeveloperWorktreeState] = Field(max_length=32)
     sandbox: DeveloperSandboxState
     availability: dict[str, DeveloperRepositoryCapability] = Field(max_length=20)
+
+
+class CustomToolCommandView(WireModel):
+    name: str = Field(max_length=128)
+    description: str = Field(max_length=1024)
+    command: str = Field(max_length=4096)
+
+
+class CustomToolTestView(WireModel):
+    ran: bool
+    ok: bool
+    returncode: int | None
+    stdout: str = Field(max_length=4000)
+    stderr: str = Field(max_length=4000)
+    setup_hint: str = Field(max_length=1024)
+
+
+class CustomToolDraftView(WireModel):
+    id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    commands: list[CustomToolCommandView] = Field(max_length=32)
+    warnings: list[str] = Field(max_length=32)
+    test_results: dict[str, CustomToolTestView] = Field(max_length=32)
+    python_project: bool
+    setup_ok: bool
+    status: str = Field(max_length=64)
+    created_tool_id: str = Field(max_length=128)
+
+
+class CustomToolView(WireModel):
+    id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    enabled: bool
+    available_in_chat: bool
+    commands: list[CustomToolCommandView] = Field(max_length=32)
+
+
+class CustomToolSnapshot(WireModel):
+    schema_version: Literal[1]
+    resource_id: str = Field(max_length=128)
+    conversation_id: str = Field(max_length=256)
+    binding_id: str = Field(max_length=128)
+    workspace_name: str = Field(max_length=256)
+    source_is_repository: bool
+    drafts: list[CustomToolDraftView] = Field(max_length=32)
+    tools: list[CustomToolView] = Field(max_length=32)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CustomToolCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["inspect", "refine", "update", "create", "setup", "test", "enable", "promote", "remove"]
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=8)
+
+
+class CustomToolReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    summary: str = Field(max_length=1024)
+    snapshot: CustomToolSnapshot
+
+
+class InsightProposalView(WireModel):
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=256)
+    proposal_type: str = Field(max_length=64)
+    status: str = Field(max_length=64)
+    risk: str = Field(max_length=64)
+    rationale: str = Field(max_length=2048)
+    verification_plan: str = Field(max_length=2048)
+    preview: str = Field(max_length=4000)
+    open_thread_id: str = Field(max_length=256)
+    feedback_body: str = Field(max_length=4000)
+    support_url: str = Field(max_length=2048)
+
+
+class InsightView(WireModel):
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=256)
+    body: str = Field(max_length=4000)
+    suggestion: str = Field(max_length=2048)
+    category: str = Field(max_length=64)
+    severity: str = Field(max_length=32)
+    status: str = Field(max_length=32)
+    proposals: list[InsightProposalView] = Field(max_length=8)
+
+
+class CuratorReportView(WireModel):
+    created_at: str = Field(max_length=64)
+    manual_skill_count: int = Field(ge=0)
+    finding_count: int = Field(ge=0)
+    proposal_count: int = Field(ge=0)
+    findings: list[str] = Field(max_length=32)
+
+
+class InsightsSnapshot(WireModel):
+    schema_version: Literal[1]
+    items: list[InsightView] = Field(max_length=100)
+    curator_report: CuratorReportView | None
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class InsightCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["pin", "unpin", "dismiss", "generate", "review_skills", "apply", "reject"]
+    insight_id: str = Field(default="", max_length=128)
+    proposal_id: str = Field(default="", max_length=128)
+    reason: str = Field(default="", max_length=512)
+
+
+class InsightReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    summary: str = Field(max_length=1024)
+    snapshot: InsightsSnapshot
 
 
 class DeveloperRepositoryRevisionInput(WireModel):
@@ -3584,6 +4185,10 @@ class EmptyWorkspaceSetupPayload(WireModel):
     folder_name: str = Field(min_length=1, max_length=120)
 
 
+class CloneWorkspaceSetupPayload(WireModel):
+    repo_url: str = Field(min_length=1, max_length=2048)
+
+
 class ResourceSetupPayload(WireModel):
     kind: Literal["artifact", "workspace"]
     intent: Literal["create", "open", "add", "repair", "new_conversation"]
@@ -3593,6 +4198,7 @@ class ResourceSetupPayload(WireModel):
     deck: DeckSetupPayload | None = None
     artifact: ArtifactSetupPayload | None = None
     empty_workspace: EmptyWorkspaceSetupPayload | None = None
+    clone_workspace: CloneWorkspaceSetupPayload | None = None
     folder_grant: OpaqueId | None = None
 
     @model_validator(mode="after")
@@ -3604,6 +4210,7 @@ class ResourceSetupPayload(WireModel):
             or self.folder_grant is not None
             or self.resource_id is not None
             or self.empty_workspace is not None
+            or self.clone_workspace is not None
         ):
             raise ValueError(
                 "Artifact creation has one typed setup and no existing resource."
@@ -3615,10 +4222,17 @@ class ResourceSetupPayload(WireModel):
             or self.resource_id is not None
             or self.deck is not None
             or self.artifact is not None
+            or self.clone_workspace is not None
         ):
             raise ValueError(
                 "Empty workspace creation requires an explicit parent grant and name."
             )
+        if self.clone_workspace is not None and (
+            self.kind != 'workspace' or self.intent != 'create'
+            or self.folder_grant is None or self.resource_id is not None
+            or any(value is not None for value in (self.deck, self.artifact, self.empty_workspace))
+        ):
+            raise ValueError('Repository clone requires an explicit parent grant.')
         return self
 
 
@@ -3810,7 +4424,7 @@ class DesignControlsState(WireModel):
     page_id: OpaqueId
     brand: DesignBrand
     element: DesignElement | None
-    section: Literal["elements", "assets", "fonts", "presets", "interactions"]
+    section: Literal["elements", "assets", "fonts", "presets", "interactions", "blocks"]
     items: list[DesignControlItem] = Field(max_length=50)
     item_count: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=2048)
@@ -3856,6 +4470,7 @@ class ArtifactDesignControlPayload(WireModel):
         "asset_insert",
         "asset_remove",
         "asset_forget",
+        "block_insert",
     ]
     parameters: dict[str, Any]
     page_id: OpaqueId | None = None
@@ -3868,6 +4483,43 @@ class ArtifactAssetUploadPayload(WireModel):
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=1, le=26214400)
+
+
+class ArtifactDocumentImportPayload(WireModel):
+    target: WriteTarget
+    upload_id: UUID
+    filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1, le=26214400)
+    replace: bool
+
+
+class ArtifactDocumentImportPreviewRequest(WireModel):
+    expected_revision: str = Field(min_length=1, max_length=128)
+    upload_id: UUID
+    filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1, le=26214400)
+
+
+class ArtifactDocumentImportPage(WireModel):
+    title: str = Field(max_length=200)
+    has_notes: bool
+
+
+class ArtifactDocumentImportPreview(WireModel):
+    resource_id: OpaqueId
+    resource_revision: str = Field(max_length=128)
+    filename: str = Field(max_length=240)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    page_count: int = Field(ge=1, le=100)
+    pages: list[ArtifactDocumentImportPage] = Field(max_length=100)
+    replacing_page_count: int = Field(ge=0)
+
+
+class ArtifactNotesGeneratePayload(WireModel):
+    target: WriteTarget
+    page_id: OpaqueId
 
 
 class ArtifactPresetIntent(WireModel):
@@ -4650,6 +5302,7 @@ class Command(WireModel):
         "plugin.enable",
         "plugin.disable",
         "plugin.configure",
+        "plugin.test",
         "skill.preference",
         "skill.create",
         "skill.import",
@@ -4711,6 +5364,8 @@ class Command(WireModel):
         "provider.model.unpin",
         "artifact.design.control",
         "artifact.asset.upload",
+        "artifact.document.import",
+        "artifact.notes.generate",
         "artifact.preset.mutate",
     ]
     expected_revision: Revision
@@ -4733,7 +5388,7 @@ class Command(WireModel):
         if self.type == "conversation.controls" and "reasoning" not in supplied:
             self.payload.pop("reasoning", None)
         if self.type == "resource.setup":
-            for field in ("artifact", "empty_workspace"):
+            for field in ("artifact", "empty_workspace", "clone_workspace"):
                 if field not in supplied:
                     self.payload.pop(field, None)
         if self.type == "resource.continue" and "folder_grant" not in supplied:
@@ -4817,6 +5472,7 @@ COMMAND_PAYLOADS = {
     "plugin.enable": PluginTogglePayload,
     "plugin.disable": PluginTogglePayload,
     "plugin.configure": PluginConfigurePayload,
+    "plugin.test": PluginTogglePayload,
     "skill.preference": SkillPreferencePayload,
     "skill.create": SkillCreatePayload,
     "skill.import": SkillImportPayload,
@@ -4873,6 +5529,8 @@ COMMAND_PAYLOADS = {
     "provider.model.unpin": ProviderConfigurationPayload,
     "artifact.design.control": ArtifactDesignControlPayload,
     "artifact.asset.upload": ArtifactAssetUploadPayload,
+    "artifact.document.import": ArtifactDocumentImportPayload,
+    "artifact.notes.generate": ArtifactNotesGeneratePayload,
     "artifact.preset.mutate": ArtifactPresetPayload,
 }
 
@@ -5274,6 +5932,8 @@ class CommandReceipt(WireModel):
         "rejected",
         "partial",
     ]
+    deletion_warnings: list[str] = Field(default_factory=list, max_length=16)
+    retained_developer_work: bool = False
     conversation_id: OpaqueId | None = None
     generation_id: OpaqueId | None = None
     execution_id: OpaqueId | None = None
@@ -5290,8 +5950,8 @@ class CommandReceipt(WireModel):
     resource_kind: Literal["artifact", "workspace"] | None = None
     resource_revision: str | None = Field(default=None, max_length=128)
     confirmed_stages: list[
-        Literal["created", "conversation", "associated", "bound"]
-    ] = Field(default_factory=list, max_length=4)
+        Literal["created", "cloned", "conversation", "associated", "bound"]
+    ] = Field(default_factory=list, max_length=5)
     setup_command_id: UUID | None = None
     setup_intent: (
         Literal["create", "open", "add", "repair", "new_conversation"] | None
@@ -5332,6 +5992,7 @@ class ConversationView(WireModel):
     revision: Revision
     title: str = Field(max_length=256)
     pinned: bool
+    category: Literal["chat", "designer", "code", "workflow"] = "chat"
     generation_state: list[GenerationState] = Field(default_factory=list, max_length=32)
     resource_bindings: list[ResourceBinding] = Field(
         default_factory=list, max_length=200
@@ -5958,6 +6619,22 @@ class ArtifactEditingState(WireModel):
     history: list[ArtifactHistoryItem] = Field(max_length=50)
     history_count: int = Field(ge=0)
     history_next_cursor: str | None = Field(default=None, max_length=2048)
+
+
+class DesignerPaletteItem(WireModel):
+    category: Literal["tool", "page", "asset"]
+    label: str = Field(max_length=256)
+    hint: str = Field(max_length=128)
+    identity: str = Field(max_length=128)
+    prefill: str = Field(max_length=256)
+
+
+class DesignerPalette(WireModel):
+    resource_id: OpaqueId
+    resource_revision: str = Field(max_length=128)
+    tools_available: bool
+    items: list[DesignerPaletteItem] = Field(max_length=60)
+    has_more_matches: bool
 
 
 class ArtifactLifecycleCapability(WireModel):

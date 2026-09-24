@@ -318,6 +318,14 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
         update({ busy: false, refresh: state.refresh + 1 });
       }
     },
+    async start(
+      operation: 'resolve' | 'install',
+      callbacks: RuntimeInstallationCallbacks,
+    ) {
+      await this.review(operation, callbacks);
+      if (state.active && state.review?.operation === operation)
+        await this.run(callbacks);
+    },
     async cancel(callbacks: RuntimeInstallationCallbacks) {
       if (!state.active || state.cancelling || state.cancel) return;
       const source =
@@ -416,8 +424,8 @@ export function McpRuntimeInstallation({
             {state.runtimeId === 'node' ? 'Node.js' : 'uv'} managed runtime
           </h3>
           <p>
-            Resolve publisher metadata first, then separately review and install
-            the pinned archive. No server is connected.
+            Resolve publisher metadata first, then install the pinned archive.
+            No server is connected.
           </p>
         </div>
       </header>
@@ -437,9 +445,9 @@ export function McpRuntimeInstallation({
             !state.snapshot?.resource_revision ||
             state.snapshot.availability === 'recovery_required'
           }
-          onClick={() => void session.review('resolve', callbacks)}
+          onClick={() => void session.start('resolve', callbacks)}
         >
-          Review metadata resolution
+          Resolve metadata
         </Button>
         <Button
           disabled={
@@ -448,9 +456,9 @@ export function McpRuntimeInstallation({
             !state.sourceCommandId ||
             state.snapshot?.availability === 'recovery_required'
           }
-          onClick={() => void session.review('install', callbacks)}
+          onClick={() => void session.start('install', callbacks)}
         >
-          Review pinned installation
+          Install pinned runtime
         </Button>
         <Button
           disabled={!canCancel || state.cancelling}
@@ -459,43 +467,6 @@ export function McpRuntimeInstallation({
           Cancel original operation
         </Button>
       </div>
-      {state.review && (
-        <div>
-          <ul>
-            {state.review.disclosures.map((text) => (
-              <li key={text}>{text}</li>
-            ))}
-          </ul>
-          {state.review.plan && (
-            <dl>
-              <dt>Version</dt>
-              <dd>{state.review.plan.version}</dd>
-              <dt>Archive</dt>
-              <dd style={{ overflowWrap: 'anywhere' }}>
-                {state.review.plan.url}
-              </dd>
-              <dt>SHA-256</dt>
-              <dd style={{ overflowWrap: 'anywhere' }}>
-                {state.review.plan.sha256}
-              </dd>
-              <dt>Bytes</dt>
-              <dd>{state.review.plan.size_bytes}</dd>
-              <dt>Platform</dt>
-              <dd>
-                {state.review.plan.system} / {state.review.plan.arch}
-              </dd>
-            </dl>
-          )}
-          <Button
-            disabled={state.busy}
-            onClick={() => void session.run(callbacks)}
-          >
-            {state.review.operation === 'resolve'
-              ? 'Approve and resolve metadata'
-              : 'Approve and install pinned runtime'}
-          </Button>
-        </div>
-      )}
       {state.result && (
         <p>
           Original operation: {state.result.installation.stage}. Worker cleanup:{' '}

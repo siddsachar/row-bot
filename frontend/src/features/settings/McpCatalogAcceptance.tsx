@@ -249,17 +249,15 @@ export default function McpCatalogAcceptance({
         result.tool_count > 1000
       )
         throw Error();
-      session.update({
-        reviewed: { command, review: result },
-        busy: '',
-        message: `Review complete for all ${result.tool_count} tested tools. Accept tools explicitly saves these definitions and defaults.`,
-      });
+      const attempt = { command, review: result };
+      session.update({ reviewed: attempt, busy: '', message: '' });
+      void save(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The tested catalog could not be reviewed. Configuration may have changed.',
+            'The tested catalog could not be validated. Configuration may have changed.',
         });
     } finally {
       session.endRead(abort);
@@ -381,12 +379,6 @@ export default function McpCatalogAcceptance({
         <Button
           disabled={locked || !available}
           onClick={() => void requestReview()}
-        >
-          Review acceptance
-        </Button>
-        <Button
-          disabled={locked || !state.reviewed}
-          onClick={() => void save(state.reviewed)}
         >
           Accept tools
         </Button>

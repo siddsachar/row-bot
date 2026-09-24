@@ -74,7 +74,7 @@ def test_skills_tab_uses_compact_management_surface():
 
 
 def test_status_and_home_links_follow_new_information_architecture():
-    status_src = Path("src/row_bot/ui/status_checks.py").read_text(encoding="utf-8")
+    status_src = Path("src/row_bot/status_checks.py").read_text(encoding="utf-8")
     home_src = Path("src/row_bot/ui/home.py").read_text(encoding="utf-8")
     tunnel_src = status_src.split("def check_tunnel", 1)[1].split("def check_gmail_oauth", 1)[0]
     dream_src = status_src.split("def check_dream_cycle", 1)[1].split("def check_tts", 1)[0]

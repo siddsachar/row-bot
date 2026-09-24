@@ -1,11 +1,21 @@
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type RefObject,
-} from 'react';
-import { Button, Field, Input, Surface } from '../../ui/primitives';
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  Hand,
+  RotateCcw,
+  Square,
+  ScanEye,
+} from 'lucide-react';
+import type { BrowserPreview } from '../../api/types';
+import {
+  Button,
+  CompactAction,
+  Field,
+  Input,
+  Surface,
+} from '../../ui/primitives';
 
 export type BrowserAction =
   | 'browser.navigate'
@@ -151,6 +161,11 @@ export type BrowserLiveControlsProps = {
     conversationId: string,
     signal: AbortSignal,
   ) => Promise<BrowserControlState>;
+  loadPreview: (
+    conversationId: string,
+    revision: string,
+    signal: AbortSignal,
+  ) => Promise<BrowserPreview>;
   review: (
     action: BrowserAction,
     payload: BrowserCommandPayload,
@@ -168,14 +183,6 @@ const actionLabels: Record<BrowserAction, string> = {
   'browser.check': 'Check current page',
   'browser.back': 'Go back',
   'browser.end': 'End browser activity',
-};
-
-const applyLabels: Record<BrowserAction, string> = {
-  'browser.navigate': 'Open reviewed address',
-  'browser.take_over': 'Take over reviewed browser',
-  'browser.check': 'Check reviewed page',
-  'browser.back': 'Go back after review',
-  'browser.end': 'End reviewed activity',
 };
 
 const stateLabels: Record<string, string> = {
@@ -264,34 +271,18 @@ function validReview(
   );
 }
 
-function actionButtonRef(
-  action: BrowserAction,
-  navigateRef: RefObject<HTMLButtonElement | null>,
-  takeOverRef: RefObject<HTMLButtonElement | null>,
-  checkRef: RefObject<HTMLButtonElement | null>,
-  backRef: RefObject<HTMLButtonElement | null>,
-  endRef: RefObject<HTMLButtonElement | null>,
-) {
-  if (action === 'browser.navigate') return navigateRef;
-  if (action === 'browser.take_over') return takeOverRef;
-  if (action === 'browser.check') return checkRef;
-  if (action === 'browser.back') return backRef;
-  return endRef;
-}
-
 export default function BrowserLiveControls({
   session,
   load,
+  loadPreview,
   review,
   execute,
 }: BrowserLiveControlsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [url, setUrl] = useState('');
-  const navigateRef = useRef<HTMLButtonElement>(null);
-  const takeOverRef = useRef<HTMLButtonElement>(null);
-  const checkRef = useRef<HTMLButtonElement>(null);
-  const backRef = useRef<HTMLButtonElement>(null);
-  const endRef = useRef<HTMLButtonElement>(null);
+  const [pictureHidden, setPictureHidden] = useState(false);
+  const [picture, setPicture] = useState<BrowserPreview | null>(null);
+  const [pictureError, setPictureError] = useState('');
   const { conversationId, snapshot, retained } = state;
 
   useEffect(() => {
@@ -312,6 +303,39 @@ export default function BrowserLiveControls({
       .finally(() => session.endRead(abort));
     return () => abort.abort();
   }, [conversationId, load, session, state.active, state.refresh]);
+
+  useEffect(() => {
+    setPicture(null);
+    setPictureError('');
+    if (!snapshot?.active || pictureHidden || !state.active) return;
+    const abort = session.beginRead();
+    void loadPreview(conversationId, snapshot.revision, abort.signal)
+      .then((value) => {
+        if (abort.signal.aborted) return;
+        if (
+          value.conversation_id !== conversationId ||
+          value.revision !== snapshot.revision
+        )
+          throw new Error('Picture changed');
+        setPicture(value);
+      })
+      .catch(() => {
+        if (!abort.signal.aborted)
+          setPictureError(
+            'Picture unavailable. Refresh browser status to retry.',
+          );
+      })
+      .finally(() => session.endRead(abort));
+    return () => abort.abort();
+  }, [
+    conversationId,
+    loadPreview,
+    pictureHidden,
+    session,
+    snapshot?.active,
+    snapshot?.revision,
+    state.active,
+  ]);
 
   const requestReview = async (action: BrowserAction) => {
     const current = session.getSnapshot();
@@ -354,11 +378,13 @@ export default function BrowserLiveControls({
         type: action,
         payload: { ...payload, nonce: reviewed.nonce },
       };
-      session.update({
-        retained: { phase: 'reviewed', command, review: reviewed },
-        busy: false,
-        message: 'Review complete. Confirm this exact browser action.',
-      });
+      const attempt: RetainedAction = {
+        phase: 'reviewed',
+        command,
+        review: reviewed,
+      };
+      session.update({ retained: attempt, busy: false, message: '' });
+      await submit(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
@@ -429,23 +455,6 @@ export default function BrowserLiveControls({
     }
   };
 
-  const cancelReview = () => {
-    const current = session.getSnapshot();
-    const action = current.retained?.command.type;
-    if (!action || current.retained?.phase !== 'reviewed' || current.busy)
-      return;
-    session.update({ retained: null, message: 'Browser action cancelled.' });
-    const target = actionButtonRef(
-      action,
-      navigateRef,
-      takeOverRef,
-      checkRef,
-      backRef,
-      endRef,
-    );
-    queueMicrotask(() => target.current?.focus({ preventScroll: true }));
-  };
-
   const locked = !state.active || state.busy || retained !== null;
   const unavailable = snapshot
     ? Object.entries(unavailableLabels).filter(
@@ -489,9 +498,68 @@ export default function BrowserLiveControls({
           <strong>Last action:</strong> {snapshot.last_action}
         </p>
       )}
-      <Button disabled={!state.active || state.busy} onClick={session.refresh}>
-        Refresh browser status
-      </Button>
+      <CompactAction
+        label="Refresh browser status"
+        disabled={!state.active || state.busy}
+        onClick={session.refresh}
+      >
+        <RotateCcw aria-hidden="true" />
+      </CompactAction>
+
+      {snapshot?.active && (
+        <section
+          className="capability-section stack"
+          aria-label="Browser picture"
+        >
+          <div className="section-heading">
+            <h4>Live picture</h4>
+            <CompactAction
+              label={
+                pictureHidden ? 'Show browser picture' : 'Hide browser picture'
+              }
+              onClick={() => {
+                setPictureHidden((value) => !value);
+                setPicture(null);
+              }}
+            >
+              {pictureHidden ? (
+                <Eye size={17} aria-hidden />
+              ) : (
+                <EyeOff size={17} aria-hidden />
+              )}
+            </CompactAction>
+          </div>
+          {!pictureHidden &&
+            (snapshot.state === 'waiting_user' ||
+              snapshot.state === 'waiting_approval' ||
+              picture?.state === 'shielded') && (
+              <p role="status">
+                Picture hidden while you control the target or while a protected
+                surface is visible.
+              </p>
+            )}
+          {!pictureHidden &&
+            snapshot.state !== 'waiting_user' &&
+            snapshot.state !== 'waiting_approval' &&
+            picture?.state === 'available' &&
+            picture.image_base64 && (
+              <img
+                className="browser-live-picture"
+                src={`data:image/png;base64,${picture.image_base64}`}
+                alt="Ephemeral managed browser picture"
+              />
+            )}
+          {!pictureHidden &&
+            snapshot.state !== 'waiting_user' &&
+            snapshot.state !== 'waiting_approval' &&
+            picture?.state === 'waiting' && (
+              <p>Waiting for the first safe target picture…</p>
+            )}
+          {!pictureHidden && pictureError && (
+            <p role="status">{pictureError}</p>
+          )}
+        </section>
+      )}
 
       <div role="group" aria-label="Browser navigation">
         <Field
@@ -508,13 +576,12 @@ export default function BrowserLiveControls({
           />
         </Field>
         <Button
-          ref={navigateRef}
           disabled={
             locked || !available(snapshot, 'browser.navigate') || !url.trim()
           }
           onClick={() => void requestReview('browser.navigate')}
         >
-          Review address
+          Open address
         </Button>
       </div>
 
@@ -523,69 +590,37 @@ export default function BrowserLiveControls({
         role="group"
         aria-label="Browser live control"
       >
-        <Button
-          ref={takeOverRef}
+        <CompactAction
+          label="Take over browser"
           disabled={locked || !available(snapshot, 'browser.take_over')}
           onClick={() => void requestReview('browser.take_over')}
         >
-          Review take over
-        </Button>
-        <Button
-          ref={checkRef}
+          <Hand aria-hidden="true" />
+        </CompactAction>
+        <CompactAction
+          label="Check current page"
           disabled={locked || !available(snapshot, 'browser.check')}
           onClick={() => void requestReview('browser.check')}
         >
-          Review page check
-        </Button>
-        <Button
-          ref={backRef}
+          <ScanEye aria-hidden="true" />
+        </CompactAction>
+        <CompactAction
+          label="Go back"
           disabled={locked || !available(snapshot, 'browser.back')}
           onClick={() => void requestReview('browser.back')}
         >
-          Review back
-        </Button>
-        <Button
-          ref={endRef}
+          <ArrowLeft aria-hidden="true" />
+        </CompactAction>
+        <CompactAction
+          label="End browser activity"
           variant="danger"
           disabled={locked || !available(snapshot, 'browser.end')}
           onClick={() => void requestReview('browser.end')}
         >
-          Review end activity
-        </Button>
+          <Square aria-hidden="true" />
+        </CompactAction>
       </div>
 
-      {retained?.phase === 'reviewed' && (
-        <Surface elevated>
-          <h4>Review browser action</h4>
-          <p>
-            <strong>{actionLabels[retained.command.type]}</strong>
-          </p>
-          {retained.review.origin_and_path && (
-            <p>{retained.review.origin_and_path}</p>
-          )}
-          {retained.review.query_present && (
-            <p>Query values are present and stay bound to this exact review.</p>
-          )}
-          {retained.review.policy_reason && (
-            <p>{retained.review.policy_reason}</p>
-          )}
-          <ul>
-            {retained.review.disclosures.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <Button
-            variant="primary"
-            disabled={state.busy}
-            onClick={() => void submit(retained)}
-          >
-            {applyLabels[retained.command.type]}
-          </Button>
-          <Button disabled={state.busy} onClick={cancelReview}>
-            Cancel browser action
-          </Button>
-        </Surface>
-      )}
       {retained?.phase === 'pending' && (
         <Surface elevated>
           <h4>Original browser action</h4>

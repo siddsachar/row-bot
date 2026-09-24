@@ -79,6 +79,37 @@ def test_monitor_api_separates_remote_log_authority(tmp_path, monkeypatch):
     assert denied.status_code == 403
 
 
+def test_system_diagnosis_requires_local_explicit_request(tmp_path, monkeypatch):
+    _monitor_store(tmp_path, monkeypatch)
+    from row_bot.application import client_diagnosis
+    from row_bot.ui.status_checks import CheckResult
+
+    calls = []
+
+    def fake_checks():
+        calls.append("check")
+        return [CheckResult("Ollama", "warn", "Server offline", checked_at=1.0, settings_tab="Models")]
+
+    monkeypatch.setattr(client_diagnosis, "run_all_checks", fake_checks)
+    local, _, _ = client_app()
+    remote, _, _ = client_app(remote=True)
+    with local, remote:
+        _, local_headers = bootstrap(local)
+        _, remote_headers = bootstrap(remote)
+        assert calls == []
+        assert local.get("/api/v1/monitor/diagnosis", headers=local_headers).status_code == 405
+        assert calls == []
+        assert remote.post("/api/v1/monitor/diagnosis", headers=remote_headers).status_code == 403
+        assert calls == []
+        result = local.post("/api/v1/monitor/diagnosis", headers=local_headers)
+    assert result.status_code == 200, result.text
+    assert result.json() == {"schema_version": 1, "checks": [{
+        "name": "Ollama", "status": "warn", "detail": "Server offline",
+        "checked_at": 1.0, "settings_tab": "Models",
+    }]}
+    assert calls == ["check"]
+
+
 def test_dream_run_requires_current_review_and_is_idempotent(tmp_path, monkeypatch):
     _monitor_store(tmp_path, monkeypatch)
     calls = []

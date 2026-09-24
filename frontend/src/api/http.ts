@@ -172,6 +172,169 @@ export class HttpTransport implements ClientTransport {
   monitorLogs(limit = 200, signal?: AbortSignal) {
     return wire.getMonitorLogs(this.base, this.session(), limit, signal);
   }
+  systemDiagnosis(signal?: AbortSignal) {
+    return wire.runSystemDiagnosis(this.base, this.session(), signal);
+  }
+  updates(signal?: AbortSignal) {
+    return wire.getUpdates(this.base, this.session(), signal);
+  }
+  updateCommand(command: wire.UpdateCommand, signal?: AbortSignal) {
+    return wire.sendUpdateCommand(this.base, this.session(), command, signal);
+  }
+  startUpdateInstall(command: wire.UpdateInstallCommand, signal?: AbortSignal) {
+    return wire.startUpdateInstall(this.base, this.session(), command, signal);
+  }
+  updateInstall(commandId: string, signal?: AbortSignal) {
+    return wire.getUpdateInstall(this.base, this.session(), commandId, signal);
+  }
+  cancelUpdateInstall(commandId: string, signal?: AbortSignal) {
+    return wire.cancelUpdateInstall(
+      this.base,
+      this.session(),
+      commandId,
+      signal,
+    );
+  }
+  scanMigration(request: wire.MigrationScanRequest, signal?: AbortSignal) {
+    return wire.scanMigration(this.base, this.session(), request, signal);
+  }
+  searchSkillHub(request: wire.SkillHubSearchRequest, signal?: AbortSignal) {
+    return wire.searchSkillHub(this.base, this.session(), request, signal);
+  }
+  previewSkillHub(request: wire.SkillHubPreviewRequest, signal?: AbortSignal) {
+    return wire.previewSkillHub(this.base, this.session(), request, signal);
+  }
+  installSkillHub(command: wire.SkillHubInstallCommand, signal?: AbortSignal) {
+    return wire.installSkillHub(this.base, this.session(), command, signal);
+  }
+  skillHubInstallReceipt(commandId: string, signal?: AbortSignal) {
+    return wire.getSkillHubInstallReceipt(
+      this.base,
+      this.session(),
+      commandId,
+      signal,
+    );
+  }
+  skillHubInstalled(signal?: AbortSignal) {
+    return wire.getSkillHubInstalled(this.base, this.session(), signal);
+  }
+  skillHubMaintenance(
+    command: wire.SkillHubMaintenanceCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendSkillHubMaintenance(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  skillHubMaintenanceReceipt(commandId: string, signal?: AbortSignal) {
+    return wire.getSkillHubMaintenanceReceipt(
+      this.base,
+      this.session(),
+      commandId,
+      signal,
+    );
+  }
+  reviewMigration(
+    request: wire.MigrationApplyReviewRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.reviewMigration(this.base, this.session(), request, signal);
+  }
+  applyMigration(command: wire.MigrationApplyCommand, signal?: AbortSignal) {
+    return wire.applyMigration(this.base, this.session(), command, signal);
+  }
+  migrationReceipt(commandId: string, signal?: AbortSignal) {
+    return wire.getMigrationReceipt(
+      this.base,
+      this.session(),
+      commandId,
+      signal,
+    );
+  }
+  githubAccess(signal?: AbortSignal) {
+    return wire.getGitHubAccess(this.base, this.session(), signal);
+  }
+  githubAccessCommand(command: wire.GitHubAccessCommand, signal?: AbortSignal) {
+    return wire.sendGitHubAccessCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  githubAccessReceipt(commandId: string, signal?: AbortSignal) {
+    return wire.getGitHubAccessReceipt(
+      this.base,
+      this.session(),
+      commandId,
+      signal,
+    );
+  }
+  accountAuth(account: 'google' | 'x', signal?: AbortSignal) {
+    return wire.getAccountAuth(this.base, this.session(), account, signal);
+  }
+  accountAuthCommand(
+    account: 'google' | 'x',
+    command: wire.AccountAuthCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendAccountAuthCommand(
+      this.base,
+      this.session(),
+      account,
+      command,
+      signal,
+    );
+  }
+  accountAuthReceipt(
+    account: 'google' | 'x',
+    commandId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getAccountAuthReceipt(
+      this.base,
+      this.session(),
+      account,
+      commandId,
+      signal,
+    );
+  }
+  cancelAccountAuth(
+    account: 'google' | 'x',
+    commandId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.cancelAccountAuth(
+      this.base,
+      this.session(),
+      account,
+      commandId,
+      signal,
+    );
+  }
+  onboarding(signal?: AbortSignal) {
+    return wire.getOnboarding(this.base, this.session(), signal);
+  }
+  onboardingCommand(command: wire.OnboardingCommand, signal?: AbortSignal) {
+    return wire.sendOnboardingCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  browserPreview(conversation: string, revision: string, signal?: AbortSignal) {
+    return wire.getBrowserPreview(
+      this.base,
+      this.session(),
+      conversation,
+      revision,
+      signal,
+    );
+  }
   reviewDreamRun(body: wire.DreamRunRequest, signal?: AbortSignal) {
     return wire.reviewDreamRun(this.base, this.session(), body, signal);
   }
@@ -350,10 +513,37 @@ export class HttpTransport implements ClientTransport {
   executePlugin(plugin: string, command: wire.Command, signal?: AbortSignal) {
     return wire.sendPlugin(this.base, this.session(), plugin, command, signal);
   }
+  reviewPluginLifecycle(
+    body: wire.PluginLifecycleReviewRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.reviewPluginLifecycle(this.base, this.session(), body, signal);
+  }
+  pluginLifecycleReceipt(command: string, signal?: AbortSignal) {
+    return wire.getPluginLifecycleReceipt(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  executePluginLifecycle(
+    command: wire.PluginLifecycleCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendPluginLifecycleCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
   skills(
     query: string,
     source?: string,
     cursor?: string,
+    filter?: string,
+    sort?: string,
     signal?: AbortSignal,
   ) {
     return wire.getSkills(
@@ -362,6 +552,8 @@ export class HttpTransport implements ClientTransport {
       query,
       source,
       cursor,
+      filter,
+      sort,
       signal,
     );
   }
@@ -899,6 +1091,14 @@ export class HttpTransport implements ClientTransport {
       this.session(),
       query,
       cursor,
+      signal,
+    );
+  }
+  searchMcpDirectory(query: string, signal?: AbortSignal) {
+    return wire.searchMcpDirectory(
+      this.base,
+      this.session(),
+      { query },
       signal,
     );
   }
@@ -1614,6 +1814,54 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  customTools(conversation: string, binding: string, signal?: AbortSignal) {
+    return wire.getCustomTools(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      signal,
+    );
+  }
+  insights(signal?: AbortSignal) {
+    return wire.getInsights(this.base, this.session(), signal);
+  }
+  insightReceipt(command: string, signal?: AbortSignal) {
+    return wire.getInsightReceipt(this.base, this.session(), command, signal);
+  }
+  executeInsight(command: wire.InsightCommand, signal?: AbortSignal) {
+    return wire.sendInsightCommand(this.base, this.session(), command, signal);
+  }
+  customToolReceipt(
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getCustomToolReceipt(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      command,
+      signal,
+    );
+  }
+  executeCustomTool(
+    conversation: string,
+    binding: string,
+    command: wire.CustomToolCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendCustomToolCommand(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      command,
+      signal,
+    );
+  }
   reviewDeveloperRepository(
     conversation: string,
     binding: string,
@@ -2087,6 +2335,38 @@ export class HttpTransport implements ClientTransport {
       historyCursor,
       elementId,
       limit,
+      signal,
+    );
+  }
+  artifactPalette(
+    conversation: string,
+    binding: string,
+    expectedRevision: string,
+    query = '',
+    signal?: AbortSignal,
+  ) {
+    return wire.getArtifactPalette(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      expectedRevision,
+      query,
+      signal,
+    );
+  }
+  artifactDocumentImportPreview(
+    conversation: string,
+    binding: string,
+    body: wire.ArtifactDocumentImportPreviewRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.previewArtifactDocumentImport(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      body,
       signal,
     );
   }

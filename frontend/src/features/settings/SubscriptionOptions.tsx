@@ -137,6 +137,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
     setBusy('review');
     setReviewed(null);
     setError('');
+    let approved: SubscriptionOptionsReview | null = null;
     try {
       const result = await props.review(intent, abort.signal);
       if (abort.signal.aborted || !session.active) return;
@@ -147,29 +148,25 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
         result.value !== intent.value
       )
         throw { code: 'revision_conflict' };
-      setReviewed(structuredClone(result));
+      approved = structuredClone(result);
     } catch (cause) {
       if (!abort.signal.aborted) setError(clientError(cause).message);
     } finally {
       session.finishRead(abort);
       setBusy('');
     }
+    if (approved) await confirm(approved);
   }
-  async function confirm() {
+  async function confirm(approved: SubscriptionOptionsReview) {
     if (
       !session.active ||
       session.get('busy', '') ||
       session.get('pending', null)
     )
       return;
-    const captured = session.get<SubscriptionOptionsReview | null>(
-      'reviewed',
-      null,
-    );
-    if (!captured) return;
     const original = {
       commandId: crypto.randomUUID(),
-      review: structuredClone(captured),
+      review: structuredClone(approved),
     };
     const generation = epoch.current;
     setPending(original);
@@ -220,7 +217,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
         setNotice(
           result.status === 'completed'
             ? 'The original option change is confirmed.'
-            : 'The original option change was rejected. Review current settings before trying again.',
+            : 'The original option change was rejected. Check current settings before trying again.',
         );
       }
     } catch (cause) {
@@ -430,13 +427,13 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
             disabled={locked || !snapshot || dirty}
             onClick={() => void review('codex', 'reference')}
           >
-            Review Codex CLI reference
+            Save Codex CLI reference
           </Button>
           <Button
             disabled={locked || !snapshot || dirty}
             onClick={() => void review('claude_subscription', 'reference')}
           >
-            Review Claude Code reference
+            Save Claude Code reference
           </Button>
         </div>
         <Field label="xAI OAuth client ID override">
@@ -461,16 +458,13 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
             disabled={locked || !snapshot || !client}
             onClick={() => void review('xai_oauth', 'client_id_save')}
           >
-            Review client ID override
+            Save client ID override
           </Button>
           <Button
             disabled={locked || !snapshot}
             onClick={() => void review('xai_oauth', 'client_id_reset')}
           >
-            Review reset to default
-          </Button>
-          <Button disabled={locked || !reviewed} onClick={() => void confirm()}>
-            Confirm account option
+            Reset to default
           </Button>
           <Button
             disabled={!pending || !!busy || !session.active}
@@ -493,17 +487,6 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
             Reload saved account options
           </Button>
         </div>
-        {reviewed && (
-          <p role="status">
-            Reviewed:{' '}
-            {reviewed.operation === 'reference'
-              ? `${reviewed.provider_id === 'codex' ? 'Codex CLI' : 'Claude Code'} metadata reference`
-              : reviewed.operation === 'client_id_save'
-                ? `xAI client ID ${reviewed.value}`
-                : 'Reset xAI client ID to default'}
-            . Confirm to apply this exact option.
-          </p>
-        )}
       </section>
     </details>
   );

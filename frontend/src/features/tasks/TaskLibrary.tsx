@@ -45,6 +45,7 @@ import {
   Menu,
   Select,
   Skeleton,
+  Toggle,
 } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 
@@ -579,12 +580,10 @@ export function SavedTasks({
                     </p>
                   </div>
                   <footer className="workflow-card-footer">
-                    <label className="workflow-enabled-control">
+                    <div className="workflow-enabled-control">
                       <span>{task.enabled ? 'Enabled' : 'Disabled'}</span>
-                      <input
-                        type="checkbox"
-                        role="switch"
-                        aria-label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
+                      <Toggle
+                        label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
                         checked={task.enabled}
                         disabled={
                           !onToggleEnabled ||
@@ -600,7 +599,7 @@ export function SavedTasks({
                           )
                         }
                       />
-                    </label>
+                    </div>
                     <span
                       className={`workflow-last-status ${active ? 'active' : ''}`}
                     >

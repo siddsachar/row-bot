@@ -51,6 +51,10 @@ class FakeBackend:
         assert conversation_id == CONVERSATION
         return deepcopy(self.value)
 
+    def preview(self, conversation_id: str) -> tuple[dict, bytes | None]:
+        assert conversation_id == CONVERSATION
+        return deepcopy(self.value), b"\x89PNG\r\n\x1a\nsynthetic-frame"
+
     def execute(self, action: str, payload: dict, conversation_id: str) -> None:
         self.effects.append((action, deepcopy(payload), conversation_id))
         self.value["revision"] += 1
@@ -173,6 +177,29 @@ def _reviewed_command(
         "payload": {**payload, "nonce": "signed-review"},
     }
     return review, command
+
+
+def test_preview_is_conversation_scoped_revision_bound_and_shielded() -> None:
+    backend = FakeBackend(active=True, url="https://example.test/page")
+    snapshot = controls.read_browser_controls(CONVERSATION, validate=lambda: None, backend=backend)
+    preview = controls.read_browser_preview(
+        CONVERSATION, snapshot["revision"], validate=lambda: None, backend=backend
+    )
+    assert preview["state"] == "available"
+    assert preview["image_base64"] is not None
+    backend.value["state"] = "waiting_user"
+    backend.value["preview_shielded"] = True
+    backend.value["revision"] += 1
+    current = controls.read_browser_controls(CONVERSATION, validate=lambda: None, backend=backend)
+    shielded = controls.read_browser_preview(
+        CONVERSATION, current["revision"], validate=lambda: None, backend=backend
+    )
+    assert shielded["state"] == "shielded"
+    assert shielded["image_base64"] is None
+    with pytest.raises(Exception, match="browser_revision_conflict"):
+        controls.read_browser_preview(
+            CONVERSATION, snapshot["revision"], validate=lambda: None, backend=backend
+        )
 
 
 def test_passive_status_is_sanitized_and_does_not_expose_page_content() -> None:

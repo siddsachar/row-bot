@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ArtifactSharing, {
   type ArtifactSharingProps,
@@ -43,14 +49,10 @@ function props(
   };
 }
 
-it('opens passively and requires review followed by explicit publication', async () => {
+it('opens passively and publishes a local link in one click', async () => {
   const current = props();
   render(<ArtifactSharing {...current} />);
   expect(current.prepare).not.toHaveBeenCalled();
-  expect(current.execute).not.toHaveBeenCalled();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
   expect(current.execute).not.toHaveBeenCalled();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Publish local link' })),
@@ -73,17 +75,14 @@ it('opens passively and requires review followed by explicit publication', async
   );
 });
 
-it('discloses tunnel and pairing requirements and invalidates changed reviewed options', async () => {
+it('discloses tunnel and pairing requirements when link access changes', async () => {
   render(<ArtifactSharing {...props()} />);
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
   fireEvent.change(screen.getByLabelText('Link access'), {
     target: { value: 'remote' },
   });
   expect(
-    screen.queryByRole('button', { name: 'Publish local link' }),
-  ).not.toBeInTheDocument();
+    screen.getByRole('button', { name: 'Publish remote access link' }),
+  ).toBeEnabled();
   expect(
     screen.getByText(/start the configured app tunnel/),
   ).toBeInTheDocument();
@@ -105,17 +104,23 @@ it('shows the exact reviewed recipient before any channel send', async () => {
   fireEvent.change(screen.getByLabelText('Share action'), {
     target: { value: 'channel' },
   });
-  expect(screen.getByRole('button', { name: 'Review sharing' })).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Prepare channel send' }),
+  ).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Channel'), {
     target: { value: 'fake' },
   });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Prepare channel send' }),
+    ),
   );
   expect(screen.getByText('Recipient: reviewed-recipient')).toBeInTheDocument();
   expect(current.execute).not.toHaveBeenCalled();
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Send to channel' })),
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Confirm send to channel' }),
+    ),
   );
   expect(current.execute).toHaveBeenCalledTimes(1);
 });
@@ -132,17 +137,11 @@ it('never retries uncertain delivery and requires another explicit review', asyn
   });
   render(<ArtifactSharing {...current} />);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
-  await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Publish local link' })),
   );
   expect(
     screen.getByText(/Check the destination before another attempt/),
   ).toBeInTheDocument();
-  expect(
-    screen.queryByRole('button', { name: 'Publish local link' }),
-  ).not.toBeInTheDocument();
   expect(current.execute).toHaveBeenCalledTimes(1);
 });
 
@@ -157,12 +156,12 @@ it('preserves admission and ignores late result after switching resource', async
     ),
   });
   const view = render(<ArtifactSharing {...current} />);
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
   fireEvent.click(screen.getByRole('button', { name: 'Publish local link' }));
+  await waitFor(() => expect(current.execute).toHaveBeenCalledOnce());
   view.rerender(<ArtifactSharing {...current} resourceId="design-b" />);
-  expect(screen.getByRole('button', { name: 'Review sharing' })).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Publish local link' }),
+  ).toBeDisabled();
   await act(async () => finish(completed));
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
   expect(current.execute).toHaveBeenCalledTimes(1);
@@ -179,10 +178,8 @@ it('accepts own confirmed publication after its resource revision event', async 
     ),
   });
   const view = render(<ArtifactSharing {...current} />);
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
   fireEvent.click(screen.getByRole('button', { name: 'Publish local link' }));
+  await waitFor(() => expect(current.execute).toHaveBeenCalledOnce());
   view.rerender(<ArtifactSharing {...current} resourceRevision="r2" />);
   await act(async () => finish(completed));
   expect(screen.getByText('Local link ready.')).toBeInTheDocument();
@@ -194,9 +191,6 @@ it('does not expose an unsafe URL supplied by a malformed outcome', async () => 
   });
   render(<ArtifactSharing {...current} />);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
-  await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Publish local link' })),
   );
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
@@ -205,9 +199,6 @@ it('does not expose an unsafe URL supplied by a malformed outcome', async () => 
 it('retains a confirmed result when its revision event arrives afterward and clears it on resource switch', async () => {
   const current = props();
   const view = render(<ArtifactSharing {...current} />);
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Review sharing' })),
-  );
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Publish local link' })),
   );

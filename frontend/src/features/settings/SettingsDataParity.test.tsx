@@ -149,7 +149,9 @@ it('shows the saved wiki vault and counts without authorizing or mutating it', a
   expect(
     screen.getByRole('button', { name: 'Check vault sync' }),
   ).toBeEnabled();
-  expect(screen.getByRole('button', { name: 'Review rebuild' })).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
+  ).toBeDisabled();
   expect(
     screen.getByRole('button', { name: 'Open vault folder' }),
   ).toBeDisabled();

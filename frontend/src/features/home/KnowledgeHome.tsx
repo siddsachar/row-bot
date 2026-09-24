@@ -6,6 +6,7 @@ import {
   Field,
   Input,
   Select,
+  Toggle,
 } from '../../ui/primitives';
 import KnowledgeGraphCanvas, {
   type KnowledgeGraphHandle,
@@ -115,11 +116,11 @@ function availabilityCopy(
 function dreamLabel(dream: KnowledgeDreamState) {
   if (!dream.available) return 'Dream unavailable';
   if (!dream.enabled) return 'Dream disabled';
-  if (dream.state === 'reviewing') return 'Run Dream Cycle';
+  if (dream.state === 'reviewing') return 'Checking Dream Cycle…';
   if (dream.state === 'running') return 'Dreaming…';
   if (dream.state === 'error') return 'Retry Dream';
   if (dream.state === 'success') return 'Dream again';
-  return 'Review Dream';
+  return 'Run Dream Cycle';
 }
 
 export default function KnowledgeHome({
@@ -240,7 +241,10 @@ export default function KnowledgeHome({
   }
 
   const dreamDisabled =
-    !dream.available || !dream.enabled || dream.state === 'running';
+    !dream.available ||
+    !dream.enabled ||
+    dream.state === 'reviewing' ||
+    dream.state === 'running';
 
   return (
     <section className="knowledge-home" aria-labelledby="knowledge-home-title">
@@ -375,26 +379,26 @@ export default function KnowledgeHome({
                   ))}
                 </Select>
               </Field>
-              <label className="knowledge-graph-toggle">
-                <input
-                  type="checkbox"
+              <div className="knowledge-graph-toggle">
+                <span>User hub</span>
+                <Toggle
+                  label="User hub"
                   checked={showUserHub}
                   onChange={(event) =>
                     setShowUserHub(event.currentTarget.checked)
                   }
                 />
-                User hub
-              </label>
-              <label className="knowledge-graph-toggle">
-                <input
-                  type="checkbox"
+              </div>
+              <div className="knowledge-graph-toggle">
+                <span>Hide orphans</span>
+                <Toggle
+                  label="Hide orphans"
                   checked={hideOrphans}
                   onChange={(event) =>
                     setHideOrphans(event.currentTarget.checked)
                   }
                 />
-                Hide orphans
-              </label>
+              </div>
               <div
                 className="knowledge-graph-navigation"
                 aria-label="Graph navigation"

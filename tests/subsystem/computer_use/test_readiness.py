@@ -1,10 +1,59 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import pytest
 
 from row_bot.computer_use import readiness as readiness_module
 from row_bot.computer_use.readiness import DISCLOSURE_TEXT, ReadinessCode, acknowledge_disclosure, cancel_disclosure, configure_system_cua, disclosure_acknowledged, readiness, verify_system_cua
 from row_bot.mcp_client import requirements
+
+
+def test_local_calculator_test_stops_only_its_acquired_session(tmp_path, monkeypatch) -> None:
+    from row_bot.computer_use import service as service_module
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    acknowledge_disclosure()
+    calls = []
+
+    class FakeService:
+        def acquire(self, owner, *, validate_context):
+            assert validate_context is False
+            calls.append("acquire")
+
+        def grant_app_permission_for_local_ui(self, owner, app):
+            assert app == "Calculator"
+            calls.append("grant")
+
+        def launch_app(self, app, owner, *, approval_mode):
+            assert app == "Calculator" and approval_mode == "allow_all"
+            calls.append("launch")
+            return [{"target_id": "calculator"}]
+
+        def current_observation(self, target_id):
+            assert target_id == "calculator"
+            calls.append("observe")
+            return object()
+
+        def stop(self):
+            calls.append("stop")
+
+    monkeypatch.setattr(service_module, "get_computer_use_service", FakeService)
+    monkeypatch.setattr(readiness_module, "mark_cua_observation_verified", lambda: calls.append("mark"))
+    readiness_module.test_local_computer_use()
+    assert calls == ["acquire", "grant", "launch", "observe", "mark", "stop"]
+
+    def busy():
+        class Busy(FakeService):
+            def acquire(self, owner, *, validate_context):
+                raise RuntimeError("busy")
+
+        return Busy()
+
+    calls.clear()
+    monkeypatch.setattr(service_module, "get_computer_use_service", busy)
+    with pytest.raises(RuntimeError, match="busy"):
+        readiness_module.test_local_computer_use()
+    assert calls == []
 
 
 def test_disclosure_acknowledgement_is_local_and_versioned(tmp_path, monkeypatch) -> None:

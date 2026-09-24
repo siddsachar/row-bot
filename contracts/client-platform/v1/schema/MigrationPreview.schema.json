@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "MigrationPreviewItem": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 32,
+          "title": "Action",
+          "type": "string"
+        },
+        "category": {
+          "maxLength": 32,
+          "title": "Category",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "requires_confirmation": {
+          "title": "Requires Confirmation",
+          "type": "boolean"
+        },
+        "selected": {
+          "title": "Selected",
+          "type": "boolean"
+        },
+        "sensitivity": {
+          "maxLength": 32,
+          "title": "Sensitivity",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 32,
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 256,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "action",
+        "status",
+        "label",
+        "reason",
+        "target",
+        "sensitivity",
+        "selected",
+        "requires_confirmation"
+      ],
+      "title": "MigrationPreviewItem",
+      "type": "object"
+    },
+    "MigrationPreviewSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_only": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Archive Only",
+          "type": "integer"
+        },
+        "blocked": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Blocked",
+          "type": "integer"
+        },
+        "conflicts": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Conflicts",
+          "type": "integer"
+        },
+        "errors": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Errors",
+          "type": "integer"
+        },
+        "migrated": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Migrated",
+          "type": "integer"
+        },
+        "ready": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Ready",
+          "type": "integer"
+        },
+        "selected": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Selected",
+          "type": "integer"
+        },
+        "sensitive": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Sensitive",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "total": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "selected",
+        "ready",
+        "migrated",
+        "conflicts",
+        "sensitive",
+        "archive_only",
+        "skipped",
+        "blocked",
+        "errors"
+      ],
+      "title": "MigrationPreviewSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/MigrationPreviewItem"
+      },
+      "maxItems": 4096,
+      "title": "Items",
+      "type": "array"
+    },
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "hermes",
+        "openclaw"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_found": {
+      "title": "Source Found",
+      "type": "boolean"
+    },
+    "source_label": {
+      "maxLength": 128,
+      "title": "Source Label",
+      "type": "string"
+    },
+    "summary": {
+      "$ref": "#/$defs/MigrationPreviewSummary"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 512,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "plan_id",
+    "revision",
+    "provider",
+    "source_found",
+    "source_label",
+    "summary",
+    "warnings",
+    "items"
+  ],
+  "title": "MigrationPreview",
+  "type": "object"
+}

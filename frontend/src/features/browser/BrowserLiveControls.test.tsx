@@ -127,6 +127,15 @@ function options(value: BrowserControlState = active) {
   return {
     session: createBrowserControlSession(conversationId),
     load: vi.fn().mockResolvedValue(value),
+    loadPreview: vi
+      .fn()
+      .mockImplementation(async (_conversation: string, expected: string) => ({
+        schema_version: 1,
+        conversation_id: conversationId,
+        revision: expected,
+        state: 'waiting',
+        image_base64: null,
+      })),
     review: vi
       .fn()
       .mockImplementation(
@@ -179,12 +188,53 @@ it('passively reads status without starting a browser action', async () => {
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
   expect(
-    screen.getByRole('button', { name: 'Review take over' }),
+    screen.getByRole('button', { name: 'Take over browser' }),
   ).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Review address' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Open address' })).toBeDisabled();
 });
 
-it('reviews and explicitly executes the exact navigation command', async () => {
+it('shows an ephemeral picture and clears it when hidden', async () => {
+  const props = options(active);
+  props.loadPreview.mockImplementation(
+    async (_conversation: string, expected: string) => ({
+      schema_version: 1,
+      conversation_id: conversationId,
+      revision: expected,
+      state: 'available',
+      image_base64: 'c3ludGhldGlj',
+    }),
+  );
+  render(<BrowserLiveControls {...props} />);
+  expect(
+    await screen.findByAltText('Ephemeral managed browser picture'),
+  ).toHaveAttribute('src', 'data:image/png;base64,c3ludGhldGlj');
+  fireEvent.click(screen.getByRole('button', { name: 'Hide browser picture' }));
+  expect(screen.queryByAltText('Ephemeral managed browser picture')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Show browser picture' }));
+  expect(
+    await screen.findByAltText('Ephemeral managed browser picture'),
+  ).toBeVisible();
+});
+
+it('shields a picture when browser control moves to a protected state', async () => {
+  const props = options({ ...active, state: 'waiting_user' });
+  props.loadPreview.mockImplementation(
+    async (_conversation: string, expected: string) => ({
+      schema_version: 1,
+      conversation_id: conversationId,
+      revision: expected,
+      state: 'shielded',
+      image_base64: null,
+    }),
+  );
+  render(<BrowserLiveControls {...props} />);
+  expect(
+    await screen.findByText(/Picture hidden while you control/),
+  ).toBeVisible();
+  expect(screen.queryByAltText('Ephemeral managed browser picture')).toBeNull();
+});
+
+it('opens an address in one click with the exact reviewed command', async () => {
   const props = options();
   render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
@@ -192,15 +242,7 @@ it('reviews and explicitly executes the exact navigation command', async () => {
   fireEvent.change(screen.getByLabelText('Address'), {
     target: { value: 'https://destination.test/path?token=private' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review address' }));
-
-  await screen.findByText('Review browser action');
-  expect(screen.getByText('https://destination.test/path')).toBeVisible();
-  expect(screen.getByText(/Query values are present/)).toBeVisible();
-  expect(props.execute).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Open reviewed address' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open address' }));
 
   await screen.findByText('Open address completed.');
   expect(props.execute).toHaveBeenCalledTimes(1);
@@ -217,36 +259,39 @@ it('reviews and explicitly executes the exact navigation command', async () => {
   expect(props.session.hasRetained()).toBe(false);
 });
 
-it('cancels a reviewed action without an effect and returns focus', async () => {
+it('does not submit an invalid address', async () => {
   const props = options();
   render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
-  const opener = screen.getByRole('button', { name: 'Review take over' });
-  fireEvent.click(opener);
-  await screen.findByText('Review browser action');
-
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Cancel browser action' }),
-  );
-  await waitFor(() => expect(opener).toHaveFocus());
+  fireEvent.change(screen.getByLabelText('Address'), {
+    target: { value: 'file:///private' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Open address' }));
+  expect(
+    screen.getByText('Enter a complete http:// or https:// address.'),
+  ).toBeVisible();
+  expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
   expect(props.session.hasRetained()).toBe(false);
 });
 
-it('retains a reviewed action across remount and never replays it implicitly', async () => {
+it('retains an uncertain original action across remount without implicit replay', async () => {
   const props = options();
+  props.execute.mockRejectedValueOnce(Error('synthetic response loss'));
   const first = render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
-  fireEvent.click(screen.getByRole('button', { name: 'Review page check' }));
-  await screen.findByText('Review browser action');
+  fireEvent.click(screen.getByRole('button', { name: 'Check current page' }));
+  await screen.findByText(/outcome is uncertain/);
   const original = props.session.getSnapshot().retained;
   first.unmount();
 
   render(<BrowserLiveControls {...props} />);
-  expect(props.execute).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Check reviewed page' }));
+  expect(props.execute).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Check original browser action' }),
+  );
   await screen.findByText('Check current page completed.');
-  expect(props.execute.mock.calls[0]).toEqual([
+  expect(props.execute.mock.calls[1]).toEqual([
     original?.command,
     original?.review,
   ]);
@@ -259,9 +304,7 @@ it('reconciles only the original command after an uncertain outcome', async () =
     .mockImplementationOnce(async (command) => completed(command));
   render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
-  fireEvent.click(screen.getByRole('button', { name: 'Review back' }));
-  await screen.findByText('Review browser action');
-  fireEvent.click(screen.getByRole('button', { name: 'Go back after review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
   await screen.findByText(/outcome is uncertain/);
   const original = props.execute.mock.calls[0];
 
@@ -283,15 +326,11 @@ it('keeps partial outcomes retained and blocks replacement actions', async () =>
   }));
   render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
-  fireEvent.click(screen.getByRole('button', { name: 'Review end activity' }));
-  await screen.findByText('Review browser action');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'End reviewed activity' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'End browser activity' }));
 
   await screen.findByText(/outcome is not confirmed/);
   expect(props.session.hasRetained()).toBe(true);
-  expect(screen.getByRole('button', { name: 'Review back' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Go back' })).toBeDisabled();
   expect(
     screen.getByRole('button', { name: 'Check original browser action' }),
   ).toBeEnabled();
@@ -316,10 +355,9 @@ it('rejects a mismatched review scope without enabling execution', async () => {
   }));
   render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
-  fireEvent.click(screen.getByRole('button', { name: 'Review page check' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check current page' }));
 
   await screen.findByText(/could not be reviewed/);
-  expect(screen.queryByText('Review browser action')).not.toBeInTheDocument();
   expect(props.execute).not.toHaveBeenCalled();
 });
 
@@ -329,9 +367,8 @@ it('tombstones a late effect result when authenticated ownership is disposed', a
   props.execute.mockReturnValue(pending.promise);
   render(<BrowserLiveControls {...props} />);
   await screen.findByText('The managed browser is ready.');
-  fireEvent.click(screen.getByRole('button', { name: 'Review page check' }));
-  await screen.findByText('Review browser action');
-  fireEvent.click(screen.getByRole('button', { name: 'Check reviewed page' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check current page' }));
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   const command = props.execute.mock.calls[0][0];
 
   act(() => props.session.dispose());
@@ -340,7 +377,7 @@ it('tombstones a late effect result when authenticated ownership is disposed', a
   expect(props.session.getSnapshot().snapshot).toBeNull();
   expect(props.session.hasRetained()).toBe(false);
   expect(
-    screen.getByRole('button', { name: 'Review page check' }),
+    screen.getByRole('button', { name: 'Check current page' }),
   ).toBeDisabled();
 });
 

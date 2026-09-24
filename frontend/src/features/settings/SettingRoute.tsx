@@ -38,6 +38,8 @@ import Phase4RetainedSettings, {
 } from './Phase4RetainedSettings';
 import SettingsShell from './SettingsShell';
 import AccessSessions from './AccessSessions';
+import AccessInvitations from './AccessInvitations';
+import AccessTailscale from './AccessTailscale';
 import {
   DocumentEmbeddingSnapshot,
   ToolConfigurationSnapshot,
@@ -52,6 +54,7 @@ export default function SettingRoute() {
   const leaf = resolveSetting(setting);
   const {
     controller,
+    platform,
     providerSettingsSessions,
     providerConfigurationOwner,
     defaultModelOwner,
@@ -182,9 +185,11 @@ export default function SettingRoute() {
       ? {
           revision: settingsSnapshot.revision,
           page: snapshotPage,
+          sessionId: session,
           review: controller.reviewSettingsMutation,
           execute: controller.executeSettingsMutation,
           receipt: controller.settingsMutationReceipt,
+          refreshSnapshot: () => controller.settingsSnapshot(),
           drafts: settingsDrafts.current.owner,
           onSnapshot: (snapshot) =>
             setLoadedSettingsSnapshot({ session, snapshot }),
@@ -243,6 +248,7 @@ export default function SettingRoute() {
             snapshot={settingsSnapshot?.preferences}
             mutation={mutation}
             snapshotState={snapshotState}
+            showUpdateControls
           />
         ) : leaf.id === 'providers' ? (
           <>
@@ -407,6 +413,7 @@ export default function SettingRoute() {
               }
               review={controller.reviewMcpConfiguration}
               execute={controller.executeMcpConfiguration}
+              searchDirectory={controller.searchMcpDirectory}
               onConnection={(id, name) =>
                 mcpConnectionsOwner?.get()?.select(id, name)
               }
@@ -561,10 +568,29 @@ export default function SettingRoute() {
                 payload: { ...command.payload, review_id: review.review_id },
               })
             }
+            lifecycle={{
+              review: (action, pluginId) =>
+                controller.reviewPluginLifecycle(action, pluginId),
+              execute: (command) => controller.executePluginLifecycle(command),
+              receipt: (commandId) =>
+                controller.pluginLifecycleReceipt(commandId),
+            }}
           />
         ) : leaf.id === 'skills' && skillsOwner?.get() ? (
           <SkillsSettings
             session={skillsOwner.get()!}
+            ownerKey={session}
+            hub={{
+              search: controller.searchSkillHub,
+              preview: controller.previewSkillHub,
+              install: controller.installSkillHub,
+              receipt: controller.skillHubInstallReceipt,
+            }}
+            hubMaintenance={{
+              installed: controller.skillHubInstalled,
+              action: controller.skillHubMaintenance,
+              receipt: controller.skillHubMaintenanceReceipt,
+            }}
             io={{
               list: controller.skills,
               detail: controller.skill,
@@ -729,11 +755,17 @@ export default function SettingRoute() {
                 mutation={mutation}
                 selectedConversationId={state.selectedConversationId}
                 pickFolder={controller.pickFolder}
+                showAccountActions
+                writeClipboard={platform.writeClipboard}
               />
               {leaf.id === 'system' ? (
-                <AccessSessions
-                  currentSessionId={state.handshake?.client_session_id}
-                />
+                <>
+                  <AccessInvitations writeClipboard={platform.writeClipboard} />
+                  <AccessTailscale />
+                  <AccessSessions
+                    currentSessionId={state.handshake?.client_session_id}
+                  />
+                </>
               ) : null}
             </>
           ) : (

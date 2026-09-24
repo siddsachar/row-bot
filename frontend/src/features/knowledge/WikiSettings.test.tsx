@@ -125,32 +125,79 @@ it('shows an editable display path but requires Browse authority before Apply', 
   const path = screen.getByRole('textbox', { name: 'Vault path' });
   fireEvent.change(path, { target: { value: 'C:/Untrusted/Typed' } });
   expect(screen.getByText(/Browse to authorize this folder/)).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Use selected vault' }),
+  ).toBeDisabled();
   expect(io.review).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
   await waitFor(() => expect(path).toHaveValue('Authorized: Authorized vault'));
-  expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+  expect(
+    screen.getByRole('button', { name: 'Use selected vault' }),
+  ).toBeEnabled();
 });
 
-it('retains the exact reviewed versions through navigation and executes once', async () => {
+it('saves the enabled switch in one click without rebuilding the vault', async () => {
   const { io, session } = setup();
+  render(<WikiSettings session={session} />);
+  const enabled = await screen.findByRole('switch', {
+    name: 'Enable wiki vault',
+  });
+  fireEvent.click(enabled);
+  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
+  expect(vi.mocked(io.execute).mock.calls[0][0]).toBe('wiki.configure');
+  expect(vi.mocked(io.execute).mock.calls[0][1]).toEqual({
+    revision,
+    enabled: false,
+  });
+  expect(session.getSnapshot().status?.enabled).toBe(false);
+});
+
+it('shows both versions and confirms an explicit conflict import', async () => {
+  const { io, session } = setup();
+  vi.mocked(io.articles).mockImplementation(async () => ({
+    schema_version: 1,
+    revision: '1'.repeat(64),
+    scope_id: 'scope',
+    items: [
+      {
+        article_id: articleId,
+        entity_id: 'entity',
+        title: 'Reviewed article',
+        status: 'conflict',
+        vault_hash: 'd'.repeat(64),
+        db_revision: 'e'.repeat(64),
+      },
+    ],
+    total: 1,
+    next_cursor: null,
+  }));
+  render(<WikiSettings session={session} />);
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Resolve versions: Reviewed article',
+    }),
+  );
+  await screen.findByRole('region', { name: 'Confirm vault version' });
+  expect(screen.getByDisplayValue('Vault version')).toBeVisible();
+  expect(screen.getByDisplayValue('Database version')).toBeVisible();
+  expect(io.execute).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Accept vault version' }));
+  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
+});
+
+it('syncs selected edits in one click with the exact reviewed versions', async () => {
+  const { io, session, review } = setup();
   const first = render(<WikiSettings session={session} />);
   await screen.findByText('Reviewed article');
   fireEvent.click(screen.getByLabelText('Select edit: Reviewed article'));
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review 1 selected edits' }),
-  );
-  await screen.findByRole('region', { name: 'Reviewed wiki action' });
-  const retained = session.getSnapshot().review;
-  first.unmount();
-  render(<WikiSettings session={session} />);
-  expect(screen.getByDisplayValue('Vault version')).toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Sync reviewed vault edits' }),
+    screen.getByRole('button', { name: 'Sync 1 selected edits' }),
   );
   await screen.findByText(/Finished: 1 completed/);
+  first.unmount();
+  render(<WikiSettings session={session} />);
   expect(io.execute).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(io.execute).mock.calls[0][2]).toEqual(retained?.value);
+  expect(vi.mocked(io.execute).mock.calls[0][2]).toEqual(review);
   expect(session.hasRetained()).toBe(false);
 });
 
@@ -167,8 +214,6 @@ it('never retries an uncertain command and reconciles only its receipt', async (
   }));
   render(<WikiSettings session={session} />);
   await screen.findByText('Reviewed article');
-  fireEvent.click(screen.getByRole('button', { name: 'Review rebuild' }));
-  await screen.findByRole('region', { name: 'Reviewed wiki action' });
   fireEvent.click(
     screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
   );

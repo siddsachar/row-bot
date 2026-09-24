@@ -221,12 +221,21 @@ class ClientPlatformService:
                 raise ClientPlatformError("not_found")
             return dict(row)
 
-    def get_conversation(self, conversation_id: str) -> dict:
+    def get_conversation(
+        self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None
+    ) -> dict:
         row = self._metadata(conversation_id)
+        from row_bot import threads
         from row_bot.conversation_resources import list_bindings
         resources = list_bindings(conversation_id)
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
+                "category": threads.classify_thread(
+                    str(row.get("project_id") or ""), conversation_id,
+                    workflow_tids=workflow_thread_ids,
+                    thread_type=str(row.get("thread_type") or ""),
+                    developer_workspace_id=str(row.get("developer_workspace_id") or ""),
+                ),
                 "generation_state": [h.view() for h in self.registry.active(conversation_id)],
                 "resource_bindings": [asdict(binding) for binding in resources.bindings]}
 
@@ -284,7 +293,8 @@ class ClientPlatformService:
             ).fetchall()
         more = len(rows) > limit
         selected = rows[:limit]
-        return {"items": [self.get_conversation(row[0]) for row in selected], "has_more": more,
+        workflow_thread_ids = threads.get_workflow_thread_ids()
+        return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids) for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:
@@ -404,7 +414,7 @@ class ClientPlatformService:
             if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
                 return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
         from row_bot.application.workspace_setup import reconcile_setup_receipt
-        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
+        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_clone_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
                 validate: Callable[[], None] | None = None, authorized_folder: Any = None,
@@ -414,7 +424,7 @@ class ClientPlatformService:
                 runtime_surface: str = "normal_chat") -> dict:
         if frozen_context is not None and command["type"] != "conversation.submit":
             raise ClientPlatformError("invalid_command")
-        if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate"}:
+        if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate", "artifact.document.import", "artifact.notes.generate"}:
             from row_bot.application.artifact_design_commands import execute_artifact_design_command
             return execute_artifact_design_command(self, command, target, owner_id=owner_id, key=idempotency_key,
                 validate=validate or (lambda: None), resolve_upload=resolve_upload, validate_confirmation=validate_approval)
@@ -453,7 +463,7 @@ class ClientPlatformService:
                     validate()
                 replay = admissions.claim_command(owner_id, idempotency_key, command, target)
                 if replay is not None:
-                    return {key: value for key, value in replay.items() if key != "_empty_workspace"}
+                    return {key: value for key, value in replay.items() if key not in {"_empty_workspace", "_clone_workspace"}}
                 claimed = True
                 if validate:
                     validate()
@@ -478,7 +488,7 @@ class ClientPlatformService:
                     )
                 result["command_id"] = command["command_id"]
                 admissions.complete_command(owner_id, idempotency_key, result)
-                return {key: value for key, value in result.items() if key != "_empty_workspace"}
+                return {key: value for key, value in result.items() if key not in {"_empty_workspace", "_clone_workspace"}}
             except admissions.AdmissionError as exc:
                 if str(exc) == "operation_uncertain" and command["type"] == "conversation.create":
                     recovered = self.receipt(owner_id, command["command_id"])
@@ -642,7 +652,12 @@ class ClientPlatformService:
             if self.registry.active(target):
                 return {"conversation_id": target, "status": "DeleteBlocked"}
             result = delete_thread(target)
-            return {"conversation_id": target, "status": "DeleteCompleted" if result.deleted else "DeleteBlocked"}
+            return {
+                "conversation_id": target,
+                "status": "DeleteCompleted" if result.deleted else "DeleteBlocked",
+                "deletion_warnings": list(result.warnings),
+                "retained_developer_work": bool(result.retained_worktree_path or result.retained_sandbox),
+            }
         raise ClientPlatformError("invalid_command")
 
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",

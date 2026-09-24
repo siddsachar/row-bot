@@ -199,13 +199,8 @@ async function edit() {
     await screen.findByRole('button', { name: 'Edit Synthetic endpoint' }),
   );
 }
-async function review() {
-  fireEvent.click(screen.getByRole('button', { name: 'Review configuration' }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Confirm configuration' }),
-    ).toBeEnabled(),
-  );
+async function save(label = 'Save endpoint') {
+  fireEvent.click(screen.getByRole('button', { name: label }));
 }
 
 it('reads saved status without implicit probes, secrets or configuration changes', async () => {
@@ -248,7 +243,7 @@ it('creates through the distinct collision-safe action with editable endpoint fi
   });
   expect(screen.getByLabelText('Display name')).toBeEnabled();
   expect(screen.getByLabelText('Base URL')).toBeEnabled();
-  await review();
+  await save('Create endpoint');
   expect(props.review).toHaveBeenCalledWith(
     'provider.endpoint.create',
     page.revision,
@@ -258,9 +253,6 @@ it('creates through the distinct collision-safe action with editable endpoint fi
       base_url: 'http://127.0.0.1:8124/v1',
     }),
     expect.any(AbortSignal),
-  );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
   );
   await waitFor(() =>
     expect(props.apply).toHaveBeenCalledWith(
@@ -273,7 +265,7 @@ it('creates through the distinct collision-safe action with editable endpoint fi
   );
 });
 
-it('reviews and saves exact advanced endpoint fields once without starting a model', async () => {
+it('saves exact advanced endpoint fields without starting a model', async () => {
   const props = options();
   render(<ProviderConfiguration {...props} />);
   await edit();
@@ -287,7 +279,7 @@ it('reviews and saves exact advanced endpoint fields once without starting a mod
   fireEvent.change(screen.getByLabelText('Thinking budget'), {
     target: { value: '256' },
   });
-  await review();
+  await save();
   expect(props.review).toHaveBeenCalledWith(
     'provider.endpoint.save',
     page.revision,
@@ -298,35 +290,28 @@ it('reviews and saves exact advanced endpoint fields once without starting a mod
     }),
     expect.any(AbortSignal),
   );
-  const button = screen.getByRole('button', { name: 'Confirm configuration' });
-  fireEvent.click(button);
-  fireEvent.click(button);
-  await screen.findByText('Configuration saved. No model was started.');
-  expect(props.apply).toHaveBeenCalledOnce();
-  expect(props.onSaved).toHaveBeenCalledOnce();
+  await screen.findByText(
+    /Endpoint settings saved|Endpoint saved and models refreshed/,
+  );
+  expect(props.apply).toHaveBeenCalled();
+  expect(props.onSaved).toHaveBeenCalled();
 });
 
-it('invalidates review on field edits and exposes explicit network effect scope', async () => {
+it('exposes explicit network effect scope before the one-click check', async () => {
   const props = options();
   render(<ProviderConfiguration {...props} />);
   await edit();
-  await review();
   fireEvent.change(screen.getByLabelText('Configuration action'), {
     target: { value: 'provider.endpoint.probe' },
   });
-  expect(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Check endpoint' })).toBeEnabled();
   expect(
     screen.getByText(
       /contacts the saved endpoint and may consume provider quota/,
     ),
   ).toBeInTheDocument();
   expect(props.apply).not.toHaveBeenCalled();
-  await review();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
-  );
+  await save('Check endpoint');
   await waitFor(() =>
     expect(props.apply).toHaveBeenCalledWith(
       'provider.endpoint.probe',
@@ -353,10 +338,7 @@ it('keeps unknown readiness truthful and preserves provider-qualified model pick
   fireEvent.change(screen.getByLabelText('Picker'), {
     target: { value: 'vision' },
   });
-  await review();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
-  );
+  await save('Pin model');
   await waitFor(() =>
     expect(props.apply).toHaveBeenCalledWith(
       'provider.model.pin',
@@ -368,7 +350,7 @@ it('keeps unknown readiness truthful and preserves provider-qualified model pick
   );
 });
 
-it('retains a reviewed draft and late uncertain command across full remount without replay', async () => {
+it('retains an unsent draft and late uncertain command across remount without replay', async () => {
   const props = options(),
     session = new ProviderConfigurationSession(),
     pending = deferred<{ configuration_revision: string }>();
@@ -378,13 +360,11 @@ it('retains a reviewed draft and late uncertain command across full remount with
   fireEvent.change(screen.getByLabelText('Display name'), {
     target: { value: 'Retained draft' },
   });
-  await review();
   first.unmount();
   const second = render(<ProviderConfiguration {...props} session={session} />);
   expect(screen.getByLabelText('Display name')).toHaveValue('Retained draft');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
-  );
+  await save();
+  await waitFor(() => expect(props.apply).toHaveBeenCalled());
   const originalId = props.apply.mock.calls[0][3];
   expect(props.review).toHaveBeenCalledOnce();
   expect(props.apply.mock.calls[0][4]).toEqual({
@@ -425,10 +405,8 @@ it('clears private draft state and ignores late completion after authentication 
   props.apply.mockReturnValue(pending.promise);
   render(<ProviderConfiguration {...props} session={session} />);
   await edit();
-  await review();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
-  );
+  await save();
+  await waitFor(() => expect(props.apply).toHaveBeenCalled());
   act(() => session.dispose());
   await act(async () =>
     pending.resolve({ configuration_revision: 'b'.repeat(64) }),
@@ -465,10 +443,7 @@ it('labels rejected receipts as rejection and allows explicit unsent discard', a
   props.receipt.mockResolvedValue('rejected');
   render(<ProviderConfiguration {...props} />);
   await edit();
-  await review();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm configuration' }),
-  );
+  await save();
   await waitFor(() =>
     expect(
       screen.getByRole('button', {

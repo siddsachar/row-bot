@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "WriteTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "binding_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Binding Revision",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "artifact",
+            "workspace"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "resource_id",
+        "kind",
+        "binding_revision",
+        "resource_revision"
+      ],
+      "title": "WriteTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "filename": {
+      "maxLength": 240,
+      "minLength": 1,
+      "pattern": "^[^/\\\\:\\x00\\r\\n]+\\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$",
+      "title": "Filename",
+      "type": "string"
+    },
+    "replace": {
+      "title": "Replace",
+      "type": "boolean"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "maximum": 26214400,
+      "minimum": 1,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "target": {
+      "$ref": "#/$defs/WriteTarget"
+    },
+    "upload_id": {
+      "format": "uuid",
+      "title": "Upload Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "upload_id",
+    "filename",
+    "sha256",
+    "size_bytes",
+    "replace"
+  ],
+  "title": "ArtifactDocumentImportPayload",
+  "type": "object"
+}

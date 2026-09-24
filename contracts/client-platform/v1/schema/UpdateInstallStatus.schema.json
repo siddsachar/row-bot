@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "downloaded": {
+      "maximum": 1000000000000,
+      "minimum": 0,
+      "title": "Downloaded",
+      "type": "integer"
+    },
+    "message": {
+      "maxLength": 256,
+      "title": "Message",
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "downloading",
+        "cancel_requested",
+        "cancelled",
+        "failed",
+        "handoff"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "maximum": 1000000000000,
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    },
+    "version": {
+      "maxLength": 64,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "version",
+    "phase",
+    "downloaded",
+    "total",
+    "message"
+  ],
+  "title": "UpdateInstallStatus",
+  "type": "object"
+}

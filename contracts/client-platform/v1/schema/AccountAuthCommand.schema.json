@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "enum": [
+        "google",
+        "x"
+      ],
+      "title": "Account",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "import_credentials",
+        "check",
+        "start",
+        "disconnect"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "confirmed": {
+      "default": false,
+      "title": "Confirmed",
+      "type": "boolean"
+    },
+    "credentials_json": {
+      "default": "",
+      "maxLength": 65536,
+      "title": "Credentials Json",
+      "type": "string"
+    },
+    "expected_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "account",
+    "expected_revision",
+    "action"
+  ],
+  "title": "AccountAuthCommand",
+  "type": "object"
+}

@@ -1,5 +1,58 @@
 {
   "$defs": {
+    "McpRequirementSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "id": {
+          "enum": [
+            "node",
+            "uv",
+            "playwright-chrome",
+            "other"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "installable": {
+          "title": "Installable",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 96,
+          "title": "Label",
+          "type": "string"
+        },
+        "managed": {
+          "title": "Managed",
+          "type": "boolean"
+        },
+        "source": {
+          "enum": [
+            "system",
+            "managed",
+            "environment",
+            "missing",
+            "unknown"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "available",
+        "managed",
+        "installable",
+        "source"
+      ],
+      "title": "McpRequirementSummary",
+      "type": "object"
+    },
     "McpServerSummary": {
       "additionalProperties": false,
       "properties": {
@@ -45,6 +98,14 @@
           "maxLength": 128,
           "title": "Name",
           "type": "string"
+        },
+        "requirements": {
+          "items": {
+            "$ref": "#/$defs/McpRequirementSummary"
+          },
+          "maxItems": 8,
+          "title": "Requirements",
+          "type": "array"
         },
         "runtime_status": {
           "anyOf": [

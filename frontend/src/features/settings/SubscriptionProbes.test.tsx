@@ -66,14 +66,12 @@ function props(
     ...overrides,
   };
 }
-async function review() {
+async function runCheck(p: SubscriptionProbesProps) {
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Review check' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Run check' })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review check' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Confirm check' })).toBeEnabled(),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Run check' }));
+  await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
 }
 it('keeps consequential subscription checks collapsed at rest', async () => {
   const p = props({ collapsedAtRest: true });
@@ -85,7 +83,7 @@ it('keeps consequential subscription checks collapsed at rest', async () => {
   expect(p.apply).not.toHaveBeenCalled();
 });
 
-it('loads saved metadata without probing and confirms one exact reviewed command', async () => {
+it('loads saved metadata without probing and runs one exact check on click', async () => {
   const p = props();
   render(<SubscriptionProbes {...p} />);
   await screen.findByText(/Stored credentials and expiry: missing/);
@@ -94,9 +92,7 @@ it('loads saved metadata without probing and confirms one exact reviewed command
   expect(
     screen.getByText(/It does not contact the provider/),
   ).toBeInTheDocument();
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
+  await runCheck(p);
   await screen.findByText(/The check completed/);
   expect(p.apply).toHaveBeenCalledTimes(1);
   expect(vi.mocked(p.apply).mock.calls[0][0]).toEqual({
@@ -111,7 +107,7 @@ it('loads saved metadata without probing and confirms one exact reviewed command
   fireEvent.click(screen.getByRole('button', { name: 'Reload saved checks' }));
   await waitFor(() => expect(p.load).toHaveBeenCalledTimes(2));
 });
-it('retains a qualified model draft and invalidates its review when edited', async () => {
+it('retains a qualified unsent model draft when edited', async () => {
   const session = new SubscriptionProbesSession();
   const p = props({ session, onBrowseModels: vi.fn() });
   const view = render(<SubscriptionProbes {...p} />);
@@ -127,21 +123,20 @@ it('retains a qualified model draft and invalidates its review when edited', asy
     { target: { value: 'model:xai_oauth:grok-4' } },
   );
   expect(
-    screen.getByText(/Confirmation sends a small synthetic image/),
+    screen.getByText(/Running this check sends a small synthetic image/),
   ).toBeInTheDocument();
-  await review();
   expect(session.hasRetained()).toBe(true);
   view.unmount();
   render(<SubscriptionProbes {...p} />);
   expect(
     screen.getByLabelText('Provider-qualified model reference'),
   ).toHaveValue('model:xai_oauth:grok-4');
-  expect(screen.getByRole('button', { name: 'Confirm check' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Run check' })).toBeEnabled();
   fireEvent.change(
     screen.getByLabelText('Provider-qualified model reference'),
     { target: { value: 'model:xai_oauth:different' } },
   );
-  expect(screen.getByRole('button', { name: 'Confirm check' })).toBeDisabled();
+  expect(p.apply).not.toHaveBeenCalled();
   expect(p.load).toHaveBeenCalledTimes(1);
 });
 it('cancels while apply is pending and retains uncertainty until a proven stopped result', async () => {
@@ -157,8 +152,7 @@ it('cancels while apply is pending and retains uncertainty until a proven stoppe
     ),
   });
   const view = render(<SubscriptionProbes {...p} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
+  await runCheck(p);
   fireEvent.click(
     screen.getByRole('button', { name: 'Cancel original check' }),
   );
@@ -210,14 +204,13 @@ it('does not unlock published receipt while the original work remains active', a
     })),
   });
   render(<SubscriptionProbes {...p} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
+  await runCheck(p);
   await screen.findByText(/The original outcome is unconfirmed/);
   fireEvent.click(
     screen.getByRole('button', { name: 'Read original check receipt' }),
   );
   await screen.findByText(/Waiting for the original work to stop/);
-  expect(screen.getByRole('button', { name: 'Review check' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Run check' })).toBeDisabled();
   expect(p.apply).toHaveBeenCalledTimes(1);
 });
 it('settles a late result in the retained session without calling an unmounted callback', async () => {
@@ -233,8 +226,7 @@ it('settles a late result in the retained session without calling an unmounted c
     ),
   });
   const view = render(<SubscriptionProbes {...p} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
+  await runCheck(p);
   view.unmount();
   await act(async () => resolve(result));
   render(<SubscriptionProbes {...p} />);
@@ -255,14 +247,13 @@ it('purges the draft and fences late completion on authentication disposal', asy
     ),
   });
   render(<SubscriptionProbes {...p} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
+  await runCheck(p);
   act(() => session.dispose());
   await act(async () => resolve(result));
   expect(p.onSaved).not.toHaveBeenCalled();
   expect(session.hasRetained()).toBe(false);
   expect(screen.queryByText(/Last result:/)).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Review check' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Run check' })).toBeDisabled();
 });
 it('rejects a mismatched review and shows saved model text as plain content', async () => {
   const p = props({
@@ -287,9 +278,8 @@ it('rejects a mismatched review and shows saved model text as plain content', as
   render(<SubscriptionProbes {...p} />);
   await screen.findByText('<script>synthetic</script>');
   expect(document.querySelector('script')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Review check' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Run check' }));
   await screen.findByRole('alert');
-  expect(screen.getByRole('button', { name: 'Confirm check' })).toBeDisabled();
   expect(p.apply).not.toHaveBeenCalled();
 });
 it('does not settle a result or receipt for a different original intent', async () => {
@@ -303,8 +293,7 @@ it('does not settle a result or receipt for a different original intent', async 
     }),
   });
   render(<SubscriptionProbes {...p} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm check' }));
+  await runCheck(p);
   await screen.findByText(/The original outcome is unconfirmed/);
   fireEvent.click(
     screen.getByRole('button', { name: 'Read original check receipt' }),

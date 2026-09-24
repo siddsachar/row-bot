@@ -30,6 +30,7 @@ export default function RuntimeInstallations() {
   if (!sessions) return null;
   return (
     <details
+      id="managed-mcp-runtimes"
       className="settings-supplemental-disclosure"
       open={sessions.hasRetained() || undefined}
     >

@@ -325,7 +325,7 @@ export default function ChannelSettings({
       if (field.field_type === 'number' || field.field_type === 'slider') {
         const parsed = Number(raw);
         if (!raw || !Number.isFinite(parsed)) {
-          session.update({ message: 'Enter a valid number before review.' });
+          session.update({ message: 'Enter a valid number.' });
           return;
         }
         value = parsed;
@@ -364,13 +364,15 @@ export default function ChannelSettings({
         reviewed.identity_id !== payload.identity_id
       )
         throw Error('review mismatch');
-      session.update({ reviewed: { command, review: reviewed }, busy: '' });
+      const attempt = { command, review: reviewed };
+      session.update({ reviewed: attempt, busy: '' });
+      void submit(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The channel action could not be reviewed. Refresh and try again.',
+            'The channel action could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -411,7 +413,7 @@ export default function ChannelSettings({
         session.update({
           pending: null,
           busy: '',
-          message: 'The channel action was rejected. Refresh and review again.',
+          message: 'The channel action was rejected. Refresh and try again.',
         });
       } else {
         session.update({
@@ -583,13 +585,13 @@ export default function ChannelSettings({
                 }
                 onClick={() => void requestReview(channel, 'start')}
               >
-                Review start {channel.display_name}
+                Start {channel.display_name}
               </Button>
               <Button
                 disabled={locked || channel.running !== true}
                 onClick={() => void requestReview(channel, 'stop')}
               >
-                Review stop {channel.display_name}
+                Stop {channel.display_name}
               </Button>
               <Button
                 disabled={
@@ -597,7 +599,7 @@ export default function ChannelSettings({
                 }
                 onClick={() => void requestReview(channel, 'pair')}
               >
-                Review pairing code for {channel.display_name}
+                Get pairing code for {channel.display_name}
               </Button>
             </div>
             {channel.availability.pairing !== 'available' && (
@@ -653,7 +655,7 @@ export default function ChannelSettings({
                         void requestReview(channel, 'configure', field)
                       }
                     >
-                      Review save {field.label}
+                      Save {field.label}
                     </Button>
                     <Button
                       disabled={
@@ -666,7 +668,7 @@ export default function ChannelSettings({
                         void requestReview(channel, 'configure', field)
                       }
                     >
-                      Review clear {field.label}
+                      Clear {field.label}
                     </Button>
                   </div>
                 </div>
@@ -692,7 +694,7 @@ export default function ChannelSettings({
                         )
                       }
                     >
-                      Review revoke {identity.display_name || identity.hint}
+                      Revoke {identity.display_name || identity.hint}
                     </Button>
                   </div>
                 ))}
@@ -701,34 +703,6 @@ export default function ChannelSettings({
           </div>
         </details>
       ))}
-      {state.reviewed && (
-        <section
-          role="region"
-          aria-label="Review channel action"
-          className="settings-section stack"
-        >
-          <p>
-            Confirm {state.reviewed.command.payload.operation} for{' '}
-            {state.reviewed.command.payload.channel_id}. Starting or pairing may
-            contact the channel provider; configuration changes saved channel
-            data.
-          </p>
-          <div className="actions">
-            <Button
-              disabled={Boolean(state.busy)}
-              onClick={() => void submit(state.reviewed)}
-            >
-              Confirm channel action
-            </Button>
-            <Button
-              disabled={Boolean(state.busy)}
-              onClick={() => session.update({ reviewed: null })}
-            >
-              Cancel review
-            </Button>
-          </div>
-        </section>
-      )}
       {state.pending && (
         <Button
           disabled={Boolean(state.busy) || !state.active}

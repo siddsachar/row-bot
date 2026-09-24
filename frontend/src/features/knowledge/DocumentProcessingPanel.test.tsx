@@ -92,21 +92,12 @@ function fixture() {
   };
 }
 
-it('reviews explicitly, discloses destinations and submits the reviewed full scope', async () => {
+it('starts processing in one click with the exact reviewed full scope', async () => {
   const f = fixture();
   const admitted = vi.fn();
   render(<DocumentProcessingPanel owner={f.owner} onAdmitted={admitted} />);
   expect(f.controller.reviewDocumentProcessing).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review processing policy' }),
-  );
-  await screen.findByRole('button', { name: 'Approve and start processing' });
-  expect(screen.getByText(/model:openai:synthetic/)).toBeVisible();
-  expect(screen.getByText('Embedding provider: local · local')).toBeVisible();
-  expect(f.controller.executeDocumentProcessing).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Approve and start processing' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start processing' }));
   await screen.findByText(/Processing admitted. Documents may still/);
   expect(f.controller.executeDocumentProcessing).toHaveBeenCalledWith('chat', {
     command_id: 'command-1',
@@ -167,7 +158,7 @@ it('keeps uncertain original after lost response and reads only its receipt', as
   expect(() => f.owner.select('chat', 'client_other', 'new')).toThrow();
   render(<DocumentProcessingPanel owner={f.owner} />);
   expect(
-    screen.queryByRole('button', { name: 'Approve and start processing' }),
+    screen.queryByRole('button', { name: 'Start processing' }),
   ).not.toBeInTheDocument();
   await act(() => f.owner.refresh());
   expect(f.controller.executeDocumentProcessing).toHaveBeenCalledTimes(1);
@@ -333,11 +324,7 @@ it('offers processing only for eligible paused client batches without dispatchin
   await session.load();
   const select = vi.fn();
   render(<DocumentJobs session={session} onProcess={select} />);
-  expect(
-    screen.getAllByRole('button', { name: /^Review processing / }),
-  ).toHaveLength(1);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review processing client_batch' }),
-  );
+  expect(screen.getAllByRole('button', { name: /^Process / })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Process client_batch' }));
   expect(select).toHaveBeenCalledWith(item);
 });

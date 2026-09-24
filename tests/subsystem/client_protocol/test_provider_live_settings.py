@@ -44,6 +44,22 @@ def test_live_cards_use_nicegui_status_owner_and_require_authentication(monkeypa
         assert calls == [False]
 
 
+def test_docs_capture_live_cards_use_synthetic_provider_states(monkeypatch):
+    from row_bot.providers import live_settings
+
+    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
+    monkeypatch.setenv("ROW_BOT_DOCS_FAKE_PROVIDERS", "1")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("synthetic capture must not inspect host provider state")
+
+    monkeypatch.setattr(live_settings, "provider_status_cards", forbidden)
+    cards = live_settings.read_live_provider_cards()["providers"]
+    assert {card["provider_id"] for card in cards} >= {"codex", "claude_subscription", "xai_oauth"}
+    assert all(not card["configured"] for card in cards if card["group"] == "subscription")
+    assert all(not card["fingerprint"] and not card["oauth_client_id_fingerprint"] for card in cards)
+
+
 def test_refresh_is_explicit_targeted_and_reports_completion(monkeypatch):
     from row_bot.providers import model_catalog_cache as cache
 

@@ -112,11 +112,9 @@ async function approve() {
   fireEvent.change(screen.getByRole('textbox', { name: 'Process command' }), {
     target: { value: 'python check.py' },
   });
-  await userEvent.click(screen.getByRole('button', { name: 'Review command' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Check command' }));
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Start reviewed command' }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Start command' })).toBeEnabled(),
   );
 }
 
@@ -125,9 +123,7 @@ it('loads passively, never dispatches on open, and requires exact server evidenc
   await approve();
   expect(props.start).not.toHaveBeenCalled();
   expect(props.stop).not.toHaveBeenCalled();
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  );
+  await userEvent.click(screen.getByRole('button', { name: 'Start command' }));
   await waitFor(() => expect(props.start).toHaveBeenCalledOnce());
   const [attempt, evidence] = props.start.mock.calls[0];
   expect(attempt.command).toBe('python check.py');
@@ -152,18 +148,14 @@ it('checks a pending original approval without executing or changing its ID', as
   fireEvent.change(screen.getByRole('textbox'), {
     target: { value: 'python check.py' },
   });
-  await userEvent.click(screen.getByRole('button', { name: 'Review command' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Check command' }));
   await screen.findByText(/Approval is pending/);
-  expect(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start command' })).toBeDisabled();
   await userEvent.click(
     screen.getByRole('button', { name: 'Check original approval' }),
   );
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Start reviewed command' }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Start command' })).toBeEnabled(),
   );
   expect(props.review.mock.calls[0][0].command_id).toBe(
     props.review.mock.calls[1][0].command_id,
@@ -189,11 +181,11 @@ it.each(['wrong-command', 'wrong-binding', 'missing-evidence'])(
       target: { value: 'python check.py' },
     });
     await userEvent.click(
-      screen.getByRole('button', { name: 'Review command' }),
+      screen.getByRole('button', { name: 'Check command' }),
     );
     await waitFor(() => expect(props.review).toHaveBeenCalledOnce());
     expect(
-      screen.getByRole('button', { name: 'Start reviewed command' }),
+      screen.getByRole('button', { name: 'Start command' }),
     ).toBeDisabled();
     expect(props.start).not.toHaveBeenCalled();
   },
@@ -205,10 +197,8 @@ it('invalidates approval when the draft changes', async () => {
   fireEvent.change(screen.getByRole('textbox'), {
     target: { value: 'python other.py' },
   });
-  expect(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  ).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Review command' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Start command' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Check command' })).toBeEnabled();
   expect(props.start).not.toHaveBeenCalled();
 });
 
@@ -228,9 +218,7 @@ it('retains uncertain Start across remount and retries only the original approve
   const { props, view, session } = fixture();
   props.start.mockRejectedValueOnce(new TypeError('lost response'));
   await approve();
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  );
+  await userEvent.click(screen.getByRole('button', { name: 'Start command' }));
   await screen.findByText(/Original Start is unconfirmed/);
   const original = session.getSnapshot().attempt;
   view.unmount();
@@ -259,9 +247,7 @@ it('keeps Stop usable while Start is pending and rejects a late response over co
     quiesced: true,
   }));
   await approve();
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  );
+  await userEvent.click(screen.getByRole('button', { name: 'Start command' }));
   const id = session.getSnapshot().attempt!.command_id;
   const stop = screen.getByRole('button', { name: `Stop ${id}` });
   expect(stop).toBeEnabled();
@@ -301,9 +287,7 @@ it('recovers the same uncertain process ID after reopen without sending another 
   const { props, view, session } = fixture();
   props.start.mockRejectedValueOnce(new Error('unknown outcome'));
   await approve();
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  );
+  await userEvent.click(screen.getByRole('button', { name: 'Start command' }));
   await screen.findByText(/Original Start is unconfirmed/);
   const id = session.getSnapshot().attempt!.command_id;
   view.unmount();
@@ -385,9 +369,7 @@ it('keeps revoked drafts inert and never exposes them under another binding', as
   await approve();
   act(() => session.revoke());
   expect(screen.getByRole('textbox')).toHaveValue('python check.py');
-  expect(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start command' })).toBeDisabled();
   view.rerender(
     <WorkspaceProcesses
       {...props}
@@ -412,18 +394,14 @@ it('requires re-review when the resource revision changes before execution', asy
     <WorkspaceProcesses {...props} resourceRevision="resource-2" />,
   );
   await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
-  expect(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start command' })).toBeDisabled();
   expect(props.start).not.toHaveBeenCalled();
   const oldId = props.review.mock.calls[0][0].command_id;
   await userEvent.click(
-    screen.getByRole('button', { name: 'Review current revision' }),
+    screen.getByRole('button', { name: 'Check current revision' }),
   );
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Start reviewed command' }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Start command' })).toBeEnabled(),
   );
   expect(props.review.mock.calls[1][0].snapshot.resource_revision).toBe(
     'resource-2',
@@ -439,7 +417,7 @@ it('ignores a late approval for a different binding', async () => {
   fireEvent.change(screen.getByRole('textbox'), {
     target: { value: 'python check.py' },
   });
-  await userEvent.click(screen.getByRole('button', { name: 'Review command' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Check command' }));
   const attempt = props.review.mock.calls[0][0];
   await act(async () =>
     pending.resolve({
@@ -452,9 +430,7 @@ it('ignores a late approval for a different binding', async () => {
       approval_id: 'foreign',
     }),
   );
-  expect(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start command' })).toBeDisabled();
   expect(props.start).not.toHaveBeenCalled();
 });
 
@@ -687,9 +663,7 @@ it('late actual component Start settlement cannot resurrect a disposed authentic
   await approve();
   const pending = deferred<WorkspaceProcessInfo>();
   props.start.mockReturnValueOnce(pending.promise);
-  await userEvent.click(
-    screen.getByRole('button', { name: 'Start reviewed command' }),
-  );
+  await userEvent.click(screen.getByRole('button', { name: 'Start command' }));
   const attempt = props.start.mock.calls[0][0];
   act(() => session.dispose());
   await act(async () =>

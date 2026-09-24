@@ -15,7 +15,14 @@ import type {
   ProviderEndpointFields,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  Skeleton,
+  Toggle,
+} from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 
 type Operation =
@@ -263,7 +270,13 @@ export default function ProviderConfiguration(
     changed({ fields: { ...fields, [name]: value } });
   }
   async function review() {
-    if (locked || !page) return;
+    if (
+      locked ||
+      !page ||
+      session.getSnapshot().busy ||
+      session.getSnapshot().pending
+    )
+      return;
     const abort = session.read(),
       captured = payload(),
       revision = state.revision || page.revision;
@@ -368,18 +381,33 @@ export default function ProviderConfiguration(
     }
   }
   async function performDirect(next: Operation, captured: Fields) {
-    if (locked || !page) return;
+    if (
+      locked ||
+      !page ||
+      session.getSnapshot().busy ||
+      session.getSnapshot().pending
+    )
+      return;
     const generation = epoch.current;
     const revision = page.revision;
+    const abort = session.read();
     session.update({ busy: 'review', error: '', notice: '' });
     let reviewed: Review;
     try {
-      reviewed = await props.review(next, revision, structuredClone(captured));
+      reviewed = await props.review(
+        next,
+        revision,
+        structuredClone(captured),
+        abort.signal,
+      );
     } catch (cause) {
-      session.update({ busy: '', error: clientError(cause).message });
+      if (!abort.signal.aborted)
+        session.update({ busy: '', error: clientError(cause).message });
       return;
+    } finally {
+      session.finishRead(abort);
     }
-    if (!session.getSnapshot().active) return;
+    if (!session.getSnapshot().active || abort.signal.aborted) return;
     if (
       reviewed.operation !== next ||
       reviewed.configuration_revision !== revision
@@ -732,8 +760,8 @@ export default function ProviderConfiguration(
                 </div>
               )}
               <label className="actions">
-                <input
-                  type="checkbox"
+                <Toggle
+                  label="Enable endpoint"
                   checked={fields.enabled}
                   disabled={locked}
                   onChange={(event) => field('enabled', event.target.checked)}
@@ -741,8 +769,8 @@ export default function ProviderConfiguration(
                 Enable endpoint
               </label>
               <label className="actions">
-                <input
-                  type="checkbox"
+                <Toggle
+                  label="API key required"
                   checked={fields.auth_required}
                   disabled={locked}
                   onChange={(event) =>
@@ -823,8 +851,8 @@ export default function ProviderConfiguration(
                     />
                   </Field>
                   <label>
-                    <input
-                      type="checkbox"
+                    <Toggle
+                      label="Endpoint returns reasoning content"
                       checked={fields.supports_reasoning_content}
                       disabled={locked}
                       onChange={(event) =>
@@ -837,8 +865,8 @@ export default function ProviderConfiguration(
                     Endpoint returns reasoning content
                   </label>
                   <label>
-                    <input
-                      type="checkbox"
+                    <Toggle
+                      label="Replay preserved reasoning"
                       checked={fields.supports_reasoning_replay}
                       disabled={locked}
                       onChange={(event) =>
@@ -1253,8 +1281,8 @@ export default function ProviderConfiguration(
                     </Field>
                   </div>
                   <label className="actions">
-                    <input
-                      type="checkbox"
+                    <Toggle
+                      label="Enable this endpoint"
                       checked={fields.enabled}
                       disabled={locked}
                       onChange={(event) =>
@@ -1264,8 +1292,8 @@ export default function ProviderConfiguration(
                     Enable this endpoint
                   </label>
                   <label className="actions">
-                    <input
-                      type="checkbox"
+                    <Toggle
+                      label="Require an existing saved credential"
                       checked={fields.auth_required}
                       disabled={locked}
                       onChange={(event) =>
@@ -1346,8 +1374,12 @@ export default function ProviderConfiguration(
                         ] as const
                       ).map((key) => (
                         <label className="actions" key={key}>
-                          <input
-                            type="checkbox"
+                          <Toggle
+                            label={
+                              key === 'supports_reasoning_content'
+                                ? 'Endpoint returns reasoning content'
+                                : 'Replay preserved reasoning'
+                            }
                             checked={fields[key]}
                             disabled={locked}
                             onChange={(event) =>
@@ -1392,22 +1424,43 @@ export default function ProviderConfiguration(
               )}
             </>
           )}
-          {state.reviewed && (
+          {operation === 'provider.endpoint.delete' && state.reviewed && (
             <p role="status">
-              Review complete. Confirm the displayed action and target.
+              Confirm removal of this endpoint and its model-picker pins.
             </p>
           )}
           <div className="actions">
-            <Button disabled={locked} onClick={() => void review()}>
-              Review configuration
-            </Button>
             <Button
-              variant="primary"
-              disabled={locked || !state.reviewed}
-              onClick={() => void confirm()}
+              disabled={locked}
+              onClick={() =>
+                operation === 'provider.endpoint.delete'
+                  ? void review()
+                  : void performDirect(operation, payload())
+              }
             >
-              Confirm configuration
+              {operation === 'provider.endpoint.delete'
+                ? 'Remove endpoint'
+                : operation === 'provider.endpoint.probe'
+                  ? 'Check endpoint'
+                  : operation === 'provider.endpoint.refresh'
+                    ? 'Refresh models'
+                    : operation === 'provider.model.pin'
+                      ? 'Pin model'
+                      : operation === 'provider.model.unpin'
+                        ? 'Unpin model'
+                        : state.existing
+                          ? 'Save endpoint'
+                          : 'Create endpoint'}
             </Button>
+            {operation === 'provider.endpoint.delete' && state.reviewed && (
+              <Button
+                variant="danger"
+                disabled={locked}
+                onClick={() => void confirm()}
+              >
+                Confirm removal
+              </Button>
+            )}
             <Button
               disabled={locked}
               onClick={() =>

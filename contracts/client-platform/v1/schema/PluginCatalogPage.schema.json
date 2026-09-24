@@ -37,6 +37,12 @@
           "title": "Capabilities",
           "type": "object"
         },
+        "checksum": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Checksum",
+          "type": "string"
+        },
         "description": {
           "maxLength": 2048,
           "title": "Description",
@@ -106,6 +112,12 @@
           "title": "Source",
           "type": "string"
         },
+        "source_label": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Source Label",
+          "type": "string"
+        },
         "update_version": {
           "anyOf": [
             {
@@ -117,6 +129,11 @@
             }
           ],
           "title": "Update Version"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
+          "type": "boolean"
         },
         "version": {
           "maxLength": 64,

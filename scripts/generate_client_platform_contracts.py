@@ -20,7 +20,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "PreviewContract", "CommandReceipt", "AttachmentView", "SessionProof",
     "ConversationView", "ConversationPage", "ConversationActionSnapshot", "ConversationActionReviewRequest",
     "ConversationActionReview", "ConversationActionCommand", "ConversationActionReceipt",
-    "BrowserControlSnapshot", "BrowserReviewRequest", "BrowserReview", "BrowserReceipt",
+    "BrowserControlSnapshot", "BrowserPreview", "BrowserReviewRequest", "BrowserReview", "BrowserReceipt",
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
@@ -31,7 +31,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
-    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt",
+    "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt", "SkillHubEntryView", "SkillHubSourceStatus", "SkillHubSearchRequest", "SkillHubSearchResult", "SkillHubPreviewRequest", "SkillHubFinding", "SkillHubScanView", "SkillHubPreview", "SkillHubInstallCommand", "SkillHubInstallReceipt", "SkillHubInstalledRecord", "SkillHubInstalledPage", "SkillHubMaintenanceCommand", "SkillHubMaintenanceReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
     "ProviderCredentialState", "ProviderSettingsReviewRequest", "ProviderSettingsReview", "ProviderSettingsReceipt",
@@ -39,6 +39,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ProviderConfigurationReviewRequest", "ProviderConfigurationReview", "ProviderConfigurationReceipt",
     "DefaultModelReviewRequest", "DefaultModelReview", "DefaultModelReceipt",
     "McpConfigurationPage", "McpConfigurationReviewRequest", "McpConfigurationReview", "McpConfigurationOutcome",
+    "McpDirectorySearchRequest", "McpDirectoryResult",
     "McpRuntimeState", "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpTestedCatalogPage", "McpCatalogRequest", "McpCatalogReview",
@@ -53,8 +54,11 @@ MODELS = {name: getattr(schemas, name) for name in (
     "GoalPage", "GoalDetail", "GoalCommandPayload", "GoalReview", "GoalReceipt",
     "ProfilePage", "ProfileDetail", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
+    "CustomToolSnapshot", "CustomToolCommand", "CustomToolReceipt",
+    "InsightsSnapshot", "InsightCommand", "InsightReceipt",
+    "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -67,7 +71,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DocumentRemovalReviewRequest", "DocumentRemovalReview", "DocumentRemovalOutcome", "DocumentRemovalReceipt",
     "WorkspaceProcessInfo", "WorkspaceProcessSnapshot", "WorkspaceProcessRecoveryPage",
     "WorkspaceProcessOutput", "WorkspaceProcessReviewRequest", "WorkspaceProcessReview",
-    "DesignBrand", "DesignControlsState", "DesignReviewState", "DesignPresentationState",
+    "DesignBrand", "DesignControlsState", "DesignReviewState", "DesignPresentationState", "DesignerPalette",
+    "ArtifactDocumentImportPayload", "ArtifactDocumentImportPreviewRequest", "ArtifactDocumentImportPage", "ArtifactDocumentImportPreview", "ArtifactNotesGeneratePayload",
     "ArtifactDesignOutcome", "ArtifactPresetReviewRequest", "ArtifactPresetReview", "ArtifactReviewDraftRequest", "ArtifactReviewDraft",
     "ArtifactShareOptions", "ArtifactShareReview", "ArtifactShareOutcome",
     "ArtifactShareChannels",
@@ -92,6 +97,7 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/actions/commands/{command_id}", None, "ConversationActionReceipt"),
     ("post", "/conversations/{conversation_id}/actions/commands", "ConversationActionCommand", "ConversationActionReceipt"),
     ("get", "/conversations/{conversation_id}/browser", None, "BrowserControlSnapshot"),
+    ("get", "/conversations/{conversation_id}/browser/preview", None, "BrowserPreview"),
     ("post", "/conversations/{conversation_id}/browser/review", "BrowserReviewRequest", "BrowserReview"),
     ("get", "/conversations/{conversation_id}/browser/commands/{command_id}", None, "BrowserReceipt"),
     ("post", "/conversations/{conversation_id}/browser/commands", "Command", "BrowserReceipt"),
@@ -136,6 +142,7 @@ OPERATIONS = (
     ("post", "/settings/providers/commands", "Command", "CommandReceipt"),
     ("post", "/settings/mcp/commands", "Command", "CommandReceipt"),
     ("get", "/settings/mcp/configuration", None, "McpConfigurationPage"),
+    ("post", "/settings/mcp/directory/search", "McpDirectorySearchRequest", "McpDirectoryResult"),
     ("get", "/settings/mcp/runtime/{server_id}", None, "McpRuntimeState"),
     ("get", "/settings/mcp/policy", None, "McpPolicyPage"),
     ("get", "/settings/mcp/catalog", None, "McpTestedCatalogPage"),
@@ -143,6 +150,32 @@ OPERATIONS = (
     ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
     ("get", "/monitor", None, "MonitorSnapshot"),
     ("get", "/monitor/logs", None, "MonitorLogs"),
+    ("post", "/monitor/diagnosis", None, "SystemDiagnosis"),
+    ("get", "/system/updates", None, "UpdateSnapshot"),
+    ("post", "/system/updates/commands", "UpdateCommand", "UpdateReceipt"),
+    ("post", "/system/updates/installs", "UpdateInstallCommand", "UpdateInstallStatus"),
+    ("get", "/system/updates/installs/{command_id}", None, "UpdateInstallStatus"),
+    ("post", "/system/updates/installs/{command_id}/cancel", None, "UpdateInstallStatus"),
+    ("post", "/system/migration/scan", "MigrationScanRequest", "MigrationPreview"),
+    ("post", "/settings/skills/hub/search", "SkillHubSearchRequest", "SkillHubSearchResult"),
+    ("post", "/settings/skills/hub/preview", "SkillHubPreviewRequest", "SkillHubPreview"),
+    ("post", "/settings/skills/hub/install", "SkillHubInstallCommand", "SkillHubInstallReceipt"),
+    ("get", "/settings/skills/hub/install/{command_id}", None, "SkillHubInstallReceipt"),
+    ("get", "/settings/skills/hub/installed", None, "SkillHubInstalledPage"),
+    ("post", "/settings/skills/hub/maintenance", "SkillHubMaintenanceCommand", "SkillHubMaintenanceReceipt"),
+    ("get", "/settings/skills/hub/maintenance/{command_id}", None, "SkillHubMaintenanceReceipt"),
+    ("get", "/accounts/github/access", None, "GitHubAccessSnapshot"),
+    ("post", "/accounts/github/access/commands", "GitHubAccessCommand", "GitHubAccessReceipt"),
+    ("get", "/accounts/github/access/commands/{command_id}", None, "GitHubAccessReceipt"),
+    ("get", "/accounts/{account}/auth", None, "AccountAuthSnapshot"),
+    ("post", "/accounts/{account}/auth/commands", "AccountAuthCommand", "AccountAuthReceipt"),
+    ("get", "/accounts/{account}/auth/commands/{command_id}", None, "AccountAuthReceipt"),
+    ("post", "/accounts/{account}/auth/commands/{command_id}/cancel", None, "AccountAuthReceipt"),
+    ("post", "/system/migration/review", "MigrationApplyReviewRequest", "MigrationApplyReview"),
+    ("post", "/system/migration/apply", "MigrationApplyCommand", "MigrationApplyReceipt"),
+    ("get", "/system/migration/apply/{command_id}", None, "MigrationApplyReceipt"),
+    ("get", "/setup/onboarding", None, "OnboardingSnapshot"),
+    ("post", "/setup/onboarding/commands", "OnboardingCommand", "OnboardingReceipt"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
     ("get", "/monitor/dream/commands/{command_id}", None, "DreamRunReceipt"),
     ("post", "/monitor/dream/commands", "DreamRunCommand", "DreamRunReceipt"),
@@ -207,6 +240,15 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/workspaces/{binding_id}/repository/review", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview"),
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/repository/commands/{command_id}", None, "DeveloperRepositoryReceipt"),
     ("post", "/conversations/{conversation_id}/workspaces/{binding_id}/repository/commands", "Command", "DeveloperRepositoryReceipt"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools", None, "CustomToolSnapshot"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands/{command_id}", None, "CustomToolReceipt"),
+    ("post", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands", "CustomToolCommand", "CustomToolReceipt"),
+    ("get", "/insights", None, "InsightsSnapshot"),
+    ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
+    ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
+    ("post", "/settings/plugins/lifecycle/review", "PluginLifecycleReviewRequest", "PluginLifecycleReview"),
+    ("get", "/settings/plugins/lifecycle/commands/{command_id}", None, "PluginLifecycleReceipt"),
+    ("post", "/settings/plugins/lifecycle/commands", "PluginLifecycleCommand", "PluginLifecycleReceipt"),
     ("post", "/settings/mcp/policy/review", "McpPolicyRequest", "McpPolicyReview"),
     ("post", "/settings/mcp/runtime/review", "McpRuntimeReviewRequest", "McpRuntimeReview"),
     ("post", "/settings/mcp/configuration/review", "McpConfigurationReviewRequest", "McpConfigurationReview"),
@@ -249,6 +291,8 @@ OPERATIONS = (
     ("post", "/settings/providers/default-model/review", "DefaultModelReviewRequest", "DefaultModelReview"),
     ("get", "/settings/providers/default-model/receipts/{command_id}", None, "DefaultModelReceipt"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/editing", None, "ArtifactEditingState"),
+    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/palette", None, "DesignerPalette"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/document-import-preview", "ArtifactDocumentImportPreviewRequest", "ArtifactDocumentImportPreview"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/lifecycle", None, "ArtifactLifecycleState"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/design-controls", None, "DesignControlsState"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/design-review", None, "DesignReviewState"),
@@ -577,6 +621,58 @@ export const getMonitorSnapshot = (base: string, proof: SessionProof, signal?: A
   jsonRequest(base, '/monitor', 'MonitorSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getMonitorLogs = (base: string, proof: SessionProof, limit = 200, signal?: AbortSignal): Promise<MonitorLogs> =>
   jsonRequest(base, '/monitor/logs' + query({limit}), 'MonitorLogs', proof, 'GET', undefined, undefined, signal);
+export const runSystemDiagnosis = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SystemDiagnosis> =>
+  jsonRequest(base, '/monitor/diagnosis', 'SystemDiagnosis', proof, 'POST', undefined, undefined, signal);
+export const getUpdates = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<UpdateSnapshot> =>
+  jsonRequest(base, '/system/updates', 'UpdateSnapshot', proof, 'GET', undefined, undefined, signal);
+export const sendUpdateCommand = (base: string, proof: SessionProof, command: UpdateCommand, signal?: AbortSignal): Promise<UpdateReceipt> =>
+  jsonRequest(base, '/system/updates/commands', 'UpdateReceipt', proof, 'POST', validateWire('UpdateCommand', command), command.command_id, signal);
+export const startUpdateInstall = (base: string, proof: SessionProof, command: UpdateInstallCommand, signal?: AbortSignal): Promise<UpdateInstallStatus> =>
+  jsonRequest(base, '/system/updates/installs', 'UpdateInstallStatus', proof, 'POST', validateWire('UpdateInstallCommand', command), command.command_id, signal);
+export const getUpdateInstall = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<UpdateInstallStatus> =>
+  jsonRequest(base, `/system/updates/installs/${id(command)}`, 'UpdateInstallStatus', proof, 'GET', undefined, undefined, signal);
+export const cancelUpdateInstall = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<UpdateInstallStatus> =>
+  jsonRequest(base, `/system/updates/installs/${id(command)}/cancel`, 'UpdateInstallStatus', proof, 'POST', undefined, undefined, signal);
+export const scanMigration = (base: string, proof: SessionProof, body: MigrationScanRequest, signal?: AbortSignal): Promise<MigrationPreview> =>
+  jsonRequest(base, '/system/migration/scan', 'MigrationPreview', proof, 'POST', validateWire('MigrationScanRequest', body), undefined, signal);
+export const searchSkillHub = (base: string, proof: SessionProof, body: SkillHubSearchRequest, signal?: AbortSignal): Promise<SkillHubSearchResult> =>
+  jsonRequest(base, '/settings/skills/hub/search', 'SkillHubSearchResult', proof, 'POST', validateWire('SkillHubSearchRequest', body), undefined, signal);
+export const previewSkillHub = (base: string, proof: SessionProof, body: SkillHubPreviewRequest, signal?: AbortSignal): Promise<SkillHubPreview> =>
+  jsonRequest(base, '/settings/skills/hub/preview', 'SkillHubPreview', proof, 'POST', validateWire('SkillHubPreviewRequest', body), undefined, signal);
+export const installSkillHub = (base: string, proof: SessionProof, body: SkillHubInstallCommand, signal?: AbortSignal): Promise<SkillHubInstallReceipt> =>
+  jsonRequest(base, '/settings/skills/hub/install', 'SkillHubInstallReceipt', proof, 'POST', validateWire('SkillHubInstallCommand', body), body.command_id, signal);
+export const getSkillHubInstallReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SkillHubInstallReceipt> =>
+  jsonRequest(base, `/settings/skills/hub/install/${id(command)}`, 'SkillHubInstallReceipt', proof, 'GET', undefined, undefined, signal);
+export const getSkillHubInstalled = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SkillHubInstalledPage> =>
+  jsonRequest(base, '/settings/skills/hub/installed', 'SkillHubInstalledPage', proof, 'GET', undefined, undefined, signal);
+export const sendSkillHubMaintenance = (base: string, proof: SessionProof, body: SkillHubMaintenanceCommand, signal?: AbortSignal): Promise<SkillHubMaintenanceReceipt> =>
+  jsonRequest(base, '/settings/skills/hub/maintenance', 'SkillHubMaintenanceReceipt', proof, 'POST', validateWire('SkillHubMaintenanceCommand', body), body.command_id, signal);
+export const getSkillHubMaintenanceReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SkillHubMaintenanceReceipt> =>
+  jsonRequest(base, `/settings/skills/hub/maintenance/${id(command)}`, 'SkillHubMaintenanceReceipt', proof, 'GET', undefined, undefined, signal);
+export const getGitHubAccess = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<GitHubAccessSnapshot> =>
+  jsonRequest(base, '/accounts/github/access', 'GitHubAccessSnapshot', proof, 'GET', undefined, undefined, signal);
+export const sendGitHubAccessCommand = (base: string, proof: SessionProof, body: GitHubAccessCommand, signal?: AbortSignal): Promise<GitHubAccessReceipt> =>
+  jsonRequest(base, '/accounts/github/access/commands', 'GitHubAccessReceipt', proof, 'POST', validateWire('GitHubAccessCommand', body), body.command_id, signal);
+export const getGitHubAccessReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<GitHubAccessReceipt> =>
+  jsonRequest(base, `/accounts/github/access/commands/${id(command)}`, 'GitHubAccessReceipt', proof, 'GET', undefined, undefined, signal);
+export const getAccountAuth = (base: string, proof: SessionProof, account: string, signal?: AbortSignal): Promise<AccountAuthSnapshot> =>
+  jsonRequest(base, `/accounts/${id(account)}/auth`, 'AccountAuthSnapshot', proof, 'GET', undefined, undefined, signal);
+export const sendAccountAuthCommand = (base: string, proof: SessionProof, account: string, body: AccountAuthCommand, signal?: AbortSignal): Promise<AccountAuthReceipt> =>
+  jsonRequest(base, `/accounts/${id(account)}/auth/commands`, 'AccountAuthReceipt', proof, 'POST', validateWire('AccountAuthCommand', body), body.command_id, signal);
+export const getAccountAuthReceipt = (base: string, proof: SessionProof, account: string, command: string, signal?: AbortSignal): Promise<AccountAuthReceipt> =>
+  jsonRequest(base, `/accounts/${id(account)}/auth/commands/${id(command)}`, 'AccountAuthReceipt', proof, 'GET', undefined, undefined, signal);
+export const cancelAccountAuth = (base: string, proof: SessionProof, account: string, command: string, signal?: AbortSignal): Promise<AccountAuthReceipt> =>
+  jsonRequest(base, `/accounts/${id(account)}/auth/commands/${id(command)}/cancel`, 'AccountAuthReceipt', proof, 'POST', undefined, undefined, signal);
+export const reviewMigration = (base: string, proof: SessionProof, body: MigrationApplyReviewRequest, signal?: AbortSignal): Promise<MigrationApplyReview> =>
+  jsonRequest(base, '/system/migration/review', 'MigrationApplyReview', proof, 'POST', validateWire('MigrationApplyReviewRequest', body), undefined, signal);
+export const applyMigration = (base: string, proof: SessionProof, body: MigrationApplyCommand, signal?: AbortSignal): Promise<MigrationApplyReceipt> =>
+  jsonRequest(base, '/system/migration/apply', 'MigrationApplyReceipt', proof, 'POST', validateWire('MigrationApplyCommand', body), body.command_id, signal);
+export const getMigrationReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<MigrationApplyReceipt> =>
+  jsonRequest(base, `/system/migration/apply/${id(command)}`, 'MigrationApplyReceipt', proof, 'GET', undefined, undefined, signal);
+export const getOnboarding = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<OnboardingSnapshot> =>
+  jsonRequest(base, '/setup/onboarding', 'OnboardingSnapshot', proof, 'GET', undefined, undefined, signal);
+export const sendOnboardingCommand = (base: string, proof: SessionProof, command: OnboardingCommand, signal?: AbortSignal): Promise<OnboardingReceipt> =>
+  jsonRequest(base, '/setup/onboarding/commands', 'OnboardingReceipt', proof, 'POST', validateWire('OnboardingCommand', command), command.command_id, signal);
 export const reviewDreamRun = (base: string, proof: SessionProof, body: DreamRunRequest, signal?: AbortSignal): Promise<DreamRunReview> =>
   jsonRequest(base, '/monitor/dream/review', 'DreamRunReview', proof, 'POST', validateWire('DreamRunRequest', body), undefined, signal);
 export const getDreamRunReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<DreamRunReceipt> =>
@@ -740,8 +836,8 @@ export const getPluginReceipt = (base: string, proof: SessionProof, plugin: stri
   jsonRequest(base, `/settings/plugins/${id(plugin)}/receipts/${id(command)}`, 'PluginReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendPlugin = (base: string, proof: SessionProof, plugin: string, command: Command, signal?: AbortSignal): Promise<PluginReceipt> =>
   jsonRequest(base, `/settings/plugins/${id(plugin)}/commands`, 'PluginReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
-export const getSkills = (base: string, proof: SessionProof, search = '', source?: string, cursor?: string, signal?: AbortSignal): Promise<SkillPage> =>
-  jsonRequest(base, '/settings/skills' + query({query:search,source,cursor}), 'SkillPage', proof, 'GET', undefined, undefined, signal);
+export const getSkills = (base: string, proof: SessionProof, search = '', source?: string, cursor?: string, filter?: string, sort?: string, signal?: AbortSignal): Promise<SkillPage> =>
+  jsonRequest(base, '/settings/skills' + query({query:search,source,cursor,filter,sort}), 'SkillPage', proof, 'GET', undefined, undefined, signal);
 export const getSkill = (base: string, proof: SessionProof, skill: string, signal?: AbortSignal): Promise<SkillDetail> =>
   jsonRequest(base, `/settings/skills/items/${id(skill)}`, 'SkillDetail', proof, 'GET', undefined, undefined, signal);
 export const getSkillProposals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SkillProposalPage> =>
@@ -780,6 +876,24 @@ export const getDeveloperRepositoryReceipt = (base: string, proof: SessionProof,
   jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/repository/commands/${id(command)}`, 'DeveloperRepositoryReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendDeveloperRepository = (base: string, proof: SessionProof, conversation: string, binding: string, command: Command, signal?: AbortSignal): Promise<DeveloperRepositoryReceipt> =>
   jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/repository/commands`, 'DeveloperRepositoryReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
+export const getCustomTools = (base: string, proof: SessionProof, conversation: string, binding: string, signal?: AbortSignal): Promise<CustomToolSnapshot> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools`, 'CustomToolSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getCustomToolReceipt = (base: string, proof: SessionProof, conversation: string, binding: string, command: string, signal?: AbortSignal): Promise<CustomToolReceipt> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools/commands/${id(command)}`, 'CustomToolReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendCustomToolCommand = (base: string, proof: SessionProof, conversation: string, binding: string, command: CustomToolCommand, signal?: AbortSignal): Promise<CustomToolReceipt> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools/commands`, 'CustomToolReceipt', proof, 'POST', validateWire('CustomToolCommand', command), command.command_id, signal);
+export const getInsights = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<InsightsSnapshot> =>
+  jsonRequest(base, '/insights', 'InsightsSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getInsightReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<InsightReceipt> =>
+  jsonRequest(base, `/insights/commands/${id(command)}`, 'InsightReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendInsightCommand = (base: string, proof: SessionProof, command: InsightCommand, signal?: AbortSignal): Promise<InsightReceipt> =>
+  jsonRequest(base, '/insights/commands', 'InsightReceipt', proof, 'POST', validateWire('InsightCommand', command), command.command_id, signal);
+export const reviewPluginLifecycle = (base: string, proof: SessionProof, body: PluginLifecycleReviewRequest, signal?: AbortSignal): Promise<PluginLifecycleReview> =>
+  jsonRequest(base, '/settings/plugins/lifecycle/review', 'PluginLifecycleReview', proof, 'POST', validateWire('PluginLifecycleReviewRequest', body), undefined, signal);
+export const getPluginLifecycleReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<PluginLifecycleReceipt> =>
+  jsonRequest(base, `/settings/plugins/lifecycle/commands/${id(command)}`, 'PluginLifecycleReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendPluginLifecycleCommand = (base: string, proof: SessionProof, command: PluginLifecycleCommand, signal?: AbortSignal): Promise<PluginLifecycleReceipt> =>
+  jsonRequest(base, '/settings/plugins/lifecycle/commands', 'PluginLifecycleReceipt', proof, 'POST', validateWire('PluginLifecycleCommand', command), command.command_id, signal);
 export const getConversationActions = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationActionSnapshot> =>
   jsonRequest(base, `/conversations/${id(conversation)}/actions`, 'ConversationActionSnapshot', proof, 'GET', undefined, undefined, signal);
 export const reviewConversationAction = (base: string, proof: SessionProof, conversation: string, body: ConversationActionReviewRequest, signal?: AbortSignal): Promise<ConversationActionReview> =>
@@ -790,6 +904,8 @@ export const sendConversationAction = (base: string, proof: SessionProof, conver
   jsonRequest(base, `/conversations/${id(conversation)}/actions/commands`, 'ConversationActionReceipt', proof, 'POST', validateWire('ConversationActionCommand', command), command.command_id, signal);
 export const getBrowserControls = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<BrowserControlSnapshot> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser`, 'BrowserControlSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getBrowserPreview = (base: string, proof: SessionProof, conversation: string, revision: string, signal?: AbortSignal): Promise<BrowserPreview> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/preview` + query({revision}), 'BrowserPreview', proof, 'GET', undefined, undefined, signal);
 export const reviewBrowserControl = (base: string, proof: SessionProof, conversation: string, body: BrowserReviewRequest, signal?: AbortSignal): Promise<BrowserReview> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/review`, 'BrowserReview', proof, 'POST', validateWire('BrowserReviewRequest', body), undefined, signal);
 export const getBrowserControlReceipt = (base: string, proof: SessionProof, conversation: string, command: string, signal?: AbortSignal): Promise<BrowserReceipt> =>
@@ -801,6 +917,10 @@ export const getArtifactPreview = (base: string, proof: SessionProof, conversati
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/preview` + query({page_id,known_revision,...(authoring ? {authoring:'true',preview_id:authoring.previewId,capability:authoring.capability} : {})}), 'ArtifactPreview', proof, 'GET', undefined, undefined, signal);
 export const getArtifactEditing = (base: string, proof: SessionProof, conversation: string, binding: string, page_id?: string, page_cursor?: string, element_cursor?: string, history_cursor?: string, element_id?: string, limit = 25, signal?: AbortSignal): Promise<ArtifactEditingState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/editing` + query({page_id,page_cursor,element_cursor,history_cursor,element_id,limit}), 'ArtifactEditingState', proof, 'GET', undefined, undefined, signal);
+export const getArtifactPalette = (base: string, proof: SessionProof, conversation: string, binding: string, expected_revision: string, search = '', signal?: AbortSignal): Promise<DesignerPalette> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/palette` + query({expected_revision,query:search}), 'DesignerPalette', proof, 'GET', undefined, undefined, signal);
+export const previewArtifactDocumentImport = (base: string, proof: SessionProof, conversation: string, binding: string, body: ArtifactDocumentImportPreviewRequest, signal?: AbortSignal): Promise<ArtifactDocumentImportPreview> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/document-import-preview`, 'ArtifactDocumentImportPreview', proof, 'POST', validateWire('ArtifactDocumentImportPreviewRequest', body), undefined, signal);
 export const getArtifactLifecycle = (base: string, proof: SessionProof, conversation: string, binding: string, expected_revision: string, signal?: AbortSignal): Promise<ArtifactLifecycleState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/lifecycle` + query({expected_revision}), 'ArtifactLifecycleState', proof, 'GET', undefined, undefined, signal);
 export const getArtifactStaticPreview = (base: string, proof: SessionProof, conversation: string, binding: string, page_id: string, signal?: AbortSignal): Promise<ArtifactPreview> =>
@@ -919,6 +1039,8 @@ export const reviewMcpRuntime = (base: string, proof: SessionProof, body: McpRun
   jsonRequest(base, '/settings/mcp/runtime/review', 'McpRuntimeReview', proof, 'POST', validateWire('McpRuntimeReviewRequest', body), undefined, signal);
 export const getMcpConfiguration = (base: string, proof: SessionProof, search: string, cursor?: string, signal?: AbortSignal): Promise<McpConfigurationPage> =>
   jsonRequest(base, '/settings/mcp/configuration' + query({query:search,cursor}), 'McpConfigurationPage', proof, 'GET', undefined, undefined, signal);
+export const searchMcpDirectory = (base: string, proof: SessionProof, body: McpDirectorySearchRequest, signal?: AbortSignal): Promise<McpDirectoryResult> =>
+  jsonRequest(base, '/settings/mcp/directory/search', 'McpDirectoryResult', proof, 'POST', validateWire('McpDirectorySearchRequest', body), undefined, signal);
 export const reviewMcpConfiguration = (base: string, proof: SessionProof, body: McpConfigurationReviewRequest, signal?: AbortSignal): Promise<McpConfigurationReview> =>
   jsonRequest(base, '/settings/mcp/configuration/review', 'McpConfigurationReview', proof, 'POST', validateWire('McpConfigurationReviewRequest',body), undefined, signal);
 export const cancelSubscriptionStart = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SubscriptionFlowSnapshot> =>

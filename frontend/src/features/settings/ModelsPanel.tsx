@@ -18,7 +18,14 @@ import type {
   ModelsSettingsState,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  Skeleton,
+  Toggle,
+} from '../../ui/primitives';
 import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
@@ -565,6 +572,17 @@ export default function ModelsPanel({
             {state.brain.warning.replace('Chat', 'Brain')}
           </p>
         )}
+        <p className="settings-help">
+          Need the local Ollama runtime?{' '}
+          <a
+            href="https://ollama.com/download"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Download Ollama
+          </a>
+          , then refresh model settings after it starts.
+        </p>
         {state.context.effective_cap && (
           <p className="settings-help">
             Native max{' '}
@@ -662,17 +680,17 @@ export default function ModelsPanel({
                   <h4>{surface[0].toUpperCase() + surface.slice(1)}</h4>
                   <p>{description}</p>
                 </div>
-                <label className="settings-model-enabled">
-                  <input
-                    type="checkbox"
+                <div className="settings-model-enabled">
+                  <span>Enabled</span>
+                  <Toggle
+                    label={`Enable ${surface}`}
                     checked={picker.enabled === true}
                     disabled={!!busy}
                     onChange={(event) =>
                       void media(surface, 'enabled', event.target.checked)
                     }
-                  />{' '}
-                  Enabled
-                </label>
+                  />
+                </div>
               </div>
               <Field
                 label={`${surface[0].toUpperCase() + surface.slice(1)} model`}

@@ -424,6 +424,20 @@ export class FixtureTransport implements ClientTransport {
   ): Promise<wire.CommandReceipt> {
     this.available(signal);
     this.counters.commands += 1;
+    if (command.type === 'conversation.delete') {
+      const index = this.conversations.findIndex((row) => row.id === target);
+      if (index < 0) throw { code: 'not_found', status: 404 };
+      if (this.conversations[index].revision !== command.expected_revision)
+        throw { code: 'revision_conflict', status: 409 };
+      this.conversations.splice(index, 1);
+      const deleted: wire.CommandReceipt = {
+        command_id: command.command_id,
+        conversation_id: target,
+        status: 'DeleteCompleted',
+      };
+      this.receipts.set(command.command_id, deleted);
+      return deleted;
+    }
     const receipt: wire.CommandReceipt = {
       command_id: command.command_id,
       conversation_id: target,

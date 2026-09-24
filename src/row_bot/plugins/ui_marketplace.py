@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Callable
-from urllib.parse import unquote, urlparse
 
 from nicegui import ui
 
@@ -262,21 +261,6 @@ def _marketplace_install_kwargs(entry) -> dict:
 
 
 def _source_dir_for_entry(entry) -> Path | None:
-    if not entry.path:
-        return None
-    path = Path(entry.path).expanduser()
-    if path.is_absolute() and path.is_dir():
-        return path
-    source = str(getattr(entry, "index_source", "") or "")
-    root: Path | None = None
-    if source.startswith("file://"):
-        parsed = urlparse(source)
-        root = Path(unquote(parsed.path)).expanduser()
-    elif source and source not in {"local", "unit-test"}:
-        candidate = Path(source).expanduser()
-        if candidate.is_dir():
-            root = candidate
-    if root is None:
-        return path if path.is_dir() else None
-    candidate = root / entry.path
-    return candidate if candidate.is_dir() else None
+    from row_bot.plugins.marketplace import source_dir_for_entry
+
+    return source_dir_for_entry(entry)

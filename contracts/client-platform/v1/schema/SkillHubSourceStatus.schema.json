@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "maxLength": 300,
+      "title": "Message",
+      "type": "string"
+    },
+    "source_id": {
+      "maxLength": 80,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 40,
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "status",
+    "message"
+  ],
+  "title": "SkillHubSourceStatus",
+  "type": "object"
+}

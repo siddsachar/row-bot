@@ -28,7 +28,7 @@ export type DesignControlItem = {
   available: boolean;
 };
 export type DesignSection =
-  'elements' | 'assets' | 'fonts' | 'presets' | 'interactions';
+  'elements' | 'assets' | 'fonts' | 'presets' | 'interactions' | 'blocks';
 export type DesignControlsState = {
   resource_id: string;
   resource_revision: string;
@@ -95,7 +95,8 @@ export type DesignControlsProps = {
       | 'review_fix'
       | 'asset_insert'
       | 'asset_remove'
-      | 'asset_forget',
+      | 'asset_forget'
+      | 'block_insert',
     payload: Record<string, unknown>,
     expectedRevision: string,
     pageId: string,
@@ -268,9 +269,9 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     session.set('presetReview', null);
   }, [session, props.resourceRevision]);
 
-  async function changePreset() {
+  async function changePreset(change = presetReview) {
     if (
-      !presetReview ||
+      !change ||
       !props.mutatePreset ||
       operation.current ||
       !state ||
@@ -284,7 +285,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     const sourceId = props.resourceId;
     const sourceRevision = state.resource_revision;
     try {
-      const result = await props.mutatePreset(presetReview, sourceRevision);
+      const result = await props.mutatePreset(change, sourceRevision);
       if (
         current.current.resourceId !== sourceId ||
         current.current.resourceRevision !== sourceRevision
@@ -296,7 +297,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       )
         throw new Error('Resource changed');
       setPresetReview(null);
-      session.committed('preset_' + presetReview.action);
+      session.committed('preset_' + change.action);
       setNotice(
         result.action === 'delete'
           ? 'Global preset removed. Previous bytes are retained for recovery.'
@@ -745,6 +746,9 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
               {key}
             </option>
           ))}
+          {(state?.mode === 'deck' || state?.mode === 'landing') && (
+            <option value="blocks">Curated blocks</option>
+          )}
         </Select>
       </Field>
       {section === 'presets' && props.mutatePreset && (
@@ -761,27 +765,23 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
           <Button
             disabled={busy || !state || !presetName.trim()}
             onClick={() =>
-              setPresetReview({ action: 'save', name: presetName.trim() })
+              void changePreset({ action: 'save', name: presetName.trim() })
             }
           >
             Save current brand as preset
           </Button>
-          {presetReview && (
-            <div role="group" aria-label="Global preset review">
+          {presetReview?.action === 'delete' && (
+            <div role="group" aria-label="Confirm global preset deletion">
               <p>
-                {presetReview.action === 'delete'
-                  ? 'Delete'
-                  : presetReview.preset_id
-                    ? 'Replace'
-                    : 'Save'}{' '}
-                global preset “{presetReview.name}”. This changes the shared
-                catalog for all projects; saved project brands stay unchanged.
+                Delete global preset “{presetReview.name}”. This changes the
+                shared catalog for all projects; saved project brands stay
+                unchanged.
               </p>
               <Button disabled={busy} onClick={() => void changePreset()}>
-                Confirm global preset change
+                Confirm preset deletion
               </Button>
               <Button disabled={busy} onClick={() => setPresetReview(null)}>
-                Cancel preset change
+                Keep preset
               </Button>
             </div>
           )}
@@ -845,7 +845,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                         <Button
                           disabled={busy || !item.available}
                           onClick={() =>
-                            setPresetReview({
+                            void changePreset({
                               action: 'save',
                               name: item.label,
                               preset_id: item.id,
@@ -897,6 +897,16 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                       Remove {item.label} from list
                     </Button>
                   </>
+                )}
+                {section === 'blocks' && (
+                  <Button
+                    disabled={busy || !item.available}
+                    onClick={() =>
+                      void apply('block_insert', { component_name: item.id })
+                    }
+                  >
+                    Insert {item.label}
+                  </Button>
                 )}
               </li>
             ))}

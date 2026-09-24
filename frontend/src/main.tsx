@@ -50,6 +50,7 @@ import {
 import './ui/styles.css';
 
 const Gallery = lazy(() => import('./features/shell/Gallery'));
+const Onboarding = lazy(() => import('./features/shell/Onboarding'));
 const SettingRoute = lazy(() => import('./features/settings/SettingRoute'));
 const SettingsIndex = lazy(() => import('./features/settings/SettingsIndex'));
 
@@ -359,6 +360,7 @@ async function start() {
                       element={null}
                     />
                     <Route path="primitives" element={<Gallery />} />
+                    <Route path="setup" element={<Onboarding />} />
                     <Route path="settings" element={<SettingsIndex />} />
                     <Route
                       path="tasks"

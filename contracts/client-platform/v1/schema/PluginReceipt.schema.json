@@ -8,6 +8,7 @@
             "plugin.enable",
             "plugin.disable",
             "plugin.configure",
+            "plugin.test",
             "plugin.install",
             "plugin.update",
             "plugin.remove"

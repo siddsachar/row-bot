@@ -183,7 +183,7 @@ it('does not restart a settled read when parent callback identities change', asy
   expect(props.loadProfiles).toHaveBeenCalledTimes(1);
 });
 
-it('reviews and applies the exact goal draft once', async () => {
+it('validates and applies the exact goal draft once', async () => {
   const props = options();
   render(<GoalProfileSettings {...props} />);
   await screen.findByText('Complete the migration');
@@ -193,8 +193,8 @@ it('reviews and applies the exact goal draft once', async () => {
   fireEvent.change(screen.getByLabelText('Maximum turns'), {
     target: { value: '40' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review start goal' }));
-  await screen.findByText('Replaces current goal.');
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  await screen.findByText('Goal change completed.');
   expect(props.reviewGoal.mock.calls[0][0]).toEqual({
     conversation_id: 'conversation-1',
     goal_id: 'goal-1',
@@ -204,16 +204,8 @@ it('reviews and applies the exact goal draft once', async () => {
     max_turns: 40,
     reason: null,
   });
-  const attempt = props.session.getSnapshot().reviewed;
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed change' }),
-  );
-  await screen.findByText('Goal change completed.');
   expect(props.executeGoal).toHaveBeenCalledTimes(1);
-  expect(props.executeGoal).toHaveBeenCalledWith(
-    attempt?.command,
-    attempt?.review,
-  );
+  expect(props.executeGoal.mock.calls[0][0].payload.operation).toBe('start');
   expect(props.session.hasRetained()).toBe(false);
 });
 
@@ -222,11 +214,7 @@ it('retains an uncertain goal attempt across remount for explicit recovery', asy
   props.executeGoal.mockRejectedValueOnce(Error('transport lost'));
   const first = render(<GoalProfileSettings {...props} />);
   await screen.findByText('Complete the migration');
-  fireEvent.click(screen.getByRole('button', { name: 'Review pause' }));
-  await screen.findByText(/Review complete/);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed change' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
   await screen.findByRole('button', { name: 'Check original change' });
   const original = props.executeGoal.mock.calls[0];
   first.unmount();
@@ -253,15 +241,19 @@ it('preserves stored profile instructions unless replacement is explicit', async
   fireEvent.change(screen.getByLabelText('Profile display name'), {
     target: { value: 'Focused Editor' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review edit profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
   await waitFor(() => expect(props.reviewProfile).toHaveBeenCalledTimes(1));
   expect(props.reviewProfile.mock.calls[0][0].fields.instructions).toBeNull();
-
-  fireEvent.click(screen.getByLabelText('Replace stored instructions'));
+  await screen.findByText('Profile change completed.');
+  fireEvent.click(screen.getByRole('button', { name: 'Search profiles' }));
+  await screen.findByRole('button', { name: 'Edit Focused Writer' });
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Focused Writer' }));
+  await screen.findByRole('group', { name: 'Edit profile' });
+  fireEvent.click(screen.getByRole('switch', { name: 'Replace instructions' }));
   fireEvent.change(screen.getByLabelText(/^New instructions/), {
     target: { value: 'Replacement body' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review edit profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
   await waitFor(() => expect(props.reviewProfile).toHaveBeenCalledTimes(2));
   expect(props.reviewProfile.mock.calls[1][0].fields.instructions).toBe(
     'Replacement body',
@@ -283,9 +275,7 @@ it('keeps built-ins read only while allowing an explicit duplicate', async () =>
   fireEvent.change(screen.getByLabelText('Copy slug'), {
     target: { value: 'general_copy' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review duplicate profile' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Duplicate profile' }));
   await waitFor(() => expect(props.reviewProfile).toHaveBeenCalledTimes(1));
   expect(props.reviewProfile.mock.calls[0][0]).toMatchObject({
     profile_id: 'builtin:general',
@@ -296,7 +286,7 @@ it('keeps built-ins read only while allowing an explicit duplicate', async () =>
   });
 });
 
-it('creates a bounded profile draft without mutating during review', async () => {
+it('creates a bounded profile draft from one click', async () => {
   const props = options();
   render(<GoalProfileSettings {...props} />);
   await screen.findByText('Complete the migration');
@@ -312,7 +302,7 @@ it('creates a bounded profile draft without mutating during review', async () =>
     target: { value: 'Read local files only.' },
   });
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review create profile' }),
+    screen.getAllByRole('button', { name: 'Create profile' }).at(-1)!,
   );
   await waitFor(() => expect(props.reviewProfile).toHaveBeenCalledTimes(1));
   expect(props.reviewProfile.mock.calls[0][0]).toMatchObject({
@@ -328,7 +318,7 @@ it('creates a bounded profile draft without mutating during review', async () =>
       capability: 'read_only',
     },
   });
-  expect(props.executeProfile).not.toHaveBeenCalled();
+  await waitFor(() => expect(props.executeProfile).toHaveBeenCalledOnce());
 });
 
 it('tombstones private drafts and late settlements after authentication loss', async () => {
@@ -349,12 +339,9 @@ it('tombstones private drafts and late settlements after authentication loss', a
     target: { value: 'private-instruction-body' },
   });
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review create profile' }),
+    screen.getAllByRole('button', { name: 'Create profile' }).at(-1)!,
   );
-  await screen.findByText(/Review complete/);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed change' }),
-  );
+  await waitFor(() => expect(props.executeProfile).toHaveBeenCalledOnce());
   const command = props.executeProfile.mock.calls[0][0];
   act(() => props.session.dispose());
   await act(async () =>
@@ -378,15 +365,12 @@ it('admits one execution during repeated synchronous clicks', async () => {
   props.executeGoal.mockReturnValue(pending.promise);
   render(<GoalProfileSettings {...props} />);
   await screen.findByText('Complete the migration');
-  fireEvent.click(screen.getByRole('button', { name: 'Review pause' }));
-  const apply = await screen.findByRole('button', {
-    name: 'Apply reviewed change',
-  });
+  const apply = screen.getByRole('button', { name: 'Pause' });
   act(() => {
     apply.click();
     apply.click();
   });
-  expect(props.executeGoal).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(props.executeGoal).toHaveBeenCalledTimes(1));
   act(() => props.session.dispose());
   await act(async () => pending.reject(Error('synthetic cancellation')));
 });

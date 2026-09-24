@@ -466,7 +466,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
         attempt: { ...attempt, review: evidence },
         notice:
           evidence.decision === 'approved'
-            ? 'Command reviewed. Choose Start reviewed command to explicitly approve and run this exact command.'
+            ? 'Command approved. Choose Start command to run this exact command.'
             : evidence.decision === 'pending'
               ? 'Approval is pending. Review its approval card, then check approval here.'
               : 'This command was not approved. No process was started.',
@@ -669,10 +669,10 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
         >
           {attempt &&
           attempt.snapshot.resource_revision !== props.resourceRevision
-            ? 'Review current revision'
+            ? 'Check current revision'
             : attempt
               ? 'Check original approval'
-              : 'Review command'}
+              : 'Check command'}
         </Button>
         <Button
           disabled={
@@ -685,9 +685,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
           }
           onClick={() => void start()}
         >
-          {attempt?.uncertain
-            ? 'Retry original Start'
-            : 'Start reviewed command'}
+          {attempt?.uncertain ? 'Retry original Start' : 'Start command'}
         </Button>
         <Button
           disabled={

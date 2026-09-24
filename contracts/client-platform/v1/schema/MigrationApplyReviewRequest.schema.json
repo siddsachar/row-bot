@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "overwrite": {
+      "default": false,
+      "title": "Overwrite",
+      "type": "boolean"
+    },
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "selected_ids": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 4096,
+      "title": "Selected Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "revision",
+    "selected_ids"
+  ],
+  "title": "MigrationApplyReviewRequest",
+  "type": "object"
+}

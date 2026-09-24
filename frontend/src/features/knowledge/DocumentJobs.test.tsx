@@ -86,7 +86,7 @@ function fixture() {
 }
 
 describe('document queue retained controls', () => {
-  it('does not load or mutate on mount and explicitly reviews before save', async () => {
+  it('does not load or mutate on mount and pauses in one click', async () => {
     const { session, transport } = fixture();
     render(<DocumentJobs session={session} />);
     expect(transport.batches).not.toHaveBeenCalled();
@@ -94,13 +94,7 @@ describe('document queue retained controls', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Refresh queue' }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Review pause' }));
-    });
-    expect(transport.execute).not.toHaveBeenCalled();
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Confirm queue action' }),
-      );
+      fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
     });
     expect(transport.execute).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('status')).toHaveTextContent(

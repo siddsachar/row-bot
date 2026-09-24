@@ -4,7 +4,10 @@
     "code": {
       "anyOf": [
         {
-          "const": "mcp_configuration_unconfirmed",
+          "enum": [
+            "mcp_configuration_unconfirmed",
+            "mcp_cleanup_incomplete"
+          ],
           "type": "string"
         },
         {
@@ -26,7 +29,12 @@
       "title": "Revision"
     },
     "runtime_cleanup": {
-      "const": "not_requested",
+      "enum": [
+        "not_requested",
+        "not_running",
+        "stopped",
+        "cleanup_incomplete"
+      ],
       "title": "Runtime Cleanup",
       "type": "string"
     },

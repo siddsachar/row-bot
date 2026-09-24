@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "check",
+        "update",
+        "uninstall"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "confirmed": {
+      "default": false,
+      "title": "Confirmed",
+      "type": "boolean"
+    },
+    "expected_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "name",
+    "expected_revision",
+    "action"
+  ],
+  "title": "SkillHubMaintenanceCommand",
+  "type": "object"
+}

@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 500,
+      "title": "Message",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "skill_name": {
+      "maxLength": 160,
+      "title": "Skill Name",
+      "type": "string"
+    },
+    "success": {
+      "title": "Success",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "success",
+    "message",
+    "skill_name"
+  ],
+  "title": "SkillHubInstallReceipt",
+  "type": "object"
+}

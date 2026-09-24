@@ -129,7 +129,12 @@ def check_update(local_name: str) -> InstallResult:
     return InstallResult(True, f"Update available for '{local_name}'.", skill_name=local_name, record=record)
 
 
-def update_skill(local_name: str, *, enabled: bool | None = None) -> InstallResult:
+def update_skill(
+    local_name: str,
+    *,
+    enabled: bool | None = None,
+    expected_record: SkillInstallRecord | None = None,
+) -> InstallResult:
     import row_bot.skills as skills
 
     record = get_record(local_name)
@@ -146,6 +151,9 @@ def update_skill(local_name: str, *, enabled: bool | None = None) -> InstallResu
     normalized = _normalized_installed_bundle(bundle, record.local_name)
     if normalized.content_hash == record.content_hash:
         return InstallResult(True, f"Skill '{local_name}' is already current.", skill_name=local_name, record=record, warnings=scan.warnings)
+
+    if expected_record is not None and get_record(local_name) != expected_record:
+        return InstallResult(False, "Public skill changed before update; inspect it again.", skill_name=local_name)
 
     _backup_existing_skill(record.local_name, reason="hub-update")
     dest = skills.USER_SKILLS_DIR / record.local_name
@@ -180,12 +188,16 @@ def update_skill(local_name: str, *, enabled: bool | None = None) -> InstallResu
     return InstallResult(True, f"Skill '{record.local_name}' updated.", skill_name=record.local_name, record=updated, warnings=scan.warnings)
 
 
-def uninstall_skill(local_name: str) -> InstallResult:
+def uninstall_skill(
+    local_name: str, *, expected_record: SkillInstallRecord | None = None,
+) -> InstallResult:
     import row_bot.skills as skills
 
     record = get_record(local_name)
     if record is None:
         return InstallResult(False, f"Skill '{local_name}' is not hub-installed.", skill_name=local_name)
+    if expected_record is not None and record != expected_record:
+        return InstallResult(False, "Public skill changed before uninstall; inspect it again.", skill_name=local_name)
     dest = skills.USER_SKILLS_DIR / record.local_name
     if dest.exists():
         shutil.rmtree(dest)

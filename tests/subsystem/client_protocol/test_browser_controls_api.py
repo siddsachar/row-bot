@@ -6,6 +6,11 @@ from copy import deepcopy
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
+
+from row_bot.access.config import AccessConfig, DeploymentMode
+from row_bot.access.request_context import SessionIdentity
+from row_bot.api.v1.routes import create_client_platform_app
 
 from tests.subsystem.client_protocol.test_protocol_application import (
     _client,
@@ -15,6 +20,45 @@ from tests.subsystem.client_protocol.test_protocol_application import (
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 
 pytestmark = pytest.mark.subsystem
+
+
+def test_browser_picture_is_available_to_authenticated_remote_owner_only(service, monkeypatch):
+    from row_bot.application import client_browser_controls as controls
+
+    active = {"value": True}
+    app = create_client_platform_app(
+        service,
+        access_config=AccessConfig(deployment_mode=DeploymentMode.SERVER),
+        session_authenticator=lambda _scope, _provenance: (
+            SessionIdentity("fixture-device", "fixture-session") if active["value"] else None
+        ),
+        choices=lambda: {"models": [], "capabilities": []},
+    )
+    called = []
+
+    def picture(conversation_id, revision, *, validate):
+        validate()
+        called.append(conversation_id)
+        return {
+            "schema_version": 1, "conversation_id": conversation_id,
+            "revision": revision, "state": "available", "image_base64": "c3ludGhldGlj",
+        }
+
+    monkeypatch.setattr(controls, "read_browser_preview", picture)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        _, headers = bootstrap(client)
+        created = _command(client, headers, "conversation.create", {"title": "Synthetic browser"})
+        assert created.status_code == 200, created.text
+        conversation = created.json()["conversation_id"]
+        url = f"/api/v1/conversations/{conversation}/browser/preview?revision={'a' * 64}"
+        response = client.get(url, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.headers["cache-control"] == "no-store"
+        assert response.json()["image_base64"] == "c3ludGhldGlj"
+        active["value"] = False
+        denied = client.get(url, headers=headers)
+        assert denied.status_code == 401
+    assert called == [conversation]
 
 
 def _snapshot(conversation: str, *, active: bool = False) -> dict:

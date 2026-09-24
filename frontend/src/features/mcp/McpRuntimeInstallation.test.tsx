@@ -118,28 +118,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('keeps passive reads separate from explicit metadata and pinned install approval', async () => {
+it('keeps passive reads separate from one-click metadata and pinned installation', async () => {
   const { session, callbacks } = options();
   render(<McpRuntimeInstallation session={session} callbacks={callbacks} />);
   await waitFor(() => expect(callbacks.load).toHaveBeenCalledOnce());
   expect(callbacks.execute).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review metadata resolution' }),
-  );
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Approve and resolve metadata' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Resolve metadata' }));
   await waitFor(() =>
     expect(session.getSnapshot().sourceCommandId).toBeTruthy(),
   );
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review pinned installation' }),
-  );
-  expect(await screen.findByText('1.2.3')).toBeInTheDocument();
-  expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();
-  expect(callbacks.execute).toHaveBeenCalledTimes(1);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Approve and install pinned runtime' }),
+    screen.getByRole('button', { name: 'Install pinned runtime' }),
   );
   await waitFor(() => expect(callbacks.execute).toHaveBeenCalledTimes(2));
   expect(callbacks.execute.mock.calls[1][0].payload.source_command_id).toBe(

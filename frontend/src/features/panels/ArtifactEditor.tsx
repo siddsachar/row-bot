@@ -39,6 +39,13 @@ export type ArtifactEditorProps = {
     payload: Omit<ArtifactEditPayload, 'target'>,
     expectedRevision: string,
   ) => Promise<CommandReceipt>;
+  generateNotes?: (
+    pageId: string,
+    revision: string,
+  ) => Promise<{
+    resource_revision: string;
+    status?: 'saved' | 'unchanged' | 'partial';
+  }>;
   onEdited?: () => void;
 };
 type Draft = {
@@ -327,6 +334,48 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
     }
   }
 
+  async function generateNotes() {
+    if (
+      !current ||
+      blocked ||
+      dirty(draft) ||
+      !props.generateNotes ||
+      operation.current
+    )
+      return;
+    const admitted = Symbol('speaker notes');
+    operation.current = admitted;
+    const request = saveScope.current;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const outcome = await props.generateNotes(
+        current.page_id,
+        current.resource_revision,
+      );
+      if (request !== saveScope.current) return;
+      if (outcome.status === 'partial') throw new Error('notes_unconfirmed');
+      setNotice(
+        outcome.status === 'unchanged'
+          ? 'Speaker notes are already up to date.'
+          : 'Speaker notes generated.',
+      );
+      callbacks.current.onEdited?.();
+      setRefresh((value) => value + 1);
+    } catch {
+      if (request === saveScope.current)
+        setError(
+          'Note generation was not confirmed. Check the original design command before retrying.',
+        );
+    } finally {
+      if (operation.current === admitted) {
+        operation.current = null;
+        setSaving(false);
+      }
+    }
+  }
+
   if (!visible) return null;
   return (
     <section
@@ -476,6 +525,21 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
                         }
                       />
                     </Field>
+                    {props.generateNotes &&
+                      ['deck', 'storyboard'].includes(current.mode) && (
+                        <>
+                          <Button
+                            disabled={blocked || dirty(draft)}
+                            onClick={() => void generateNotes()}
+                          >
+                            Generate speaker notes
+                          </Button>
+                          <small>
+                            Uses the current model and may incur provider
+                            charges.
+                          </small>
+                        </>
+                      )}
                     <Button
                       disabled={
                         blocked ||

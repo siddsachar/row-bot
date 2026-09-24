@@ -6,7 +6,14 @@ import {
 } from './task-edit-sessions';
 import type { TaskSettingsFields, TaskSettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  Skeleton,
+  Toggle,
+} from '../../ui/primitives';
 
 export interface TaskSettingsEditorProps {
   session?: TaskEditSession;
@@ -186,6 +193,7 @@ export default function TaskSettingsEditor({
     setBusy('review');
     setError('');
     setReviewed(null);
+    let approved: TaskSettingsSnapshot | null = null;
     try {
       const result = await review(taskId, fields, abort.signal);
       if (
@@ -203,6 +211,8 @@ export default function TaskSettingsEditor({
       }
       setReviewed(result);
       setFields(result.fields);
+      if (result.profile_available && result.profile_revision)
+        approved = result;
     } catch (cause) {
       if (
         abort.signal.aborted ||
@@ -221,12 +231,18 @@ export default function TaskSettingsEditor({
       )
         setBusy('');
     }
+    if (approved) await effect('save', approved);
   }
 
-  async function effect(kind: 'save' | 'rotate' | 'download') {
+  async function effect(
+    kind: 'save' | 'rotate' | 'download',
+    approved?: TaskSettingsSnapshot,
+  ) {
+    const selected = approved ?? reviewed;
+    const selectedFields = approved?.fields ?? fields;
     if (
       !snapshot ||
-      !fields ||
+      !selectedFields ||
       effectPending.current ||
       busy ||
       (stale && !meta.uncertain) ||
@@ -237,13 +253,13 @@ export default function TaskSettingsEditor({
     if (
       !meta.uncertain &&
       kind === 'save' &&
-      (!reviewed?.profile_revision || !reviewed.profile_available)
+      (!selected?.profile_revision || !selected.profile_available)
     )
       return;
     if (
       !meta.uncertain &&
       kind !== 'save' &&
-      JSON.stringify(fields) !== JSON.stringify(snapshot.fields)
+      JSON.stringify(selectedFields) !== JSON.stringify(snapshot.fields)
     )
       return;
     if (!meta.uncertain && kind === 'rotate' && !rotationAccepted) return;
@@ -268,8 +284,8 @@ export default function TaskSettingsEditor({
                 ? save(
                     taskId,
                     snapshot.revision,
-                    reviewed!.profile_revision!,
-                    fields,
+                    selected!.profile_revision!,
+                    selectedFields,
                   )
                 : rotate(taskId, snapshot.revision),
             );
@@ -462,22 +478,19 @@ export default function TaskSettingsEditor({
                 }
               />
             </Field>
-            <label className="field">
-              <span>
-                <input
-                  type="checkbox"
-                  aria-label="Reuse a conversation across runs"
-                  checked={fields.persistent_enabled}
-                  onChange={(event) =>
-                    change('persistent_enabled', event.target.checked)
-                  }
-                />{' '}
-                Reuse a conversation across runs
-              </span>
+            <div className="field">
+              <span>Reuse a conversation across runs</span>
+              <Toggle
+                label="Reuse a conversation across runs"
+                checked={fields.persistent_enabled}
+                onChange={(event) =>
+                  change('persistent_enabled', event.target.checked)
+                }
+              />
               <small>
                 Turning this off keeps existing conversations and their content.
               </small>
-            </label>
+            </div>
             <Field label="Trigger">
               <Select
                 value={fields.trigger_type}
@@ -516,26 +529,13 @@ export default function TaskSettingsEditor({
           </fieldset>
           <div className="actions action-cluster">
             <Button
-              disabled={
-                mutating || stale || busy === 'review' || meta.uncertain
-              }
+              variant="primary"
+              disabled={!!busy || stale || meta.uncertain}
               onClick={() => void reviewFields()}
             >
-              {busy === 'review' ? 'Reviewing settings…' : 'Review settings'}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={
-                !!busy ||
-                stale ||
-                dirty ||
-                meta.uncertain ||
-                !reviewed?.profile_available ||
-                !reviewed.profile_revision
-              }
-              onClick={() => void effect('save')}
-            >
-              {busy === 'save' ? 'Saving settings…' : 'Save settings'}
+              {busy === 'save' || busy === 'review'
+                ? 'Saving settings…'
+                : 'Save settings'}
             </Button>
           </div>
           {reviewed && (

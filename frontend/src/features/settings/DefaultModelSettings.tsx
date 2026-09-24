@@ -70,11 +70,6 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
   );
   const [model, setModel] = useProviderSettingsValue(session, 'model', '');
   const [dirty, setDirty] = useProviderSettingsValue(session, 'dirty', false);
-  const [reviewed, setReviewed] = useProviderSettingsValue<Review | null>(
-    session,
-    'reviewed',
-    null,
-  );
   const [pending, setPending] = useProviderSettingsValue<Pending | null>(
     session,
     'pending',
@@ -95,7 +90,6 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
     setProvider(value.provider_id ?? '');
     setModel(value.model_id ?? '');
     setDirty(false);
-    setReviewed(null);
   }
   async function load() {
     if (
@@ -135,8 +129,8 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
     if (locked || !snapshot) return;
     const abort = session.read();
     setBusy('review');
-    setReviewed(null);
     setError('');
+    let approved: Review | null = null;
     try {
       const value = await props.review(
         snapshot.revision,
@@ -152,23 +146,17 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
         value.operation !== 'provider.default_model.save'
       )
         throw { code: 'revision_conflict' };
-      setReviewed(structuredClone(value));
+      approved = structuredClone(value);
     } catch (cause) {
       if (!abort.signal.aborted) setError(clientError(cause).message);
     } finally {
       session.finishRead(abort);
-      setBusy('');
+      if (!approved) setBusy('');
     }
+    if (approved) await applyReview(approved);
   }
-  async function confirm() {
-    if (
-      !session.active ||
-      session.get('busy', '') ||
-      session.get<Pending | null>('pending', null)
-    )
-      return;
-    const captured = session.get<Review | null>('reviewed', null);
-    if (!captured) return;
+  async function applyReview(captured: Review) {
+    if (!session.active || session.get<Pending | null>('pending', null)) return;
     const original = {
       commandId: crypto.randomUUID(),
       review: structuredClone(captured),
@@ -176,7 +164,6 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
     const generation = epoch.current;
     setPending(original);
     setBusy('apply');
-    setReviewed(null);
     setError('');
     try {
       const value = await session.perform([original], () =>
@@ -286,7 +273,6 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
             onChange={(event) => {
               setProvider(event.target.value);
               setDirty(true);
-              setReviewed(null);
             }}
           />
         </Field>
@@ -298,7 +284,6 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
             onChange={(event) => {
               setModel(event.target.value);
               setDirty(true);
-              setReviewed(null);
             }}
           />
         </Field>
@@ -309,13 +294,8 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
           disabled={locked || !snapshot || !provider || !model}
           onClick={() => void review()}
         >
-          Review default model
+          Save default model
         </Button>
-        {reviewed && (
-          <Button disabled={locked} onClick={() => void confirm()}>
-            Confirm default model
-          </Button>
-        )}
         {pending && (
           <Button
             disabled={!!busy || !session.active}
@@ -338,12 +318,6 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
           Reload saved default
         </Button>
       </div>
-      {reviewed && (
-        <p role="status">
-          Reviewed global default: {reviewed.provider_id} / {reviewed.model_id}.
-          Confirm to save this exact choice.
-        </p>
-      )}
     </section>
   );
 }

@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "GitHubAccessSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "anonymous_ok": {
+          "title": "Anonymous Ok",
+          "type": "boolean"
+        },
+        "cli_authenticated": {
+          "title": "Cli Authenticated",
+          "type": "boolean"
+        },
+        "cli_installed": {
+          "title": "Cli Installed",
+          "type": "boolean"
+        },
+        "connected": {
+          "title": "Connected",
+          "type": "boolean"
+        },
+        "credential_source": {
+          "enum": [
+            "none",
+            "environment",
+            "keyring",
+            "github_cli"
+          ],
+          "title": "Credential Source",
+          "type": "string"
+        },
+        "remaining": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining"
+        },
+        "retry_after_seconds": {
+          "anyOf": [
+            {
+              "maximum": 86400,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry After Seconds"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "not_configured",
+            "configured_unchecked",
+            "connected",
+            "anonymous",
+            "invalid_token",
+            "rate_limited",
+            "secondary_limited",
+            "offline"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "state",
+        "credential_source",
+        "connected",
+        "anonymous_ok",
+        "cli_installed",
+        "cli_authenticated"
+      ],
+      "title": "GitHubAccessSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "check",
+        "cli_login",
+        "cli_refresh",
+        "anonymous"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "completed",
+        "started"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/GitHubAccessSnapshot"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "action",
+    "phase",
+    "snapshot"
+  ],
+  "title": "GitHubAccessReceipt",
+  "type": "object"
+}

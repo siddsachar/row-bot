@@ -16,10 +16,11 @@ from uuid import UUID
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
-_TYPES = {'artifact.design.control', 'artifact.asset.upload', 'artifact.preset.mutate'}
-_OPERATIONS = {'brand', 'preset', 'style', 'hotspot', 'review_fix', 'asset_insert', 'asset_remove', 'asset_forget'}
+_TYPES = {'artifact.design.control', 'artifact.asset.upload', 'artifact.preset.mutate', 'artifact.document.import', 'artifact.notes.generate'}
+_OPERATIONS = {'brand', 'preset', 'style', 'hotspot', 'review_fix', 'asset_insert', 'asset_remove', 'asset_forget', 'block_insert'}
 _ASSET_STAGES = {'asset_prepared': 1, 'asset_written': 2, 'asset_attached': 3}
-_PURE_FAILURES = {'invalid_design_control', 'font_unavailable', 'design_preset_unavailable',
+_PURE_FAILURES = {'invalid_design_control', 'font_unavailable', 'design_preset_unavailable', 'design_component_unavailable',
+    'invalid_document_import', 'document_import_unavailable', 'document_import_too_large', 'artifact_type_unavailable', 'page_unavailable',
     'design_preset_exists', 'design_preset_builtin', 'design_finding_unavailable',
     'asset_still_referenced', 'asset_already_on_page', 'asset_type_unavailable', 'asset_content_unsafe', 'asset_too_large'}
 
@@ -113,7 +114,11 @@ def execute_artifact_design_command(service: Any, command: dict, conversation_id
             raise ValueError
     except (ValueError, TypeError, KeyError, AttributeError):
         raise ClientPlatformError('invalid_design_control') from None
-    operation = payload['operation'] if kind == 'artifact.design.control' else 'asset_upload' if kind == 'artifact.asset.upload' else 'preset_' + str(payload.get('action'))
+    operation = (payload['operation'] if kind == 'artifact.design.control' else
+                 'asset_upload' if kind == 'artifact.asset.upload' else
+                 'document_import' if kind == 'artifact.document.import' else
+                 'notes_generate' if kind == 'artifact.notes.generate' else
+                 'preset_' + str(payload.get('action')))
 
     def authority(*, effect: bool = False) -> None:
         if effect and kind == 'artifact.preset.mutate':
@@ -212,6 +217,24 @@ def execute_artifact_design_command(service: Any, command: dict, conversation_id
                         controls._asset_bytes(project, saved)
                         return completed({'resource_id': project.id, 'resource_revision': project.updated_at,
                             'operation': operation, 'status': 'saved', 'asset_id': saved.id, 'code': ''})
+                imported = private.get('import')
+                if kind == 'artifact.document.import' and type(imported) is dict:
+                    from row_bot.designer.client_import import imported_pages_present
+                    count = imported.get('count')
+                    if type(count) is int:
+                        revision = imported_pages_present(target['resource_id'], command['command_id'], count)
+                        if revision:
+                            return completed({'resource_id': target['resource_id'], 'resource_revision': revision,
+                                'operation': operation, 'status': 'saved', 'code': ''})
+                notes = private.get('notes')
+                if kind == 'artifact.notes.generate' and type(notes) is dict:
+                    from row_bot.designer.client_notes import saved_notes_revision
+                    if (notes.get('page_id') == payload.get('page_id') and
+                            isinstance(notes.get('digest'), str) and re.fullmatch('[0-9a-f]{64}', notes['digest'])):
+                        revision = saved_notes_revision(target['resource_id'], notes['page_id'], notes['digest'])
+                        if revision:
+                            return completed({'resource_id': target['resource_id'], 'resource_revision': revision,
+                                'operation': operation, 'status': 'saved', 'code': ''})
             except Exception:
                 pass
             return partial()
@@ -220,7 +243,7 @@ def execute_artifact_design_command(service: Any, command: dict, conversation_id
         try:
             authority(effect=True)
             data = None
-            if kind == 'artifact.asset.upload':
+            if kind in {'artifact.asset.upload', 'artifact.document.import'}:
                 if resolve_upload is None:
                     raise ClientPlatformError('upload_unavailable')
                 data = resolve_upload(payload['upload_id'])
@@ -262,6 +285,29 @@ def execute_artifact_design_command(service: Any, command: dict, conversation_id
                     page_id=payload.get('page_id'), element_id=payload.get('element_id'), **options)
             elif kind == 'artifact.asset.upload':
                 result = controls.upload_asset(target['resource_id'], filename=payload['filename'], data=data, **options)
+            elif kind == 'artifact.document.import':
+                from row_bot.designer.client_import import _parse, import_document
+                pages = _parse(payload['filename'], data)
+                private['import'] = {'count': len(pages), 'sha256': payload['sha256']}
+                admissions.command_progress(owner_id, key, progress)
+                result = import_document(target['resource_id'], expected_revision=target['resource_revision'],
+                    filename=payload['filename'], pages=pages, command_id=command['command_id'],
+                    replace=payload['replace'], validate=lambda: authority(effect=True))
+            elif kind == 'artifact.notes.generate':
+                from row_bot.designer.client_notes import generate_page_notes
+                from row_bot.designer.client_editing import apply_edit
+                notes, unchanged = generate_page_notes(target['resource_id'],
+                    expected_revision=target['resource_revision'], page_id=payload['page_id'],
+                    validate=lambda: authority(effect=True))
+                if unchanged:
+                    result = read_artifact(target['resource_id'])
+                else:
+                    private['notes'] = {'page_id': payload['page_id'],
+                        'digest': hashlib.sha256(notes.encode('utf-8')).hexdigest()}
+                    admissions.command_progress(owner_id, key, progress)
+                    result = apply_edit(target['resource_id'], expected_revision=target['resource_revision'],
+                        operation='page_properties', page_id=payload['page_id'], notes=notes,
+                        validate=lambda: authority(effect=True))
             else:
                 result = controls.mutate_preset(target['resource_id'], action=payload['action'],
                     name=payload.get('name'), preset_id=payload.get('preset_id'), **options)

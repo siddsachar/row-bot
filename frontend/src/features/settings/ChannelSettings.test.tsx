@@ -116,16 +116,14 @@ it('loads only redacted passive status and does not review or execute', async ()
   expect(props.execute).not.toHaveBeenCalled();
 });
 
-it('keeps credential input write-only through review and clears it on completion', async () => {
+it('keeps credential input write-only and clears it after one-click save', async () => {
   const props = options();
   render(<ChannelSettings {...props} />);
   await openSyntheticChannel();
   const input = await screen.findByLabelText(/New Bot token/);
   fireEvent.change(input, { target: { value: 'private-replacement-token' } });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review save Bot token' }),
-  );
-  await screen.findByRole('button', { name: 'Confirm channel action' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save Bot token' }));
+  await screen.findByText('Channel action completed.');
   expect(props.review).toHaveBeenCalledWith(
     expect.objectContaining({
       operation: 'configure',
@@ -137,10 +135,6 @@ it('keeps credential input write-only through review and clears it on completion
   expect(
     screen.queryByText('private-replacement-token'),
   ).not.toBeInTheDocument();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm channel action' }),
-  );
-  await screen.findByText('Channel action completed.');
   expect(props.execute).toHaveBeenCalledTimes(1);
   expect(input).toHaveValue('');
   expect(props.session.hasRetained()).toBe(false);
@@ -158,10 +152,7 @@ it('retains an uncertain original and checks it without another review', async (
   render(<ChannelSettings {...props} />);
   await openSyntheticChannel();
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Review start Synthetic Slack' }),
-  );
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Confirm channel action' }),
+    await screen.findByRole('button', { name: 'Start Synthetic Slack' }),
   );
   const retry = await screen.findByRole('button', {
     name: 'Check original channel action',
@@ -173,7 +164,7 @@ it('retains an uncertain original and checks it without another review', async (
   expect(props.review).toHaveBeenCalledTimes(1);
 });
 
-it('shows a pairing code only after explicit review and confirmation', async () => {
+it('shows a pairing code after one explicit click', async () => {
   const props = options();
   props.execute.mockImplementationOnce(async (command) => ({
     command_id: command.command_id,
@@ -185,12 +176,8 @@ it('shows a pairing code only after explicit review and confirmation', async () 
   await openSyntheticChannel();
   fireEvent.click(
     await screen.findByRole('button', {
-      name: 'Review pairing code for Synthetic Slack',
+      name: 'Get pairing code for Synthetic Slack',
     }),
-  );
-  expect(screen.queryByText(/PAIR1234/)).not.toBeInTheDocument();
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Confirm channel action' }),
   );
   expect(await screen.findByText(/PAIR1234/)).toBeVisible();
 });
@@ -201,7 +188,7 @@ it('uses the opaque identity when reviewing revocation', async () => {
   await openSyntheticChannel();
   fireEvent.click(
     await screen.findByRole('button', {
-      name: 'Review revoke Synthetic person',
+      name: 'Revoke Synthetic person',
     }),
   );
   await waitFor(() => expect(props.review).toHaveBeenCalledTimes(1));
@@ -232,7 +219,7 @@ it('reports unavailable pairing without inventing an account flow', async () => 
   ).toBeVisible();
   expect(
     screen.getByRole('button', {
-      name: 'Review pairing code for Synthetic Slack',
+      name: 'Get pairing code for Synthetic Slack',
     }),
   ).toBeDisabled();
 });
@@ -246,12 +233,8 @@ it('tombstones private drafts and ignores a late execution after auth loss', asy
   fireEvent.change(await screen.findByLabelText(/New Bot token/), {
     target: { value: 'private-late-token' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review save Bot token' }),
-  );
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Confirm channel action' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save Bot token' }));
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   const command = props.execute.mock.calls[0][0];
   act(() => props.session.dispose());
   await act(async () =>

@@ -121,6 +121,7 @@ export class WorkspaceUndoSession {
     if (
       !this.state.active ||
       this.state.busy ||
+      this.state.reading ||
       this.state.pending ||
       io.scope !== this.scope
     )
@@ -150,6 +151,11 @@ export class WorkspaceUndoSession {
         this.publish({ reading: false });
       }
     }
+  }
+  async start(io: WorkspaceUndoProps) {
+    if (this.state.busy || this.state.reading || this.state.pending) return;
+    await this.review(io);
+    if (this.state.review?.policy_decision !== 'block') await this.execute(io);
   }
   async execute(io: WorkspaceUndoProps, recover = false) {
     if (
@@ -297,8 +303,7 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
         <div>
           <h3>Undo imported changes</h3>
           <p>
-            Review the exact retained originals before restoring files. Later
-            edits will be preserved.
+            Restore the exact retained originals. Later edits will be preserved.
           </p>
         </div>
       </header>
@@ -315,12 +320,12 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
       {!state.pending && (
         <Button
           disabled={state.reading || state.busy || !props.changeSetId}
-          onClick={() => void owned.review(props)}
+          onClick={() => void owned.start(props)}
         >
-          Review Undo
+          Undo change
         </Button>
       )}
-      {reviewed && (
+      {reviewed && !state.busy && (
         <div>
           <p>Change set: {reviewed.change_set_id}</p>
           <ul>
@@ -343,21 +348,8 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
           )}
           {!state.pending && (
             <div className="actions action-cluster">
-              <Button
-                disabled={state.busy || state.reading}
-                onClick={() => owned.cancelReview()}
-              >
-                Cancel review
-              </Button>
-              <Button
-                disabled={
-                  state.busy ||
-                  state.reading ||
-                  reviewed.policy_decision === 'block'
-                }
-                onClick={() => void owned.execute(props)}
-              >
-                Undo these changes
+              <Button onClick={() => owned.cancelReview()}>
+                Dismiss details
               </Button>
             </div>
           )}

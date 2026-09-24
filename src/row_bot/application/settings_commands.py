@@ -59,6 +59,7 @@ _UTILITY_IDS = {
 _SECRET_FIELDS = {
     ("voice", "openai_realtime_credential"): "OPENAI_API_KEY",
     ("system", "tunnel.credential"): "NGROK_AUTHTOKEN",
+    ("system", "computer_use.system_binary_verify"): "CUA_SYSTEM_BINARY_PATH",
     ("tools", "web_search.credential"): "TAVILY_API_KEY",
     ("tools", "wolfram_alpha.credential"): "WOLFRAM_ALPHA_APPID",
     ("accounts", "github.credential"): "GITHUB_TOKEN",
@@ -122,6 +123,7 @@ _BOOL_FIELDS = {
     ("system", "shell.enabled"),
     ("system", "browser.enabled"),
     ("system", "computer_use.enabled"),
+    ("system", "computer_use.disclosure_acknowledged"),
     ("system", "file_operations.enabled"),
     ("tracker", "enabled"),
     ("knowledge", "memory_enabled"),
@@ -138,6 +140,12 @@ _ACTION_FIELDS = {
     ("voice", "sensevoice.install"),
     ("system", "browser.install"),
     ("system", "computer_use.install"),
+    ("system", "computer_use.check"),
+    ("system", "computer_use.test"),
+    ("system", "computer_use.use_managed_runtime"),
+    ("system", "computer_use.remove"),
+    ("system", "computer_use.open_accessibility"),
+    ("system", "computer_use.open_screen_recording"),
     ("system", "tunnel.check"),
     ("system", "tunnel.start_main"),
     ("system", "tunnel.stop_main"),
@@ -236,7 +244,12 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         if value is not None and (
             type(value) is not str
             or not value.strip()
-            or len(value.encode("utf-8")) > 16 * 1024
+            or len(value.encode("utf-8"))
+            > (
+                4096
+                if key == ("system", "computer_use.system_binary_verify")
+                else 16 * 1024
+            )
         ):
             raise SettingsCommandError("invalid_settings_command")
         return page, field, value.strip() if isinstance(value, str) else None, True
@@ -368,7 +381,9 @@ def review_settings_update(
     digest = admissions.keyed_digest(
         {key: item for key, item in intent.items() if key != "secret"}
     )
-    if intent["secret"]:
+    if (page, field) == ("system", "computer_use.system_binary_verify"):
+        summary = "Verify and use the explicitly selected local Cua executable"
+    elif intent["secret"]:
         summary = (
             "Remove saved credential"
             if intent["value"] is None
@@ -392,7 +407,27 @@ def review_settings_update(
     elif (page, field) == ("system", "browser.install"):
         summary = "Download and install Row-Bot's managed Playwright Chromium runtime"
     elif (page, field) == ("system", "computer_use.install"):
-        summary = "Download and install the reviewed Cua Driver runtime for this platform"
+        summary = (
+            "Download and install the reviewed Cua Driver runtime for this platform"
+        )
+    elif (page, field) == ("system", "computer_use.check"):
+        summary = "Run local Cua Driver diagnostics and check required permissions"
+    elif (page, field) == ("system", "computer_use.test"):
+        summary = "Open Calculator briefly and verify local Computer Use access"
+    elif (page, field) == ("system", "computer_use.use_managed_runtime"):
+        summary = "Use Row-Bot's reviewed managed Cua Driver runtime"
+    elif (page, field) == ("system", "computer_use.remove"):
+        summary = "Remove Row-Bot's managed Cua Driver runtime and disable Computer Use"
+    elif (page, field) == ("system", "computer_use.open_accessibility"):
+        summary = "Open macOS Accessibility permission settings"
+    elif (page, field) == ("system", "computer_use.open_screen_recording"):
+        summary = "Open macOS Screen Recording permission settings"
+    elif (page, field) == ("system", "computer_use.disclosure_acknowledged"):
+        summary = (
+            "Accept the reviewed Cua Driver telemetry notice"
+            if intent["value"]
+            else "Withdraw Cua Driver telemetry acceptance"
+        )
     elif (page, field) == ("system", "tunnel.check"):
         summary = "Check saved ngrok configuration without opening a tunnel"
     elif (page, field) == ("system", "tunnel.start_main"):
@@ -482,8 +517,9 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         path, keys = root / "tts_settings.json", (field.split(".", 1)[1],)
     elif page == "documents" and field.startswith("embedding."):
         path, keys = root / "embedding_config.json", (field.split(".", 1)[1],)
-    elif page == "system" and field == "tunnel.provider":
-        path, keys = root / "channels_config.json", ("tunnel", "provider")
+    elif page == "system" and field in {"tunnel.provider", "tunnel.main_app_enabled"}:
+        key = "provider" if field == "tunnel.provider" else "tunnel_main_app"
+        path, keys = root / "channels_config.json", ("tunnel", key)
     elif page == "system" and field.startswith("remote_access."):
         path, keys = root / "access_routes.json", (field.split(".", 1)[1],)
     elif page == "system" and field == "logging.level":
@@ -508,6 +544,10 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
             document.setdefault("version", 2)
         _set_path(document, keys, value)
         _write_document(path, document)
+    if page == "preferences" and field == "updates.channel":
+        from row_bot import updater
+
+        updater.reload_saved_update_state(path)
 
 
 def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
@@ -637,7 +677,7 @@ def _run_voice_action(field: str) -> None:
     raise SettingsCommandError("settings_action_unavailable")
 
 
-def _run_system_action(field: str) -> None:
+def _run_system_action(field: str) -> dict[str, str] | None:
     if field == "browser.install":
         from row_bot.mcp_client.requirements import install_managed_runtime
 
@@ -648,8 +688,51 @@ def _run_system_action(field: str) -> None:
     if field == "computer_use.install":
         from row_bot.computer_use.readiness import install_cua_runtime
 
-        install_cua_runtime()
+        result = install_cua_runtime()
+        if not result.ok:
+            raise SettingsCommandError("runtime_install_failed")
         return
+    if field == "computer_use.check":
+        from row_bot.computer_use.readiness import run_cua_diagnostics
+
+        state = run_cua_diagnostics()
+        return {
+            "code": state.code.value,
+            "message": state.message[:256],
+            "remediation": state.remediation[:256],
+        }
+    if field == "computer_use.test":
+        from row_bot.computer_use.readiness import test_local_computer_use
+
+        test_local_computer_use()
+        return {
+            "code": "ready",
+            "message": "Computer Use test passed.",
+            "remediation": "",
+        }
+    if field == "computer_use.use_managed_runtime":
+        from row_bot.computer_use.readiness import configure_system_cua
+
+        configure_system_cua("", enabled=False)
+        return None
+    if field in {
+        "computer_use.open_accessibility",
+        "computer_use.open_screen_recording",
+    }:
+        import platform
+        from row_bot.computer_use.readiness import open_macos_privacy_settings
+
+        if platform.system().casefold() != "darwin":
+            raise SettingsCommandError("settings_action_unavailable")
+        permission = (
+            "accessibility" if field.endswith("accessibility") else "screen_recording"
+        )
+        open_macos_privacy_settings(permission)
+        return {
+            "code": "opened",
+            "message": f"Opened macOS {'Accessibility' if permission == 'accessibility' else 'Screen Recording'} settings.",
+            "remediation": "Switch on Row-Bot, then run Check Computer Use setup again.",
+        }
     if field in {"tunnel.check", "tunnel.start_main", "tunnel.stop_main"}:
         from row_bot.app_port import get_app_port
         from row_bot.tunnel import tunnel_manager
@@ -657,9 +740,28 @@ def _run_system_action(field: str) -> None:
         if field == "tunnel.check":
             tunnel_manager.status()
         elif field == "tunnel.start_main":
-            tunnel_manager.start_tunnel(get_app_port(), label="main_app")
+            port = get_app_port()
+            existing_url = tunnel_manager.get_url(port)
+            tunnel_manager.start_tunnel(port, label="main_app")
+            try:
+                _write_json_setting(
+                    get_row_bot_data_dir(create=False).absolute(),
+                    "system",
+                    "tunnel.main_app_enabled",
+                    True,
+                )
+            except Exception:
+                if existing_url is None:
+                    tunnel_manager.stop_tunnel(port)
+                raise
         else:
             tunnel_manager.stop_tunnel(get_app_port())
+            _write_json_setting(
+                get_row_bot_data_dir(create=False).absolute(),
+                "system",
+                "tunnel.main_app_enabled",
+                False,
+            )
         return
     if field == "logging.open":
         import subprocess
@@ -717,12 +819,50 @@ def _apply(
     *,
     validate: Callable[[], None],
     resolve_folder_grant: Callable[[str], str] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, str] | None]:
     validate()
     root = get_row_bot_data_dir(create=False).absolute()
     page, field, value = intent["page"], intent["field"], intent["value"]
+    action_result = None
     if (page, field) == ("tracker", "delete_all"):
         _clear_tracker_data(root, intent["settings_revision"], validate=validate)
+    elif (page, field) == ("system", "computer_use.disclosure_acknowledged"):
+        from row_bot.computer_use.readiness import (
+            acknowledge_disclosure,
+            cancel_disclosure,
+        )
+
+        if value:
+            acknowledge_disclosure()
+        else:
+            cancel_disclosure()
+    elif (page, field) == ("system", "computer_use.system_binary_verify"):
+        from row_bot.computer_use.readiness import (
+            configure_system_cua,
+            require_cua_disclosure,
+            verify_system_cua,
+        )
+
+        require_cua_disclosure()
+        configure_system_cua(value, enabled=True)
+        state = verify_system_cua()
+        action_result = {
+            "code": state.code.value,
+            "message": state.message[:256],
+            "remediation": state.remediation[:256],
+        }
+    elif (page, field) == ("system", "computer_use.remove"):
+        from row_bot.computer_use.readiness import uninstall_cua_runtime
+
+        removed = uninstall_cua_runtime()
+        _write_tool_setting(root, "system", "computer_use.enabled", False)
+        action_result = {
+            "code": "removed" if removed else "not_installed",
+            "message": "Computer Use runtime removed."
+            if removed
+            else "Computer Use runtime was not installed.",
+            "remediation": "Install the reviewed runtime to use Computer Use again.",
+        }
     elif (page, field) == ("system", "workspace.folder_grant"):
         if resolve_folder_grant is None:
             raise SettingsCommandError("settings_action_unavailable")
@@ -731,7 +871,7 @@ def _apply(
     elif page == "voice" and (page, field) in _ACTION_FIELDS:
         _run_voice_action(field)
     elif page == "system" and (page, field) in _ACTION_FIELDS:
-        _run_system_action(field)
+        action_result = _run_system_action(field)
     elif page == "documents" and (page, field) in _ACTION_FIELDS:
         _run_documents_action(field, root)
     elif intent["secret"]:
@@ -757,11 +897,19 @@ def _apply(
         }
         or page == "accounts"
     ):
+        if page == "system" and field == "computer_use.enabled" and value:
+            from row_bot.computer_use.readiness import require_cua_disclosure
+
+            require_cua_disclosure()
         _write_tool_setting(root, page, field, value)
+        if page == "system" and field == "computer_use.enabled" and not value:
+            from row_bot.computer_use.service import get_computer_use_service
+
+            get_computer_use_service().stop()
     else:
         _write_json_setting(root, page, field, value)
     validate()
-    return read_settings_snapshot(validate=validate)
+    return read_settings_snapshot(validate=validate), action_result
 
 
 def execute_settings_update(
@@ -838,7 +986,7 @@ def execute_settings_update(
     if replay is not None:
         return replay
     try:
-        snapshot = _apply(
+        snapshot, action_result = _apply(
             intent,
             validate=validate,
             resolve_folder_grant=resolve_folder_grant,
@@ -849,6 +997,7 @@ def execute_settings_update(
             "code": None,
             "settings_revision": snapshot["revision"],
             "snapshot": snapshot,
+            "action_result": action_result,
         }
     except Exception:
         result = {

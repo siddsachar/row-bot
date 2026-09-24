@@ -189,7 +189,7 @@ it.each([
     expect(error.message).toContain(text);
     expect(error.message).not.toContain('/private');
     expect(clientError({ code, status: 401 }).recovery).toBe('authenticate');
-    expect(clientError({ code, status: 403 }).recovery).toBe('authenticate');
+    expect(clientError({ code, status: 403 }).recovery).toBe('none');
   },
 );
 
@@ -1301,6 +1301,24 @@ describe('revisioned snapshot and independent selection', () => {
         ),
     ).toBe(true);
     expect(transport.counters.active).toBe(1);
+  });
+  it('keeps the session when an owner-only update view is denied', async () => {
+    class BrowserTransport extends FixtureTransport {
+      async updates(): Promise<never> {
+        throw { status: 403, code: 'action_denied' };
+      }
+    }
+    const value = client(new BrowserTransport());
+    await value.start();
+    const originalSession = value.getSnapshot().handshake?.client_session_id;
+    await expect(value.updates()).rejects.toMatchObject({
+      status: 403,
+      code: 'action_denied',
+    });
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().handshake?.client_session_id).toBe(
+      originalSession,
+    );
   });
   it('traverses all 1005 conversations through continuation without duplicate IDs', async () => {
     const value = client(new FixtureTransport({ conversationCount: 1005 }));

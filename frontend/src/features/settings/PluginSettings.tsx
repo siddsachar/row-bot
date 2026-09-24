@@ -1,5 +1,16 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Select } from '../../ui/primitives';
+import { FlaskConical } from 'lucide-react';
+import {
+  Button,
+  CompactAction,
+  Field,
+  Input,
+  Select,
+  Toggle,
+} from '../../ui/primitives';
+import PluginLifecycleActions, {
+  type PluginLifecycleApi,
+} from './PluginLifecycleActions';
 
 export type PluginCapability = { available: boolean; code: string | null };
 export type PluginCatalogItem = {
@@ -16,6 +27,9 @@ export type PluginCatalogItem = {
   permissions: string[];
   provides: Record<string, number>;
   manifest_revision: string | null;
+  source_label?: string;
+  checksum?: string;
+  verified?: boolean;
   capabilities: Record<string, PluginCapability>;
 };
 export type PluginCatalogPage = {
@@ -55,6 +69,7 @@ export type PluginAction =
   | 'plugin.enable'
   | 'plugin.disable'
   | 'plugin.configure'
+  | 'plugin.test'
   | 'plugin.install'
   | 'plugin.update'
   | 'plugin.remove';
@@ -190,6 +205,7 @@ export type PluginSettingsProps = {
     command: PluginCommand,
     review: PluginReview,
   ) => Promise<PluginReceipt>;
+  lifecycle?: PluginLifecycleApi;
 };
 
 function boundedPage(value: PluginCatalogPage) {
@@ -211,6 +227,7 @@ export default function PluginSettings({
   open,
   review,
   execute,
+  lifecycle,
 }: PluginSettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const locked = !state.active || Boolean(state.busy || state.pending);
@@ -328,7 +345,7 @@ export default function PluginSettings({
     };
     if (new TextEncoder().encode(JSON.stringify(payload)).length > 128 * 1024)
       return session.update({
-        message: 'Plugin settings are too large to review.',
+        message: 'Plugin settings are too large to save.',
       });
     const abort = session.beginRead();
     session.update({ busy: 'review', reviewed: null, message: '' });
@@ -350,19 +367,21 @@ export default function PluginSettings({
           action_digest: result.action_digest,
         },
       };
-      if (!abort.signal.aborted)
+      if (!abort.signal.aborted) {
+        const attempt = { command, review: result };
         session.update({
-          reviewed: { command, review: result },
+          reviewed: attempt,
           busy: '',
-          message:
-            'Review complete. Apply this exact plugin change to continue.',
+          message: '',
         });
+        void apply(attempt);
+      }
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The plugin change could not be reviewed. Refresh and try again.',
+            'The plugin change could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -371,7 +390,7 @@ export default function PluginSettings({
 
   const selectForAction = async (
     pluginId: string,
-    action: 'plugin.enable' | 'plugin.disable',
+    action: 'plugin.enable' | 'plugin.disable' | 'plugin.test',
   ) => {
     const detail = await select(pluginId);
     if (detail) await requestReview(action);
@@ -389,15 +408,43 @@ export default function PluginSettings({
       const receipt = await execute(attempt.command, attempt.review);
       if (receipt.command_id !== attempt.command.command_id) throw Error();
       if (receipt.status === 'completed') {
+        const current = session.getSnapshot();
         session.update({
-          busy: '',
+          busy: 'load',
           pending: null,
           selected: null,
           page: null,
           settings: {},
           secrets: {},
-          message: 'Plugin change completed. Refresh to view the saved state.',
+          message: 'Plugin change completed.',
         });
+        const abort = session.beginRead();
+        try {
+          const page = boundedPage(
+            await load(
+              {
+                query: current.query.trim(),
+                source: current.source,
+              },
+              abort.signal,
+            ),
+          );
+          if (!abort.signal.aborted)
+            session.update({
+              page,
+              busy: '',
+              message: 'Plugin change completed.',
+            });
+        } catch {
+          if (!abort.signal.aborted)
+            session.update({
+              busy: '',
+              message:
+                'Plugin change completed. Refresh to view the saved state.',
+            });
+        } finally {
+          session.endRead(abort);
+        }
       } else if (receipt.status === 'rejected') {
         session.update({
           busy: '',
@@ -442,6 +489,12 @@ export default function PluginSettings({
         Discover, configure, test, enable, update, disable, and uninstall
         Row-Bot plugins. Passive reads do not install or start anything.
       </p>
+      {lifecycle && (
+        <PluginLifecycleActions
+          api={lifecycle}
+          onChanged={() => void refresh(undefined, 'all')}
+        />
+      )}
       <div className="settings-plugin-actions">
         <Button
           aria-label="Browse saved marketplace"
@@ -581,6 +634,17 @@ export default function PluginSettings({
                 <div className="settings-plugin-row-actions">
                   {plugin.installed ? (
                     <>
+                      <CompactAction
+                        label={`Test ${plugin.name}`}
+                        disabled={
+                          locked || !plugin.capabilities.test?.available
+                        }
+                        onClick={() =>
+                          void selectForAction(plugin.plugin_id, 'plugin.test')
+                        }
+                      >
+                        <FlaskConical size={18} aria-hidden="true" />
+                      </CompactAction>
                       <Button
                         aria-label={`Manage ${plugin.name}`}
                         disabled={locked}
@@ -588,41 +652,36 @@ export default function PluginSettings({
                       >
                         Configure
                       </Button>
-                      {plugin.enabled
-                        ? plugin.capabilities.disable?.available && (
-                            <Button
-                              variant="danger"
-                              aria-label={`Disable ${plugin.name}`}
-                              disabled={locked}
-                              onClick={() =>
-                                void selectForAction(
-                                  plugin.plugin_id,
-                                  'plugin.disable',
-                                )
-                              }
-                            >
-                              Disable Plugin
-                            </Button>
+                      <Toggle
+                        label={`${plugin.name} enabled`}
+                        checked={plugin.enabled}
+                        disabled={
+                          locked ||
+                          !(plugin.enabled
+                            ? plugin.capabilities.disable?.available
+                            : plugin.capabilities.enable?.available)
+                        }
+                        onChange={(event) =>
+                          void selectForAction(
+                            plugin.plugin_id,
+                            event.target.checked
+                              ? 'plugin.enable'
+                              : 'plugin.disable',
                           )
-                        : plugin.capabilities.enable?.available && (
-                            <Button
-                              aria-label={`Enable ${plugin.name}`}
-                              disabled={locked}
-                              onClick={() =>
-                                void selectForAction(
-                                  plugin.plugin_id,
-                                  'plugin.enable',
-                                )
-                              }
-                            >
-                              Enable Plugin
-                            </Button>
-                          )}
+                        }
+                      />
                     </>
-                  ) : (
+                  ) : !lifecycle ? (
                     <span className="status-chip warning" role="status">
                       Install unavailable
                     </span>
+                  ) : null}
+                  {lifecycle && (
+                    <PluginLifecycleActions
+                      plugin={plugin}
+                      api={lifecycle}
+                      onChanged={() => void refresh(undefined, 'all')}
+                    />
                   )}
                 </div>
               </li>
@@ -678,8 +737,8 @@ export default function PluginSettings({
                 }
               >
                 {field.type === 'checkbox' ? (
-                  <Input
-                    type="checkbox"
+                  <Toggle
+                    label={field.label}
                     checked={Boolean(state.settings[field.name])}
                     onChange={(event) =>
                       editSetting(field.name, event.target.checked)
@@ -767,27 +826,31 @@ export default function PluginSettings({
               </div>
             ))}
             <Button onClick={() => void requestReview('plugin.configure')}>
-              Review configuration
+              Save configuration
             </Button>
           </fieldset>
           <div className="button-row">
             <Button
-              disabled={
-                locked || !state.selected.capabilities.enable?.available
-              }
-              onClick={() => void requestReview('plugin.enable')}
+              disabled={locked || !state.selected.capabilities.test?.available}
+              onClick={() => void requestReview('plugin.test')}
             >
-              Enable plugin
+              Run local test
             </Button>
-            <Button
-              variant="danger"
+            <Toggle
+              label="Plugin enabled"
+              checked={state.selected.enabled}
               disabled={
-                locked || !state.selected.capabilities.disable?.available
+                locked ||
+                !(state.selected.enabled
+                  ? state.selected.capabilities.disable?.available
+                  : state.selected.capabilities.enable?.available)
               }
-              onClick={() => void requestReview('plugin.disable')}
-            >
-              Disable plugin
-            </Button>
+              onChange={(event) =>
+                void requestReview(
+                  event.target.checked ? 'plugin.enable' : 'plugin.disable',
+                )
+              }
+            />
           </div>
           {!state.selected.capabilities.remove?.available && (
             <p role="status">
@@ -795,17 +858,6 @@ export default function PluginSettings({
               worker owns those effects.
             </p>
           )}
-        </section>
-      )}
-      {state.reviewed && (
-        <section aria-label="Plugin change review">
-          <h3>Review plugin change</h3>
-          {state.reviewed.review.disclosures.map((item) => (
-            <p key={item}>{item}</p>
-          ))}
-          <Button disabled={locked} onClick={() => void apply(state.reviewed)}>
-            Apply plugin change
-          </Button>
         </section>
       )}
       {state.pending && (

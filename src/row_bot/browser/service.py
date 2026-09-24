@@ -422,6 +422,18 @@ class ManagedBrowserService:
         with self._activity_lock:
             return self._preview_by_thread.get(str(thread_id or "default"))
 
+    def ephemeral_preview(self, thread_id: str) -> tuple[dict[str, Any], bytes | None]:
+        """Read one in-memory frame with its shield state under the same lock."""
+        thread_id = str(thread_id or "default")
+        with self._activity_lock:
+            status = dict(self._activity_by_thread.get(thread_id) or {})
+            shielded = (
+                thread_id in self._preview_shielded
+                or status.get("state") in {"waiting_user", "waiting_approval"}
+            )
+            frame = self._preview_by_thread.get(thread_id) if status.get("active") and not shielded else None
+            return status, bytes(frame) if frame else None
+
     def _set_preview_frame(self, thread_id: str, image: bytes | None, *, shielded: bool) -> None:
         thread_id = str(thread_id or "default")
         with self._activity_lock:
@@ -1137,6 +1149,11 @@ class BrowserSessionManager:
         with self._lock:
             session = self._shared_session
         return session.ephemeral_screenshot(thread_id) if session else None
+
+    def ephemeral_preview(self, thread_id: str) -> tuple[dict[str, Any], bytes | None]:
+        with self._lock:
+            session = self._shared_session
+        return session.ephemeral_preview(thread_id) if session else ({}, None)
 
     def evict_idle(self, ttl_seconds: float = 600.0) -> int:
         """Delegate scheduled cleanup to the shared managed session."""

@@ -178,16 +178,25 @@ function Conversation(props: Parameters<typeof ConversationView>[0]) {
       >
         {owner.pending ? 'Check new chat' : 'New chat'}
       </button>
+      <button
+        onClick={() =>
+          void owner.newChat('What do you remember about my current projects?')
+        }
+      >
+        New chat with example
+      </button>
       {owner.error && <p role="alert">{owner.error}</p>}
       {owner.canReview && (
         <button onClick={owner.reviewMissingReceipt}>
-          Review pending receipt
+          Check pending receipt
         </button>
       )}
       <ConversationView
         {...props}
         focusConversationId={owner.focusConversationId}
         onComposerFocused={owner.onComposerFocused}
+        firstPrompt={owner.firstPrompt}
+        onFirstPromptConsumed={owner.onFirstPromptConsumed}
       />
     </>
   );
@@ -708,6 +717,184 @@ function interruptedConversation() {
   );
 }
 
+it('shows welcome examples without a request and sends one with a single click while preserving the draft', async () => {
+  idleConversation();
+  mock.drafts.set('conversation-a', {
+    text: 'An unfinished private draft',
+    attachments: [],
+  });
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  expect(mock.intent).not.toHaveBeenCalled();
+  await act(async () => {
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Create a disabled workflow for a weekly research briefing',
+      }),
+    );
+  });
+  expect(mock.open).not.toHaveBeenCalled();
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent.mock.calls[0][0]).toBe('conversation-a');
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.submit');
+  expect(mock.intent.mock.calls[0][2]).toMatchObject({
+    text: 'Create a disabled workflow for a weekly research briefing',
+    attachment_refs: [],
+    write_targets: [],
+  });
+  expect(mock.drafts.get('conversation-a')?.text).toBe(
+    'An unfinished private draft',
+  );
+});
+
+it('creates a conversation and submits a Home example through one user action', async () => {
+  idleConversation();
+  mock.state.selectedConversationId = null;
+  mock.state.conversation = null;
+  mock.state.workspace!.conversation_id = 'first-chat';
+  mock.state.workspace!.revision = '1';
+  mock.intent.mockImplementation(
+    async (_conversation, type, payload, _revision, commandId) =>
+      type === 'conversation.create'
+        ? {
+            command_id: commandId,
+            conversation_id: 'first-chat',
+            status: 'completed',
+          }
+        : {
+            command_id: commandId,
+            conversation_id: 'first-chat',
+            submission_id: payload.submission_id,
+            status: 'accepted',
+          },
+  );
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'New chat with example' }),
+    ),
+  );
+  await act(async () => rendered.rerender(<Conversation onPanel={vi.fn()} />));
+  await waitFor(() => expect(mock.intent).toHaveBeenCalledTimes(2));
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.create');
+  expect(mock.intent.mock.calls[1][1]).toBe('conversation.submit');
+  expect(mock.intent.mock.calls[1][2]).toMatchObject({
+    text: 'What do you remember about my current projects?',
+    attachment_refs: [],
+    write_targets: [],
+  });
+  expect(mock.drafts.get('first-chat')?.text).toBe('');
+});
+
+it('keeps a Home example as a local draft until a model becomes ready', async () => {
+  idleConversation();
+  mock.state.selectedConversationId = null;
+  mock.state.conversation = null;
+  mock.state.workspace!.conversation_id = 'first-chat';
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.intent.mockImplementation(
+    async (_target, type, payload, _revision, commandId) =>
+      type === 'conversation.create'
+        ? {
+            command_id: commandId,
+            conversation_id: 'first-chat',
+            status: 'completed',
+          }
+        : {
+            command_id: commandId,
+            conversation_id: 'first-chat',
+            submission_id: payload.submission_id,
+            status: 'accepted',
+          },
+  );
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'New chat with example' }),
+    ),
+  );
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.drafts.get('first-chat')?.text).toBe(
+    'What do you remember about my current projects?',
+  );
+  mock.state.workspace!.actions = [{ action: 'send', ready: true }];
+  await act(async () => rendered.rerender(<Conversation onPanel={vi.fn()} />));
+  await waitFor(() => expect(mock.intent).toHaveBeenCalledTimes(2));
+  expect(mock.intent.mock.calls[1][1]).toBe('conversation.submit');
+});
+
+it('sends to the selected workspace from one click with the target fixed in the command', async () => {
+  idleConversation();
+  mock.state.workspace!.resources = [
+    {
+      resource_ref: 'conversation-a:binding',
+      conversation_revision: '1',
+      binding: {
+        binding_id: 'binding',
+        kind: 'workspace',
+        resource_id: 'workspace',
+        role: 'primary',
+        revision: '2',
+      },
+      title: 'Project',
+      resource_revision: '3',
+      available: true,
+    },
+  ];
+  mock.drafts.set('conversation-a', {
+    text: 'Update the summary',
+    attachments: [],
+  });
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  await act(async () =>
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Folder target' }), {
+      key: 'Enter',
+    }),
+  );
+  fireEvent.click(
+    within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Project' }),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  expect(mock.open).not.toHaveBeenCalled();
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent.mock.calls[0][2]).toMatchObject({
+    text: 'Update the summary',
+    write_targets: [
+      {
+        kind: 'workspace',
+        binding_id: 'binding',
+        resource_id: 'workspace',
+        binding_revision: '2',
+        resource_revision: '3',
+      },
+    ],
+  });
+});
+
 it('names the composer and explains why sending is unavailable', async () => {
   idleConversation();
   mock.state.workspace!.actions = [{ action: 'send', ready: false }];
@@ -879,7 +1066,7 @@ it('retains a missing Resume receipt until explicit review without replaying it'
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review pending receipt' }),
+    screen.getByRole('button', { name: 'Check pending receipt' }),
   );
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
@@ -1144,7 +1331,7 @@ it('keeps an absent ordinary submit receipt until explicit review without resend
   expect(mock.intent).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review pending receipt' }),
+    screen.getByRole('button', { name: 'Check pending receipt' }),
   );
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
@@ -1196,7 +1383,7 @@ it('checks an absent New chat receipt without replay and requires explicit revie
     ),
   ).toBe(identity);
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review pending receipt' }),
+    screen.getByRole('button', { name: 'Check pending receipt' }),
   );
   expect(mock.open.mock.calls.at(-1)?.[0].confirmLabel).toBe(
     'Clear pending receipt',
@@ -1409,7 +1596,7 @@ it('retains an absent queue receipt until an explicit review, without creating a
   expect(mock.intent).not.toHaveBeenCalled();
   expect(commandReceipts.read(key)).toEqual(saved);
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review pending receipt' }),
+    screen.getByRole('button', { name: 'Check pending receipt' }),
   );
   expect(mock.open.mock.calls.at(-1)?.[0].description).toContain(
     'sending again could create a duplicate',

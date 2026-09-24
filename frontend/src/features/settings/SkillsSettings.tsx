@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { EllipsisVertical, Pin, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import PublicSkillHub, { type PublicSkillHubIO } from './PublicSkillHub';
+import PublicSkillMaintenance, {
+  type PublicSkillMaintenanceIO,
+} from './PublicSkillMaintenance';
+import { EllipsisVertical, Pin } from 'lucide-react';
 import {
   Button,
   CompactAction,
@@ -10,6 +14,7 @@ import {
   Select,
   Skeleton,
   Surface,
+  Toggle,
 } from '../../ui/primitives';
 
 export type SkillAction =
@@ -27,6 +32,7 @@ export type SkillSummary = {
   icon: string;
   description: string;
   source: 'user' | 'bundled';
+  public?: boolean;
   version: string;
   tags: string[];
   activation: Record<string, string[]>;
@@ -106,9 +112,9 @@ type State = {
   proposals: SkillProposalPage | null;
   detail: SkillDetail | null;
   query: string;
-  source: '' | 'user' | 'bundled';
-  filter: '' | 'available' | 'pinned';
-  sort: 'name' | 'source' | 'availability' | 'pinned';
+  source: '' | 'user' | 'bundled' | 'public';
+  filter: 'all' | 'available' | 'pinned' | 'custom' | 'public';
+  sort: 'name' | 'recent' | 'tokens' | 'source';
   editor: Editor | null;
   importText: string;
   duplicateName: string;
@@ -136,7 +142,7 @@ export function createSkillsSettingsSession() {
     detail: null,
     query: '',
     source: '',
-    filter: '',
+    filter: 'all',
     sort: 'name',
     editor: null,
     importText: '',
@@ -204,6 +210,8 @@ export type SkillsSettingsIO = {
     query: string,
     source: string | undefined,
     cursor: string | undefined,
+    filter: State['filter'],
+    sort: State['sort'],
     signal: AbortSignal,
   ) => Promise<SkillPage>;
   detail: (id: string, signal: AbortSignal) => Promise<SkillDetail>;
@@ -230,17 +238,25 @@ function validPage(value: SkillPage) {
 }
 
 function skillSourceLabel(skill: SkillSummary) {
+  if (skill.public) return 'Public';
   return skill.source === 'user' ? 'Custom' : 'Bundled';
 }
 
 export default function SkillsSettings({
   session,
   io,
+  hub,
+  hubMaintenance,
+  ownerKey = '',
 }: {
   session: SkillsSettingsSession;
   io: SkillsSettingsIO;
+  hub?: PublicSkillHubIO;
+  hubMaintenance?: PublicSkillMaintenanceIO;
+  ownerKey?: string;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const [hubReload, setHubReload] = useState(0);
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -258,6 +274,8 @@ export default function SkillsSettings({
           current.query.trim(),
           current.source || undefined,
           cursor,
+          current.filter,
+          current.sort,
           abort.signal,
         );
         if (abort.signal.aborted || !validPage(page)) return;
@@ -361,11 +379,15 @@ export default function SkillsSettings({
         review.revision !== current.page.revision
       )
         throw Error();
+      const attempt = { command, review };
+      const needsConfirmation =
+        action === 'skill.delete' || action === 'skill.proposal.reject';
       session.update({
-        reviewed: { command, review },
+        reviewed: attempt,
         busy: '',
-        message: 'Review complete. Apply this exact change when ready.',
+        message: needsConfirmation ? 'Confirm this exact removal.' : '',
       });
+      if (!needsConfirmation) await apply(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
@@ -515,26 +537,13 @@ export default function SkillsSettings({
     session.update({ editor: { ...editor, fields }, reviewed: null });
   };
   const locked = !state.active || Boolean(state.busy || state.pending);
+
+  function changeList(patch: Partial<State>) {
+    session.update(patch);
+    void load();
+  }
   const revision = state.page?.revision;
-  const displayedSkills = [...(state.page?.items ?? [])]
-    .filter((skill) => {
-      if (state.filter === 'available') return skill.available;
-      if (state.filter === 'pinned') return skill.pinned;
-      return true;
-    })
-    .sort((left, right) => {
-      const byName = left.display_name.localeCompare(right.display_name);
-      if (state.sort === 'source')
-        return (
-          skillSourceLabel(left).localeCompare(skillSourceLabel(right)) ||
-          byName
-        );
-      if (state.sort === 'availability')
-        return Number(right.available) - Number(left.available) || byName;
-      if (state.sort === 'pinned')
-        return Number(right.pinned) - Number(left.pinned) || byName;
-      return byName;
-    });
+  const displayedSkills = state.page?.items ?? [];
   const shownAvailable =
     state.page?.items.filter((skill) => skill.available).length ?? 0;
   const shownPinned =
@@ -551,7 +560,8 @@ export default function SkillsSettings({
       <h2>Skill library</h2>
       <p>
         Choose which saved workflows are available, pin defaults for new work,
-        and review every library change before it is saved.
+        and save library changes directly. Removing a skill or rejecting a
+        proposal asks for confirmation.
       </p>
       {state.page?.availability === 'available' && (
         <div
@@ -587,38 +597,44 @@ export default function SkillsSettings({
         <Field label="Skill source">
           <Select
             value={state.source}
+            disabled={locked}
             onChange={(event) =>
-              session.update({ source: event.target.value as State['source'] })
+              changeList({ source: event.target.value as State['source'] })
             }
           >
             <option value="">All sources</option>
             <option value="user">My skills</option>
             <option value="bundled">Built in</option>
+            <option value="public">Public</option>
           </Select>
         </Field>
         <Field label="Filter">
           <Select
             value={state.filter}
+            disabled={locked}
             onChange={(event) =>
-              session.update({ filter: event.target.value as State['filter'] })
+              changeList({ filter: event.target.value as State['filter'] })
             }
           >
-            <option value="">All</option>
+            <option value="all">All</option>
             <option value="pinned">Pinned</option>
             <option value="available">Available</option>
+            <option value="custom">Custom</option>
+            <option value="public">Public</option>
           </Select>
         </Field>
         <Field label="Sort">
           <Select
             value={state.sort}
+            disabled={locked}
             onChange={(event) =>
-              session.update({ sort: event.target.value as State['sort'] })
+              changeList({ sort: event.target.value as State['sort'] })
             }
           >
             <option value="name">Name</option>
+            <option value="recent">Recently used</option>
+            <option value="tokens">Token cost</option>
             <option value="source">Source</option>
-            <option value="availability">Availability</option>
-            <option value="pinned">Pinned first</option>
           </Select>
         </Field>
         <Button type="submit" disabled={locked}>
@@ -627,12 +643,7 @@ export default function SkillsSettings({
         <Button disabled={locked} onClick={() => void load()}>
           Reload skills
         </Button>
-        <a
-          className="button"
-          href="https://skills.sh/"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a className="button" href="#public-skill-hub">
           Browse skills
         </a>
         <Button
@@ -647,6 +658,24 @@ export default function SkillsSettings({
           Create skill
         </Button>
       </form>
+      {hub && (
+        <PublicSkillHub
+          io={hub}
+          ownerKey={ownerKey}
+          onInstalled={() => {
+            void load();
+            setHubReload((value) => value + 1);
+          }}
+        />
+      )}
+      {hubMaintenance && (
+        <PublicSkillMaintenance
+          io={hubMaintenance}
+          ownerKey={ownerKey}
+          reload={hubReload}
+          onChanged={() => void load()}
+        />
+      )}
       {state.busy === 'load' && <Skeleton label="Loading saved skills" />}
       {state.message && <p role="status">{state.message}</p>}
       {state.pending && (
@@ -689,13 +718,11 @@ export default function SkillsSettings({
                   role="group"
                   aria-label={`${skill.display_name} preferences`}
                 >
-                  <CompactAction
-                    label={
-                      skill.available ? 'Make unavailable' : 'Make available'
-                    }
+                  <Toggle
+                    label={`${skill.display_name} available`}
+                    checked={skill.available}
                     disabled={locked || skill.tool_guide}
-                    aria-pressed={skill.available}
-                    onClick={() =>
+                    onChange={() =>
                       void requestReview('skill.preference', {
                         revision,
                         name: skill.id,
@@ -703,13 +730,7 @@ export default function SkillsSettings({
                         value: !skill.available,
                       })
                     }
-                  >
-                    {skill.available ? (
-                      <ToggleRight size={18} aria-hidden />
-                    ) : (
-                      <ToggleLeft size={18} aria-hidden />
-                    )}
-                  </CompactAction>
+                  />
                   <CompactAction
                     label={skill.pinned ? 'Unpin default' : 'Pin for new work'}
                     disabled={locked || skill.tool_guide}
@@ -774,14 +795,14 @@ export default function SkillsSettings({
         <summary>
           <span>
             <strong>Import a skill</strong>
-            <small>Review SKILL.md text before saving it locally</small>
+            <small>Inspect SKILL.md text before saving it locally</small>
           </span>
         </summary>
         <Surface>
           <p>
             Browse public skills, inspect their source, then paste trusted
-            SKILL.md text here. Row-Bot validates and reviews the exact content
-            before saving it locally.
+            SKILL.md text here. Row-Bot validates the exact content before
+            saving it locally.
           </p>
           <Field label="Import SKILL.md text">
             <textarea
@@ -806,7 +827,7 @@ export default function SkillsSettings({
               })
             }
           >
-            Review import
+            Import skill
           </Button>
         </Surface>
       </details>
@@ -847,7 +868,7 @@ export default function SkillsSettings({
                 })
               }
             >
-              Review duplicate
+              Duplicate skill
             </Button>
             <Button
               variant="danger"
@@ -860,7 +881,7 @@ export default function SkillsSettings({
                 })
               }
             >
-              Review delete
+              Delete skill
             </Button>
           </div>
         </Surface>
@@ -960,7 +981,7 @@ export default function SkillsSettings({
                 )
               }
             >
-              Review {state.editor.mode}
+              {state.editor.mode === 'create' ? 'Save new skill' : 'Save skill'}
             </Button>
             <Button
               disabled={locked}
@@ -1011,7 +1032,7 @@ export default function SkillsSettings({
                           })
                         }
                       >
-                        Review apply
+                        Apply proposal
                       </Button>
                       <Button
                         variant="danger"
@@ -1030,7 +1051,7 @@ export default function SkillsSettings({
                           })
                         }
                       >
-                        Review reject
+                        Reject proposal
                       </Button>
                     </div>
                   </details>
@@ -1040,39 +1061,41 @@ export default function SkillsSettings({
           </Surface>
         </details>
       )}
-      {state.reviewed && (
-        <Surface elevated>
-          <h2>Review skill change</h2>
-          <p>
-            Action: {state.reviewed.command.type}. Target:{' '}
-            {state.reviewed.review.target}.
-          </p>
-          <p>
-            The exact saved version shown here will be checked again before the
-            effect starts.
-          </p>
-          <div className="button-row">
-            <Button
-              variant={
-                state.reviewed.command.type.includes('delete') ||
-                state.reviewed.command.type.includes('reject')
-                  ? 'danger'
-                  : 'primary'
-              }
-              disabled={locked}
-              onClick={() => void apply(state.reviewed)}
-            >
-              Apply reviewed change
-            </Button>
-            <Button
-              disabled={locked}
-              onClick={() => session.update({ reviewed: null, message: '' })}
-            >
-              Cancel review
-            </Button>
-          </div>
-        </Surface>
-      )}
+      {state.reviewed &&
+        (state.reviewed.command.type === 'skill.delete' ||
+          state.reviewed.command.type === 'skill.proposal.reject') && (
+          <Surface elevated>
+            <h2>Confirm skill removal</h2>
+            <p>
+              Action: {state.reviewed.command.type}. Target:{' '}
+              {state.reviewed.review.target}.
+            </p>
+            <p>
+              The exact saved version shown here will be checked again before
+              the effect starts.
+            </p>
+            <div className="button-row">
+              <Button
+                variant={
+                  state.reviewed.command.type.includes('delete') ||
+                  state.reviewed.command.type.includes('reject')
+                    ? 'danger'
+                    : 'primary'
+                }
+                disabled={locked}
+                onClick={() => void apply(state.reviewed)}
+              >
+                Confirm removal
+              </Button>
+              <Button
+                disabled={locked}
+                onClick={() => session.update({ reviewed: null, message: '' })}
+              >
+                Keep skill or proposal
+              </Button>
+            </div>
+          </Surface>
+        )}
     </section>
   );
 }

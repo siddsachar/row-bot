@@ -249,6 +249,10 @@ export function createKnowledgeEditorSession(
         accept(command, result);
         return result;
       }),
+    async save(action: KnowledgeAction) {
+      await this.review(action);
+      return this.confirm();
+    },
     refresh: () =>
       run(async () => {
         if (!attempt) throw new Error('knowledge_operation_unavailable');
@@ -364,13 +368,13 @@ export default function KnowledgeEditor({
               disabled={locked || !state.draft.subject.trim()}
               onClick={() =>
                 perform(() =>
-                  session.review(
+                  session.save(
                     session.getTarget() ? 'knowledge.edit' : 'knowledge.create',
                   ),
                 )
               }
             >
-              Review save
+              Save knowledge
             </Button>
             {state.saved.entity && (
               <>
@@ -378,7 +382,7 @@ export default function KnowledgeEditor({
                   disabled={locked || state.dirty}
                   onClick={() =>
                     perform(() =>
-                      session.review(
+                      session.save(
                         state.saved!.entity!.status === 'archived'
                           ? 'knowledge.restore'
                           : 'knowledge.archive',
@@ -394,7 +398,7 @@ export default function KnowledgeEditor({
                   <Button
                     disabled={locked || state.dirty}
                     onClick={() =>
-                      perform(() => session.review('knowledge.resolve'))
+                      perform(() => session.save('knowledge.resolve'))
                     }
                   >
                     Resolve review
@@ -412,29 +416,6 @@ export default function KnowledgeEditor({
             </Button>
           </div>
         </>
-      )}
-      {state.review && (
-        <div
-          className="surface stack"
-          role="group"
-          aria-label="Review knowledge change"
-        >
-          <p>
-            {state.review.reuse_entity_id
-              ? 'The canonical User already exists. Reuse it without changing its content; edit it afterward to make changes.'
-              : `Confirm ${state.review.action.replace('knowledge.', '')} for this knowledge entry.`}
-          </p>
-          <Button
-            disabled={locked}
-            variant="primary"
-            onClick={() => perform(session.confirm)}
-          >
-            Confirm knowledge change
-          </Button>
-          <Button disabled={locked} onClick={session.dismissReview}>
-            Cancel review
-          </Button>
-        </div>
       )}
       {state.receipt?.status === 'completed' && (
         <p role="status">
