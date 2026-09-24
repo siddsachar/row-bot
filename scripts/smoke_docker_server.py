@@ -554,11 +554,22 @@ else:
             origin,
             "/",
             stage="authenticated owner UI check",
+            headers={"Accept": "text/html"},
             retry_transient=True,
         )
-        if root.status != 200:
-            raise SmokeError("Authenticated owner UI did not return HTTP 200")
-        assert_secrets_absent(root.text, self._secrets)
+        if root.status != 307 or root.header("Location") != "/app-v2/":
+            raise SmokeError("Authenticated root did not redirect to the React client")
+        client = self._send_http(
+            "GET",
+            origin,
+            "/app-v2/",
+            stage="authenticated React client check",
+            headers={"Accept": "text/html"},
+            retry_transient=True,
+        )
+        if client.status != 200:
+            raise SmokeError("Authenticated React client did not return HTTP 200")
+        assert_secrets_absent(client.text, self._secrets)
 
     def _stop_start(self, origin: str, session_id: str) -> str:
         self.runner.run(

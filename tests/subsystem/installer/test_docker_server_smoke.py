@@ -132,6 +132,35 @@ def test_unauthenticated_root_connects_to_react_client(
             smoke.assert_unauthenticated_root_connection_flow(response)
 
 
+def test_authenticated_owner_opens_react_client_after_root_redirect() -> None:
+    origin = "http://127.0.0.1:49152"
+    http = SequenceHttp(
+        [
+            smoke.HttpResult(
+                200,
+                (),
+                json.dumps({"authenticated": True, "session_id": "owner-session"}).encode(),
+            ),
+            smoke.HttpResult(307, (("Location", "/app-v2/"),), b""),
+            smoke.HttpResult(200, (("Content-Type", "text/html"),), b"<html></html>"),
+        ]
+    )
+    subject = smoke.DockerServerSmoke(
+        image="row-bot:test",
+        runner=FakeResourceRunner(),
+        http=http,
+        suffix="deadbeef",
+    )
+
+    subject._assert_session(origin, "owner-session")
+
+    assert [url for _method, url, _timeout in http.calls] == [
+        f"{origin}/api/access/session",
+        f"{origin}/",
+        f"{origin}/app-v2/",
+    ]
+
+
 def test_container_command_matches_compose_security_and_never_builds_or_pulls() -> None:
     command = smoke.container_run_args(
         image="row-bot:test",
