@@ -232,6 +232,7 @@ def test_generation_parameters_reach_catalog_rows_and_media_quick_choices(tmp_pa
         display_name="Future Renderer",
     )
     cache_entry = model_info_to_cache_entry(info)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(api_keys, "get_key", lambda key: "test" if key == "XAI_API_KEY" else "")
@@ -258,6 +259,7 @@ def test_grouped_quick_choices_seed_current_media_tool_defaults(tmp_path, monkey
     from row_bot.providers.selection import grouped_quick_choices
     from row_bot.tools import registry
 
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(api_keys, "get_key", lambda key: "test")
