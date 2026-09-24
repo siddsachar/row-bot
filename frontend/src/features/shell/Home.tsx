@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Activity, Brain, GitBranch, Lightbulb, X } from 'lucide-react';
+import {
+  Activity,
+  Brain,
+  GitBranch,
+  Lightbulb,
+  MessageSquare,
+  X,
+} from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type {
   KnowledgeGraphSnapshot,
@@ -16,7 +23,7 @@ import KnowledgeHome, { type KnowledgeDreamState } from '../home/KnowledgeHome';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
-import { EXAMPLE_PROMPTS } from './welcome-prompts';
+import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
 
 const homeTabs = ['workflows', 'knowledge', 'monitor', 'insights'];
 
@@ -242,60 +249,108 @@ export default function Home({
             : 'Connect to open your workflows.'}
         </p>
       )}
+      {identity && onExamplePrompt && (
+        <section className="home-start" aria-label="Start working">
+          <div>
+            <span className="eyebrow">Your workspace</span>
+            <h2>What would you like to work on?</h2>
+            <p>
+              Start with a message. You can add a code folder or design when you
+              need one.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            disabled={exampleBusy}
+            onClick={() => onExamplePrompt('')}
+          >
+            Start a chat
+          </Button>
+        </section>
+      )}
+      {identity && state.conversations.length > 0 && (
+        <section className="home-recent" aria-label="Recent conversations">
+          <h2>Pick up where you left off</h2>
+          <div className="home-recent-list">
+            {state.conversations.slice(0, 3).map((conversation) => (
+              <Button
+                key={conversation.id}
+                variant="ghost"
+                onClick={() => {
+                  void controller.selectConversation(conversation.id);
+                  navigate(`/conversations/${conversation.id}`);
+                }}
+              >
+                <MessageSquare size={16} aria-hidden />
+                <span>{conversation.title || 'Untitled conversation'}</span>
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
       {setup &&
         (!setup.setup_complete ||
           (!setup.dismissed_home_card &&
             new Set([...setup.completed_steps, ...setup.skipped_steps]).size <
-              setup.steps.length)) && (
+              setup.steps.length)) &&
+        (setup.setup_complete ? (
+          <section className="home-setup-reminder" aria-label="Continue setup">
+            <strong>Setup</strong>
+            <span>
+              {new Set([...setup.completed_steps, ...setup.skipped_steps]).size}{' '}
+              of {setup.steps.length} areas complete
+            </span>
+            <Link className="button primary" to="/setup">
+              Continue setup
+            </Link>
+            <CompactAction
+              label="Hide setup reminder"
+              onClick={() => void dismissSetupReminder()}
+            >
+              <X size={17} aria-hidden />
+            </CompactAction>
+            {setupDismissError && <p role="status">{setupDismissError}</p>}
+          </section>
+        ) : (
           <section
             className="capability-section stack"
             aria-label="Continue setup"
           >
-            <div className="section-heading">
-              <h2>
-                {setup.setup_complete ? 'Continue setup' : 'Welcome to Row-Bot'}
-              </h2>
-              {setup.setup_complete && (
-                <CompactAction
-                  label="Hide setup reminder"
-                  onClick={() => void dismissSetupReminder()}
-                >
-                  <X size={17} aria-hidden />
-                </CompactAction>
-              )}
-            </div>
-            <p>
-              {setup.setup_complete
-                ? `${new Set([...setup.completed_steps, ...setup.skipped_steps]).size} of ${setup.steps.length} setup areas handled. Continue whenever you like.`
-                : 'Connect one working model first. Your other choices can wait.'}
-            </p>
+            <h2>Welcome to Row-Bot</h2>
+            <p>Connect one working model first. Your other choices can wait.</p>
             <Link className="button primary" to="/setup">
               Open Setup Center
             </Link>
-            {setupDismissError && <p role="status">{setupDismissError}</p>}
           </section>
-        )}
+        ))}
       {identity && setup?.setup_complete && onExamplePrompt && (
-        <section
-          className="capability-section stack"
-          aria-label="Start with an example"
-        >
-          <h2>What would you like to work on?</h2>
-          <p>
-            Choose an example to start a conversation, or open a new chat and
-            write your own.
-          </p>
+        <section className="home-examples" aria-label="Start with an example">
+          <h2>Try an example</h2>
           <div className="actions">
-            {EXAMPLE_PROMPTS.map((prompt) => (
+            {EXAMPLE_PROMPTS.slice(0, 3).map((prompt, index) => (
               <Button
                 key={prompt}
                 disabled={exampleBusy}
                 onClick={() => onExamplePrompt(prompt)}
               >
-                {prompt}
+                {EXAMPLE_LABELS[index]}
               </Button>
             ))}
           </div>
+          <details>
+            <summary>More ideas</summary>
+            <div className="actions">
+              {EXAMPLE_PROMPTS.slice(3).map((prompt, index) => (
+                <Button
+                  key={prompt}
+                  disabled={exampleBusy}
+                  onClick={() => onExamplePrompt(prompt)}
+                >
+                  {EXAMPLE_LABELS[index + 3]}
+                </Button>
+              ))}
+            </div>
+          </details>
         </section>
       )}
       <Tabs

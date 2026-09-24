@@ -12,6 +12,7 @@ import {
   stableConversationMarker,
   type FixtureWindow,
 } from './fixture';
+import { TOKENS } from '../../src/ui/theme-model';
 
 test('system preference is applied before the first frame and updates without remounting', async ({
   page,
@@ -63,7 +64,7 @@ test('system preference is applied before the first frame and updates without re
   expect(frames.length).toBeGreaterThan(0);
   expect(
     frames.every(
-      (frame) => frame.theme === 'dark' && frame.canvas === '#121212',
+      (frame) => frame.theme === 'dark' && frame.canvas === TOKENS.dark.canvas,
     ),
   ).toBe(true);
   await writeEvidence(testInfo, 'before-paint-dark-frame-audit', frames);
@@ -85,10 +86,8 @@ test('all alternative accents retain readable integrated controls in both appear
     'Alternative accent matrix is desktop and phone in both appearances.',
   );
   await openFixture(page);
-  await stableConversationMarker(page);
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
+  await page.goto('/app-v2/settings/preferences?fixture=normal');
+  await page.getByText('Local client controls', { exact: true }).click();
   for (const appearance of ['light', 'dark']) {
     for (const accent of ['teal', 'violet', 'amber']) {
       await page
@@ -102,7 +101,6 @@ test('all alternative accents retain readable integrated controls in both appear
         appearance,
       );
       await expect(page.locator('html')).toHaveAttribute('data-accent', accent);
-      await assertConversationMarker(page);
       await assertNoOverflow(page);
       await accessibility(page, testInfo, `${appearance}-${accent}-axe`);
       await screenshot(page, testInfo, `preferences-${appearance}-${accent}`);
@@ -134,12 +132,14 @@ test('unavailable or corrupt local storage leaves a usable shell', async ({
   }, size);
   await openFixture(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await page.goto('/app-v2/settings/preferences?fixture=normal');
+  await page.getByText('Local client controls', { exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Appearance', exact: true })
     .selectOption('dark');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.keyboard.press('Escape');
+  await page.goto('/app-v2/conversations/conversation-a?fixture=normal');
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await assertNoOverflow(page);
   expect(
     await page.evaluate(
@@ -182,7 +182,6 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     'Workspace commands',
     'Toggle navigation',
     'Open panel',
-    'Preferences',
   ]) {
     headerControls.push(
       await page
@@ -225,8 +224,11 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     );
     expect(control.hit, `${control.name} visible hit target`).toBe(true);
   }
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.goto('/app-v2/settings/preferences?fixture=normal');
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '2';
+  });
+  await page.getByText('Local client controls', { exact: true }).click();
   const appearance = page.getByRole('combobox', {
     name: 'Appearance',
     exact: true,
@@ -237,17 +239,10 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await appearance.selectOption('dark');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  const modalControls = [];
-  for (const [name, control] of [
-    ['Appearance', appearance],
-    [
-      'Close dialog',
-      page.getByRole('button', { name: 'Close dialog', exact: true }),
-    ],
-    ['Close', page.getByRole('button', { name: 'Close', exact: true })],
-  ] as const) {
+  const settingsControls = [];
+  for (const [name, control] of [['Appearance', appearance]] as const) {
     await control.scrollIntoViewIfNeeded();
-    modalControls.push(
+    settingsControls.push(
       await control.evaluate((element, label) => {
         const bounds = element.getBoundingClientRect();
         return {
@@ -272,8 +267,8 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
   }
   await writeEvidence(
     testInfo,
-    '200percent-settled-modal-geometry',
-    modalControls,
+    '200percent-settled-settings-geometry',
+    settingsControls,
   );
   await writeEvidence(
     testInfo,
@@ -291,9 +286,10 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
         dark: matchMedia('(prefers-color-scheme: dark)').matches,
         opaque: document.documentElement.dataset.opaque,
         zoom: getComputedStyle(document.documentElement).zoom,
-        background: getComputedStyle(document.querySelector('[role="dialog"]')!)
-          .backgroundColor,
-        text: getComputedStyle(document.querySelector('[role="dialog"]')!)
+        background: getComputedStyle(
+          document.querySelector('.settings-preferences')!,
+        ).backgroundColor,
+        text: getComputedStyle(document.querySelector('.settings-preferences')!)
           .color,
       },
       limitation:
@@ -304,9 +300,9 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
   await screenshot(
     page,
     testInfo,
-    'forced-colours-dark-opaque-reduced-motion-200percent',
+    'forced-colours-dark-opaque-reduced-motion-200percent-settings',
   );
-  for (const control of modalControls) {
+  for (const control of settingsControls) {
     expect(control.x, `${control.name} left bound`).toBeGreaterThanOrEqual(0);
     expect(control.y, `${control.name} top bound`).toBeGreaterThanOrEqual(0);
     expect(control.right, `${control.name} right bound`).toBeLessThanOrEqual(
@@ -318,6 +314,4 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     expect(control.hit, `${control.name} visible hit target`).toBe(true);
   }
   await assertNoOverflow(page);
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
 });

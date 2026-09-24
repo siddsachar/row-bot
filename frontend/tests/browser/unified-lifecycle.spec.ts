@@ -614,17 +614,17 @@ test('current approval is reviewed once and resumes its original conversation', 
   const before = await fixtureState(page);
   await composer(page).fill('approval fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Review approval', exact: true })
-    .click();
+  const approval = page.getByRole('complementary', {
+    name: 'Approval required for fixture_action',
+    exact: true,
+  });
+  await expect(approval.getByRole('button', { name: 'Reject' })).toBeEnabled();
+  await approval.getByRole('button', { name: 'Details' }).click();
   const dialog = page.getByRole('dialog', {
-    name: 'Approval required',
+    name: 'Approval details · fixture_action',
     exact: true,
   });
   await expect(dialog).toBeVisible();
-  await expect(
-    dialog.getByRole('button', { name: 'Reject action', exact: true }),
-  ).toBeEnabled();
   const focusContained: boolean[] = [];
   for (const key of [
     ...Array<string>(12).fill('Tab'),
@@ -646,10 +646,9 @@ test('current approval is reviewed once and resumes its original conversation', 
   });
   await screenshot(page, testInfo, 'approval-consequences');
   await accessibility(page, testInfo, 'approval-dialog-axe');
-  await dialog
-    .getByRole('button', { name: 'Approve action', exact: true })
-    .click();
+  await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  await approval.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(
     page.getByText('Synthetic approval resumed.', { exact: true }),
   ).toHaveCount(1);

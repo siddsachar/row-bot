@@ -485,16 +485,19 @@ it('keeps resources, agents, and utilities in the persistent context rail', asyn
   expect(
     within(rail).getByRole('heading', { name: 'Working on' }),
   ).toBeVisible();
-  expect(within(rail).getByRole('heading', { name: 'Agents' })).toBeVisible();
   expect(
-    within(rail).getByRole('heading', { name: 'Utilities' }),
+    within(rail).getByText('Agents', { selector: 'summary' }),
   ).toBeVisible();
+  expect(
+    within(rail).getByText('Utilities', { selector: 'summary' }),
+  ).toBeVisible();
+  fireEvent.click(within(rail).getByText('Agents', { selector: 'summary' }));
   expect(
     within(rail).getByRole('button', { name: 'Add resource' }),
   ).toBeVisible();
   expect(
-    within(rail).getByRole('button', { name: 'Interactive terminal' }),
-  ).toBeDisabled();
+    within(rail).queryByRole('button', { name: 'Interactive terminal' }),
+  ).not.toBeInTheDocument();
   expect(
     within(document.querySelector('.conversation-heading')!).queryByRole(
       'button',
@@ -524,6 +527,7 @@ it('enables terminal only for an authorized pywebview platform', async () => {
   });
   await act(async () => conversation());
 
+  fireEvent.click(screen.getByText('Utilities', { selector: 'summary' }));
   await waitFor(() =>
     expect(
       screen.getByRole('button', { name: 'Interactive terminal' }),
@@ -538,19 +542,28 @@ it('keeps terminal denied when only the application capability is present', asyn
 
   await waitFor(() => expect(mock.platformDiscover).toHaveBeenCalled());
   expect(
-    screen.getByRole('button', { name: 'Interactive terminal' }),
-  ).toBeDisabled();
+    screen.queryByRole('button', { name: 'Interactive terminal' }),
+  ).not.toBeInTheDocument();
 });
 
 it('uses one persistent Context entry point for the compact sheet', async () => {
   idleConversation();
-  await act(async () =>
-    render(<ConversationView onPanel={vi.fn()} compactContext />),
-  );
+  let rendered!: ReturnType<typeof render>;
+  await act(async () => {
+    rendered = render(<ConversationView onPanel={vi.fn()} compactContext />);
+  });
 
   expect(
     screen.queryByRole('complementary', { name: 'Conversation context' }),
   ).not.toBeInTheDocument();
+  mock.state.loadingConversation = true;
+  rendered.rerender(<ConversationView onPanel={vi.fn()} compactContext />);
+  expect(screen.getByRole('button', { name: 'Context' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Context' }));
+  expect(mock.open).not.toHaveBeenCalled();
+  mock.state.loadingConversation = false;
+  rendered.rerender(<ConversationView onPanel={vi.fn()} compactContext />);
+  expect(screen.getByRole('button', { name: 'Context' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Context' }));
   expect(mock.open.mock.lastCall?.[0]).toMatchObject({
     kind: 'sheet',
@@ -748,7 +761,7 @@ it('shows welcome examples without a request and sends one with a single click w
   await act(async () => {
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Create a disabled workflow for a weekly research briefing',
+        name: 'Plan a weekly brief',
       }),
     );
   });

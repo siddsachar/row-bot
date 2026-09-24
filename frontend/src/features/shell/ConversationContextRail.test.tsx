@@ -6,6 +6,7 @@ import {
   within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import type { ResourceView } from '../../api/types';
 import ConversationContextRail from './ConversationContextRail';
 
@@ -112,8 +113,14 @@ it('projects bounded Developer and Designer summaries from canonical owners', as
     name: 'Conversation context',
   });
   expect(
-    within(rail).getByRole('button', { name: 'Interactive terminal' }),
-  ).toBeDisabled();
+    within(rail).queryByRole('button', { name: 'Interactive terminal' }),
+  ).toBeNull();
+  await userEvent
+    .setup()
+    .click(within(rail).getByRole('button', { name: 'Conversation actions' }));
+  expect(
+    await screen.findByRole('menuitem', { name: 'Manage browser' }),
+  ).toBeVisible();
 });
 
 it('keeps unavailable resources visible without querying their owners', async () => {

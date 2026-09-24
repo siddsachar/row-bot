@@ -472,9 +472,15 @@ export async function addReviewResourcePair(
   deck: string,
 ): Promise<void> {
   for (const kind of ['artifact', 'workspace']) {
-    await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    const add = page.getByRole('button', { name: 'Add resource', exact: true });
+    if (!(await add.isVisible())) {
+      const context = page.getByRole('button', {
+        name: 'Context',
+        exact: true,
+      });
+      if (await context.isVisible()) await context.click();
+    }
+    await add.click();
     const setup = page.getByRole('dialog', {
       name: 'Add resource',
       exact: true,
@@ -528,11 +534,12 @@ export async function captureActualResourcePanels(
     name: 'Context',
     exact: true,
   });
-  if (await contextToggle.isVisible()) await contextToggle.click();
-  await page
-    .getByRole('complementary', { name: 'Conversation context' })
-    .getByRole('button', { name: `${deck} Design` })
-    .click();
+  const context = page.getByRole('complementary', {
+    name: 'Conversation context',
+  });
+  if (!(await context.isVisible()) && (await contextToggle.isVisible()))
+    await contextToggle.click();
+  await context.getByRole('button', { name: `${deck} Design` }).click();
   const preview = page.getByRole('region', {
     name: 'Design preview',
     exact: true,

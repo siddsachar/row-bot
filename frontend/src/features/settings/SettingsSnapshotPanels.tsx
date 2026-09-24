@@ -38,10 +38,12 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentType,
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
 import { ModalTask } from '../../ui/overlays';
@@ -1583,8 +1585,31 @@ export function SystemSnapshotPanel({
   pickFolder?: SettingsFolderPicker;
   writeClipboard?: ClientPlatform['writeClipboard'];
 }) {
+  const appAvailability = useSyncExternalStore(
+    appPwaClient.subscribe,
+    appPwaClient.getSnapshot,
+  );
   return (
     <div className="stack settings-snapshot-page settings-system-page">
+      <Section
+        title="App availability"
+        description="Install and offline support for this browser."
+        icon={AppWindow}
+      >
+        <p role="status">
+          {appAvailability.phase === 'offline'
+            ? 'Offline. Unsent drafts remain on this device.'
+            : appAvailability.phase === 'error'
+              ? 'Install and offline support are unavailable. Check browser storage and service worker permissions.'
+              : appAvailability.phase === 'unsupported'
+                ? 'This browser does not support install and offline mode.'
+                : appAvailability.updateAvailable
+                  ? 'An update is ready to apply from the app notice.'
+                  : appAvailability.phase === 'ready'
+                    ? 'Install and offline support are ready.'
+                    : 'Checking install and offline support.'}
+        </p>
+      </Section>
       <Section
         title="Workspace Folder"
         description="The filesystem tool is sandboxed to this folder."

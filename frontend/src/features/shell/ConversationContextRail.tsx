@@ -11,7 +11,6 @@ import {
   Code2,
   FileImage,
   FolderPlus,
-  Globe,
   MoreHorizontal,
   Palette,
   Search,
@@ -33,6 +32,7 @@ type Props = {
   ready: boolean;
   connectionStatus: ClientStatus;
   terminalAvailable: boolean;
+  compactHeading?: boolean;
   agents: ReactNode;
   outputs?: { id: string; reference: string; mime: string }[];
   completedDesignId?: string;
@@ -63,6 +63,7 @@ export default function ConversationContextRail({
   ready,
   connectionStatus,
   terminalAvailable,
+  compactHeading = false,
   agents,
   outputs = [],
   completedDesignId,
@@ -250,26 +251,42 @@ export default function ConversationContextRail({
     >
       <header className="context-rail-heading">
         <div>
-          <span className="eyebrow">Conversation</span>
-          <h2>Context</h2>
-          <small role="status" className="muted">
-            {ready
-              ? 'Connected'
-              : connectionStatus === 'loading'
+          <h2 className={compactHeading ? 'visually-hidden' : undefined}>
+            Context
+          </h2>
+          {!ready && (
+            <small role="status" className="muted">
+              {connectionStatus === 'loading' || connectionStatus === 'ready'
                 ? 'Loading context'
                 : `Context ${connectionStatus}`}
-          </small>
+            </small>
+          )}
         </div>
-        <Button
-          iconOnly
-          variant="ghost"
-          aria-label="Add resource"
-          title="Add resource"
-          disabled={!ready}
-          onClick={onAddResource}
-        >
-          <FolderPlus size={18} aria-hidden />
-        </Button>
+        <div className="context-rail-actions">
+          <Menu
+            label="Conversation actions"
+            iconOnly
+            variant="ghost"
+            hint="Manage or delete this conversation"
+            actions={[
+              { label: 'Manage conversation', onSelect: onManageConversation },
+              { label: 'Manage browser', onSelect: onManageBrowser },
+              { label: 'Delete conversation', onSelect: onDeleteConversation },
+            ]}
+          >
+            <MoreHorizontal size={18} aria-hidden />
+          </Menu>
+          <Button
+            iconOnly
+            variant="ghost"
+            aria-label="Add resource"
+            title="Add resource"
+            disabled={!ready}
+            onClick={onAddResource}
+          >
+            <FolderPlus size={18} aria-hidden />
+          </Button>
+        </div>
       </header>
 
       {(writerQueued || writerStatus === 'queued') && (
@@ -447,56 +464,28 @@ export default function ConversationContextRail({
         </section>
       )}
 
-      <section
-        className="context-rail-section context-agents"
-        aria-labelledby="context-agents"
-      >
-        <h3 id="context-agents">Agents</h3>
+      <details className="context-rail-section context-agents">
+        <summary>Agents</summary>
         {agents}
-      </section>
+      </details>
 
-      <section
-        className="context-rail-section"
-        aria-labelledby="context-utilities"
-      >
-        <h3 id="context-utilities">Utilities</h3>
+      <details className="context-rail-section context-utilities">
+        <summary>Utilities</summary>
         <div className="context-utility-list">
           <Button variant="ghost" onClick={onFind} title="Find in conversation">
             <Search size={16} aria-hidden /> Find in conversation
           </Button>
-          <Button
-            variant="ghost"
-            onClick={onManageBrowser}
-            title="Managed browser"
-          >
-            <Globe size={16} aria-hidden /> Managed browser
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!terminalAvailable}
-            title={
-              terminalAvailable
-                ? 'Open the trusted desktop terminal.'
-                : 'The interactive terminal requires the trusted desktop window.'
-            }
-            onClick={onOpenTerminal}
-          >
-            <Terminal size={16} aria-hidden /> Interactive terminal
-          </Button>
-          {!terminalAvailable && (
-            <small className="muted">
-              Terminal unavailable in this browser.
-            </small>
+          {terminalAvailable && (
+            <Button
+              variant="ghost"
+              title="Open the trusted desktop terminal."
+              onClick={onOpenTerminal}
+            >
+              <Terminal size={16} aria-hidden /> Interactive terminal
+            </Button>
           )}
-          <Menu
-            label="Conversation actions"
-            actions={[
-              { label: 'Manage conversation', onSelect: onManageConversation },
-              { label: 'Delete conversation', onSelect: onDeleteConversation },
-            ]}
-          />
         </div>
-      </section>
+      </details>
     </aside>
   );
 }

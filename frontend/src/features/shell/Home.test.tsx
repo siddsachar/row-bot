@@ -8,8 +8,10 @@ const mock = vi.hoisted(() => ({
   state: {
     status: 'ready',
     handshake: { instance_id: 'server-a', client_session_id: 'session-a' },
+    conversations: [] as { id: string; title: string }[],
   },
   controller: {
+    selectConversation: vi.fn(),
     onboardingCommand: vi.fn(),
     onboarding: vi.fn().mockResolvedValue({
       schema_version: 1,
@@ -117,6 +119,14 @@ beforeEach(() => {
     instance_id: 'server-a',
     client_session_id: 'session-a',
   };
+  mock.state.conversations = [];
+});
+
+it('offers recent work and opens the selected conversation', () => {
+  mock.state.conversations = [{ id: 'chat-a', title: 'Design review' }];
+  show();
+  fireEvent.click(screen.getByRole('button', { name: 'Design review' }));
+  expect(mock.controller.selectConversation).toHaveBeenCalledWith('chat-a');
 });
 
 it('shows first-run examples passively and delegates one click to the shared chat creator', async () => {
@@ -127,7 +137,7 @@ it('shows first-run examples passively and delegates one click to the shared cha
     </MemoryRouter>,
   );
   const example = await screen.findByRole('button', {
-    name: 'Draft a landing page in Designer Studio for a new product',
+    name: 'Design a landing page',
   });
   expect(onExamplePrompt).not.toHaveBeenCalled();
   fireEvent.click(example);

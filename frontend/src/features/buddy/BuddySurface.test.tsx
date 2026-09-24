@@ -145,7 +145,8 @@ describe('Buddy avatar lifecycle', () => {
       />,
     );
     expect(signals[0].aborted).toBe(true);
-    expect(revoke).toHaveBeenCalledTimes(2);
+    expect(revoke).not.toHaveBeenCalled();
+    await waitFor(() => expect(revoke).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(loadMedia).toHaveBeenCalledWith(
         'conversation-two',
@@ -228,7 +229,7 @@ describe('Buddy avatar lifecycle', () => {
         view.container.querySelector('.buddy-avatar-frame'),
       ).toHaveAttribute('data-reduced-motion', 'true');
     });
-    expect(revoke).toHaveBeenCalled();
+    await waitFor(() => expect(revoke).toHaveBeenCalled());
     expect(
       loadMedia.mock.calls.filter((call) => call[2] === 'idle-loop'),
     ).toHaveLength(1);

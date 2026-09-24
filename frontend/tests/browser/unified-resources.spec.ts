@@ -148,6 +148,12 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
   ).toBeVisible();
   await screenshot(page, testInfo, 'code-detail-light-desktop');
   await page.setViewportSize({ width: 980, height: 800 });
+  const narrowBack = page.getByRole('button', {
+    name: 'Back to conversation',
+    exact: true,
+  });
+  await expect(narrowBack).toBeVisible();
+  await narrowBack.click();
   await expect(
     page.getByRole('button', { name: 'Context', exact: true }),
   ).toBeVisible();
@@ -213,7 +219,8 @@ test('generated output is retained explicitly and can be handed to Developer wit
   ).toBeVisible();
   expect(
     (await fixtureState(page)).calls.filter(
-      (item) => item.case === 'tools-media',
+      (item) =>
+        item.conversation_id === conversation && item.case === 'tools-media',
     ),
   ).toHaveLength(1);
   await reloadDocument(page);
