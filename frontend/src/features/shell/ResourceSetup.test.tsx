@@ -133,6 +133,9 @@ it('never restores an opaque folder grant after reopening with a new handshake',
     });
   });
   await act(async () => {
+    fireEvent.change(screen.getByLabelText('Folder setup'), {
+      target: { value: 'existing_folder' },
+    });
     fireEvent.click(
       screen.getByRole('button', { name: 'Choose existing folder' }),
     );
@@ -496,10 +499,29 @@ it('repairs a missing resource origin from one click through the durable setup c
 it('opens the folder starter without creating anything or launching a picker automatically', async () => {
   await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
   expect(
-    screen.getByRole('button', { name: 'Register folder' }),
-  ).toBeDisabled();
+    screen.getByRole('button', { name: 'Create draft code folder' }),
+  ).toBeEnabled();
   expect(mock.platform.selectFolder).not.toHaveBeenCalled();
   expect(mock.controller.intent).not.toHaveBeenCalled();
+});
+
+it('creates a configured draft through one receipt-backed setup command', async () => {
+  await act(async () =>
+    view('conversation-a', { kind: 'workspace', mode: 'create' }),
+  );
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create draft code folder' }),
+    ),
+  );
+  expect(mock.platform.selectFolder).not.toHaveBeenCalled();
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'resource.setup',
+    { kind: 'workspace', intent: 'create', draft_workspace: true },
+    expect.any(String),
+    expect.any(String),
+  );
 });
 
 it('protects an unresolved setup receipt from a new Home starter', async () => {

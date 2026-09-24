@@ -23,6 +23,20 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "unified_conversation_creation_and_writer",
+        (
+            "src/row_bot/application/conversation_creation.py",
+            "src/row_bot/application/conversation_media_copy.py",
+            "src/row_bot/application/conversation_writer.py",
+            "src/row_bot/conversation_resources.py",
+        ),
+        (
+            "tests/subsystem/developer/test_conversation_creation.py",
+            "tests/subsystem/developer/test_conversation_resources.py",
+        ),
+        "Natural local resource setup and shared checkout writes retain binding and lease authority.",
+    ),
+    SourceTestRule(
         "react_mcp_directory",
         (
             "src/row_bot/application/client_mcp_directory.py",

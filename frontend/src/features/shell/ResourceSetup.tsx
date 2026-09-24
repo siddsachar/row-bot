@@ -518,7 +518,9 @@ export default function ResourceSetup({
                     },
                   }
                 : {
-                    folder_grant: folder?.grant,
+                    ...(workspaceMode === 'draft_folder'
+                      ? { draft_workspace: true }
+                      : { folder_grant: folder?.grant }),
                     ...(workspaceMode === 'empty_folder'
                       ? { empty_workspace: { folder_name: name.trim() } }
                       : workspaceMode === 'clone_repository'
@@ -911,7 +913,8 @@ export default function ResourceSetup({
                 </Select>
               </Field>
               {currentOptions ? (
-                <>
+                <details className="setup-options">
+                  <summary>Design options</summary>
                   <div className="setup-grid">
                     <Field label="Template">
                       <Select
@@ -940,11 +943,8 @@ export default function ResourceSetup({
                       </Select>
                     </Field>
                   </div>
-                  <p className="muted">
-                    {currentOptions.default_brand}. A blank design does not
-                    require a model or brief.
-                  </p>
-                </>
+                  <p className="muted">{currentOptions.default_brand}</p>
+                </details>
               ) : (
                 <Skeleton label={`Loading ${artifactLabel} defaults`} />
               )}
@@ -993,6 +993,9 @@ export default function ResourceSetup({
                     setFolder(null);
                   }}
                 >
+                  <option value="draft_folder">
+                    New draft in the configured workspace
+                  </option>
                   <option value="existing_folder">
                     Register an existing folder
                   </option>
@@ -1024,22 +1027,26 @@ export default function ResourceSetup({
                 </Field>
               )}
               <p>
-                {workspaceMode === 'empty_folder'
-                  ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
-                  : workspaceMode === 'clone_repository'
-                    ? 'Choose a parent folder on this computer. Cloning downloads the repository into a new named folder there. An interrupted clone is retained for inspection and is never run again automatically.'
-                    : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
+                {workspaceMode === 'draft_folder'
+                  ? 'Create an empty local folder under Drafts in the configured workspace. It stays on disk if this conversation is deleted.'
+                  : workspaceMode === 'empty_folder'
+                    ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
+                    : workspaceMode === 'clone_repository'
+                      ? 'Choose a parent folder on this computer. Cloning downloads the repository into a new named folder there. An interrupted clone is retained for inspection and is never run again automatically.'
+                      : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
               </p>
               <p className="muted">
                 Tools follow the conversation’s approval policy. The Inspector
                 is read-only.
               </p>
-              <Button disabled={busy} onClick={() => void pickFolder()}>
-                {workspaceMode === 'empty_folder' ||
-                workspaceMode === 'clone_repository'
-                  ? 'Choose parent folder'
-                  : 'Choose existing folder'}
-              </Button>
+              {workspaceMode !== 'draft_folder' && (
+                <Button disabled={busy} onClick={() => void pickFolder()}>
+                  {workspaceMode === 'empty_folder' ||
+                  workspaceMode === 'clone_repository'
+                    ? 'Choose parent folder'
+                    : 'Choose existing folder'}
+                </Button>
+              )}
               {folder && <p>Selected: {folder.name}</p>}
             </div>
           )}
@@ -1056,7 +1063,7 @@ export default function ResourceSetup({
                   ? !selected
                   : kind === 'artifact'
                     ? !currentOptions
-                    : !folder ||
+                    : (workspaceMode !== 'draft_folder' && !folder) ||
                       (workspaceMode === 'empty_folder' && !name.trim()) ||
                       (workspaceMode === 'clone_repository' && !repoUrl.trim()))
               }
@@ -1071,11 +1078,13 @@ export default function ResourceSetup({
                     : 'Open resource'
                   : kind === 'artifact'
                     ? `Create ${artifactLabel}`
-                    : workspaceMode === 'empty_folder'
-                      ? 'Create empty workspace'
-                      : workspaceMode === 'clone_repository'
-                        ? 'Clone repository'
-                        : 'Register folder'}
+                    : workspaceMode === 'draft_folder'
+                      ? 'Create draft code folder'
+                      : workspaceMode === 'empty_folder'
+                        ? 'Create empty workspace'
+                        : workspaceMode === 'clone_repository'
+                          ? 'Clone repository'
+                          : 'Register folder'}
             </Button>
           )}
           {!conversationId && kind === 'workspace' && mode === 'existing' && (

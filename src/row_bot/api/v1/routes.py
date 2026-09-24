@@ -103,6 +103,12 @@ _STATUS.update(
         "resource_ambiguous": 409,
         "resource_limit": 413,
         "resource_binding_revoked": 403,
+        "resource_setup_partial": 409,
+        "media_scope_conflict": 403,
+        "media_type_conflict": 422,
+        "media_destination_unavailable": 409,
+        "media_destination_conflict": 409,
+        "media_destination_is_code_folder": 409,
     }
 )
 _STATUS.update(

@@ -16,6 +16,8 @@ import {
   ChevronLeft,
   Columns3,
   MessageSquare,
+  Maximize2,
+  Minimize2,
   PanelLeft,
   Search,
   Settings,
@@ -60,7 +62,7 @@ import Home from './Home';
 import useNewChat from './useNewChat';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
-import ResourceSetup from './ResourceSetup';
+import { canAutoOpenDesign } from './design-auto-open';
 import ResourcePanel from '../panels/ResourcePanel';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
 import NativeTerminal from '../panels/NativeTerminal';
@@ -193,6 +195,10 @@ export default function Workspace() {
       (value) => value.loadingConversation,
     ),
     suggestions: useClientSelector((value) => value.suggestions),
+    generation: useClientSelector((value) => value.projection?.generation),
+    rows: useClientSelector(
+      (value) => (value.history ?? value.projection)?.rows,
+    ),
   };
   const { controller } = useRuntime();
   const overlay = useOverlay();
@@ -218,11 +224,62 @@ export default function Workspace() {
     originRouteKey: string;
     instance: string | undefined;
   } | null>(null);
+  const observedGeneration = useRef<{
+    id: string;
+    designRevision: string;
+  } | null>(null);
+  const designBaseline = useRef<{
+    conversation: string;
+    revision: string;
+  } | null>(null);
+  if (
+    conversationId &&
+    state.workspace?.conversation_id === conversationId &&
+    designBaseline.current?.conversation !== conversationId
+  ) {
+    designBaseline.current = {
+      conversation: conversationId,
+      revision:
+        state.workspace.resources.find(
+          (item) => item.binding.kind === 'artifact',
+        )?.resource_revision ?? '',
+    };
+  }
+  const handledGeneration = useRef('');
+  const pendingDesignGeneration = useRef('');
+  const [completedDesign, setCompletedDesign] = useState<{
+    conversation: string;
+    binding: string;
+  } | null>(null);
+  const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
+  const autoOpenDesign = useEffectEvent(
+    (panel: (typeof samplePanels)[number]) => showPanel(panel),
+  );
   const presentationScope = useRef({
     conversationId,
     routeKey: location.key,
     setLayout,
   });
+  useEffect(() => {
+    if (!maximizedPanelId) return;
+    const restore = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setMaximizedPanelId(null);
+    };
+    document.addEventListener('keydown', restore);
+    return () => document.removeEventListener('keydown', restore);
+  }, [maximizedPanelId]);
+  useEffect(() => {
+    if (
+      maximizedPanelId &&
+      !layout.panels.some(
+        (panel) =>
+          panel.instance_id === maximizedPanelId &&
+          (!panel.descriptor.resource_ref ||
+            panel.descriptor.resource_ref.startsWith(`${conversationId}:`)),
+      )
+    )
+      setMaximizedPanelId(null);
+  }, [conversationId, layout.panels, maximizedPanelId]);
   useLayoutEffect(() => {
     presentationScope.current = {
       conversationId,
@@ -310,6 +367,7 @@ export default function Workspace() {
         .filter((item) => item.conversation_id === conversationId)
         .map((item) => item.descriptor),
       source,
+      autoOpenResources: false,
     });
     currentLayout.current = result.layout;
     setLayout(result.layout);
@@ -343,6 +401,115 @@ export default function Workspace() {
     state.loadingConversation,
     state.selectedConversationId,
     state.handshake?.instance_id,
+  ]);
+  useEffect(() => {
+    const generation = state.generation;
+    const design = state.workspace?.resources.find(
+      (item) => item.binding.kind === 'artifact',
+    );
+    if (
+      !conversationId ||
+      state.selectedConversationId !== conversationId ||
+      !generation
+    )
+      return;
+    if (
+      generation.status === 'running' &&
+      designBaseline.current?.conversation !== conversationId
+    ) {
+      observedGeneration.current = {
+        id: generation.generation_id,
+        designRevision: design?.resource_revision ?? '',
+      };
+      return;
+    }
+    if (
+      generation.status !== 'completed' ||
+      handledGeneration.current === generation.generation_id ||
+      pendingDesignGeneration.current === generation.generation_id ||
+      (observedGeneration.current?.id !== generation.generation_id &&
+        designBaseline.current?.conversation !== conversationId)
+    )
+      return;
+    pendingDesignGeneration.current = generation.generation_id;
+    const baseline =
+      designBaseline.current?.conversation === conversationId
+        ? designBaseline.current.revision
+        : (observedGeneration.current?.designRevision ?? '');
+    void controller
+      .workspaceFor(conversationId)
+      .then((fresh) => {
+        if (controller.getSnapshot().selectedConversationId !== conversationId)
+          return;
+        const currentDesign = fresh.resources.find(
+          (item) => item.binding.kind === 'artifact',
+        );
+        designBaseline.current = {
+          conversation: conversationId,
+          revision: currentDesign?.resource_revision ?? '',
+        };
+        const latestRequest =
+          [
+            ...((
+              controller.getSnapshot().history ??
+              controller.getSnapshot().projection
+            )?.rows ?? []),
+          ]
+            .reverse()
+            .find((row) => row.role === 'user')
+            ?.blocks.map((block) => ('text' in block ? block.text : ''))
+            .join('') ?? '';
+        const explicitDesignRequest =
+          /\b(design|deck|presentation|slides?|storyboard|social post|mock[ -]?up)\b/i.test(
+            latestRequest,
+          );
+        const updated = fresh.resources.find(
+          (item) =>
+            item.binding.kind === 'artifact' &&
+            item.available &&
+            (item.resource_revision !== baseline || explicitDesignRequest),
+        );
+        if (!updated) return;
+        handledGeneration.current = generation.generation_id;
+        if (
+          canAutoOpenDesign(
+            conversationId,
+            location.pathname,
+            document.visibilityState,
+            document.activeElement,
+            controller.getDraft(conversationId).text,
+          )
+        ) {
+          autoOpenDesign({
+            panel_kind: 'artifact.preview',
+            title: updated.title,
+            resource_ref: updated.resource_ref,
+            resource_kind: 'artifact',
+            resource_revision:
+              design?.resource_revision ?? updated.resource_revision,
+          });
+        } else {
+          setCompletedDesign({
+            conversation: conversationId,
+            binding: updated.binding.binding_id,
+          });
+        }
+      })
+      .catch(() => {
+        // The bound design remains accessible in Context if a refresh fails.
+      })
+      .finally(() => {
+        if (pendingDesignGeneration.current === generation.generation_id)
+          pendingDesignGeneration.current = '';
+      });
+  }, [
+    controller,
+    conversationId,
+    location.pathname,
+    state.generation,
+    state.rows,
+    state.selectedConversationId,
+    state.workspace,
   ]);
   const closeCompactSheet = useEffectEvent(() =>
     overlay.dismiss('workspace-panel'),
@@ -622,7 +789,7 @@ export default function Workspace() {
         onValueChange={(id) => update((previous) => focusPanel(previous, id))}
       >
         <section
-          className="dock"
+          className={`dock ${maximizedPanelId === active?.instance_id ? 'maximized' : ''}`}
           aria-label={`${placement === 'side' ? 'Side' : 'Bottom'} panels`}
         >
           <header className="dock-header">
@@ -640,6 +807,33 @@ export default function Workspace() {
                 </DockTabs.Trigger>
               ))}
             </DockTabs.List>
+            {active && (
+              <Button
+                iconOnly
+                variant="ghost"
+                aria-label={
+                  maximizedPanelId === active.instance_id
+                    ? 'Restore panel size'
+                    : 'Maximize panel'
+                }
+                title={
+                  maximizedPanelId === active.instance_id
+                    ? 'Restore panel size'
+                    : 'Maximize panel'
+                }
+                onClick={() =>
+                  setMaximizedPanelId((current) =>
+                    current === active.instance_id ? null : active.instance_id,
+                  )
+                }
+              >
+                {maximizedPanelId === active.instance_id ? (
+                  <Minimize2 size={16} aria-hidden />
+                ) : (
+                  <Maximize2 size={16} aria-hidden />
+                )}
+              </Button>
+            )}
             {active && (
               <Menu
                 label="Panel actions"
@@ -815,22 +1009,6 @@ export default function Workspace() {
             <Columns3 size={18} aria-hidden />
             <span className="wide-label">Open panel</span>
           </Menu>
-          <Button
-            aria-label="New resource"
-            disabled={state.status !== 'ready'}
-            onClick={() =>
-              overlay.open({
-                title: 'New or open resource',
-                description: 'Create or open a design or coding workspace.',
-                content: (
-                  <ResourceSetup conversationId={null} onPanel={showPanel} />
-                ),
-              })
-            }
-          >
-            <Columns3 size={18} aria-hidden />
-            <span className="wide-label">New resource</span>
-          </Button>
           {!desktop && (
             <Hint label="Settings">
               <Button
@@ -1009,6 +1187,15 @@ export default function Workspace() {
                   ) : null}
                   <Conversation
                     onPanel={showPanel}
+                    completedDesignId={
+                      completedDesign?.conversation === conversationId
+                        ? completedDesign.binding
+                        : undefined
+                    }
+                    onResourceOpened={(binding) => {
+                      if (completedDesign?.binding === binding)
+                        setCompletedDesign(null);
+                    }}
                     onNewChat={() => void creation.newChat()}
                     focusConversationId={creation.focusConversationId}
                     onComposerFocused={creation.onComposerFocused}

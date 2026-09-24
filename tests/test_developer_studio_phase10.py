@@ -351,7 +351,7 @@ def test_developer_tool_exposes_write_and_command_tools(tmp_path, monkeypatch):
     assert "developer_fast_forward_merge" in tool_names
 
 
-def test_status_reports_developer_as_contextual_when_active(tmp_path, monkeypatch):
+def test_status_reports_developer_enabled_for_new_install_when_active(tmp_path, monkeypatch):
     storage, tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
     sys.modules.pop("tools.row_bot_status_tool", None)
     import row_bot.tools.row_bot_status_tool as row_bot_status_tool
@@ -364,7 +364,7 @@ def test_status_reports_developer_as_contextual_when_active(tmp_path, monkeypatc
     try:
         output = row_bot_status_tool._query_tools()
         assert "Developer" in output
-        assert "contextual" in output
+        assert "contextual: Developer" not in output
     finally:
         tool_context.reset_context(tokens)
 

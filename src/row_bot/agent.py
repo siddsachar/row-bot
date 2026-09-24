@@ -4225,6 +4225,13 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"capabilities:{discovery_fingerprint}",
         f"skills:{skill_fingerprint}",
     })
+    # Designer tool schemas are scoped to the captured project, not the
+    # project currently visible in the NiceGUI editor.
+    if "designer" in enabled_tool_names:
+        from row_bot.conversation_resources import current_execution_context
+        resources = current_execution_context()
+        has_design = bool(resources and any(item.kind == "artifact" for item in resources.bindings))
+        cache_key |= frozenset({f"designer_binding:{has_design}"})
     if normalized_allowlist is not None:
         cache_key = cache_key | frozenset(
             f"tool_allow:{name}" for name in sorted(normalized_allowlist)

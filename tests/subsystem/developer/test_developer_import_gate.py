@@ -22,7 +22,7 @@ def test_sandbox_import_requires_approval_before_host_patch(tmp_path, monkeypatc
         calls.append(confirmed)
         return change_set, ApprovalDecision("allow", "confirmed")
 
-    monkeypatch.setattr(developer_tool, "_active_workspace", lambda: (workspace, tmp_path / "workspace"))
+    monkeypatch.setattr(developer_tool, "_active_workspace", lambda **_kwargs: (workspace, tmp_path / "workspace"))
     monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "approve")
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending if change_id == pending.id else None)
@@ -51,7 +51,7 @@ def test_sandbox_import_cancel_does_not_apply_or_mark_pending(tmp_path, monkeypa
         calls.append(confirmed)
         return None, ApprovalDecision("ask", "approval required")
 
-    monkeypatch.setattr(developer_tool, "_active_workspace", lambda: (workspace, tmp_path / "workspace"))
+    monkeypatch.setattr(developer_tool, "_active_workspace", lambda **_kwargs: (workspace, tmp_path / "workspace"))
     monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: "approve")
     monkeypatch.setattr(developer_tool, "get_thread_id", lambda: "thread-1")
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda change_id: pending if change_id == pending.id else None)
@@ -71,7 +71,7 @@ def test_sandbox_import_rejects_pending_change_for_other_workspace(tmp_path, mon
 
     workspace = fake_workspace(tmp_path)
     pending = fake_pending_change("other-workspace")
-    monkeypatch.setattr(developer_tool, "_active_workspace", lambda: (workspace, tmp_path / "workspace"))
+    monkeypatch.setattr(developer_tool, "_active_workspace", lambda **_kwargs: (workspace, tmp_path / "workspace"))
     monkeypatch.setattr(developer_tool, "get_pending_change", lambda _change_id: pending)
 
     with pytest.raises(ValueError, match="not found"):

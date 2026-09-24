@@ -78,6 +78,10 @@ def main() -> int:
 
     def isolated_git_environment(short, port, token):
         env = private_environment(short, port, token)
+        profile = short / "profile"
+        profile.mkdir(exist_ok=True)
+        env["USERPROFILE"] = str(profile)
+        env["HOME"] = str(profile)
         config = short / "synthetic-gitconfig"
         config.write_text("", encoding="utf-8")
         env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(config)})

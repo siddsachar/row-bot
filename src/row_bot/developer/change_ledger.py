@@ -60,6 +60,7 @@ class FileChange:
     after_hash: str
     before_text: str | None = None
     patch: str = ""
+    binary: bool = False
 
 
 @dataclass(frozen=True)

@@ -5154,6 +5154,60 @@
       "title": "McpUtilityPolicyIntent",
       "type": "object"
     },
+    "MediaSaveCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/MediaSavePayload"
+        },
+        "type": {
+          "const": "media.save",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "MediaSaveCommand",
+      "type": "object"
+    },
+    "MediaSavePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "media_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Media Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_ref"
+      ],
+      "title": "MediaSavePayload",
+      "type": "object"
+    },
     "ModelSelection": {
       "additionalProperties": false,
       "properties": {
@@ -7117,6 +7171,18 @@
             }
           ],
           "default": null
+        },
+        "draft_workspace": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Draft Workspace"
         },
         "empty_workspace": {
           "anyOf": [
@@ -10423,6 +10489,7 @@
       "mcp.runtime.install": "#/$defs/McpRuntimeInstallCommand",
       "mcp.runtime.install.cancel": "#/$defs/McpRuntimeInstallCancelCommand",
       "mcp.runtime.resolve": "#/$defs/McpRuntimeResolveCommand",
+      "media.save": "#/$defs/MediaSaveCommand",
       "plugin.configure": "#/$defs/PluginConfigureCommand",
       "plugin.disable": "#/$defs/PluginDisableCommand",
       "plugin.enable": "#/$defs/PluginEnableCommand",
@@ -10544,6 +10611,9 @@
     },
     {
       "$ref": "#/$defs/ResourceContinueCommand"
+    },
+    {
+      "$ref": "#/$defs/MediaSaveCommand"
     },
     {
       "$ref": "#/$defs/ConversationQueueEditCommand"

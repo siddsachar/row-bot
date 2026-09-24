@@ -1697,6 +1697,19 @@
       "default": null,
       "title": "Revision"
     },
+    "saved_name": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Saved Name"
+    },
     "selection": {
       "anyOf": [
         {

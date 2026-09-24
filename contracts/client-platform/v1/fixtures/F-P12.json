@@ -210,6 +210,8 @@
           }
         ],
         "resources": [],
+        "generated_outputs": [],
+        "writer_status": "",
         "actions": [
           {
             "action": "send",
@@ -661,6 +663,8 @@
           }
         ],
         "resources": [],
+        "generated_outputs": [],
+        "writer_status": "",
         "actions": [
           {
             "action": "send",
@@ -1082,6 +1086,8 @@
           }
         ],
         "resources": [],
+        "generated_outputs": [],
+        "writer_status": "",
         "actions": [
           {
             "action": "send",
@@ -1560,6 +1566,8 @@
           }
         ],
         "resources": [],
+        "generated_outputs": [],
+        "writer_status": "",
         "actions": [
           {
             "action": "send",
@@ -1962,6 +1970,8 @@
           }
         ],
         "resources": [],
+        "generated_outputs": [],
+        "writer_status": "",
         "actions": [
           {
             "action": "send",
@@ -2356,6 +2366,8 @@
           }
         ],
         "resources": [],
+        "generated_outputs": [],
+        "writer_status": "",
         "actions": [
           {
             "action": "send",

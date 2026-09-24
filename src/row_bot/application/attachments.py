@@ -172,6 +172,42 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         return {key: value for key, value in metadata.items() if key != "sha256"}
 
 
+def list_generated_outputs(conversation_id: str, *, limit: int = 20) -> list[dict[str, str]]:
+    """Recover generated output references from the conversation's immutable media owner."""
+    from row_bot import threads
+
+    _conversation(conversation_id)
+    root = _managed_root(threads._MEDIA_DIR)
+    folder = root / conversation_id
+    _safe_path(root, folder)
+    if not folder.is_dir():
+        return []
+    candidates = []
+    for path in folder.glob("attachment_*.json"):
+        try:
+            candidates.append((path.stat().st_mtime_ns, path))
+        except OSError:
+            continue
+    candidates.sort(reverse=True)
+    outputs: list[dict[str, str]] = []
+    for _, path in candidates[:200]:
+        try:
+            _safe_path(root, path)
+            with _open(root, path) as source:
+                metadata = json.load(source)
+            ref = str(metadata.get("attachment_ref") or "")
+            mime = str(metadata.get("mime_type") or "")
+            if (ref.startswith(conversation_id + ":")
+                    and str(metadata.get("name") or "").startswith("generated-")
+                    and mime in {"image/png", "image/jpeg", "video/mp4"}):
+                outputs.append({"media_ref": ref, "mime_type": mime})
+                if len(outputs) >= limit:
+                    break
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return list(reversed(outputs))
+
+
 def read_native_selection(path: Path) -> tuple[str, bytes]:
     """Read one explicitly selected native file without following replacements.
 
