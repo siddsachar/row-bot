@@ -87,6 +87,10 @@ def test_all_installers_stage_and_verify_the_complete_pwa_and_native_payload() -
     project = tomllib.loads(_source("pyproject.toml"))
     package_data = set(project["tool"]["setuptools"]["package-data"]["row_bot"])
     assert {f"static/client-v2/{name}" for name in PWA_SHELL} <= package_data
+    runtime_data = set(
+        project["tool"]["setuptools"]["package-data"]["row_bot.designer.runtime"]
+    )
+    assert {"runtime_bridge.js", "runtime_bridge.css"} <= runtime_data
 
     generator = _source("frontend/scripts/asset-manifest.mjs")
     for name in PWA_SHELL:

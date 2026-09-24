@@ -568,7 +568,9 @@ else:
             retry_transient=True,
         )
         if client.status != 200:
-            raise SmokeError("Authenticated React client did not return HTTP 200")
+            raise SmokeError(
+                f"Authenticated React client did not return HTTP 200 (status={client.status})"
+            )
         assert_secrets_absent(client.text, self._secrets)
 
     def _stop_start(self, origin: str, session_id: str) -> str:

@@ -191,6 +191,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "row_bot.computer_use" = ["*.json"]
+"row_bot.designer.runtime" = ["runtime_bridge.js", "runtime_bridge.css"]
 "row_bot.voice" = ["realtime_runtime.js", "realtime_runtime.d.ts"]
 "row_bot" = [
   "static/client-v2/index.html",
