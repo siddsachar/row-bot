@@ -45,8 +45,9 @@ The fixture build blocks external HTTP requests. Its asset manifest and screensh
 | Repeated media test saw two fixture calls | The fixture retains calls from other synthetic conversations. The assertion now checks the current conversation ID and still requires exactly one generation. |
 | Managed browser fixture preview returned 503 | The panel shows its recoverable **Picture unavailable** state. The exact fixture response is annotated; control and draft retention still pass. |
 | Firefox Playwright `browserContext.newPage` failed before navigation | Host browser/toolchain failure; no app page loaded. Edge/Chromium and WebKit walkthroughs passed. |
-| Older PR matrix native crash | The earlier log did not retain a crash signature. The new PR matrix result is recorded in the handoff. |
+| Older PR matrix native crash | The earlier log did not retain a crash signature. The new matrix reached the deterministic lane without a native crash. Its three test failures and independent recovery evidence are recorded below. |
 | First full matrix rerun reported 24 runtime-installer failures | The Windows directory ownership guard used the host `TEMP` path outside this workspace's sandbox. With `TEMP`, `TMP`, and `TMPDIR` set to a workspace-local directory, the affected focused modules passed (91 passed, 1 skipped). The integrated rerun uses the same environment. |
+| Integrated PR matrix deterministic lane failed three tests | The designer test's Node subprocess exceeded its 15-second deadline once, then passed in a focused rerun and in the full clean-artifact deterministic rerun. The two media tests could not replace an older synthetic `tools_config.json` whose Windows owner differed from a newly generated test file. The secure publisher refused the metadata mismatch. Both passed when that file was preserved outside the active test path; the full deterministic lane then passed. The older file was restored afterward. No assertion or security gate was relaxed. |
 
 ## Verification scope and limits
 
@@ -61,7 +62,12 @@ All 17 Settings leaves and the Home Workflows, Knowledge, Monitor, and Insights 
 | `npm run typecheck` and `npm run lint` (`frontend/`) after final browser-spec updates | Both passed; import/network boundary check covered 182 source files with 0 violations. |
 | `git diff --cached --check` | Passed with no whitespace errors. |
 | `uv run python -m pytest tests/subsystem/installer tests/contracts/installers -q` with workspace-local `TEMP`, `TMP`, and `TMPDIR` | 91 passed, 1 skipped; one deprecation warning. |
+| `uv run --no-sync python scripts/run_test_matrix.py pr` with workspace-local temp paths | Failed in the deterministic lane: contracts 140 passed (1 warning), subsystem 5,727 passed and 27 skipped (8 warnings), migrated coverage 5,867 passed and 27 skipped at 75.91% (1,660 warnings), then deterministic 8,322 passed, 32 skipped, 2 deselected, 3 failed (10 warnings, 3 subtests passed). All earlier non-test gates passed. |
+| `uv run --no-sync python scripts/run_test_matrix.py deterministic` with the older synthetic config file preserved outside the active test path | Passed: 8,325 passed, 32 skipped, 2 deselected, 10 warnings, 3 subtests passed. The original file was restored afterward. |
+| `uv run --no-sync python scripts/run_test_matrix.py installer-contracts` | 94 passed. |
+| `uv run --no-sync python scripts/run_test_matrix.py app-smoke` | Passed: app process, launcher ping, `GET /` 200, and clean termination. |
+| `uv run --no-sync python scripts/run_test_matrix.py legacy-inventory` | 76 passed. |
 
-The PR matrix log is retained in `.local/evidence/react-app-ux-polish/pr-matrix-20260924-final3.log`; its final result is also reported in the PR handoff. It runs with workspace-local Windows temporary directories because the sandbox cannot write to the host temp directory.
+The PR matrix and follow-up lane logs are retained in `.local/evidence/react-app-ux-polish/`; their results are also reported in the PR handoff. They run with workspace-local Windows temporary directories because the sandbox cannot write to the host temp directory. The full PR command did not exit successfully, but every lane has independent passing evidence; the only failing run used an older synthetic file with mismatched Windows ownership and recorded a one-time subprocess timeout.
 
 The fixture cannot validate a real native folder picker, provider account, channel delivery, OS installer, signing, or notarization. A manual screen-reader session and clean-machine UX pass remain pending. Firefox requires a working Playwright launch on this Windows host. The detailed Settings forms remain available and some retain their existing density because security, provider cost, and approval copy is consequential.
