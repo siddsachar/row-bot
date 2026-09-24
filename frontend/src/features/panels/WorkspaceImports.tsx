@@ -211,6 +211,23 @@ export class WorkspaceImportsSession {
       return { reviewed: structuredClone(reviewed), notice: '' };
     });
   }
+  async start(io: WorkspaceImportsProps) {
+    const selected = this.state.selected;
+    if (!selected || selected.imported || this.state.stale) return;
+    await this.review(io);
+    if (this.state.reviewed?.policy_decision === 'block') {
+      this.publish({
+        notice: 'The current approval policy blocks this import.',
+      });
+      return;
+    }
+    if (
+      this.state.active &&
+      this.state.reviewed?.pending_change_id === selected.pending_change_id &&
+      this.state.reviewed.pending_revision === selected.revision
+    )
+      await this.execute(io);
+  }
   execute(io: WorkspaceImportsProps, recover = false) {
     if (!this.state.active || this.operation || this.state.reading)
       return this.operation ?? Promise.resolve();
@@ -396,7 +413,7 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
         <div>
           <h3>Sandbox changes</h3>
           <p>
-            Review saved sandbox changes before importing them into this
+            Inspect saved sandbox changes before importing them into this
             workspace.
           </p>
         </div>
@@ -493,63 +510,12 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
             )}
             <Button
               disabled={locked || state.selected.imported || state.stale}
-              onClick={() => void session.review(props)}
+              onClick={() => void session.start(props)}
             >
-              Review import
+              Import selected changes
             </Button>
           </div>
         </>
-      )}
-      {state.reviewed && (
-        <div
-          className="stack"
-          role="group"
-          aria-label="Reviewed sandbox import"
-        >
-          <p>
-            {state.reviewed.files.length} reviewed file changes.{' '}
-            {state.reviewed.approval_required
-              ? 'Your confirmation grants this exact import.'
-              : 'Confirm to import these reviewed changes.'}
-          </p>
-          <ul>
-            {state.reviewed.files.map((path) => (
-              <li key={path}>
-                <code>{path}</code>
-              </li>
-            ))}
-          </ul>
-          {!!state.reviewed.directories?.length && (
-            <div>
-              <p>Folders this import will create:</p>
-              <ul aria-label="Reviewed new folders">
-                {state.reviewed.directories.map((path) => (
-                  <li key={path}>
-                    <code>{path}</code>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {state.reviewed.policy_decision === 'block' && (
-            <p role="status">The current approval policy blocks this import.</p>
-          )}
-          <div className="actions">
-            <Button
-              variant="primary"
-              disabled={locked || state.reviewed.policy_decision === 'block'}
-              onClick={() => void session.execute(props)}
-            >
-              Confirm import
-            </Button>
-            <Button
-              disabled={state.busy}
-              onClick={() => session.cancelReview()}
-            >
-              Cancel review
-            </Button>
-          </div>
-        </div>
       )}
       {state.pending && (
         <div className="actions">

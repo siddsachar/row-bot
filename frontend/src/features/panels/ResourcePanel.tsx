@@ -14,11 +14,13 @@ import { artifactSharing } from './artifact-sharing';
 import { workspaceEdits } from './workspace-edits';
 import type { ArtifactAuthoring } from '../../api/types';
 import type { ArtifactEditingOptions } from './ArtifactEditor';
+import type { ArtifactDesignSession } from './artifact-design-sessions';
 import type { ClientController } from '../../api/controller';
 import type { DeveloperRepositoryReviewRequest } from '../../api/types';
 import DeveloperRepositoryPanel, {
   createDeveloperRepositorySession,
 } from '../developer/DeveloperRepositoryPanel';
+import CustomToolBuilder from '../developer/CustomToolBuilder';
 
 export const resourcePanelMetrics = { mounted: 0, renders: 0 };
 const Preview = memo(ArtifactPreview);
@@ -91,6 +93,7 @@ function ResourcePanel({
   const [processesOpen, setProcessesOpen] = useState(false);
   const [importsOpen, setImportsOpen] = useState(false);
   const [repositoryOpen, setRepositoryOpen] = useState(true);
+  const [customToolsOpen, setCustomToolsOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [undoSelection, setUndoSelection] = useState<{
     binding: string;
@@ -142,6 +145,14 @@ function ResourcePanel({
           options.historyCursor,
           options.elementId,
           options.limit,
+          signal,
+        ),
+      palette: (revision: string, query: string, signal: AbortSignal) =>
+        controller.artifactPalette(
+          conversation,
+          binding,
+          revision,
+          query,
           signal,
         ),
       edit: artifactEdits(controller, conversation, binding),
@@ -288,7 +299,7 @@ function ResourcePanel({
           )
         : workspaceUndoSessions?.retainedForResource(conversation, resource)
       : null;
-  let designSession;
+  let designSession: ArtifactDesignSession | undefined;
   if (resource.binding.kind === 'artifact' && artifactDesignSessions) {
     try {
       designSession = artifactDesignSessions.get(conversation, resource);
@@ -296,6 +307,15 @@ function ResourcePanel({
       /* Keep preview available if a retained editing session needs review. */
     }
   }
+  const draftDesignText = (text: string) => {
+    designSession?.guard();
+    if (controller.getSnapshot().selectedConversationId !== conversation)
+      throw new Error('resource_binding_revoked');
+    const draft = controller.getDraft(conversation);
+    const combined = [draft.text, text].filter(Boolean).join('\n\n');
+    if (combined.length > 200000) throw new Error('draft_full');
+    controller.setDraft(conversation, { ...draft, text: combined });
+  };
   return panel.descriptor.panel_kind === 'artifact.preview' ? (
     <Preview
       resourceId={resource.binding.resource_id}
@@ -303,6 +323,8 @@ function ResourcePanel({
       visible={visible}
       load={api.preview}
       loadEditing={api.editing}
+      loadPalette={api.palette}
+      onDraftText={designSession ? draftDesignText : undefined}
       edit={api.edit}
       createExport={api.exports.create}
       downloadExport={api.exports.download}
@@ -313,19 +335,7 @@ function ResourcePanel({
         designSession
           ? {
               session: designSession,
-              onDraftText: (text) => {
-                if (
-                  controller.getSnapshot().selectedConversationId !==
-                  conversation
-                )
-                  throw new Error('resource_binding_revoked');
-                const draft = controller.getDraft(conversation);
-                const combined = [draft.text, text]
-                  .filter(Boolean)
-                  .join('\n\n');
-                if (combined.length > 200000) throw new Error('draft_full');
-                controller.setDraft(conversation, { ...draft, text: combined });
-              },
+              onDraftText: draftDesignText,
             }
           : undefined
       }
@@ -352,6 +362,26 @@ function ResourcePanel({
               visible={visible && repositoryOpen}
             />
           </div>
+        </>
+      )}
+      {typeof controller.customTools === 'function' && (
+        <>
+          <Button
+            aria-expanded={customToolsOpen}
+            onClick={() => setCustomToolsOpen((value) => !value)}
+          >
+            {customToolsOpen
+              ? 'Hide Custom Tool Builder'
+              : 'Custom Tool Builder'}
+          </Button>
+          {customToolsOpen && (
+            <CustomToolBuilder
+              controller={controller}
+              conversation={conversation}
+              binding={binding}
+              visible={visible}
+            />
+          )}
         </>
       )}
       <Button

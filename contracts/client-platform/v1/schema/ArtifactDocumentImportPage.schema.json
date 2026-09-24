@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "has_notes": {
+      "title": "Has Notes",
+      "type": "boolean"
+    },
+    "title": {
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "has_notes"
+  ],
+  "title": "ArtifactDocumentImportPage",
+  "type": "object"
+}

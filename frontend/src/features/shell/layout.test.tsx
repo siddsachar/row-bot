@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ResourceView } from '../../api/types';
-import { useWorkspaceLayout } from './layout';
+import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import {
   closePanel,
   createPanelLayout,
@@ -179,4 +179,44 @@ it('keeps dismissal metadata and panel identity through compact breakpoint chang
   expect(hook.result.current[0].presentation.dismissed).toEqual(
     desktop.presentation.dismissed,
   );
+});
+
+it('publishes and cleans one focused compact visual viewport state', () => {
+  const target = document.createElement('div');
+  const input = document.createElement('textarea');
+  document.body.append(target, input);
+  input.focus();
+  const viewport = new EventTarget() as EventTarget & {
+    height: number;
+    offsetTop: number;
+    scale: number;
+  };
+  viewport.height = 520;
+  viewport.offsetTop = 0;
+  viewport.scale = 1;
+  const page = new EventTarget() as EventTarget & {
+    innerHeight: number;
+    innerWidth: number;
+    visualViewport: typeof viewport;
+    document: Document;
+  };
+  page.innerHeight = 844;
+  page.innerWidth = 390;
+  page.visualViewport = viewport;
+  page.document = document;
+  const cleanup = bindVisualViewportState(target, page);
+  expect(target).toHaveAttribute('data-virtual-keyboard');
+  expect(target.style.getPropertyValue('--visual-viewport-height')).toBe(
+    '520px',
+  );
+  expect(target.style.getPropertyValue('--virtual-keyboard-inset')).toBe(
+    '324px',
+  );
+  input.blur();
+  page.dispatchEvent(new Event('focusout'));
+  expect(target).not.toHaveAttribute('data-virtual-keyboard');
+  cleanup();
+  expect(target.getAttribute('style')).toBe('');
+  target.remove();
+  input.remove();
 });

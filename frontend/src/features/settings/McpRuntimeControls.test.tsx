@@ -77,56 +77,43 @@ function options() {
     execute: vi.fn().mockImplementation(async (command) => receipt(command)),
   };
 }
-async function reviewed(name = 'Connect') {
+async function trigger(name = 'Connect') {
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: `Review ${name}` }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: `Review ${name}` }));
-  await screen.findByRole('button', { name: `${name} now` });
+  fireEvent.click(screen.getByRole('button', { name }));
 }
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-it('reads only on mount and requires distinct review and explicit Test', async () => {
+it('reads only on mount and starts Test with one click', async () => {
   const props = options();
   render(<McpRuntimeControls {...props} />);
-  await reviewed('Test');
-  expect(props.execute).not.toHaveBeenCalled();
-  expect(
-    screen.getByText(/temporary connection and then closes/),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Test now' }));
+  await trigger('Test');
   await screen.findByText(/Test completed and the temporary connection closed/);
   expect(props.execute).toHaveBeenCalledTimes(1);
   expect(props.session.hasRetained()).toBe(false);
 });
 
-it('retains the reviewed command across unmount and never executes on reopen', async () => {
+it('executes once on click and does not replay on reopen', async () => {
   const props = options();
   const first = render(<McpRuntimeControls {...props} />);
-  await reviewed();
-  const original = props.session.getSnapshot().launch.reviewed;
+  await trigger();
+  await screen.findByText(/Connect command completed/);
+  const original = props.execute.mock.calls[0];
   first.unmount();
   render(<McpRuntimeControls {...props} />);
-  expect(props.execute).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect now' }));
-  await screen.findByText(/Connect command completed/);
-  expect(props.execute).toHaveBeenCalledWith(
-    original?.command,
-    original?.review,
-  );
+  expect(props.execute).toHaveBeenCalledTimes(1);
+  expect(props.execute.mock.calls[0]).toEqual(original);
 });
 
 it('reconciles only the original uncertain intent after remount and revision changes', async () => {
   const props = options();
   props.execute.mockRejectedValueOnce(Error('synthetic loss'));
   const first = render(<McpRuntimeControls {...props} />);
-  await reviewed();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect now' }));
+  await trigger();
   await screen.findByText(/outcome is uncertain/);
   const original = props.execute.mock.calls[0];
   first.unmount();
@@ -135,7 +122,7 @@ it('reconciles only the original uncertain intent after remount and revision cha
     configuration_revision: 'e'.repeat(64),
   });
   render(<McpRuntimeControls {...props} />);
-  expect(screen.getByRole('button', { name: 'Review Connect' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
   fireEvent.click(
     screen.getByRole('button', { name: 'Check original launch' }),
   );
@@ -153,11 +140,10 @@ it('keeps Disconnect independent while Connect response is pending', async () =>
       : Promise.resolve(receipt(command)),
   );
   render(<McpRuntimeControls {...props} />);
-  await reviewed();
+  await trigger();
   props.load.mockResolvedValue(connected);
-  fireEvent.click(screen.getByRole('button', { name: 'Connect now' }));
-  await reviewed('Disconnect');
-  fireEvent.click(screen.getByRole('button', { name: 'Disconnect now' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh connection' }));
+  await trigger('Disconnect');
   await screen.findByText('Connection cleanup completed.');
   expect(props.execute.mock.calls[1][0].payload).toEqual({
     resource_revision: connected.cleanup_revision,
@@ -180,9 +166,8 @@ it('uses cleanup revision to Disconnect with unavailable saved configuration', a
     configuration_revision: null,
   });
   render(<McpRuntimeControls {...props} />);
-  await reviewed('Disconnect');
-  expect(screen.getByRole('button', { name: 'Review Connect' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Disconnect now' }));
+  await trigger('Disconnect');
+  expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
   await screen.findByText('Connection cleanup completed.');
   expect(props.review.mock.calls[0][0].resource_revision).toBe(
     connected.cleanup_revision,
@@ -201,9 +186,8 @@ it('does not equate quiescent snapshot or a partial receipt with completed clean
     status: 'partial',
   }));
   render(<McpRuntimeControls {...props} />);
-  await reviewed('Disconnect');
+  await trigger('Disconnect');
   expect(screen.getByText(/saved receipt still needs recovery/)).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Disconnect now' }));
   await screen.findByText(/outcome is not confirmed/);
   expect(
     screen.getByRole('button', { name: 'Check original disconnect' }),
@@ -216,8 +200,7 @@ it('tombstones late effect settlement and aborts reads on authentication loss', 
   const pending = deferred<McpRuntimeReceipt>();
   props.execute.mockReturnValue(pending.promise);
   render(<McpRuntimeControls {...props} />);
-  await reviewed();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect now' }));
+  await trigger();
   act(() => props.session.dispose());
   await act(async () =>
     pending.resolve(receipt(props.execute.mock.calls[0][0])),
@@ -226,7 +209,7 @@ it('tombstones late effect settlement and aborts reads on authentication loss', 
   expect(props.session.getSnapshot().launch.pending).toBeNull();
   expect(props.session.hasRetained()).toBe(false);
   expect(props.load.mock.calls.every((call) => call[1].aborted)).toBe(true);
-  expect(screen.getByRole('button', { name: 'Review Connect' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
 });
 
 it('rejects mismatched review scope without enabling execution', async () => {
@@ -240,15 +223,10 @@ it('rejects mismatched review scope without enabling execution', async () => {
   });
   render(<McpRuntimeControls {...props} />);
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Review Connect' }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review Connect' }));
-  await screen.findByText(/action could not be reviewed/);
-  expect(
-    screen.queryByRole('button', { name: 'Connect now' }),
-  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+  await screen.findByText(/action could not be validated/);
   expect(props.execute).not.toHaveBeenCalled();
 });
 
@@ -259,8 +237,7 @@ it('retains the exact runtime ID when an original response changes identity', as
     status: 'partial',
   }));
   render(<McpRuntimeControls {...props} />);
-  await reviewed();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect now' }));
+  await trigger();
   await screen.findByText(/outcome is not confirmed/);
   props.execute.mockImplementation(async (command) => {
     const value = receipt(command);
@@ -289,8 +266,7 @@ it('does not retain or replay a rejected intent', async () => {
     status: 'rejected',
   }));
   render(<McpRuntimeControls {...props} />);
-  await reviewed();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect now' }));
+  await trigger();
   await screen.findByText(/action was rejected/);
   expect(props.session.hasRetained()).toBe(false);
   expect(

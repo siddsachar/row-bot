@@ -43,6 +43,18 @@ logger = logging.getLogger(__name__)
 _CUSTOM_CONTEXT_CHOICE = "custom"
 
 
+def _github_status_for_settings(*, force: bool = False):
+    """Keep documentation fixtures away from host CLI identity and network."""
+    import row_bot.github_account as github_account
+    from row_bot.docs_capture import is_docs_capture
+
+    if is_docs_capture():
+        return github_account.get_passive_github_account_status()
+    if force:
+        github_account.clear_github_caches()
+    return github_account.get_verified_github_account_status(use_cache=not force)
+
+
 def _context_choice(value: int | None, presets: list[int] | tuple[int, ...]) -> int | str:
     """Return the select value for an exact persisted context setting."""
     exact = int(value or 0)
@@ -111,18 +123,11 @@ _DOCUMENT_JOB_STATUS_LABELS = {
     "skipped_duplicate": "Duplicate skipped",
 }
 
-_PROCESS_TAILSCALE_STATUS_CACHE: Any | None = None
-
-
 def _process_tailscale_status_cache() -> Any:
     """Return the one command-free Tailscale status cache for this process."""
+    from row_bot.access.tailscale import process_tailscale_status_cache
 
-    global _PROCESS_TAILSCALE_STATUS_CACHE
-    if _PROCESS_TAILSCALE_STATUS_CACHE is None:
-        from row_bot.access.tailscale import TailscaleStatusCache
-
-        _PROCESS_TAILSCALE_STATUS_CACHE = TailscaleStatusCache()
-    return _PROCESS_TAILSCALE_STATUS_CACHE
+    return process_tailscale_status_cache()
 
 
 def document_job_status_label(status: str) -> str:
@@ -1047,7 +1052,7 @@ def open_settings(
                     main_app_url_container.clear()
                     _refresh_active_tunnels()
 
-            main_app_switch.on("update:model-value", _on_main_app_toggle)
+            main_app_switch.on_value_change(_on_main_app_toggle)
 
     # ══════════════════════════════════════════════════════════════════
     # TAB BUILDERS
@@ -4224,16 +4229,9 @@ def open_settings(
 
             async def _load_github_status(token: int, *, force: bool = False) -> None:
                 try:
-                    from row_bot.docs_capture import is_docs_real_data_capture
-
-                    if force and not is_docs_real_data_capture():
-                        github_account.clear_github_caches()
-                    loader = (
-                        github_account.get_passive_github_account_status
-                        if is_docs_real_data_capture()
-                        else lambda: github_account.get_verified_github_account_status(use_cache=not force)
+                    status = await run.io_bound(
+                        lambda: _github_status_for_settings(force=force)
                     )
-                    status = await run.io_bound(loader)
                     if not github_generation.is_current(token):
                         return
                     _render_github_status(status)

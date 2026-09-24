@@ -284,6 +284,11 @@ def read_controls(project_id: str, *, page_id: str | None = None, element_id: st
         items = [DesignControlItem(_plain(item.id), _plain(item.action), 'interaction',
                                    _plain(f'{item.source_route}: {item.target}', 512), True)
                  for item in project.interactions]
+    elif section == 'blocks':
+        from row_bot.designer.components import list_components
+        items = [DesignControlItem(item.name, item.label, item.category,
+                                   item.description, project.mode in {'deck', 'landing'})
+                 for item in list_components()]
     elif section == 'elements':
         _soup, targets = _targets(page)
         items = [DesignControlItem(key, _plain(tag.get_text(' ', strip=True)[:120] or tag.name),
@@ -479,6 +484,22 @@ def apply_control(project_id: str, *, expected_revision: str, operation: str,
             if finding is None or not finding['auto_fixable']:
                 raise ArtifactError('design_finding_unavailable')
             review._apply_to_page(updated, finding['page_index'], finding['source'], [finding['category']])
+        elif operation == 'block_insert':
+            from row_bot.designer.components import get_component, render_component_html
+            from row_bot.designer.html_ops import insert_component_in_html
+            if updated.mode not in {'deck', 'landing'} or not isinstance(payload, dict) or set(payload) != {'component_name'}:
+                raise ArtifactError('invalid_design_control')
+            component_name = payload['component_name']
+            if not isinstance(component_name, str) or len(component_name) > 128:
+                raise ArtifactError('invalid_design_control')
+            try:
+                get_component(component_name)
+            except ValueError:
+                raise ArtifactError('design_component_unavailable') from None
+            page = _selected(updated, page_id)
+            page.html, _element_id, _hint = insert_component_in_html(
+                page.html, render_component_html(component_name), component_name)
+            page.thumbnail_b64 = None
         elif operation in {'asset_insert', 'asset_remove', 'asset_forget'}:
             _apply_asset(updated, operation, payload, page_id)
         else:

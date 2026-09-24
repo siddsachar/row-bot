@@ -1,0 +1,255 @@
+{
+  "$defs": {
+    "CuratorReportView": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "maxLength": 64,
+          "title": "Created At",
+          "type": "string"
+        },
+        "finding_count": {
+          "minimum": 0,
+          "title": "Finding Count",
+          "type": "integer"
+        },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Findings",
+          "type": "array"
+        },
+        "manual_skill_count": {
+          "minimum": 0,
+          "title": "Manual Skill Count",
+          "type": "integer"
+        },
+        "proposal_count": {
+          "minimum": 0,
+          "title": "Proposal Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "created_at",
+        "manual_skill_count",
+        "finding_count",
+        "proposal_count",
+        "findings"
+      ],
+      "title": "CuratorReportView",
+      "type": "object"
+    },
+    "InsightProposalView": {
+      "additionalProperties": false,
+      "properties": {
+        "feedback_body": {
+          "maxLength": 4000,
+          "title": "Feedback Body",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "open_thread_id": {
+          "maxLength": 256,
+          "title": "Open Thread Id",
+          "type": "string"
+        },
+        "preview": {
+          "maxLength": 4000,
+          "title": "Preview",
+          "type": "string"
+        },
+        "proposal_type": {
+          "maxLength": 64,
+          "title": "Proposal Type",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 2048,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "risk": {
+          "maxLength": 64,
+          "title": "Risk",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "support_url": {
+          "maxLength": 2048,
+          "title": "Support Url",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        },
+        "verification_plan": {
+          "maxLength": 2048,
+          "title": "Verification Plan",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "proposal_type",
+        "status",
+        "risk",
+        "rationale",
+        "verification_plan",
+        "preview",
+        "open_thread_id",
+        "feedback_body",
+        "support_url"
+      ],
+      "title": "InsightProposalView",
+      "type": "object"
+    },
+    "InsightView": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 4000,
+          "title": "Body",
+          "type": "string"
+        },
+        "category": {
+          "maxLength": 64,
+          "title": "Category",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/InsightProposalView"
+          },
+          "maxItems": 8,
+          "title": "Proposals",
+          "type": "array"
+        },
+        "severity": {
+          "maxLength": 32,
+          "title": "Severity",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 32,
+          "title": "Status",
+          "type": "string"
+        },
+        "suggestion": {
+          "maxLength": 2048,
+          "title": "Suggestion",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "body",
+        "suggestion",
+        "category",
+        "severity",
+        "status",
+        "proposals"
+      ],
+      "title": "InsightView",
+      "type": "object"
+    },
+    "InsightsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "curator_report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CuratorReportView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/InsightView"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "items",
+        "curator_report",
+        "revision"
+      ],
+      "title": "InsightsSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/InsightsSnapshot"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 1024,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "summary",
+    "snapshot"
+  ],
+  "title": "InsightReceipt",
+  "type": "object"
+}

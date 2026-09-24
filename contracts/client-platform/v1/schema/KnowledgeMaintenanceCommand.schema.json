@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "KnowledgeDeleteTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id",
+        "revision"
+      ],
+      "title": "KnowledgeDeleteTarget",
+      "type": "object"
+    },
+    "KnowledgeMaintenancePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "catalog_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Revision",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeDeleteTarget"
+          },
+          "maxItems": 100,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "catalog_revision",
+        "targets",
+        "action_digest",
+        "review_id"
+      ],
+      "title": "KnowledgeMaintenancePayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/KnowledgeMaintenancePayload"
+    },
+    "type": {
+      "enum": [
+        "knowledge.delete",
+        "knowledge.delete.bulk",
+        "knowledge.delete_all"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "type",
+    "payload"
+  ],
+  "title": "KnowledgeMaintenanceCommand",
+  "type": "object"
+}

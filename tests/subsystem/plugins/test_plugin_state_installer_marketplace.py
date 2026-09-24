@@ -123,6 +123,9 @@ def test_installer_local_install_update_uninstall_and_rollback(
         ok=True,
         checks=[{"label": "Required local setup", "status": "ok"}],
     )
+    prior_backup = installer.PLUGINS_DIR / "install-plugin.bak"
+    prior_backup.mkdir()
+    (prior_backup / "user-note.txt").write_text("preserve", encoding="utf-8")
     update = installer.update_plugin(
         "install-plugin",
         source_dir=source_v2,
@@ -131,6 +134,7 @@ def test_installer_local_install_update_uninstall_and_rollback(
         expected_checksum=devtools.compute_plugin_checksum(source_v2),
     )
     assert update.success is True
+    assert (prior_backup / "user-note.txt").read_text(encoding="utf-8") == "preserve"
     assert installer.get_installed_version("install-plugin") == "2.0.0"
     install_info = plugin_modules["state"].get_plugin_install_info("install-plugin")
     assert install_info["source"] == "marketplace"

@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "McpDirectoryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 800,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "import_json": {
+          "maxLength": 8192,
+          "title": "Import Json",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "publisher": {
+          "maxLength": 128,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "requires_auth": {
+          "title": "Requires Auth",
+          "type": "boolean"
+        },
+        "risk_level": {
+          "maxLength": 32,
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 32,
+          "title": "Source",
+          "type": "string"
+        },
+        "transport": {
+          "maxLength": 32,
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "source",
+        "publisher",
+        "transport",
+        "risk_level",
+        "requires_auth",
+        "recommended",
+        "import_json"
+      ],
+      "title": "McpDirectoryEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/McpDirectoryEntry"
+      },
+      "maxItems": 24,
+      "title": "Items",
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "live",
+        "cache",
+        "curated"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "mode",
+    "items"
+  ],
+  "title": "McpDirectoryResult",
+  "type": "object"
+}

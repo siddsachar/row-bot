@@ -1,6 +1,12 @@
 {
   "additionalProperties": false,
   "properties": {
+    "action_label": {
+      "default": "Requested action",
+      "maxLength": 180,
+      "title": "Action Label",
+      "type": "string"
+    },
     "expires_at": {
       "anyOf": [
         {
@@ -32,9 +38,45 @@
       "title": "Policy Revision",
       "type": "string"
     },
+    "reason": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Reason",
+      "type": "string"
+    },
+    "requesting_trace_id": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Requesting Trace Id",
+      "type": "string"
+    },
     "revision": {
       "pattern": "^(0|[1-9][0-9]{0,19})$",
       "title": "Revision",
+      "type": "string"
+    },
+    "risk_class": {
+      "default": "unknown",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical",
+        "unknown"
+      ],
+      "title": "Risk Class",
+      "type": "string"
+    },
+    "safe_argument_summary": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Safe Argument Summary",
+      "type": "string"
+    },
+    "scope": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Scope",
       "type": "string"
     },
     "status": {

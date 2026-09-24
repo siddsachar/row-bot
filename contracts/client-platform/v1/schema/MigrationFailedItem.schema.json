@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "title": "Id",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 512,
+      "title": "Reason",
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 32,
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "reason"
+  ],
+  "title": "MigrationFailedItem",
+  "type": "object"
+}

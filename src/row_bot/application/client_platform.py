@@ -35,6 +35,22 @@ class ClientPlatformError(ValueError):
 _COMMAND_LOCK = threading.RLock()
 
 
+def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, maximum: int = 128 * 1024) -> list[tuple[int, dict]]:
+    """Project public checkpoint rows and bounded canonical tool traces."""
+
+    from row_bot.application.conversation_traces import project_assistant_row_traces
+    from row_bot.application.transcript_blocks import canonical_transcript_blocks
+
+    projected = project_assistant_row_traces([
+        {
+            "row": canonical_transcript_blocks(reader.public_row(record, maximum=maximum)),
+            "tool_calls": record.get("tool_calls", []),
+        }
+        for _, record in records
+    ])
+    return [(indexed[0], row) for indexed, row in zip(records, projected)]
+
+
 class ClientPlatformService:
     def __init__(self, stream_factory: Callable | None = None,
                  resume_factory: Callable | None = None,
@@ -97,7 +113,8 @@ class ClientPlatformService:
 
     def admit_execution(self, conversation_id: str, config: dict, *, text: str | None = None,
                         cancel_scope: Any = None, queued_pass_id: str = "", queue_context: dict | None = None,
-                        resume_pending: bool = False) -> Any:
+                        resume_pending: bool = False,
+                        attachments: list[dict[str, Any]] | None = None) -> Any:
         """Single admission path for the API and retained NiceGUI producer."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
@@ -124,9 +141,24 @@ class ClientPlatformService:
             admitted = admissions.reserve(conversation_id, submission_id, generation_id,
                                            command_id=str(configurable.get("platform_command_id") or ""),
                                            queued_pass_id=queued_pass_id, resume_pending=resume_pending)
+            public_metadata = (
+                {
+                    "platform_public_content": text,
+                    "platform_attachments": [dict(item) for item in attachments],
+                }
+                if attachments
+                else {}
+            )
             if text is not None and not threads.append_checkpoint_messages(
-                    conversation_id, [HumanMessage(content=text, id=submission_id)]):
+                    conversation_id, [HumanMessage(content=text, id=submission_id,
+                                                   additional_kwargs=public_metadata)]):
                 raise ClientPlatformError("checkpoint_unavailable")
+            # Admission is already durable at this point. Publish that exact
+            # checkpoint cut before exposing the running generation so every
+            # client can adopt the submitted user row without waiting for the
+            # first assistant token (or for generation settlement).
+            if text is not None:
+                self._refresh_checkpoint(conversation_id)
             admissions.admit(admitted["pass_id"], threads.get_latest_checkpoint_revision(conversation_id))
             from row_bot.application.client_queue import remember_context
             remember_context(conversation_id, generation_id, config, queue_context)
@@ -189,12 +221,21 @@ class ClientPlatformService:
                 raise ClientPlatformError("not_found")
             return dict(row)
 
-    def get_conversation(self, conversation_id: str) -> dict:
+    def get_conversation(
+        self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None
+    ) -> dict:
         row = self._metadata(conversation_id)
+        from row_bot import threads
         from row_bot.conversation_resources import list_bindings
         resources = list_bindings(conversation_id)
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
+                "category": threads.classify_thread(
+                    str(row.get("project_id") or ""), conversation_id,
+                    workflow_tids=workflow_thread_ids,
+                    thread_type=str(row.get("thread_type") or ""),
+                    developer_workspace_id=str(row.get("developer_workspace_id") or ""),
+                ),
                 "generation_state": [h.view() for h in self.registry.active(conversation_id)],
                 "resource_bindings": [asdict(binding) for binding in resources.bindings]}
 
@@ -252,7 +293,8 @@ class ClientPlatformService:
             ).fetchall()
         more = len(rows) > limit
         selected = rows[:limit]
-        return {"items": [self.get_conversation(row[0]) for row in selected], "has_more": more,
+        workflow_thread_ids = threads.get_workflow_thread_ids()
+        return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids) for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:
@@ -262,7 +304,8 @@ class ClientPlatformService:
             threads.migrate_checkpoint_message_ids(conversation_id)
             with open_checkpoint(conversation_id) as reader:
                 if reader and reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]:
-                    rows = [reader.public_row(record) for _, record in reader.records(start=-100)]
+                    records = list(reader.records(start=-100))
+                    rows = [row for _, row in project_checkpoint_records(reader, records)]
                     self.projection.install_rows(conversation_id, reader.revision, rows)
 
     def snapshot(self, conversation_id: str) -> dict:
@@ -300,8 +343,10 @@ class ClientPlatformService:
         more, end = False, offset
         with open_checkpoint(conversation_id, snap["checkpoint_revision"]) as reader:
             if reader:
-                for index, record in reader.records(start=offset):
-                    row = reader.public_row(record)
+                records = list(reader.records(start=max(0, offset - 256)))
+                for index, row in project_checkpoint_records(reader, records):
+                    if index < offset:
+                        continue
                     encoded_size = len(json.dumps(row, ensure_ascii=False).encode())
                     if len(bounded) >= min(100, max(1, limit)) or (bounded and size + encoded_size > 256 * 1024):
                         more = True
@@ -369,16 +414,17 @@ class ClientPlatformService:
             if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
                 return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
         from row_bot.application.workspace_setup import reconcile_setup_receipt
-        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
+        return {key: value for key, value in reconcile_setup_receipt(result).items() if key not in {"_empty_workspace", "_clone_workspace", "_workspace_edit", "_workspace_import", "_workspace_undo", "_artifact_design", "_mcp_configuration", "_mcp_runtime", "_runtime_installation", "_buddy", "_document_removal", "_document_processing", "_document_upload", "_document_queue"}}
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
                 validate: Callable[[], None] | None = None, authorized_folder: Any = None,
                 validate_approval: Callable[..., None] | None = None,
                 resolve_upload: Callable[[str], bytes] | None = None,
-                frozen_context: dict | None = None) -> dict:
+                frozen_context: dict | None = None,
+                runtime_surface: str = "normal_chat") -> dict:
         if frozen_context is not None and command["type"] != "conversation.submit":
             raise ClientPlatformError("invalid_command")
-        if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate"}:
+        if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate", "artifact.document.import", "artifact.notes.generate"}:
             from row_bot.application.artifact_design_commands import execute_artifact_design_command
             return execute_artifact_design_command(self, command, target, owner_id=owner_id, key=idempotency_key,
                 validate=validate or (lambda: None), resolve_upload=resolve_upload, validate_confirmation=validate_approval)
@@ -405,7 +451,7 @@ class ClientPlatformService:
                 from row_bot.application.workspace_edit_commands import execute_workspace_edit
                 return execute_workspace_edit(self, command, target, owner_id=owner_id, key=idempotency_key,
                                               validate=validate or (lambda: None))
-            if command["type"] in {"task.create", "task.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
+            if command["type"] in {"task.create", "task.update", "task.delete", "task.delivery.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
                 if target != "tasks":
                     raise ClientPlatformError("invalid_command")
                 from row_bot.application.task_commands import execute_task_command
@@ -417,7 +463,7 @@ class ClientPlatformService:
                     validate()
                 replay = admissions.claim_command(owner_id, idempotency_key, command, target)
                 if replay is not None:
-                    return {key: value for key, value in replay.items() if key != "_empty_workspace"}
+                    return {key: value for key, value in replay.items() if key not in {"_empty_workspace", "_clone_workspace"}}
                 claimed = True
                 if validate:
                     validate()
@@ -434,10 +480,15 @@ class ClientPlatformService:
                         admissions.command_progress(owner_id, idempotency_key, {
                             "command_id": command["command_id"], "conversation_id": conversation, "status": "admitting",
                         })
-                    result = self._execute(command, target, **({"frozen_context": frozen_context} if frozen_context is not None else {}))
+                    result = self._execute(
+                        command,
+                        target,
+                        runtime_surface=runtime_surface,
+                        **({"frozen_context": frozen_context} if frozen_context is not None else {}),
+                    )
                 result["command_id"] = command["command_id"]
                 admissions.complete_command(owner_id, idempotency_key, result)
-                return {key: value for key, value in result.items() if key != "_empty_workspace"}
+                return {key: value for key, value in result.items() if key not in {"_empty_workspace", "_clone_workspace"}}
             except admissions.AdmissionError as exc:
                 if str(exc) == "operation_uncertain" and command["type"] == "conversation.create":
                     recovered = self.receipt(owner_id, command["command_id"])
@@ -451,7 +502,14 @@ class ClientPlatformService:
                     admissions.reject_command(owner_id, idempotency_key, exc.code, exc.current_revision)
                 raise
 
-    def _execute(self, command: dict, target: str, *, frozen_context: dict | None = None) -> dict:
+    def _execute(
+        self,
+        command: dict,
+        target: str,
+        *,
+        frozen_context: dict | None = None,
+        runtime_surface: str = "normal_chat",
+    ) -> dict:
         from row_bot import threads
         payload = command.get("payload") or {}
         kind = command["type"]
@@ -515,6 +573,21 @@ class ClientPlatformService:
                 clear_reasoning_suppression(target, model)
             self.projection.publish(target, "resource.changed", {"revision": str(row["client_revision"] + 1)})
             return {"conversation_id": target, "revision": str(row["client_revision"] + 1), "status": "completed"}
+        if kind == "conversation.skills":
+            if self.registry.active(target):
+                raise ClientPlatformError("generation_active")
+            from row_bot.application.conversation_composer import apply_conversation_skill_command
+
+            changed = apply_conversation_skill_command(
+                target,
+                payload["action"],
+                composer_revision=payload["composer_revision"],
+                skill_id=payload.get("skill_id", ""),
+                draft=payload.get("draft", ""),
+            )
+            revision = str(changed["conversation_revision"])
+            self.projection.publish(target, "resource.changed", {"revision": revision})
+            return {"conversation_id": target, "revision": revision, "status": "completed"}
         if kind in {"conversation.bind", "conversation.unbind"}:
             from row_bot.conversation_resources import bind, unbind, ResourceError
             try:
@@ -536,6 +609,7 @@ class ClientPlatformService:
                 if pending:
                     raise ClientPlatformError("approval_required")
             return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
+                               runtime_surface=runtime_surface,
                                **({"frozen_context": frozen_context} if frozen_context is not None else {}))
         if kind == "conversation.stop":
             generation_id = payload.get("generation_id")
@@ -578,12 +652,18 @@ class ClientPlatformService:
             if self.registry.active(target):
                 return {"conversation_id": target, "status": "DeleteBlocked"}
             result = delete_thread(target)
-            return {"conversation_id": target, "status": "DeleteCompleted" if result.deleted else "DeleteBlocked"}
+            return {
+                "conversation_id": target,
+                "status": "DeleteCompleted" if result.deleted else "DeleteBlocked",
+                "deletion_warnings": list(result.warnings),
+                "retained_developer_work": bool(result.retained_worktree_path or result.retained_sandbox),
+            }
         raise ClientPlatformError("invalid_command")
 
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",
                approval_context: dict | None = None, queue_record: dict | None = None,
-               frozen_context: dict | None = None) -> dict:
+               frozen_context: dict | None = None,
+               runtime_surface: str = "normal_chat") -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
         from row_bot.application import client_queue
@@ -646,16 +726,26 @@ class ClientPlatformService:
         attachment_refs = list(payload.get("attachment_refs") or ())
         if len(attachment_refs) > 32:
             raise ClientPlatformError("payload_too_large")
+        attachment_views: list[dict[str, Any]] = []
         if attachment_refs:
             from row_bot.application.attachments import inspect_attachment, UPLOAD_BATCH_BYTES
             total_size = 0
             for reference in attachment_refs:
                 if not str(reference).startswith(conversation_id + ":"):
                     raise ClientPlatformError("action_denied")
-                total_size += int(inspect_attachment(reference)["size_bytes"])
+                metadata = inspect_attachment(reference)
+                total_size += int(metadata["size_bytes"])
                 if total_size > UPLOAD_BATCH_BYTES:
                     raise ClientPlatformError("payload_too_large")
-        config = {"configurable": {"thread_id": conversation_id, "runtime_surface": "normal_chat",
+                attachment_views.append(metadata)
+        effective_surface = str(
+            frozen_config.get("runtime_surface")
+            if frozen_context is not None
+            else runtime_surface
+        )
+        if effective_surface not in {"normal_chat", "remote_client"}:
+            raise ClientPlatformError("invalid_command")
+        config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,
                   "approval_mode": normalize_approval_mode(row.get("approval_mode")),
                   "agent_profile_id": row.get("agent_profile_id") or "",
@@ -677,7 +767,7 @@ class ClientPlatformService:
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
         handle = self.admit_execution(conversation_id, config, text=None if resume else text,
             queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
-            resume_pending=resume)
+            resume_pending=resume, attachments=None if resume else attachment_views)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
 
         def producer() -> None:
@@ -814,11 +904,54 @@ class ClientPlatformService:
             discard(conversation_id, f"live:{handle.pass_id}:{target_segment}")
         elif kind in {"tool_call", "tool_done"}:
             getter = getattr(payload, "get", lambda key, default="": default)
+            from row_bot.application.conversation_traces import (
+                build_trace_item,
+                canonical_group,
+                canonical_tool_name,
+            )
+
+            tool_name = canonical_tool_name(getter("name") or getter("tool_name"))
+            call_id = str(getter("tool_call_id") or getter("id") or "")
+            if not call_id:
+                call_id = hashlib.sha256(
+                    f"{handle.pass_id}:{handle.segment_id}:{getter('message_id')}:{tool_name}".encode()
+                ).hexdigest()[:32]
+            group_name, group_kind = canonical_group(tool_name)
+            group_id = f"{handle.segment_id}:{group_kind}:{group_name}"[:256]
+            from row_bot.application.conversation_traces import safe_tool_input
+
+            safe_input = safe_tool_input(getter("args") or {})
+            result_message_id = str(getter("message_id") or "")
+            item = build_trace_item(
+                item_id=call_id,
+                group_id=group_id,
+                call_id=call_id,
+                call_order=0,
+                group_order=0,
+                tool_name=tool_name,
+                result={
+                    "name": tool_name,
+                    "content": getter("content") or "",
+                    "media": getter("media") or [],
+                    "media_error": getter("media_error") or "",
+                },
+                result_message_id=result_message_id,
+                pending=kind == "tool_call",
+                external_outcome=str(getter("external_outcome") or ""),
+                content_ref=result_message_id if kind == "tool_done" else "",
+                safe_input=safe_input,
+            )
             self.projection.publish(conversation_id, "tool.activity", {
-                **({"tool_name": str(getter("name") or getter("tool_name"))[:128]} if getter("name") or getter("tool_name") else {}),
-                "state": kind, "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
+                "tool_name": tool_name[:128],
+                "state": kind, "tool_call_id": call_id,
                 "message_id": str(getter("message_id") or ""),
-                "pass_id": handle.pass_id, "segment_id": handle.segment_id})
+                "pass_id": handle.pass_id, "segment_id": handle.segment_id,
+                "item_id": item.item_id, "group_id": item.group_id,
+                "group_name": group_name, "group_kind": group_kind,
+                "status": item.status, "safe_input": item.safe_input,
+                "safe_summary": item.safe_summary,
+                "summary_truncated": item.summary_truncated,
+                "content_ref": item.content_ref})
             if kind == "tool_done":
                 for metadata in getter("media", []) or []:
                     self.projection.publish(conversation_id, metadata["type"], {
@@ -841,7 +974,21 @@ class ClientPlatformService:
                             "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":
             self.projection.publish(conversation_id, "generation.activity", {"state": "thinking"})
+        elif kind in {
+            "context_usage",
+            "compaction_started",
+            "compaction_succeeded",
+            "compaction_failed",
+        }:
+            from row_bot.application.context_status import project_live_usage
+
+            self.projection.publish(
+                conversation_id,
+                "context.updated",
+                project_live_usage(conversation_id, payload, kind),
+            )
         elif kind == "interrupt":
+            from row_bot.application.approval_projection import project_approval_context
             from row_bot.tasks import create_approval_request
             from row_bot.providers.selection import parse_model_ref
             from row_bot import threads
@@ -852,25 +999,37 @@ class ClientPlatformService:
             context = {"model_selection": {"provider_id": parsed[0] if parsed else "", "model_ref": handle.model_ref},
                        "interrupt_ids": interrupt_ids, "interrupt": payload,
                        "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id), "pass_id": handle.pass_id}
+            public_approval = project_approval_context(payload)
             _, handle.approval_id = create_approval_request(
-                handle.pass_id, "", "conversation", "Approval required", resume_kind="conversation",
+                handle.pass_id, "", "conversation", public_approval["reason"], resume_kind="conversation",
                 source_thread_id=conversation_id, parent_thread_id=conversation_id,
                 approval_payload_json=context)
             handle.status = "waiting_approval"
             self.projection.publish(conversation_id, "approval.required", {
-                "status": "waiting_approval", "approval_id": handle.approval_id})
+                "status": "waiting_approval", "approval_id": handle.approval_id,
+                **public_approval})
         elif kind == "error":
             self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
 
     def get_approval(self, approval_id: str) -> dict:
+        from row_bot.application.approval_projection import project_approval_context
         from row_bot.tasks import _get_conn
         with closing(_get_conn()) as conn:
             row = conn.execute("SELECT * FROM approval_requests WHERE id=?", (approval_id,)).fetchone()
         if row is None:
             raise ClientPlatformError("not_found")
+        try:
+            context = json.loads(str(row["approval_payload_json"] or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            context = {}
+        public_context = project_approval_context(
+            context.get("interrupt") if isinstance(context, dict) else None,
+            fallback_reason=str(row["message"] or ""),
+        )
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
-                "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row))}
+                "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
+                **public_context}
 
     def claim_legacy_approval(self, approval_id: str, conversation_id: str, approved: bool) -> dict:
         """Consume the same durable approval before the retained renderer resumes."""

@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "enum": [
+        "google",
+        "x"
+      ],
+      "title": "Account",
+      "type": "string"
+    },
+    "configured": {
+      "title": "Configured",
+      "type": "boolean"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "not_configured",
+        "not_authenticated",
+        "saved_unchecked",
+        "partial"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "token_files": {
+      "maximum": 2,
+      "minimum": 0,
+      "title": "Token Files",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "account",
+    "revision",
+    "configured",
+    "state",
+    "token_files"
+  ],
+  "title": "AccountAuthSnapshot",
+  "type": "object"
+}

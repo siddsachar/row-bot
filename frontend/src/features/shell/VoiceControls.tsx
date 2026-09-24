@@ -6,6 +6,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button } from '../../ui/primitives';
+import { Mic, RefreshCw, Square, X } from 'lucide-react';
 
 export type DictationScope = Readonly<{
   conversationId: string;
@@ -18,6 +19,8 @@ export type VoiceControlsProps = {
   scope: DictationScope;
   available: boolean;
   disabled?: boolean;
+  compact?: boolean;
+  unavailableReason?: string;
   start(requestId: string, signal: AbortSignal): Promise<DictationSnapshot>;
   transcribe(
     handle: DictationHandle,
@@ -340,18 +343,33 @@ export default function VoiceControls(props: VoiceControlsProps) {
   }
 
   return (
-    <div className="stack dictation-controls" aria-busy={stage !== 'idle'}>
+    <div
+      className={`dictation-controls${props.compact ? ' dictation-controls-compact' : ' stack'}`}
+      aria-busy={stage !== 'idle'}
+    >
       <div className="actions" role="group" aria-label="Dictation controls">
         {stage === 'idle' && (
           <Button
+            iconOnly={props.compact}
+            variant="ghost"
+            aria-label="Dictate"
+            title={
+              props.available
+                ? 'Dictate'
+                : props.unavailableReason || 'Dictation is unavailable'
+            }
             disabled={!props.available || props.disabled}
             onClick={() => void begin()}
           >
-            Dictate
+            {props.compact ? <Mic size={18} aria-hidden /> : 'Dictate'}
           </Button>
         )}
         {stage === 'recording' && (
           <Button
+            iconOnly={props.compact}
+            variant="ghost"
+            aria-label="Finish dictation"
+            title="Finish dictation"
             onClick={() => {
               const recorder = current.current?.recorder;
               if (recorder?.state === 'recording') {
@@ -360,20 +378,40 @@ export default function VoiceControls(props: VoiceControlsProps) {
               }
             }}
           >
-            Finish dictation
+            {props.compact ? (
+              <Square size={16} aria-hidden />
+            ) : (
+              'Finish dictation'
+            )}
           </Button>
         )}
         {['requesting', 'recording', 'transcribing'].includes(stage) && (
-          <Button onClick={cancel}>Cancel dictation</Button>
+          <Button
+            iconOnly={props.compact}
+            variant="ghost"
+            aria-label="Cancel dictation"
+            title="Cancel dictation"
+            onClick={cancel}
+          >
+            {props.compact ? <X size={18} aria-hidden /> : 'Cancel dictation'}
+          </Button>
         )}
         {stage === 'stopping' && (
           <Button
+            iconOnly={props.compact}
+            variant="ghost"
+            aria-label="Check voice status"
+            title="Check voice status"
             disabled={checking}
             onClick={() => {
               if (current.current) void confirmStopped(current.current);
             }}
           >
-            Check voice status
+            {props.compact ? (
+              <RefreshCw size={18} aria-hidden />
+            ) : (
+              'Check voice status'
+            )}
           </Button>
         )}
       </div>
@@ -388,7 +426,7 @@ export default function VoiceControls(props: VoiceControlsProps) {
                 : 'Microphone stopped. Waiting for server transcription to finish.'}
         </p>
       )}
-      {stage === 'idle' && !props.available && (
+      {stage === 'idle' && !props.available && !props.compact && (
         <small className="voice-state-reason">
           Dictation is unavailable in this session.
         </small>

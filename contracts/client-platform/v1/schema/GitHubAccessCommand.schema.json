@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "check",
+        "cli_login",
+        "cli_refresh",
+        "anonymous"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "expected_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "expected_revision",
+    "action"
+  ],
+  "title": "GitHubAccessCommand",
+  "type": "object"
+}

@@ -41,7 +41,43 @@ def test_passive_reads_do_not_save_or_snapshot_and_targets_match_inline_ids(proj
     assert not {'logo_b64', 'stored_name', 'filename'} & set(asdict(state.brand))
     client.read_controls(project.id, section='fonts')
     client.read_controls(project.id, section='presets')
+    client.read_controls(project.id, section='blocks')
     client.read_review(project.id)
+
+
+@pytest.mark.parametrize('mode', ['deck', 'landing'])
+def test_curated_block_insert_uses_catalog_exact_page_and_history(project, mode):
+    project.mode = mode
+    storage.save_project(project)
+    catalog = client.read_controls(project.id, section='blocks')
+    assert catalog.item_count > 0
+    assert all(item.available for item in catalog.items)
+    before_other_page = project.pages[1].html
+    result = apply(project, 'block_insert', {'component_name': catalog.items[0].id},
+                   page_id=project.pages[0].route_id)
+    assert catalog.items[0].label in result.pages[0].html or 'data-row-bot-component' in result.pages[0].html
+    assert result.pages[1].html == before_other_page
+    assert result.updated_at != project.updated_at
+    assert list((history.HISTORY_DIR / project.id).glob('*.json'))
+    with pytest.raises(ArtifactError, match='resource_revision_conflict'):
+        apply(project, 'block_insert', {'component_name': catalog.items[0].id},
+              page_id=project.pages[0].route_id)
+
+
+def test_curated_block_rejects_unsupported_mode_and_unknown_catalog_entry(project):
+    project.mode = 'document'
+    storage.save_project(project)
+    state = client.read_controls(project.id, section='blocks')
+    assert all(not item.available for item in state.items)
+    with pytest.raises(ArtifactError, match='invalid_design_control'):
+        apply(project, 'block_insert', {'component_name': state.items[0].id},
+              page_id=project.pages[0].route_id)
+    project.mode = 'deck'
+    storage.save_project(project)
+    with pytest.raises(ArtifactError, match='design_component_unavailable'):
+        apply(project, 'block_insert', {'component_name': 'missing'},
+              page_id=project.pages[0].route_id)
+    assert storage.load_project(project.id).to_dict() == project.to_dict()
 
 
 @pytest.mark.parametrize('mode', DESIGNER_MODES)

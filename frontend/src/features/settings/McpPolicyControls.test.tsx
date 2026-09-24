@@ -71,15 +71,9 @@ function options() {
     })),
   };
 }
-async function selectAndReview(button = 'Disable Server access') {
+async function selectPermission(button = 'Disable Server access') {
   await screen.findByRole('button', { name: button });
   fireEvent.click(screen.getByRole('button', { name: button }));
-  fireEvent.click(screen.getByRole('button', { name: 'Review permission' }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Save permission' }),
-    ).toBeEnabled(),
-  );
 }
 
 it('only reads saved policy on mount and preserves mandatory approval', async () => {
@@ -137,13 +131,11 @@ it.each([
     },
   ],
 ] as const)(
-  'reviews then explicitly saves %s with an exact intent',
+  'saves %s with an exact intent in one click',
   async (button, intent) => {
     const props = options();
     render(<McpPolicyControls {...props} />);
-    await selectAndReview(button);
-    expect(props.execute).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Save permission' }));
+    await selectPermission(button);
     await screen.findByText(/Permission saved/);
     expect(props.execute.mock.calls[0][0].payload).toEqual({
       configuration_revision: page.revision,
@@ -160,8 +152,7 @@ it('retains exact uncertain intent and review across remount, without blind re-s
   const props = options();
   props.execute.mockRejectedValueOnce(Error('synthetic response lost'));
   const first = render(<McpPolicyControls {...props} />);
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Save permission' }));
+  await selectPermission();
   await screen.findByText(/Save outcome is uncertain/);
   const original = props.execute.mock.calls[0];
   first.unmount();
@@ -186,8 +177,8 @@ it('retains a pending command through unmount and late success', async () => {
   const pending = deferred<McpConfigurationReceipt>();
   props.execute.mockReturnValue(pending.promise);
   const first = render(<McpPolicyControls {...props} />);
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Save permission' }));
+  await selectPermission();
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   const original = props.execute.mock.calls[0][0];
   first.unmount();
   render(<McpPolicyControls {...props} />);
@@ -210,8 +201,8 @@ it('does not resurrect a saved draft or receipt after authentication purge', asy
   const pending = deferred<McpConfigurationReceipt>();
   props.execute.mockReturnValue(pending.promise);
   render(<McpPolicyControls {...props} />);
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Save permission' }));
+  await selectPermission();
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   act(() => props.session.dispose());
   await act(async () =>
     pending.resolve({
@@ -272,13 +263,9 @@ it('does not enable a stale review or replay rejected commands', async () => {
   fireEvent.click(
     screen.getByRole('button', { name: 'Disable Server access' }),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review permission' }));
-  await screen.findByText(/permission could not be reviewed/);
-  expect(
-    screen.getByRole('button', { name: 'Save permission' }),
-  ).toBeDisabled();
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Save permission' }));
+  await screen.findByText(/permission could not be validated/);
+  expect(props.execute).not.toHaveBeenCalled();
+  await selectPermission();
   await screen.findByText(/Permission change rejected/);
   expect(props.session.getSnapshot().pending).toBeNull();
   expect(

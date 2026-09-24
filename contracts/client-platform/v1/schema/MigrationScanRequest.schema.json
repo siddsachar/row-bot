@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "include_secrets": {
+      "default": false,
+      "title": "Include Secrets",
+      "type": "boolean"
+    },
+    "provider": {
+      "enum": [
+        "hermes",
+        "openclaw"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "target": {
+      "default": "",
+      "maxLength": 2048,
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "source"
+  ],
+  "title": "MigrationScanRequest",
+  "type": "object"
+}

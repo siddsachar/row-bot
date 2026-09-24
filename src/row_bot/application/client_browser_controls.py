@@ -9,6 +9,7 @@ and tab identities stay private until they have dedicated client contracts.
 from __future__ import annotations
 
 from collections.abc import Callable
+import base64
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
@@ -211,6 +212,12 @@ class CanonicalBrowserControlBackend:
             }
         return dict(manager.status_snapshot(conversation_id))
 
+    def preview(self, conversation_id: str) -> tuple[dict[str, Any], bytes | None]:
+        manager = self._manager()
+        if not manager.has_active_session():
+            return {}, None
+        return manager.ephemeral_preview(conversation_id)
+
     def execute(
         self, action: str, payload: dict[str, Any], conversation_id: str
     ) -> None:
@@ -326,6 +333,41 @@ def read_browser_controls(
     """Read sanitized activity without launching or observing a page."""
 
     return _snapshot(conversation_id, validate, _backend(backend))[0]
+
+
+def read_browser_preview(
+    conversation_id: str,
+    expected_revision: str,
+    *,
+    validate: Callable[[], None],
+    backend: Any | None = None,
+) -> dict[str, Any]:
+    """Read a bounded ephemeral picture for an authorized conversation."""
+    if not _REVISION.fullmatch(expected_revision):
+        raise _error("invalid_browser_command")
+    source = _backend(backend)
+    public, proof = _snapshot(conversation_id, validate, source)
+    if public["revision"] != expected_revision:
+        raise _error("browser_revision_conflict", public["revision"])
+    status, frame = source.preview(conversation_id)
+    if status and int(status.get("revision", -1)) != proof["activity_revision"]:
+        raise _error("browser_revision_conflict", public["revision"])
+    shielded = bool(status.get("preview_shielded")) or status.get("state") in {
+        "waiting_user", "waiting_approval",
+    }
+    state = (
+        "inactive" if not public["active"] else
+        "shielded" if shielded else
+        "available" if frame and len(frame) <= 1_500_000 else "waiting"
+    )
+    validate()
+    return {
+        "schema_version": 1,
+        "conversation_id": conversation_id,
+        "revision": expected_revision,
+        "state": state,
+        "image_base64": base64.b64encode(frame).decode("ascii") if state == "available" else None,
+    }
 
 
 def _normalize(

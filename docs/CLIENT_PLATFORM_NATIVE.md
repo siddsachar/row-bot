@@ -6,12 +6,15 @@ download/save and discovery. Each operation returns `ok`, `cancelled` or an
 explicit `unavailable` reason. Components consume this interface; they do not
 look at screen size, user-agent strings, native flags or `pywebview.api`.
 
-The production v1.0 handshake's `native_adapter.available` is the literal
-`false`. `selectClientPlatform(media, handshake)` therefore selects browser
-behavior, including inside a legacy desktop window. It never calls legacy
-`_JsApi` methods. The legacy launcher API is shared across windows and returns
-paths, which does not meet the new per-window opaque-reference contract.
-Its existing NiceGUI consumers remain unchanged until their migration gate.
+The default native window opens `/app-v2/` and uses the narrow per-window
+`NativeClientBridge`; `--legacy-ui` opens `/` with the retained NiceGUI bridge.
+Direct/no-tray launch honors the saved Native or Browser preference and records
+the requested, selected, opened, authorized, and fallback outcome in the local
+launcher state. A failed native window may open the browser only with an
+explicit fallback reason; the browser never inherits native authority.
+`selectClientPlatform(media, handshake)` still follows the negotiated handshake
+rather than inferring authority from a URL or user agent. Existing NiceGUI
+consumers remain unchanged.
 
 The browser implementation uses an explicit file input (directory input where
 supported), browser clipboard permissions, safe HTTP(S) links with
@@ -58,13 +61,11 @@ Browser-provided paths, arbitrary native methods and non-HTTP(S) external URLs
 are rejected. Managed windows receive only `/app-v2/` routes; each new window
 needs its own binding. Native errors expose no paths or raw exception text.
 
-The trusted hook `attach_native_client(...)` is provided for isolated/fake
-integration and the later platform lane. The production launcher intentionally
-does not invoke it while the canonical handshake advertises unavailable.
-Enabling it requires the Phase 5 negotiated native capability and platform
-integration gates, including native event-order behavior, actual file dialogs,
-clipboard permissions, save/cancellation, cross-window isolation and navigation
-revocation on Windows/macOS/Linux. Deterministic fake-driver tests establish
-the contract and effect boundaries; they do not establish OS or installed-machine
-behavior. No new dependency, shell command, native process or user-data access
-is needed to import or test this adapter.
+The trusted hook `attach_native_client(...)` is installed only for a launcher-
+owned React window. Negotiated capabilities, document leases and backend
+registration still gate each operation; merely loading `/app-v2/` grants no
+native authority. Native event-order behavior, actual file dialogs, clipboard
+permissions, save/cancellation, cross-window isolation and navigation
+revocation remain platform-specific manual checks on Windows/macOS/Linux.
+Deterministic fake-driver tests establish the contract and effect boundaries;
+they do not establish OS or installed-machine behavior.

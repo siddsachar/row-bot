@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import threading
+import time
 from urllib.parse import quote, urlsplit
 import uuid
 
@@ -35,6 +37,7 @@ TRUSTED_SESSION_TTL = timedelta(days=30)
 TEMPORARY_SESSION_TTL = timedelta(hours=12)
 TRUSTED_SESSION_RENEWAL_WINDOW = timedelta(days=7)
 SESSION_REFRESH_POLL_INTERVAL = timedelta(hours=12)
+REMOTE_CLIENT_PATH = "/app-v2/"
 
 
 @dataclass(frozen=True)
@@ -98,10 +101,52 @@ class AccessService:
 
     def __init__(self, store: AccessStore | None = None) -> None:
         self.store = store or AccessStore()
+        # Short-lived HTTP admission state is intentionally memory-only. It
+        # contains no secrets and never replaces durable authorization state.
+        self._request_budget_lock = threading.Lock()
+        self._request_budgets: dict[tuple[str, str], tuple[float, int]] = {}
 
     @property
     def instance_id(self) -> str:
         return self.store.instance_id
+
+    def consume_request_budget(
+        self,
+        bucket: str,
+        subject: str,
+        *,
+        limit: int,
+        window_seconds: float = 60.0,
+        now: float | None = None,
+    ) -> bool:
+        """Consume one privacy-safe, instance-local HTTP admission slot."""
+
+        if limit < 1 or window_seconds <= 0:
+            raise ValueError("request budget bounds must be positive")
+        current = time.monotonic() if now is None else float(now)
+        key = (str(bucket)[:64], str(subject or "unidentified")[:160])
+        with self._request_budget_lock:
+            if len(self._request_budgets) > 2048:
+                self._request_budgets = {
+                    item_key: value
+                    for item_key, value in self._request_budgets.items()
+                    if current - value[0] < window_seconds
+                }
+                if len(self._request_budgets) > 1792:
+                    newest = sorted(
+                        self._request_budgets.items(),
+                        key=lambda item: item[1][0],
+                        reverse=True,
+                    )[:1792]
+                    self._request_budgets = dict(newest)
+            started, count = self._request_budgets.get(key, (current, 0))
+            if current - started >= window_seconds:
+                started, count = current, 0
+            if count >= limit:
+                self._request_budgets[key] = (started, count)
+                return False
+            self._request_budgets[key] = (started, count + 1)
+            return True
 
     def create_invitation(
         self,

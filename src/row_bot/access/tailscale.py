@@ -389,6 +389,14 @@ class TailscaleStatusCache:
             self._snapshots.pop(key, None)
 
 
+_PROCESS_STATUS_CACHE = TailscaleStatusCache()
+
+
+def process_tailscale_status_cache() -> TailscaleStatusCache:
+    """Share explicit, command-free status across both owner clients."""
+    return _PROCESS_STATUS_CACHE
+
+
 @dataclass(frozen=True, slots=True)
 class TailscaleServePlan:
     """A pure description of the next action; constructing it never mutates."""

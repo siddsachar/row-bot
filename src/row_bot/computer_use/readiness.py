@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import subprocess
 import tempfile
 import shutil
@@ -19,6 +20,10 @@ from row_bot.data_paths import get_row_bot_data_dir
 
 NOTICE_VERSION = 2
 RUNTIME_ID = "cua-driver"
+_MACOS_PRIVACY_URLS = {
+    "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    "screen_recording": "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+}
 DISCLOSURE_TEXT = (
     "Computer Use is powered by the open-source Cua Driver 0.20.0. Cua telemetry "
     "is enabled upstream by default and sends pseudonymous product analytics to "
@@ -67,7 +72,7 @@ class CuaReadiness:
 
 
 def _settings_path() -> Path:
-    return get_row_bot_data_dir() / "computer_use_settings.json"
+    return get_row_bot_data_dir(create=False) / "computer_use_settings.json"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -91,7 +96,11 @@ def _write_settings(payload: dict[str, Any]) -> None:
 
 
 def load_cua_manifest() -> dict[str, Any]:
-    text = resources.files("row_bot.computer_use").joinpath("cua_runtime_manifest.json").read_text(encoding="utf-8")
+    text = (
+        resources.files("row_bot.computer_use")
+        .joinpath("cua_runtime_manifest.json")
+        .read_text(encoding="utf-8")
+    )
     data = json.loads(text)
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise RuntimeError("Unsupported Cua runtime manifest schema")
@@ -99,7 +108,10 @@ def load_cua_manifest() -> dict[str, Any]:
 
 
 def disclosure_acknowledged() -> bool:
-    return int(_read_json(_settings_path()).get("acknowledged_notice_version") or 0) == NOTICE_VERSION
+    return (
+        int(_read_json(_settings_path()).get("acknowledged_notice_version") or 0)
+        == NOTICE_VERSION
+    )
 
 
 def acknowledge_disclosure() -> None:
@@ -123,7 +135,9 @@ def cancel_disclosure() -> None:
 
 def require_cua_disclosure() -> None:
     if not disclosure_acknowledged():
-        raise CuaDisclosureRequired("Cua telemetry disclosure must be accepted before any Cua executable invocation.")
+        raise CuaDisclosureRequired(
+            "Cua telemetry disclosure must be accepted before any Cua executable invocation."
+        )
 
 
 def _platform_key() -> str | None:
@@ -188,19 +202,46 @@ def verify_system_cua() -> CuaReadiness:
     settings = _read_json(_settings_path())
     path = Path(str(settings.get("system_cua_path") or ""))
     if not settings.get("allow_system_cua") or not path.is_file():
-        return CuaReadiness(ReadinessCode.NOT_INSTALLED, "No valid system Cua override is selected.")
-    completed = subprocess.run([str(path), "--version"], capture_output=True, text=True, timeout=15, check=False)
-    output = " ".join(part.strip() for part in (completed.stdout, completed.stderr) if part).strip()
+        return CuaReadiness(
+            ReadinessCode.NOT_INSTALLED, "No valid system Cua override is selected."
+        )
+    completed = subprocess.run(
+        [str(path), "--version"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    output = " ".join(
+        part.strip() for part in (completed.stdout, completed.stderr) if part
+    ).strip()
     match = re.search(r"\b(\d+\.\d+\.\d+)\b", output)
     expected = str(load_cua_manifest()["version"])
     if completed.returncode != 0 or not match:
-        return CuaReadiness(ReadinessCode.FAILED, "System Cua version check failed.", executable=str(path), remediation=f"Select the reviewed {expected} binary or use the managed install.")
+        return CuaReadiness(
+            ReadinessCode.FAILED,
+            "System Cua version check failed.",
+            executable=str(path),
+            remediation=f"Select the reviewed {expected} binary or use the managed install.",
+        )
     version = match.group(1)
     if version != expected:
-        return CuaReadiness(ReadinessCode.VERSION_MISMATCH, "System Cua is outside the reviewed version pin.", version, str(path), remediation=f"Use Cua Driver {expected}.")
+        return CuaReadiness(
+            ReadinessCode.VERSION_MISMATCH,
+            "System Cua is outside the reviewed version pin.",
+            version,
+            str(path),
+            remediation=f"Use Cua Driver {expected}.",
+        )
     settings["system_cua_version"] = version
     _write_settings(settings)
-    return CuaReadiness(ReadinessCode.READY, "System Cua version matches the reviewed pin; diagnostics are still required.", version, str(path), "system-override")
+    return CuaReadiness(
+        ReadinessCode.READY,
+        "System Cua version matches the reviewed pin; diagnostics are still required.",
+        version,
+        str(path),
+        "system-override",
+    )
 
 
 def readiness(*, enabled: bool | None = None) -> CuaReadiness:
@@ -213,32 +254,95 @@ def readiness(*, enabled: bool | None = None) -> CuaReadiness:
             enabled = False
     manifest = load_cua_manifest()
     if not enabled:
-        return CuaReadiness(ReadinessCode.DISABLED, "Computer Use is off.", version=str(manifest["version"]))
+        return CuaReadiness(
+            ReadinessCode.DISABLED,
+            "Computer Use is off.",
+            version=str(manifest["version"]),
+        )
     if not disclosure_acknowledged():
-        return CuaReadiness(ReadinessCode.DISCLOSURE_REQUIRED, "Review the Cua telemetry warning to continue.", version=str(manifest["version"]), remediation="Continue or Cancel the disclosure.")
+        return CuaReadiness(
+            ReadinessCode.DISCLOSURE_REQUIRED,
+            "Review the Cua telemetry warning to continue.",
+            version=str(manifest["version"]),
+            remediation="Continue or Cancel the disclosure.",
+        )
     asset = selected_asset()
     if asset is None:
-        return CuaReadiness(ReadinessCode.UNSUPPORTED, "Computer Use is unavailable on this platform.", version=str(manifest["version"]), remediation="Use Browser or a supported Windows/macOS host.")
+        return CuaReadiness(
+            ReadinessCode.UNSUPPORTED,
+            "Computer Use is unavailable on this platform.",
+            version=str(manifest["version"]),
+            remediation="Use Browser or a supported Windows/macOS host.",
+        )
     settings = _read_json(_settings_path())
-    system_override = bool(settings.get("allow_system_cua") and settings.get("system_cua_path"))
+    system_override = bool(
+        settings.get("allow_system_cua") and settings.get("system_cua_path")
+    )
     installed = _runtime_manifest()
     executable = resolve_cua_executable()
     if system_override:
         system_version = str(settings.get("system_cua_version") or "")
         if not executable:
-            return CuaReadiness(ReadinessCode.NOT_INSTALLED, "Configured system Cua path does not exist.", version=str(manifest["version"]), remediation="Select an existing Cua executable or use the managed install.")
+            return CuaReadiness(
+                ReadinessCode.NOT_INSTALLED,
+                "Configured system Cua path does not exist.",
+                version=str(manifest["version"]),
+                remediation="Select an existing Cua executable or use the managed install.",
+            )
         if system_version != str(manifest["version"]):
-            return CuaReadiness(ReadinessCode.VERSION_MISMATCH, "System Cua must be verified against the reviewed version.", version=system_version, executable=executable, remediation="Run Verify system Cua after reviewing the telemetry warning.")
+            return CuaReadiness(
+                ReadinessCode.VERSION_MISMATCH,
+                "System Cua must be verified against the reviewed version.",
+                version=system_version,
+                executable=executable,
+                remediation="Run Verify system Cua after reviewing the telemetry warning.",
+            )
         if not settings.get("system_cua_doctor_ok"):
-            return CuaReadiness(ReadinessCode.DEGRADED, "System Cua version is verified; run diagnostics before use.", version=system_version, executable=executable, hash_status="system-override", remediation="Run diagnostics.")
-        return CuaReadiness(ReadinessCode.READY, "Approved system Cua is ready.", version=system_version, executable=executable, hash_status="system-override")
+            return CuaReadiness(
+                ReadinessCode.DEGRADED,
+                "System Cua version is verified; run diagnostics before use.",
+                version=system_version,
+                executable=executable,
+                hash_status="system-override",
+                remediation="Run diagnostics.",
+            )
+        return CuaReadiness(
+            ReadinessCode.READY,
+            "Approved system Cua is ready.",
+            version=system_version,
+            executable=executable,
+            hash_status="system-override",
+        )
     if not installed or not executable:
-        return CuaReadiness(ReadinessCode.NOT_INSTALLED, "Cua Driver is not installed.", version=str(manifest["version"]), remediation="Select Install Cua Driver.")
+        return CuaReadiness(
+            ReadinessCode.NOT_INSTALLED,
+            "Cua Driver is not installed.",
+            version=str(manifest["version"]),
+            remediation="Select Install Cua Driver.",
+        )
     if str(installed.get("version")) != str(manifest["version"]):
-        return CuaReadiness(ReadinessCode.VERSION_MISMATCH, "Installed Cua Driver version is outside the reviewed pin.", version=str(installed.get("version") or ""), executable=executable, remediation="Install the reviewed version.")
-    if str(installed.get("archive_sha256") or "").lower() != str(asset["sha256"]).lower():
-        return CuaReadiness(ReadinessCode.HASH_MISMATCH, "Cua Driver integrity metadata does not match the reviewed artifact.", version=str(installed.get("version") or ""), executable=executable, hash_status="mismatch", remediation="Reinstall the reviewed artifact.")
-    if asset.get("platform_key") == "macos-universal" and not _is_macos_app_bundle_executable(executable):
+        return CuaReadiness(
+            ReadinessCode.VERSION_MISMATCH,
+            "Installed Cua Driver version is outside the reviewed pin.",
+            version=str(installed.get("version") or ""),
+            executable=executable,
+            remediation="Install the reviewed version.",
+        )
+    if (
+        str(installed.get("archive_sha256") or "").lower()
+        != str(asset["sha256"]).lower()
+    ):
+        return CuaReadiness(
+            ReadinessCode.HASH_MISMATCH,
+            "Cua Driver integrity metadata does not match the reviewed artifact.",
+            version=str(installed.get("version") or ""),
+            executable=executable,
+            hash_status="mismatch",
+            remediation="Reinstall the reviewed artifact.",
+        )
+    if asset.get(
+        "platform_key"
+    ) == "macos-universal" and not _is_macos_app_bundle_executable(executable):
         return CuaReadiness(
             ReadinessCode.DEGRADED,
             "The managed macOS helper needs repair before Computer Use can run.",
@@ -249,8 +353,21 @@ def readiness(*, enabled: bool | None = None) -> CuaReadiness:
             details={"repair_required": True},
         )
     if not installed.get("doctor_ok"):
-        return CuaReadiness(ReadinessCode.DEGRADED, "Cua Driver integrity is verified; run diagnostics before use.", version=str(manifest["version"]), executable=executable, hash_status="verified", remediation="Run diagnostics.")
-    return CuaReadiness(ReadinessCode.READY, "Cua Driver is ready for task-scoped Computer Use.", version=str(manifest["version"]), executable=executable, hash_status="verified")
+        return CuaReadiness(
+            ReadinessCode.DEGRADED,
+            "Cua Driver integrity is verified; run diagnostics before use.",
+            version=str(manifest["version"]),
+            executable=executable,
+            hash_status="verified",
+            remediation="Run diagnostics.",
+        )
+    return CuaReadiness(
+        ReadinessCode.READY,
+        "Cua Driver is ready for task-scoped Computer Use.",
+        version=str(manifest["version"]),
+        executable=executable,
+        hash_status="verified",
+    )
 
 
 def _set_readiness_marker(key: str, value: bool) -> None:
@@ -270,6 +387,48 @@ def _set_readiness_marker(key: str, value: bool) -> None:
 def mark_cua_observation_verified() -> None:
     require_cua_disclosure()
     _set_readiness_marker("observation_ok", True)
+
+
+def test_local_computer_use() -> None:
+    """Verify a local Calculator window after one explicit host action."""
+
+    require_cua_disclosure()
+    from row_bot.computer_use.service import LeaseOwner, get_computer_use_service
+
+    service = get_computer_use_service()
+    owner = LeaseOwner(
+        "settings-calculator", secrets.token_urlsafe(8), "settings-calculator"
+    )
+    acquired = False
+    try:
+        service.acquire(owner, validate_context=False)
+        acquired = True
+        service.grant_app_permission_for_local_ui(owner, "Calculator")
+        windows = service.launch_app("Calculator", owner, approval_mode="allow_all")
+        if not windows:
+            raise RuntimeError("Calculator launched but no target window was reported.")
+        if service.current_observation(windows[0]["target_id"]) is None:
+            raise RuntimeError(
+                "Calculator opened, but Row-Bot could not verify its window."
+            )
+        mark_cua_observation_verified()
+    finally:
+        if acquired:
+            service.stop()
+
+
+def open_macos_privacy_settings(permission: str) -> None:
+    """Open one fixed macOS privacy pane after an explicit local action."""
+
+    try:
+        url = _MACOS_PRIVACY_URLS[permission]
+    except KeyError as exc:
+        raise ValueError(f"Unknown macOS privacy permission: {permission}") from exc
+    subprocess.Popen(  # noqa: S603 - fixed executable and fixed deep links
+        ["open", url],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def install_cua_runtime(
@@ -292,7 +451,9 @@ def install_cua_runtime(
         url=str(asset["url"]),
         sha256=str(asset["sha256"]),
         asset_name=str(asset["name"]),
-        executable_candidates=tuple(str(value) for value in asset["executable_candidates"]),
+        executable_candidates=tuple(
+            str(value) for value in asset["executable_candidates"]
+        ),
         progress=progress,
         cancelled=cancelled,
         preserve_top_level_directory=asset.get("platform_key") == "macos-universal",
@@ -307,7 +468,9 @@ def uninstall_cua_runtime() -> bool:
     root = (RUNTIMES_DIR / RUNTIME_ID).resolve()
     runtimes = RUNTIMES_DIR.resolve()
     if root.parent != runtimes:
-        raise RuntimeError("Refusing to remove a runtime outside Row-Bot's managed runtime directory")
+        raise RuntimeError(
+            "Refusing to remove a runtime outside Row-Bot's managed runtime directory"
+        )
     try:
         from row_bot.computer_use.service import get_computer_use_service
 
@@ -325,12 +488,18 @@ def run_cua_diagnostics() -> CuaReadiness:
 
     require_cua_disclosure()
     state = readiness(enabled=True)
-    if state.code not in {ReadinessCode.READY, ReadinessCode.DEGRADED} or not state.executable:
+    if (
+        state.code not in {ReadinessCode.READY, ReadinessCode.DEGRADED}
+        or not state.executable
+    ):
         return state
     if state.details and state.details.get("repair_required"):
         return state
     from row_bot.computer_use.client import CuaClient
-    from row_bot.mcp_client.requirements import finalize_pinned_archive_runtime, rollback_pinned_archive_runtime
+    from row_bot.mcp_client.requirements import (
+        finalize_pinned_archive_runtime,
+        rollback_pinned_archive_runtime,
+    )
 
     def _rollback_managed_candidate() -> None:
         if state.hash_status == "verified":
@@ -355,18 +524,47 @@ def run_cua_diagnostics() -> CuaReadiness:
     report = response.structured
     if str(report.get("schema_version")) != "1":
         _rollback_managed_candidate()
-        return CuaReadiness(ReadinessCode.FAILED, "Unsupported Cua health-report schema.", state.version, state.executable, state.hash_status)
+        return CuaReadiness(
+            ReadinessCode.FAILED,
+            "Unsupported Cua health-report schema.",
+            state.version,
+            state.executable,
+            state.hash_status,
+        )
     overall = str(report.get("overall") or "failed")
     if overall == "ok":
         _set_readiness_marker("doctor_ok", True)
         if state.hash_status == "verified":
             finalize_pinned_archive_runtime(RUNTIME_ID)
         updated = readiness(enabled=True)
-        return CuaReadiness(updated.code, "Cua Driver diagnostics passed.", state.version, state.executable, state.hash_status, updated.remediation, report)
-    failed = [check for check in report.get("checks") or [] if isinstance(check, dict) and check.get("status") == "fail"]
-    permission = any(str(item.get("name") or "").startswith(("tcc_", "ax_", "screen_capture")) for item in failed)
-    code = ReadinessCode.PERMISSION_MISSING if permission else ReadinessCode.DEGRADED if overall == "degraded" else ReadinessCode.FAILED
-    hints = "; ".join(str(item.get("hint") or item.get("message") or "") for item in failed)
+        return CuaReadiness(
+            updated.code,
+            "Cua Driver diagnostics passed.",
+            state.version,
+            state.executable,
+            state.hash_status,
+            updated.remediation,
+            report,
+        )
+    failed = [
+        check
+        for check in report.get("checks") or []
+        if isinstance(check, dict) and check.get("status") == "fail"
+    ]
+    permission = any(
+        str(item.get("name") or "").startswith(("tcc_", "ax_", "screen_capture"))
+        for item in failed
+    )
+    code = (
+        ReadinessCode.PERMISSION_MISSING
+        if permission
+        else ReadinessCode.DEGRADED
+        if overall == "degraded"
+        else ReadinessCode.FAILED
+    )
+    hints = "; ".join(
+        str(item.get("hint") or item.get("message") or "") for item in failed
+    )
     if permission:
         hints = (
             "Allow Row-Bot in macOS Privacy & Security, then return here and check again."
@@ -374,4 +572,12 @@ def run_cua_diagnostics() -> CuaReadiness:
             else "Grant the required screen and control permissions, then check again."
         )
     _rollback_managed_candidate()
-    return CuaReadiness(code, "Cua Driver diagnostics need attention.", state.version, state.executable, state.hash_status, hints, report)
+    return CuaReadiness(
+        code,
+        "Cua Driver diagnostics need attention.",
+        state.version,
+        state.executable,
+        state.hash_status,
+        hints,
+        report,
+    )

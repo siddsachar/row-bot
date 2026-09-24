@@ -120,6 +120,8 @@ def test_ephemeral_preview_shields_protected_browser_fields_and_reuses_safe_fram
     assert safe.screenshot_count == 1
     assert session.status_snapshot("protected")["preview_shielded"] is True
     assert session.status_snapshot("safe")["has_thumbnail"] is True
+    assert session.ephemeral_preview("protected")[1] is None
+    assert session.ephemeral_preview("safe")[1] == b"png"
     for _ in range(10):
         assert session.ephemeral_screenshot("safe") == b"png"
     assert safe.screenshot_count == 1
@@ -132,8 +134,10 @@ def test_ephemeral_preview_shields_protected_browser_fields_and_reuses_safe_fram
         page=replacement,
     )
     assert session.ephemeral_screenshot("safe") is None
+    assert session.ephemeral_preview("safe")[1] is None
     assert session.status_snapshot("safe")["has_thumbnail"] is False
 
     session.end_activity("safe")
     assert session.ephemeral_screenshot("safe") is None
+    assert session.ephemeral_preview("safe")[1] is None
     assert session.status_snapshot("safe")["has_thumbnail"] is False

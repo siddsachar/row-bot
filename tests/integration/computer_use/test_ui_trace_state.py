@@ -44,9 +44,11 @@ def test_active_session_and_settings_sources_expose_required_local_controls() ->
         "macOS is blocking Computer Use",
     ):
         assert label in source
-    assert 'approval_mode="allow_all"' in source
-    assert "Privacy_Accessibility" in source
-    assert "Privacy_ScreenCapture" in source
+    readiness = Path("src/row_bot/computer_use/readiness.py").read_text(encoding="utf-8")
+    assert "await run.io_bound(test_local_computer_use)" in source
+    assert 'approval_mode="allow_all"' in readiness
+    assert "Privacy_Accessibility" in readiness
+    assert "Privacy_ScreenCapture" in readiness
     for label in (
         "Stop",
         "Take over",

@@ -240,6 +240,10 @@ export function createDocumentUploadsSession(
           ),
         );
       }),
+    async start() {
+      await this.review();
+      await this.confirm();
+    },
     refresh: () =>
       run(async () => {
         if (!attempt) throw new Error('document_upload_command_required');
@@ -285,7 +289,7 @@ export function DocumentUploads({
       </p>
       <p>
         Files are staged in a paused batch. Processing and provider use require
-        a separate explicit review.
+        a separate action.
       </p>
       <label htmlFor={inputId}>Choose documents</label>
       <input
@@ -312,21 +316,10 @@ export function DocumentUploads({
       )}
       <Button
         disabled={disabled || !state.files.length}
-        onClick={() => invoke(session.review)}
+        onClick={() => invoke(() => session.start())}
       >
-        Review upload
+        Upload selected
       </Button>
-      {state.review && (
-        <div role="group" aria-label="Reviewed upload">
-          <p>
-            {state.review.file_count} files · {state.review.total_bytes} bytes ·
-            processing paused
-          </p>
-          <Button disabled={disabled} onClick={() => invoke(session.confirm)}>
-            Confirm upload
-          </Button>
-        </div>
-      )}
       {state.pending && (
         <Button
           disabled={state.busy || state.revoked}

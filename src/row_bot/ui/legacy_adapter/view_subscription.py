@@ -14,11 +14,13 @@ class LegacyViewSubscription:
     def __init__(self, projection: Any, load: Callable[[str], list[dict]],
                  apply: Callable[[str, list[dict]], None], *,
                  ready: Callable[[str], bool] = lambda _: True,
+                 apply_live: Callable[[str, dict, list[dict]], None] | None = None,
                  on_error: Callable[[str, str], None] | None = None) -> None:
         self._projection = projection
         self._load = load
         self._apply = apply
         self._ready = ready
+        self._apply_live = apply_live
         self._on_error = on_error
         self._loop = asyncio.get_running_loop()
         self._conversation_id = ""
@@ -71,8 +73,17 @@ class LegacyViewSubscription:
             checkpoint_revision = str(snapshot.get("checkpoint_revision") or "")
             generation = snapshot.get("generation") or {}
             if generation.get("status") in {"admitted", "running", "stopping"}:
+                if not self._ready(target):
+                    self._deferred = True
+                    continue
+                self._deferred = False
+                if self._apply_live:
+                    history = self._projection.events_since(target, "0")
+                    self._apply_live(target, snapshot, history.get("events") or [])
                 continue
             if not checkpoint_revision or checkpoint_revision == self._checkpoint_revision:
+                if self._apply_live and self._ready(target):
+                    self._apply_live(target, snapshot, [])
                 continue
             failure_key = (selection_epoch, checkpoint_revision)
             if failure_key != self._failure_key:
@@ -83,6 +94,8 @@ class LegacyViewSubscription:
                 self._deferred = True
                 continue
             self._deferred = False
+            if self._apply_live:
+                self._apply_live(target, snapshot, [])
             try:
                 messages = await asyncio.to_thread(self._load, target)
                 if not messages and snapshot.get("rows"):

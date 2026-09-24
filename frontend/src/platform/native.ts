@@ -4,6 +4,7 @@ import type {
   MediaTransport,
   PlatformInfo,
   Selection,
+  SelectionIntent,
 } from './types';
 import {
   protect,
@@ -29,6 +30,7 @@ const reference = (value: unknown): value is string =>
 export function createPyWebViewPlatform(
   endpoint: NativeEndpoint,
   media: MediaTransport,
+  attestation: string,
 ): ClientPlatform {
   async function call<T>(
     operation: string,
@@ -52,11 +54,13 @@ export function createPyWebViewPlatform(
   const selection = async (
     kind: 'file' | 'folder',
     signal?: AbortSignal,
+    intent?: SelectionIntent,
   ): Promise<CapabilityResult<Selection>> => {
     if (signal?.aborted) return { status: 'cancelled' };
+    if (!intent) return unavailable('native_intent_required');
     const result = await call<Selection>(
       kind === 'file' ? 'select_file' : 'select_folder',
-      {},
+      intent,
       (value): value is Selection =>
         object(value) &&
         value.kind === kind &&
@@ -69,7 +73,7 @@ export function createPyWebViewPlatform(
     discover: () =>
       call<PlatformInfo>(
         'discover',
-        {},
+        { attestation },
         (value): value is PlatformInfo =>
           object(value) &&
           value.kind === 'pywebview' &&
@@ -77,10 +81,13 @@ export function createPyWebViewPlatform(
             String(value.platform),
           ) &&
           Array.isArray(value.capabilities) &&
-          value.capabilities.every((item) => typeof item === 'string'),
+          value.capabilities.every((item) => typeof item === 'string') &&
+          typeof value.instanceId === 'string' &&
+          typeof value.windowId === 'string' &&
+          typeof value.epoch === 'number',
       ),
-    selectFile: (signal) => selection('file', signal),
-    selectFolder: (signal) => selection('folder', signal),
+    selectFile: (signal, intent) => selection('file', signal, intent),
+    selectFolder: (signal, intent) => selection('folder', signal, intent),
     upload: (conversationId, file, signal) =>
       protect(() => media.upload(conversationId, file, signal)),
     readClipboard: () =>
@@ -104,6 +111,15 @@ export function createPyWebViewPlatform(
       /^\/app-v2\/(?:[A-Za-z0-9_-]+\/?)*$/.test(route)
         ? call('managed_window', { route }, nullValue)
         : Promise.resolve(unavailable('invalid_route')),
+    openTerminal: (conversationId) =>
+      call<{ terminalId: string }>(
+        'terminal_open',
+        { conversationId },
+        (value): value is { terminalId: string } =>
+          object(value) &&
+          reference(value.terminalId) &&
+          Object.keys(value).length === 1,
+      ),
     save: async (ref, name, signal) => {
       if (signal?.aborted) return { status: 'cancelled' };
       if (!reference(ref) || !safeDownloadName(name))

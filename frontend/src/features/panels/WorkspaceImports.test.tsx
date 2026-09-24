@@ -87,39 +87,33 @@ function props(
     ...overrides,
   };
 }
-async function selectAndReview() {
+async function selectPatch() {
   fireEvent.click(
     await screen.findByRole('button', { name: /Pending · 1 file/ }),
   );
   await screen.findByLabelText('Saved patch');
-  fireEvent.click(screen.getByRole('button', { name: 'Review import' }));
-  await screen.findByRole('button', { name: 'Confirm import' });
 }
-it('opens only saved metadata, renders plain patch text, and cancels an unsent review', async () => {
+it('opens only saved metadata and renders plain patch text without importing', async () => {
   const p = props();
   render(<WorkspaceImports {...p} />);
   await screen.findByText('1 saved change');
   expect(p.review).not.toHaveBeenCalled();
   expect(p.apply).not.toHaveBeenCalled();
-  await selectAndReview();
+  await selectPatch();
   expect(screen.getByLabelText('Saved patch')).toHaveValue(
     '<script>untrusted patch text</script>',
   );
   expect(document.querySelector('section script')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
-  await screen.findByText(/Import review cancelled/);
   expect(p.apply).not.toHaveBeenCalled();
 });
-it('shows exact reviewed folder creation and retains it with the original command', async () => {
+it('retains exact reviewed folder creation with the original one-click import', async () => {
   const intent = { ...reviewed, directories: ['new', 'new/nested'] };
   const p = props({ review: vi.fn().mockResolvedValue(intent) });
   render(<WorkspaceImports {...p} />);
-  await selectAndReview();
-  const folders = screen.getByRole('list', { name: 'Reviewed new folders' });
-  expect(folders).toHaveTextContent('new/nested');
-  expect(folders.querySelectorAll('li')).toHaveLength(2);
-  expect(p.apply).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm import' }));
+  await selectPatch();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Import selected changes' }),
+  );
   await waitFor(() => expect(p.apply).toHaveBeenCalledTimes(1));
   expect(vi.mocked(p.apply).mock.calls[0][0]).toEqual(intent);
   expect(vi.mocked(p.apply).mock.calls[0][0]).not.toBe(intent);
@@ -136,11 +130,13 @@ it('submits only once and retains the exact review, command and late result acro
   });
   const session = new WorkspaceImportsSession(p.scope);
   const view = render(<WorkspaceImports {...p} session={session} />);
-  await selectAndReview();
-  const confirm = screen.getByRole('button', { name: 'Confirm import' });
-  fireEvent.click(confirm);
-  fireEvent.click(confirm);
-  expect(p.apply).toHaveBeenCalledTimes(1);
+  await selectPatch();
+  const importButton = screen.getByRole('button', {
+    name: 'Import selected changes',
+  });
+  fireEvent.click(importButton);
+  fireEvent.click(importButton);
+  await waitFor(() => expect(p.apply).toHaveBeenCalledTimes(1));
   expect(session.hasRetained()).toBe(true);
   const [original, command] = vi.mocked(p.apply).mock.calls[0];
   expect(original).toEqual(reviewed);
@@ -159,8 +155,10 @@ it('retains uncertainty and explicitly recovers only the original reviewed comma
   });
   const session = new WorkspaceImportsSession(p.scope);
   const view = render(<WorkspaceImports {...p} session={session} />);
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm import' }));
+  await selectPatch();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Import selected changes' }),
+  );
   await screen.findByText(/outcome is unconfirmed/);
   const original = vi.mocked(p.apply).mock.calls[0];
   view.unmount();
@@ -190,8 +188,10 @@ it('keeps partial publication and missing history retained instead of claiming c
   });
   const session = new WorkspaceImportsSession(p.scope);
   render(<WorkspaceImports {...p} session={session} />);
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm import' }));
+  await selectPatch();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Import selected changes' }),
+  );
   await screen.findByText(/Some import stages remain unconfirmed/);
   expect(
     screen.getByText(/Change history: unconfirmed. Import marker: saved/),
@@ -206,8 +206,10 @@ it('rejects a receipt for another command and masks late settlement after auth d
   });
   const session = new WorkspaceImportsSession(p.scope);
   const view = render(<WorkspaceImports {...p} session={session} />);
-  await selectAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm import' }));
+  await selectPatch();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Import selected changes' }),
+  );
   await screen.findByText(/outcome is unconfirmed/);
   fireEvent.click(screen.getByRole('button', { name: 'Check import receipt' }));
   await waitFor(() =>
@@ -239,7 +241,7 @@ it('refuses to expose an existing session in a different resource binding', asyn
   const p = props();
   const session = new WorkspaceImportsSession(p.scope);
   const view = render(<WorkspaceImports {...p} session={session} />);
-  await selectAndReview();
+  await selectPatch();
   view.rerender(
     <WorkspaceImports {...p} scope="auth:other-binding" session={session} />,
   );
@@ -327,9 +329,11 @@ it('pages the patch without appending unbounded text and rejects stale page revi
   fireEvent.click(screen.getByRole('button', { name: 'First patch page' }));
   await screen.findByText(/saved revision changed/);
   expect(screen.getByLabelText('Saved patch')).toHaveValue('second patch page');
-  expect(screen.getByRole('button', { name: 'Review import' })).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Import selected changes' }),
+  ).toBeDisabled();
 });
-it('does not enable confirmation when policy blocks the import', async () => {
+it('does not import when policy blocks the action', async () => {
   const p = props({
     review: vi.fn().mockResolvedValue({
       ...reviewed,
@@ -338,8 +342,12 @@ it('does not enable confirmation when policy blocks the import', async () => {
     }),
   });
   render(<WorkspaceImports {...p} />);
-  await selectAndReview();
-  expect(screen.getByRole('button', { name: 'Confirm import' })).toBeDisabled();
-  expect(screen.getByText(/policy blocks this import/)).toBeInTheDocument();
+  await selectPatch();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Import selected changes' }),
+  );
+  expect(
+    await screen.findByText(/policy blocks this import/),
+  ).toBeInTheDocument();
   expect(p.apply).not.toHaveBeenCalled();
 });

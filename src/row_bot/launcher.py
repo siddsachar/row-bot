@@ -198,6 +198,11 @@ def _write_launcher_state(
     owns_server: bool,
     window_control_port: int | None = None,
     window_pid: int | None = None,
+    requested_mode: str | None = None,
+    selected_mode: str | None = None,
+    opened_mode: str | None = None,
+    window_authorized: bool | None = None,
+    fallback_reason: str | None = None,
 ) -> None:
     path = _launcher_state_path()
     payload = {
@@ -208,6 +213,11 @@ def _write_launcher_state(
         "owns_server": bool(owns_server),
         "session": _LAUNCH_SESSION_ID,
         "updated_at": time.time(),
+        "requested_mode": requested_mode or mode,
+        "selected_mode": selected_mode or mode,
+        "opened_mode": opened_mode or mode,
+        "window_authorized": bool(window_authorized),
+        "fallback_reason": fallback_reason,
     }
     if window_control_port:
         payload["window_control_port"] = int(window_control_port)
@@ -894,6 +904,23 @@ def _is_port_in_use(port: int = _PORT) -> bool:
 
 def _url_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port}"
+
+
+def _client_url_for_port(port: int, *, client_v2: bool = True) -> str:
+    return _url_for_port(port) + ("/app-v2/" if client_v2 else "")
+
+
+def _resolve_client_v2(args: object) -> bool:
+    """Return the selected shell; ``--client-v2`` is a deprecated no-op."""
+
+    if bool(getattr(args, "client_v2", False)) and bool(
+        getattr(args, "legacy_ui", False)
+    ):
+        raise ValueError(
+            "--client-v2 now names the default client and cannot be combined "
+            "with --legacy-ui"
+        )
+    return not bool(getattr(args, "legacy_ui", False))
 
 
 def _resolve_launch_host(cli_host: object) -> str:
@@ -1644,6 +1671,10 @@ _WINDOW_SCRIPT = r'''
 import sys
 import time
 import os
+import json
+import tempfile
+import urllib.error
+import urllib.request
 
 # macOS: ensure the subprocess registers as a full GUI app so it can
 # receive mouse/keyboard events.  Without this, a window re-opened from
@@ -1661,7 +1692,7 @@ import webview
 import webbrowser
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from row_bot.buddy.config import get_buddy_config, save_buddy_config
 from row_bot.buddy.overlay import (
     OVERLAY_HEIGHT,
@@ -2283,13 +2314,236 @@ _APP_PORT = _port_from_url(url)
 w, h = int(sys.argv[3]), int(sys.argv[4])
 _ICON_PATH = sys.argv[5] if len(sys.argv) > 5 else ""
 _CONTROL_PORT = int(sys.argv[6]) if len(sys.argv) > 6 else 0
+_CLIENT_V2 = len(sys.argv) > 7 and sys.argv[7] == "1"
 enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
 _reset_buddy_placement_for_startup()
 _start_control_server(_CONTROL_PORT)
 threading.Thread(target=_track_foreground_apps, daemon=True, name="buddy-foreground-tracker").start()
-main_window = webview.create_window(title, url, width=w, height=h, js_api=_JS_API)
+
+_NATIVE_ORIGIN = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+_NATIVE_AUTHORITIES = {}
+
+def _native_json(path, payload=None):
+    body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(
+        _NATIVE_ORIGIN + path,
+        data=body,
+        method="GET" if body is None else "POST",
+        headers={
+            "Origin": _NATIVE_ORIGIN,
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+        },
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        data = response.read(65537)
+        if len(data) > 65536 or getattr(response, "status", 200) != 200:
+            raise ValueError("invalid_native_response")
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise ValueError("invalid_native_response")
+    return value
+
+def _native_clipboard_write(text):
+    if not isinstance(text, str) or len(text.encode("utf-8")) > 65536:
+        return False
+    import subprocess as _sp
+    try:
+        if sys.platform == "darwin":
+            command = ["pbcopy"]
+        elif sys.platform == "win32":
+            command = ["clip.exe"]
+        else:
+            command = ["wl-copy"]
+        return _sp.run(command, input=text.encode("utf-8"), timeout=2, check=False).returncode == 0
+    except Exception:
+        return False
+
+def _attach_client_v2(window, instance_id):
+    from row_bot.native_client import (
+        NativeDocumentAuthority,
+        PyWebViewDriver,
+        attach_native_client,
+    )
+
+    def authenticate(attestation, context):
+        value = _native_json("/api/v1/native/attest", {
+            "attestation": attestation,
+            "instance_id": context.instance_id,
+            "window_id": context.window_id,
+            "window_epoch": context.window_epoch,
+        })
+        authority = NativeDocumentAuthority(
+            str(value["session_id"]),
+            str(value["policy_revision"]),
+            str(value["authority_grant"]),
+        )
+        _NATIVE_AUTHORITIES[str(context.window_id)] = authority
+        _NATIVE_AUTHORITIES[str(context.window_id) + ":context"] = context
+        return authority
+
+    def authorize(authority, context):
+        try:
+            value = _native_json("/api/v1/native/authorize", {
+                "session_id": authority.session_id,
+                "policy_revision": authority.policy_revision,
+                "authority_grant": authority.authority_grant,
+                "instance_id": context.instance_id,
+                "window_id": context.window_id,
+                "window_epoch": context.window_epoch,
+            })
+            return value.get("ok") is True
+        except Exception:
+            return False
+
+    def register_selection(request, authority, selected):
+        value = _native_json("/api/v1/native/selections/complete", {
+            "session_id": authority.session_id,
+            "policy_revision": authority.policy_revision,
+            "authority_grant": authority.authority_grant,
+            "instance_id": authority.instance_id,
+            "window_id": authority.window_id,
+            "window_epoch": authority.window_epoch,
+            "selection_kind": request.selection_kind,
+            "intent_id": request.intent_id,
+            "intent": request.intent,
+            "conversation_id": request.conversation_id,
+            "destination": request.destination,
+            "path": str(selected),
+        })
+        if value.get("kind") != request.selection_kind:
+            raise ValueError("invalid_native_selection")
+        return str(value["reference"])
+
+    def revoke(authority, context):
+        try:
+            _native_json("/api/v1/native/revoke", {
+                "session_id": authority.session_id,
+                "policy_revision": authority.policy_revision,
+                "authority_grant": authority.authority_grant,
+                "instance_id": context.instance_id,
+                "window_id": context.window_id,
+                "window_epoch": context.window_epoch,
+            })
+        except Exception:
+            pass
+        finally:
+            _NATIVE_AUTHORITIES.pop(str(context.window_id), None)
+            _NATIVE_AUTHORITIES.pop(str(context.window_id) + ":context", None)
+
+    def save_reference(reference, target):
+        authority = _NATIVE_AUTHORITIES.get(str(window.uid))
+        if authority is None:
+            return False
+        payload = json.dumps({
+            "session_id": authority.session_id,
+            "policy_revision": authority.policy_revision,
+            "authority_grant": authority.authority_grant,
+            "instance_id": instance_id,
+            "window_id": str(window.uid),
+            "window_epoch": getattr(authority, "window_epoch", None),
+        }, separators=(",", ":")).encode("utf-8")
+        # The document epoch is owned by the bridge rather than the compact
+        # authority DTO. Preserve it beside the authority after authentication.
+        context = _NATIVE_AUTHORITIES.get(str(window.uid) + ":context")
+        if context is None:
+            return False
+        body = json.loads(payload)
+        body["window_epoch"] = context.epoch
+        request = urllib.request.Request(
+            _NATIVE_ORIGIN + "/api/v1/native/attachments/" + quote(reference, safe=""),
+            data=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+            method="POST",
+            headers={"Origin": _NATIVE_ORIGIN, "Content-Type": "application/json"},
+        )
+        temporary = None
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = response.read(26214401)
+            if not data or len(data) > 26214400:
+                return False
+            target = os.path.abspath(str(target))
+            directory = os.path.dirname(target)
+            with tempfile.NamedTemporaryFile(delete=False, dir=directory, prefix=".row-bot-save-") as stream:
+                temporary = stream.name
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            temporary = None
+            return True
+        except Exception:
+            return False
+        finally:
+            if temporary:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+
+    def open_terminal(authority, conversation_id):
+        value = _native_json("/api/v1/native/terminal/open", {
+            "session_id": authority.session_id,
+            "policy_revision": authority.policy_revision,
+            "authority_grant": authority.authority_grant,
+            "instance_id": authority.instance_id,
+            "window_id": authority.window_id,
+            "window_epoch": authority.window_epoch,
+            "conversation_id": conversation_id,
+        })
+        return str(value["terminal_id"])
+
+    def open_managed(route):
+        if not isinstance(route, str) or not route.startswith("/app-v2/"):
+            return False
+        key = "client-v2:" + route
+        existing = _NAMED_WINDOWS.get(key)
+        if existing is not None:
+            try:
+                existing.show()
+                return True
+            except Exception:
+                _NAMED_WINDOWS.pop(key, None)
+        child = webview.create_window("Row-Bot", _NATIVE_ORIGIN + route, width=1280, height=900)
+        _NAMED_WINDOWS[key] = child
+        _attach_client_v2(child, instance_id)
+        return True
+
+    driver = PyWebViewDriver(
+        window,
+        open_window=open_managed,
+        read_clipboard=_JS_API.get_clipboard,
+        write_clipboard=_native_clipboard_write,
+        save_reference=save_reference,
+    )
+    return attach_native_client(
+        window,
+        instance_id=instance_id,
+        origin=_NATIVE_ORIGIN,
+        driver=driver,
+        authenticate_document=authenticate,
+        authorize_document=authorize,
+        register_selection=register_selection,
+        revoke_document=revoke,
+        open_terminal=open_terminal,
+    )
+
+main_window = webview.create_window(
+    title,
+    url,
+    width=w,
+    height=h,
+    **({} if _CLIENT_V2 else {"js_api": _JS_API}),
+)
 _NAMED_WINDOWS["main"] = main_window
+if _CLIENT_V2:
+    try:
+        _bootstrap = _native_json("/api/v1/native/bootstrap")
+        _attach_client_v2(main_window, str(_bootstrap["instance_id"]))
+        _buddy_window_log("client-v2 native bridge ready; terminal capability registered")
+    except Exception as exc:
+        _buddy_window_log(f"client-v2 native bridge unavailable: {exc}")
 _install_main_window_buddy_events(main_window)
 _DATA_DIR = os.environ.get("ROW_BOT_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".row-bot")
 _WEBVIEW_STORAGE_PATH = os.environ.get("ROW_BOT_WEBVIEW_STORAGE_PATH") or os.path.join(
@@ -2572,14 +2826,17 @@ def _ask_window_mode() -> str:
     return "native"
 
 
-def _open_in_browser(port: int = _PORT) -> None:
+def _open_in_browser(port: int = _PORT, *, client_v2: bool = True) -> None:
     """Open the Row-Bot UI in the default system browser."""
-    webbrowser.open(_url_for_port(port))
+    webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
     logger.info("Opened %s in system browser on port %s", APP_DISPLAY_NAME, port)
 
 
 def _open_window(
-    port: int = _PORT, control_port: int | None = None
+    port: int = _PORT,
+    control_port: int | None = None,
+    *,
+    client_v2: bool = True,
 ) -> subprocess.Popen | None:
     """Open a pywebview native window pointing at the running server.
 
@@ -2591,14 +2848,14 @@ def _open_window(
         logger.warning(
             "No display server detected; opening browser instead of native window"
         )
-        webbrowser.open(_url_for_port(port))
+        webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
         return None
+    proc = None
     try:
         args = [
             sys.executable,
-            "-c",
-            _WINDOW_SCRIPT,
-            _url_for_port(port),
+            "-",
+            _client_url_for_port(port, client_v2=client_v2),
             APP_DISPLAY_NAME,
             "1280",
             "900",
@@ -2606,24 +2863,38 @@ def _open_window(
         ]
         if control_port:
             args.append(str(int(control_port)))
+        else:
+            args.append("0")
+        args.append("1" if client_v2 else "0")
         proc = subprocess.Popen(
             args,
+            stdin=subprocess.PIPE,
+            text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        if proc.stdin is None:
+            raise RuntimeError("Native window script pipe is unavailable")
+        proc.stdin.write(_WINDOW_SCRIPT)
+        proc.stdin.close()
         time.sleep(0.5)
         if proc.poll() is not None:
             logger.warning(
                 "Native window exited during startup; falling back to browser"
             )
-            webbrowser.open(_url_for_port(port))
+            webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
             return None
         logger.info("Native window opened (PID %s, port %s)", proc.pid, port)
         return proc
     except Exception as exc:
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
         logger.warning(
             "Could not open native window: %s — falling back to browser", exc
         )
-        webbrowser.open(_url_for_port(port))
+        webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
         return None
 
 
@@ -2654,7 +2925,7 @@ def _wait_for_server(
 
 
 class RowBotTray:
-    """System-tray icon that manages the NiceGUI server and native window."""
+    """System-tray icon that manages the shared server and selected client."""
 
     def __init__(
         self,
@@ -2662,6 +2933,7 @@ class RowBotTray:
         preferred_port: int = _PORT,
         host: str | None = None,
         preferred_mode: str | None = None,
+        client_v2: bool = True,
         no_splash: bool = False,
         no_ollama: bool = False,
     ) -> None:
@@ -2670,6 +2942,7 @@ class RowBotTray:
         self._explicit_host = host
         self._host = _resolve_launch_host(host)
         self._preferred_mode = preferred_mode
+        self._client_v2 = client_v2
         self._no_splash = no_splash
         self._no_ollama = no_ollama
         self._server = _RowBotProcess(self._port, host=self._host)
@@ -2697,6 +2970,14 @@ class RowBotTray:
                 self._port + 10000, max_tries=50
             )
         return self._window_control_port
+
+    def _launch_window(self) -> subprocess.Popen | None:
+        options = {} if self._client_v2 else {"client_v2": False}
+        return _open_window(
+            self._port,
+            self._ensure_window_control_port(),
+            **options,
+        )
 
     def _ensure_launcher_control(self) -> None:
         if self._launcher_control is not None:
@@ -2763,7 +3044,7 @@ class RowBotTray:
                 return False
         elif not _is_row_bot_server(self._port):
             return False
-        self._window_proc = _open_window(self._port, self._ensure_window_control_port())
+        self._window_proc = self._launch_window()
         if not self._is_window_alive():
             return False
         time.sleep(0.7)
@@ -2850,16 +3131,18 @@ class RowBotTray:
         if not self._owns_server and not _is_row_bot_server(self._port):
             # External server died — just open browser and hope
             _launch_event("server_ready_timeout", port=self._port, duration_ms=0.0)
-            webbrowser.open(_url_for_port(self._port))
+            webbrowser.open(
+                _client_url_for_port(self._port, client_v2=self._client_v2)
+            )
             return
 
         logger.info("Opening %s window", APP_DISPLAY_NAME)
-        self._window_proc = _open_window(self._port, self._ensure_window_control_port())
+        self._window_proc = self._launch_window()
 
     def _on_open_browser(self, icon=None, item=None) -> None:  # noqa: ARG002
         """Open the Row-Bot UI in the default system browser."""
         if _is_row_bot_server(self._port):
-            _open_in_browser(self._port)
+            _open_in_browser(self._port, client_v2=self._client_v2)
         elif self._owns_server:
             logger.info("Server not running — restarting before opening browser")
             self._server.stop()
@@ -2869,12 +3152,12 @@ class RowBotTray:
                 time.sleep(0.5)
             self._server.start(self._port)
             if _wait_for_server(self._port, server=self._server):
-                _open_in_browser(self._port)
+                _open_in_browser(self._port, client_v2=self._client_v2)
                 _launch_event("browser_opened", port=self._port, mode="browser")
             else:
                 logger.warning("Server did not restart — cannot open browser")
         else:
-            _open_in_browser(self._port)
+            _open_in_browser(self._port, client_v2=self._client_v2)
 
     def _on_show_buddy(self, icon=None, item=None) -> None:  # noqa: ARG002
         """Show the desktop Buddy overlay from the system tray."""
@@ -3039,39 +3322,58 @@ class RowBotTray:
                 port=self._port,
                 duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1),
             )
+            requested_mode = self._preferred_mode or "saved"
             mode = self._preferred_mode or _load_window_mode()
             _stop_launcher_helper(splash_proc, name="splash_tk")
             if mode == "ask":
                 mode = _ask_window_mode() if _has_display_server() else "browser"
             if mode == "browser":
-                _open_in_browser(self._port)
+                _open_in_browser(self._port, client_v2=self._client_v2)
                 _write_launcher_state(
                     port=self._port,
                     mode="browser",
                     owns_server=self._owns_server,
+                    requested_mode=requested_mode,
+                    selected_mode="browser",
+                    opened_mode="browser",
                 )
             else:
-                self._window_proc = _open_window(
-                    self._port, self._ensure_window_control_port()
-                )
+                self._window_proc = self._launch_window()
                 if self._window_proc is None:
                     self._window_control_port = None
+                opened_mode = "native" if self._window_proc else "browser"
+                fallback_reason = (
+                    None if self._window_proc else "native_window_start_failed"
+                )
                 _launch_event(
                     "native_window_requested",
                     port=self._port,
                     pid=self._window_proc.pid if self._window_proc else 0,
-                    mode=mode,
+                    requested_mode=requested_mode,
+                    selected_mode=mode,
+                    opened_mode=opened_mode,
+                    authorized=bool(self._window_proc and self._window_control_port),
+                    fallback_reason=fallback_reason or "",
                 )
                 _write_launcher_state(
                     port=self._port,
-                    mode=mode,
+                    mode=opened_mode,
                     owns_server=self._owns_server,
                     window_control_port=self._window_control_port,
                     window_pid=self._window_proc.pid if self._window_proc else None,
+                    requested_mode=requested_mode,
+                    selected_mode=mode,
+                    opened_mode=opened_mode,
+                    window_authorized=bool(
+                        self._window_proc and self._window_control_port
+                    ),
+                    fallback_reason=fallback_reason,
                 )
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
-            webbrowser.open(_url_for_port(self._port))
+            webbrowser.open(
+                _client_url_for_port(self._port, client_v2=self._client_v2)
+            )
 
         logger.info("%s tray startup complete", APP_DISPLAY_NAME)
 
@@ -3252,26 +3554,81 @@ def _run_direct(args: argparse.Namespace) -> None:
     )
     _stop_launcher_helper(splash_proc, name="splash_tk")
 
-    mode_for_state = "server" if args.server or args.no_open else "browser"
+    explicit_native = bool(getattr(args, "native", False))
+    explicit_browser = bool(getattr(args, "browser", False))
+    requested_mode = (
+        "server"
+        if args.server or args.no_open
+        else "native"
+        if explicit_native
+        else "browser"
+        if explicit_browser
+        else "saved"
+    )
+    selected_mode = "server" if args.server or args.no_open else "browser"
+    if not args.server and not args.no_open:
+        if explicit_native:
+            selected_mode = "native"
+        elif explicit_browser:
+            selected_mode = "browser"
+        else:
+            selected_mode = _load_window_mode()
+            if selected_mode == "ask":
+                selected_mode = (
+                    _ask_window_mode() if _has_display_server() else "browser"
+                )
+    mode_for_state = selected_mode
+    opened_mode = "server" if args.server or args.no_open else "browser"
+    fallback_reason: str | None = None
     window_control_port: int | None = None
     window_proc: subprocess.Popen | None = None
 
     if not args.no_open:
-        if args.native and _has_display_server():
-            mode_for_state = "native"
+        if selected_mode == "native" and _has_display_server():
             window_control_port = _find_free_port(port + 10000, max_tries=50)
-            window_proc = _open_window(port, window_control_port)
+            window_proc = _open_window(
+                port,
+                window_control_port,
+                client_v2=bool(getattr(args, "client_v2", True)),
+            )
             if window_proc is None:
                 window_control_port = None
+                mode_for_state = "browser"
+                opened_mode = "browser"
+                fallback_reason = "native_window_start_failed"
+            else:
+                opened_mode = "native"
             _launch_event(
                 "native_window_requested",
                 port=port,
                 pid=window_proc.pid if window_proc else 0,
-                mode="native",
+                requested_mode=requested_mode,
+                selected_mode=selected_mode,
+                opened_mode=opened_mode,
+                authorized=bool(window_proc and window_control_port),
+                fallback_reason=fallback_reason or "",
+            )
+        elif selected_mode == "native":
+            mode_for_state = "browser"
+            opened_mode = "browser"
+            fallback_reason = "display_server_unavailable"
+            _open_in_browser(
+                port, client_v2=bool(getattr(args, "client_v2", True))
+            )
+            _launch_event(
+                "native_window_fallback",
+                port=port,
+                requested_mode=requested_mode,
+                selected_mode=selected_mode,
+                opened_mode=opened_mode,
+                fallback_reason=fallback_reason,
             )
         elif _has_display_server() or not args.server:
             mode_for_state = "browser"
-            _open_in_browser(port)
+            opened_mode = "browser"
+            _open_in_browser(
+                port, client_v2=bool(getattr(args, "client_v2", True))
+            )
             _launch_event("browser_opened", port=port, mode="browser")
         else:
             logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
@@ -3284,6 +3641,11 @@ def _run_direct(args: argparse.Namespace) -> None:
         owns_server=owns_server,
         window_control_port=window_control_port,
         window_pid=window_proc.pid if window_proc else None,
+        requested_mode=requested_mode,
+        selected_mode=selected_mode,
+        opened_mode=opened_mode,
+        window_authorized=bool(window_proc and window_control_port),
+        fallback_reason=fallback_reason,
     )
 
     if owns_server:
@@ -3294,6 +3656,13 @@ def _run_direct(args: argparse.Namespace) -> None:
                 restart_in_progress=restart_lock.locked,
             )
         finally:
+            if window_proc is not None:
+                _RowBotProcess._terminate_process(
+                    window_proc,
+                    label=f"{APP_DISPLAY_NAME} window",
+                    timeout=3,
+                    kill_tree=True,
+                )
             if launcher_control is not None:
                 launcher_control.stop()
 
@@ -3476,6 +3845,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--no-open", action="store_true", help="Do not open a browser or native window"
     )
     parser.add_argument(
+        "--client-v2",
+        action="store_true",
+        help="Deprecated no-op alias for the default React client at /app-v2/",
+    )
+    parser.add_argument(
+        "--legacy-ui",
+        action="store_true",
+        help="Open the retained legacy local UI at /",
+    )
+    parser.add_argument(
         "--no-splash", action="store_true", help="Skip the launcher splash screen"
     )
     parser.add_argument(
@@ -3542,6 +3921,10 @@ def main(argv: list[str] | None = None) -> None:
         from row_bot.plugins import devtools as plugin_devtools
 
         raise SystemExit(plugin_devtools.run_cli(args))
+    try:
+        selected_client_v2 = _resolve_client_v2(args)
+    except ValueError as exc:
+        raise SystemExit(f"row-bot: {exc}") from exc
     if getattr(args, "command", "") == "serve":
         from row_bot.access.access_routes import AccessRouteConfigStore
         from row_bot.access.cli import resolve_serve_options, serve_startup_lines
@@ -3571,6 +3954,7 @@ def main(argv: list[str] | None = None) -> None:
         args.reset_tasks_db = False
         args.reset_db = False
         args.restore_data = None
+    args.client_v2 = selected_client_v2
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None
@@ -3611,6 +3995,7 @@ def main(argv: list[str] | None = None) -> None:
             preferred_port=parse_app_port(args.port, default=_PORT),
             host=args.host,
             preferred_mode=preferred_mode,
+            client_v2=bool(args.client_v2),
             no_splash=args.no_splash,
             no_ollama=args.no_ollama,
         )
@@ -3618,9 +4003,8 @@ def main(argv: list[str] | None = None) -> None:
         tray.run()
     except ImportError as exc:
         logger.warning(
-            "System tray unavailable (%s); falling back to browser mode", exc
+            "System tray unavailable (%s); falling back to direct launch mode", exc
         )
-        args.browser = True
         args.no_tray = True
         _run_direct(args)
     except KeyboardInterrupt:

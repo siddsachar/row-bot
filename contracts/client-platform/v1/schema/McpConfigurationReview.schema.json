@@ -23,7 +23,8 @@
         "add",
         "edit",
         "rename",
-        "import"
+        "import",
+        "delete"
       ],
       "title": "Operation",
       "type": "string"

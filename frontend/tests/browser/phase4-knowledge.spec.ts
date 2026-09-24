@@ -30,36 +30,88 @@ test.beforeEach(async ({ context, page }) => {
   });
 });
 
-test('Phase 4 knowledge and documents expose saved summaries and incomplete status through Settings', async ({
+test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
-  await page.goto('/app-v2/settings');
-  await page.getByRole('link', { name: 'Knowledge', exact: true }).click();
-  await page
-    .getByRole('searchbox', { name: 'Search knowledge' })
-    .fill('Phase 4 knowledge');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.getByText('105 matching saved entries')).toBeVisible();
-  await expect(page.locator('.settings-results > li')).toHaveCount(50);
-  await page
-    .getByRole('button', { name: 'Load more knowledge', exact: true })
-    .click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(100);
-  await page
-    .getByRole('button', { name: 'Load more knowledge', exact: true })
-    .click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(105);
-  await page
-    .getByRole('searchbox', { name: 'Search knowledge' })
-    .fill('tail needle');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(1);
-  await page.locator('.settings-results summary').click();
+  await page.goto('/app-v2/settings/knowledge');
+
   await expect(
-    page.getByText('This saved summary is shortened.'),
+    page.getByRole('region', { name: 'Memory graph summary' }),
   ).toBeVisible();
-  await expect(page.getByText('p4-entity-104', { exact: true })).toBeVisible();
+  const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
+  await expect(wiki).toBeVisible();
+  await expect(
+    wiki.getByRole('button', { name: 'Browse', exact: true }),
+  ).toBeVisible();
+  await expect(
+    wiki.getByRole('button', { name: 'Check vault sync', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Needs Review' }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.settings-knowledge-filters').getByRole('combobox'),
+  ).toHaveCount(4);
+  await expect(page.locator('.settings-knowledge-result')).toHaveCount(25);
+  await expect(
+    page.getByText('Showing 25 of 105 matching entries.'),
+  ).toBeVisible();
+
+  const memory = page.getByRole('switch', { name: 'Enable Memory' });
+  const wasEnabled = await memory.isChecked();
+  await memory.click();
+  const reviewedMemory = page.getByRole('region', {
+    name: 'Reviewed memory setting',
+  });
+  await expect(reviewedMemory).toContainText(
+    wasEnabled ? 'disabled' : 'enabled',
+  );
+  await reviewedMemory
+    .getByRole('button', { name: 'Apply memory setting' })
+    .click();
+  await expect(memory).toBeChecked({ checked: !wasEnabled });
+
+  const search = page.getByRole('searchbox', { name: 'Search knowledge' });
+  await search.fill('tail needle');
+  await expect(page.locator('.settings-knowledge-result')).toHaveCount(1);
+  await page.getByRole('combobox', { name: 'Category' }).selectOption('fact');
+  await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
+  await page
+    .getByRole('combobox', { name: 'Source' })
+    .selectOption('extraction');
+  await page.getByRole('combobox', { name: 'Tier' }).selectOption('semantic');
+  await expect(page.locator('.settings-knowledge-result')).toHaveCount(1);
+
+  const row = page.locator('.settings-knowledge-result').first();
+  await row.locator('summary').click();
+  await expect(row.getByText('p4-entity-104', { exact: true })).toBeVisible();
+  await expect(row.getByText('semantic', { exact: true })).toBeVisible();
+  await row.getByText('Provenance', { exact: true }).click();
+  await expect(
+    row.getByText('Source: synthetic', { exact: true }),
+  ).toBeVisible();
+  await row.getByRole('button', { name: /Edit/ }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit knowledge' });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('textbox', { name: 'Subject' })).toHaveValue(
+    'Phase 4 knowledge 104',
+  );
+  await editor.getByRole('button', { name: 'Close knowledge editor' }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(row.getByRole('button', { name: /Edit/ })).toBeFocused();
+
+  await page.getByText('Recent recall decisions', { exact: true }).click();
+  await expect(page.getByText('Memory used', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Phase 4 knowledge 000 \(0\.93\)/)).toBeVisible();
+  await page.getByText('Memory change log', { exact: true }).click();
+  await expect(
+    page.getByText('mark needs review', { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('heading', { name: 'Knowledge', exact: true })
+    .scrollIntoViewIfNeeded();
+
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await expect(page.locator('html')).toHaveAttribute(
@@ -67,41 +119,33 @@ test('Phase 4 knowledge and documents expose saved summaries and incomplete stat
       appearance,
     );
     await assertNoOverflow(page);
-    await screenshot(page, info, `saved-knowledge-${appearance}`);
-    await accessibility(page, info, `saved-knowledge-${appearance}`);
+    await screenshot(page, info, `knowledge-parity-${appearance}`);
+    await accessibility(page, info, `knowledge-parity-${appearance}`);
   }
-  await page.goto('/app-v2/settings');
-  await page.getByRole('link', { name: 'Documents', exact: true }).click();
-  await page
-    .getByRole('searchbox', { name: 'Search documents' })
-    .fill('Phase 4 document');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.getByText('105 matching saved entries')).toBeVisible();
-  await page
-    .getByRole('combobox', { name: 'Saved document status' })
-    .selectOption('completed');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(1);
-  await page.locator('.settings-results summary').click();
-  await expect(
-    page.getByText('Partial — completion records disagree or are missing'),
-  ).toBeVisible();
-  await expect(
-    page.getByText('Current searchability', { exact: true }),
-  ).toBeVisible();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await expect(page.locator('html')).toHaveAttribute(
-      'data-theme',
-      appearance,
-    );
-    await assertNoOverflow(page);
-    await screenshot(page, info, `saved-document-${appearance}`);
-    await accessibility(page, info, `saved-document-${appearance}`);
-  }
-  await seed(page, 'empty');
-  await page
-    .getByRole('button', { name: 'Reload documents', exact: true })
+
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await row
+    .getByRole('checkbox', { name: 'Select Phase 4 knowledge 104' })
     .click();
-  await expect(page.getByText('No matching documents')).toBeVisible();
+  await page.getByRole('button', { name: 'Review delete selected' }).click();
+  await page
+    .getByRole('button', { name: 'Confirm permanent deletion' })
+    .click();
+  await expect(page.getByText('No matching knowledge')).toBeVisible();
+
+  await search.fill('');
+  await page.getByRole('combobox', { name: 'Category' }).selectOption('');
+  await page.getByRole('combobox', { name: 'Status' }).selectOption('');
+  await page.getByRole('combobox', { name: 'Source' }).selectOption('');
+  await page.getByRole('combobox', { name: 'Tier' }).selectOption('');
+  const deleteAll = page.getByRole('button', { name: /Delete all knowledge/ });
+  await expect(deleteAll).toBeEnabled();
+  await deleteAll.click();
+  await expect(
+    page.getByRole('region', { name: 'Reviewed knowledge deletion' }),
+  ).toContainText('104 entries');
+  await page
+    .getByRole('button', { name: 'Confirm permanent deletion' })
+    .click();
+  await expect(page.getByText('No matching knowledge')).toBeVisible();
 });

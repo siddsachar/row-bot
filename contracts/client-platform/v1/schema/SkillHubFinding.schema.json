@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "maxLength": 80,
+      "title": "Code",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 500,
+      "title": "Message",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 256,
+      "title": "Path",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "block",
+        "warn",
+        "info"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "required": [
+    "severity",
+    "code",
+    "message",
+    "path"
+  ],
+  "title": "SkillHubFinding",
+  "type": "object"
+}

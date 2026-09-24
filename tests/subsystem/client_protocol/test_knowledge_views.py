@@ -32,6 +32,21 @@ def read(client, headers, kind, **params):
     return response.json()
 
 
+def test_knowledge_graph_requires_auth_and_returns_bounded_snapshot(saved):
+    client, service, _ = client_app()
+    with client:
+        assert client.get("/api/v1/knowledge/graph").status_code == 401
+        _, headers = bootstrap(client)
+        response = client.get(
+            "/api/v1/knowledge/graph", headers=headers, params={"limit": 25}
+        )
+    assert response.status_code == 200, response.text
+    graph = response.json()
+    assert len(graph["nodes"]) == 25
+    assert graph["total_entities"] == 205 and graph["truncated"] is True
+    assert service.commands == []
+
+
 @pytest.mark.parametrize("kind", ["entities", "documents"])
 def test_saved_knowledge_requires_current_session_origin_and_auth(
     api_store, kind, monkeypatch

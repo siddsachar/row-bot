@@ -16,6 +16,13 @@ def _fresh_agent_runner_modules(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+    skills_activation = importlib.import_module("row_bot.skills_activation")
+    monkeypatch.setattr(skills_activation, "DATA_DIR", data_dir)
+    monkeypatch.setattr(
+        skills_activation,
+        "STATE_PATH",
+        data_dir / "skills_activation.json",
+    )
     # Keep package and dotted imports on one storage owner; isolate its paths
     # without leaving a stale package attribute after sys.modules eviction.
     workspace_storage = importlib.import_module("row_bot.developer.storage")

@@ -18,6 +18,10 @@ const ownedNames = [
   'asset-manifest.json',
   '.vite/manifest.json',
   'assets/index-abcdefgh.js',
+  'app.webmanifest',
+  'service-worker.js',
+  'icon-192.png',
+  'icon-512.png',
   'private.txt',
 ];
 let scratch: string;
@@ -31,6 +35,13 @@ beforeEach(() => {
   mkdirSync(join(build, 'assets'), { recursive: true });
   mkdirSync(join(build, '.vite'));
   writeFileSync(join(build, 'index.html'), '<html>fixture</html>');
+  for (const name of [
+    'app.webmanifest',
+    'service-worker.js',
+    'icon-192.png',
+    'icon-512.png',
+  ])
+    writeFileSync(join(build, name), `public ${name} fixture`);
   writeFileSync(
     join(build, 'assets/index-abcdefgh.js'),
     'export const fixture = true;',
@@ -70,7 +81,7 @@ const packageFixture = () =>
 it('stages exactly the inventoried assets and both private manifests', () => {
   writeFileSync(join(build, 'private.txt'), 'unlisted fixture');
   expect(packageFixture().status).toBe(0);
-  for (const name of ownedNames.slice(0, 4)) {
+  for (const name of ownedNames.slice(0, -1)) {
     expect(readFileSync(join(stage, name))).toEqual(
       readFileSync(join(build, name)),
     );

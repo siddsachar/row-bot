@@ -229,6 +229,10 @@ export function createDocumentProcessingSession(
         guard();
         accept(receipt);
       }),
+    async start() {
+      await this.review();
+      await this.confirm();
+    },
     refresh: () =>
       run(async () => {
         if (!state.original || !state.selection)
@@ -277,13 +281,10 @@ export function DocumentProcessingPanel({
     void operation().catch(() => undefined);
   };
   if (state.revoked)
-    return (
-      <p role="status">Authenticate again to review document processing.</p>
-    );
-  if (!state.selection)
-    return <p>Select a paused batch to review processing.</p>;
+    return <p role="status">Authenticate again to process documents.</p>;
+  if (!state.selection) return <p>Select a paused batch to process.</p>;
   return (
-    <section aria-label="Document processing review">
+    <section aria-label="Document processing">
       <h3>Process saved documents</h3>
       <p>Conversation: {state.selection.conversationId}</p>
       <p>Batch: {state.selection.batchId}</p>
@@ -297,8 +298,11 @@ export function DocumentProcessingPanel({
         </ErrorState>
       )}
       {!state.original && (
-        <Button disabled={state.busy} onClick={() => invoke(owner.review)}>
-          Review processing policy
+        <Button
+          disabled={state.busy}
+          onClick={() => invoke(() => owner.start())}
+        >
+          Start processing
         </Button>
       )}
       {state.review && (
@@ -317,11 +321,6 @@ export function DocumentProcessingPanel({
             content to the reviewed providers. Results update saved knowledge
             and its projections.
           </p>
-          {!state.original && (
-            <Button disabled={state.busy} onClick={() => invoke(owner.confirm)}>
-              Approve and start processing
-            </Button>
-          )}
         </div>
       )}
       {state.original && (

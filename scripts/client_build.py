@@ -22,6 +22,9 @@ from setuptools.errors import SetupError
 _CLIENT = Path("static/client-v2")
 _PRIVATE = ("asset-manifest.json", ".vite/manifest.json")
 _HASHED = re.compile(r"assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpg|jpeg|webp|ico|woff2?)$")
+_PUBLIC_SHELL = frozenset(
+    {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
+)
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 
 
@@ -69,10 +72,12 @@ def select_client_payload(root: Path) -> dict[str, bytes]:
         entries = inventory["files"]
         if not isinstance(entries, dict) or "index.html" not in entries or not 2 <= len(entries) <= 512:
             raise ValueError("invalid inventory")
+        if not _PUBLIC_SHELL.issubset(entries):
+            raise ValueError("missing public shell asset")
         payload: dict[str, bytes] = {}
         total = 0
         for name, entry in entries.items():
-            if name != "index.html" and not _HASHED.fullmatch(name):
+            if name != "index.html" and name not in _PUBLIC_SHELL and not _HASHED.fullmatch(name):
                 raise ValueError("invalid asset name")
             if (not isinstance(entry, dict) or set(entry) != {"sha256", "size"}
                     or type(entry["size"]) is not int or not 0 <= entry["size"] <= 8 * 1024 * 1024

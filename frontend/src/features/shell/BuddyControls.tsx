@@ -3,13 +3,21 @@ import {
   useProviderSettingsValue,
 } from '../settings/provider-settings-sessions';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Button, ErrorState, Field, Input, Select } from '../../ui/primitives';
+import {
+  Button,
+  ErrorState,
+  Field,
+  Input,
+  Select,
+  Toggle,
+} from '../../ui/primitives';
 
 export type BuddyPreferences = {
   visible: boolean;
   collapsed: boolean;
   display_name: string;
   personality: string;
+  personality_description: string;
   bubble_verbosity: 'quiet' | 'normal' | 'chatty';
   animation_intensity: 'quiet' | 'normal' | 'expressive';
   pack_id: string;
@@ -29,6 +37,18 @@ export type BuddySnapshot = {
   };
   placement: 'docked';
   native_placement_retained: boolean;
+  conversation_id?: string | null;
+  activity?:
+    | 'idle'
+    | 'thinking'
+    | 'streaming'
+    | 'tool'
+    | 'approval'
+    | 'stopping'
+    | 'completed'
+    | 'stopped'
+    | 'error'
+    | 'disconnected';
 };
 export type BuddyPack = {
   id: string;
@@ -63,6 +83,7 @@ export type BuddyControlsProps = {
     revision: string,
   ): Promise<BuddySnapshot>;
   loadPacks(cursor: string): Promise<BuddyPackPage>;
+  reload(): Promise<BuddySnapshot>;
   stop(runId: string): Promise<void>;
 };
 
@@ -155,7 +176,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
     dirtyRef.current = true;
     setNotice('');
   }
-  async function run(action: 'save' | 'next' | 'stop') {
+  async function run(action: 'save' | 'next' | 'stop' | 'reload') {
     if (
       operation.current ||
       editor.get('busy', false) ||
@@ -196,6 +217,10 @@ export default function BuddyControls(props: BuddyControlsProps) {
         if (next.revision !== page.revision)
           throw new Error('buddy_cursor_changed');
         setPage(next);
+      } else if (action === 'reload') {
+        await props.reload();
+        if (current.current.scopeKey === scope && current.current.snapshot)
+          setNotice('Buddy looks refreshed.');
       } else if (action === 'stop' && props.currentRunId) {
         await props.stop(props.currentRunId);
         if (current.current.scopeKey === scope && current.current.snapshot)
@@ -282,9 +307,8 @@ export default function BuddyControls(props: BuddyControlsProps) {
             </div>
             <div className="settings-buddy-visibility-grid">
               <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  aria-label="Show Buddy"
+                <Toggle
+                  label="Show Buddy"
                   checked={draft.visible}
                   disabled={busy}
                   onChange={(e) => edit('visible', e.target.checked)}
@@ -354,14 +378,15 @@ export default function BuddyControls(props: BuddyControlsProps) {
             <summary>
               <span>
                 <strong>Advanced companion</strong>
-                <small>Name, compact display, and motion intensity.</small>
+                <small>
+                  Name, visual style, compact display, and motion intensity.
+                </small>
               </span>
             </summary>
             <div className="settings-buddy-advanced-content">
               <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  aria-label="Compact Buddy"
+                <Toggle
+                  label="Compact Buddy"
                   checked={draft.collapsed}
                   disabled={busy}
                   onChange={(event) => edit('collapsed', event.target.checked)}
@@ -398,6 +423,17 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   <option value="expressive">Expressive</option>
                 </Select>
               </Field>
+              <Field label="Style notes (optional)">
+                <textarea
+                  aria-label="Style notes (optional)"
+                  value={draft.personality_description}
+                  maxLength={200}
+                  disabled={busy}
+                  onChange={(event) =>
+                    edit('personality_description', event.target.value)
+                  }
+                />
+              </Field>
             </div>
           </details>
           <section
@@ -410,10 +446,19 @@ export default function BuddyControls(props: BuddyControlsProps) {
                 <p>Select the active pack used everywhere.</p>
               </div>
               {selectedPack && (
-                <span className="status-chip">
-                  {videoCount(selectedPack)} clip
-                  {videoCount(selectedPack) === 1 ? '' : 's'}
-                </span>
+                <div className="button-row">
+                  <span className="status-chip">
+                    {videoCount(selectedPack)} clip
+                    {videoCount(selectedPack) === 1 ? '' : 's'}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void run('reload')}
+                  >
+                    Refresh looks
+                  </Button>
+                </div>
               )}
             </div>
             <p className="settings-buddy-selection">

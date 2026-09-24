@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from row_bot.computer_use import readiness as readiness_module
 from row_bot.computer_use.readiness import CuaReadiness, ReadinessCode
-from row_bot.ui import computer_use as computer_use_ui
 from row_bot.ui.computer_use import (
     computer_use_permission_recovery,
     computer_use_settings_view,
@@ -153,7 +153,12 @@ def test_macos_permission_recovery_is_specific_and_hides_driver_internals() -> N
     visible_text = " ".join((recovery.title, recovery.detail, *recovery.steps))
     assert "Row-Bot" in visible_text
     assert "System Settings" in visible_text
-    for internal in ("CuaDriver", "com.trycua.driver", "bundle_identity", "cua-driver mcp"):
+    for internal in (
+        "CuaDriver",
+        "com.trycua.driver",
+        "bundle_identity",
+        "cua-driver mcp",
+    ):
         assert internal not in visible_text
 
 
@@ -176,7 +181,7 @@ def test_macos_permission_buttons_open_fixed_system_settings_deep_links(
 ) -> None:
     calls = []
     monkeypatch.setattr(
-        computer_use_ui.subprocess,
+        readiness_module.subprocess,
         "Popen",
         lambda args, **kwargs: calls.append((args, kwargs)),
     )

@@ -969,6 +969,8 @@ def generate_speaker_notes(
     page_title: str,
     page_summary: dict,
     existing_notes: str = "",
+    *,
+    strict: bool = False,
 ) -> str:
     """Generate concise presenter notes for a single slide."""
 
@@ -997,6 +999,8 @@ def generate_speaker_notes(
         return notes or existing_notes
     except Exception:
         logger.exception("Speaker note generation failed")
+        if strict:
+            raise
         return existing_notes or ""
 
 

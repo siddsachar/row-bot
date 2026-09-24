@@ -30,6 +30,7 @@ _PAGES = {
     "voice",
     "system",
     "tracker",
+    "knowledge",
     "documents",
     "tools",
     "accounts",
@@ -58,6 +59,7 @@ _UTILITY_IDS = {
 _SECRET_FIELDS = {
     ("voice", "openai_realtime_credential"): "OPENAI_API_KEY",
     ("system", "tunnel.credential"): "NGROK_AUTHTOKEN",
+    ("system", "computer_use.system_binary_verify"): "CUA_SYSTEM_BINARY_PATH",
     ("tools", "web_search.credential"): "TAVILY_API_KEY",
     ("tools", "wolfram_alpha.credential"): "WOLFRAM_ALPHA_APPID",
     ("accounts", "github.credential"): "GITHUB_TOKEN",
@@ -121,8 +123,10 @@ _BOOL_FIELDS = {
     ("system", "shell.enabled"),
     ("system", "browser.enabled"),
     ("system", "computer_use.enabled"),
+    ("system", "computer_use.disclosure_acknowledged"),
     ("system", "file_operations.enabled"),
     ("tracker", "enabled"),
+    ("knowledge", "memory_enabled"),
     ("documents", "embedding.auto_unload"),
     ("accounts", "gmail.enabled"),
     ("accounts", "calendar.enabled"),
@@ -130,15 +134,34 @@ _BOOL_FIELDS = {
     ("preferences", "identity.self_improvement_enabled"),
     ("preferences", "dream_cycle.enabled"),
 }
+_ACTION_FIELDS = {
+    ("voice", "tts.install"),
+    ("voice", "tts.test"),
+    ("voice", "sensevoice.install"),
+    ("system", "browser.install"),
+    ("system", "computer_use.install"),
+    ("system", "computer_use.check"),
+    ("system", "computer_use.test"),
+    ("system", "computer_use.use_managed_runtime"),
+    ("system", "computer_use.remove"),
+    ("system", "computer_use.open_accessibility"),
+    ("system", "computer_use.open_screen_recording"),
+    ("system", "tunnel.check"),
+    ("system", "tunnel.start_main"),
+    ("system", "tunnel.stop_main"),
+    ("system", "logging.open"),
+    ("documents", "vectors.rebuild"),
+    ("documents", "memory_index.rebuild"),
+    ("documents", "local_model.retry"),
+    ("documents", "local_model.download"),
+    ("documents", "local_model.repair"),
+}
 _TEXT_FIELDS = {
     ("voice", "runtime.talk_model"): 128,
     ("voice", "runtime.dictation_model"): 128,
     ("voice", "runtime.speech_output_model"): 128,
     ("voice", "runtime.speech_output_voice"): 64,
-    ("system", "workspace.path"): 4096,
     ("system", "shell.blocked_patterns"): 4096,
-    ("accounts", "gmail.credentials_path"): 4096,
-    ("accounts", "calendar.credentials_path"): 4096,
     ("preferences", "identity.name"): 128,
     ("preferences", "identity.personality"): 200,
 }
@@ -193,6 +216,7 @@ _LIST_FIELDS = {
     },
 }
 _SAFE_ID = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_OPAQUE_GRANT = re.compile(r"[A-Za-z0-9_-]{32,128}\Z")
 
 
 class SettingsCommandError(ValueError):
@@ -220,12 +244,23 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         if value is not None and (
             type(value) is not str
             or not value.strip()
-            or len(value.encode("utf-8")) > 16 * 1024
+            or len(value.encode("utf-8"))
+            > (
+                4096
+                if key == ("system", "computer_use.system_binary_verify")
+                else 16 * 1024
+            )
         ):
             raise SettingsCommandError("invalid_settings_command")
         return page, field, value.strip() if isinstance(value, str) else None, True
     if key in _ENUMS:
         if type(value) is not str or value not in _ENUMS[key]:
+            raise SettingsCommandError("invalid_settings_command")
+    elif key in _ACTION_FIELDS:
+        if value is not True:
+            raise SettingsCommandError("invalid_settings_command")
+    elif key == ("system", "workspace.folder_grant"):
+        if type(value) is not str or not _OPAQUE_GRANT.fullmatch(value):
             raise SettingsCommandError("invalid_settings_command")
     elif key in _BOOL_FIELDS:
         if type(value) is not bool:
@@ -321,12 +356,17 @@ def review_settings_update(
     value: Any,
     *,
     validate: Callable[[], None],
+    resolve_folder_grant: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     validate()
     intent = _intent(settings_revision, page, field, value)
     current = read_settings_snapshot(validate=validate)
     if current["revision"] != settings_revision:
         raise SettingsCommandError("settings_changed", current["revision"])
+    if (page, field) == ("system", "workspace.folder_grant"):
+        if resolve_folder_grant is None:
+            raise SettingsCommandError("settings_action_unavailable")
+        resolve_folder_grant(intent["value"])
     if page == "preferences" and field in {
         "dream_cycle.window_start",
         "dream_cycle.window_end",
@@ -341,7 +381,9 @@ def review_settings_update(
     digest = admissions.keyed_digest(
         {key: item for key, item in intent.items() if key != "secret"}
     )
-    if intent["secret"]:
+    if (page, field) == ("system", "computer_use.system_binary_verify"):
+        summary = "Verify and use the explicitly selected local Cua executable"
+    elif intent["secret"]:
         summary = (
             "Remove saved credential"
             if intent["value"] is None
@@ -354,6 +396,56 @@ def review_settings_update(
             "Delete all tracker data, including every tracker and entry. "
             "This cannot be undone."
         )
+    elif (page, field) == ("system", "workspace.folder_grant"):
+        summary = "Use the explicitly selected local folder as the filesystem workspace"
+    elif (page, field) == ("voice", "tts.install"):
+        summary = "Download and install Kokoro speech output locally"
+    elif (page, field) == ("voice", "sensevoice.install"):
+        summary = "Download and install SenseVoice Small locally"
+    elif (page, field) == ("voice", "tts.test"):
+        summary = "Play one local test phrase through the selected output device"
+    elif (page, field) == ("system", "browser.install"):
+        summary = "Download and install Row-Bot's managed Playwright Chromium runtime"
+    elif (page, field) == ("system", "computer_use.install"):
+        summary = (
+            "Download and install the reviewed Cua Driver runtime for this platform"
+        )
+    elif (page, field) == ("system", "computer_use.check"):
+        summary = "Run local Cua Driver diagnostics and check required permissions"
+    elif (page, field) == ("system", "computer_use.test"):
+        summary = "Open Calculator briefly and verify local Computer Use access"
+    elif (page, field) == ("system", "computer_use.use_managed_runtime"):
+        summary = "Use Row-Bot's reviewed managed Cua Driver runtime"
+    elif (page, field) == ("system", "computer_use.remove"):
+        summary = "Remove Row-Bot's managed Cua Driver runtime and disable Computer Use"
+    elif (page, field) == ("system", "computer_use.open_accessibility"):
+        summary = "Open macOS Accessibility permission settings"
+    elif (page, field) == ("system", "computer_use.open_screen_recording"):
+        summary = "Open macOS Screen Recording permission settings"
+    elif (page, field) == ("system", "computer_use.disclosure_acknowledged"):
+        summary = (
+            "Accept the reviewed Cua Driver telemetry notice"
+            if intent["value"]
+            else "Withdraw Cua Driver telemetry acceptance"
+        )
+    elif (page, field) == ("system", "tunnel.check"):
+        summary = "Check saved ngrok configuration without opening a tunnel"
+    elif (page, field) == ("system", "tunnel.start_main"):
+        summary = "Expose the local Row-Bot app and task webhook endpoint through ngrok"
+    elif (page, field) == ("system", "tunnel.stop_main"):
+        summary = "Stop the Row-Bot app tunnel managed by this process"
+    elif (page, field) == ("system", "logging.open"):
+        summary = "Open Row-Bot's local log folder with the operating system"
+    elif (page, field) == ("documents", "vectors.rebuild"):
+        summary = "Rebuild saved document vectors from the local document vault"
+    elif (page, field) == ("documents", "memory_index.rebuild"):
+        summary = "Rebuild the local memory vector index"
+    elif (page, field) == ("documents", "local_model.retry"):
+        summary = "Retry loading the selected local embedding model from its cache"
+    elif (page, field) == ("documents", "local_model.download"):
+        summary = "Download the selected local embedding model"
+    elif (page, field) == ("documents", "local_model.repair"):
+        summary = "Repair the selected local embedding model cache"
     else:
         summary = str(intent["value"])[:256]
     validate()
@@ -425,8 +517,9 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         path, keys = root / "tts_settings.json", (field.split(".", 1)[1],)
     elif page == "documents" and field.startswith("embedding."):
         path, keys = root / "embedding_config.json", (field.split(".", 1)[1],)
-    elif page == "system" and field == "tunnel.provider":
-        path, keys = root / "channels_config.json", ("tunnel", "provider")
+    elif page == "system" and field in {"tunnel.provider", "tunnel.main_app_enabled"}:
+        key = "provider" if field == "tunnel.provider" else "tunnel_main_app"
+        path, keys = root / "channels_config.json", ("tunnel", key)
     elif page == "system" and field.startswith("remote_access."):
         path, keys = root / "access_routes.json", (field.split(".", 1)[1],)
     elif page == "system" and field == "logging.level":
@@ -451,6 +544,10 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
             document.setdefault("version", 2)
         _set_path(document, keys, value)
         _write_document(path, document)
+    if page == "preferences" and field == "updates.channel":
+        from row_bot import updater
+
+        updater.reload_saved_update_state(path)
 
 
 def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
@@ -473,6 +570,8 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
             raise SettingsCommandError("settings_unavailable")
         if page == "tracker" and field == "enabled":
             tools["tracker"] = value
+        elif page == "knowledge" and field == "memory_enabled":
+            tools["memory"] = value
         elif page == "utilities" and field.endswith(".enabled"):
             tools[field.removesuffix(".enabled")] = value
         elif page == "tools" and field.endswith(".enabled"):
@@ -502,12 +601,6 @@ def _write_tool_setting(root: Path, page: str, field: str, value: Any) -> None:
             tools[identity] = value
         elif page == "accounts" and field.endswith(".enabled"):
             tools[field.removesuffix(".enabled")] = value
-        elif page == "accounts" and field in {
-            "gmail.credentials_path",
-            "calendar.credentials_path",
-        }:
-            identity = field.split(".", 1)[0]
-            configs.setdefault(identity, {})["credentials_path"] = value
         elif page == "accounts" and (page, field) in _LIST_FIELDS:
             identity, name = field.split(".", 1)
             key = "selected_operations" if identity in {"gmail", "calendar"} else name
@@ -562,12 +655,225 @@ def _clear_tracker_data(
             connection.close()
 
 
-def _apply(intent: dict[str, Any], *, validate: Callable[[], None]) -> dict[str, Any]:
+def _run_voice_action(field: str) -> None:
+    if field == "tts.install":
+        from row_bot.tts import TTSService
+
+        TTSService().download_model()
+        return
+    if field == "sensevoice.install":
+        from row_bot.voice import VoiceService
+
+        VoiceService().install_sensevoice_model()
+        return
+    if field == "tts.test":
+        from row_bot.tts import TTSService
+
+        service = TTSService()
+        if not service.is_installed():
+            raise SettingsCommandError("voice_test_unavailable")
+        service.speak_now("Hello! This is your local Row-Bot voice test.")
+        return
+    raise SettingsCommandError("settings_action_unavailable")
+
+
+def _run_system_action(field: str) -> dict[str, str] | None:
+    if field == "browser.install":
+        from row_bot.mcp_client.requirements import install_managed_runtime
+
+        result = install_managed_runtime("playwright-chrome")
+        if not result.ok:
+            raise SettingsCommandError("runtime_install_failed")
+        return
+    if field == "computer_use.install":
+        from row_bot.computer_use.readiness import install_cua_runtime
+
+        result = install_cua_runtime()
+        if not result.ok:
+            raise SettingsCommandError("runtime_install_failed")
+        return
+    if field == "computer_use.check":
+        from row_bot.computer_use.readiness import run_cua_diagnostics
+
+        state = run_cua_diagnostics()
+        return {
+            "code": state.code.value,
+            "message": state.message[:256],
+            "remediation": state.remediation[:256],
+        }
+    if field == "computer_use.test":
+        from row_bot.computer_use.readiness import test_local_computer_use
+
+        test_local_computer_use()
+        return {
+            "code": "ready",
+            "message": "Computer Use test passed.",
+            "remediation": "",
+        }
+    if field == "computer_use.use_managed_runtime":
+        from row_bot.computer_use.readiness import configure_system_cua
+
+        configure_system_cua("", enabled=False)
+        return None
+    if field in {
+        "computer_use.open_accessibility",
+        "computer_use.open_screen_recording",
+    }:
+        import platform
+        from row_bot.computer_use.readiness import open_macos_privacy_settings
+
+        if platform.system().casefold() != "darwin":
+            raise SettingsCommandError("settings_action_unavailable")
+        permission = (
+            "accessibility" if field.endswith("accessibility") else "screen_recording"
+        )
+        open_macos_privacy_settings(permission)
+        return {
+            "code": "opened",
+            "message": f"Opened macOS {'Accessibility' if permission == 'accessibility' else 'Screen Recording'} settings.",
+            "remediation": "Switch on Row-Bot, then run Check Computer Use setup again.",
+        }
+    if field in {"tunnel.check", "tunnel.start_main", "tunnel.stop_main"}:
+        from row_bot.app_port import get_app_port
+        from row_bot.tunnel import tunnel_manager
+
+        if field == "tunnel.check":
+            tunnel_manager.status()
+        elif field == "tunnel.start_main":
+            port = get_app_port()
+            existing_url = tunnel_manager.get_url(port)
+            tunnel_manager.start_tunnel(port, label="main_app")
+            try:
+                _write_json_setting(
+                    get_row_bot_data_dir(create=False).absolute(),
+                    "system",
+                    "tunnel.main_app_enabled",
+                    True,
+                )
+            except Exception:
+                if existing_url is None:
+                    tunnel_manager.stop_tunnel(port)
+                raise
+        else:
+            tunnel_manager.stop_tunnel(get_app_port())
+            _write_json_setting(
+                get_row_bot_data_dir(create=False).absolute(),
+                "system",
+                "tunnel.main_app_enabled",
+                False,
+            )
+        return
+    if field == "logging.open":
+        import subprocess
+
+        from row_bot.logging_config import get_log_dir
+
+        directory = str(get_log_dir())
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", directory])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", directory])
+        else:
+            subprocess.Popen(["xdg-open", directory])
+        return
+    raise SettingsCommandError("settings_action_unavailable")
+
+
+def _run_documents_action(field: str, root: Path) -> None:
+    if field == "vectors.rebuild":
+        from row_bot.documents import rebuild_vector_store_from_vault
+
+        rebuild_vector_store_from_vault()
+        return
+    if field == "memory_index.rebuild":
+        from row_bot import knowledge_graph
+
+        knowledge_graph.rebuild_index()
+        return
+    if field == "local_model.retry":
+        from row_bot.embedding_providers import (
+            get_embedding_provider_for_recall,
+            retry_local_embedding_load,
+        )
+
+        retry_local_embedding_load()
+        get_embedding_provider_for_recall()
+        return
+    if field in {"local_model.download", "local_model.repair"}:
+        from row_bot.embedding_config import get_embedding_config
+        from row_bot.embedding_providers import download_local_embedding_model
+
+        model_key = str(get_embedding_config().get("local_model") or "")
+        if model_key not in _ENUMS[("documents", "embedding.local_model")]:
+            raise SettingsCommandError("settings_unavailable")
+        download_local_embedding_model(
+            model_key,
+            repair=field == "local_model.repair",
+        )
+        return
+    raise SettingsCommandError("settings_action_unavailable")
+
+
+def _apply(
+    intent: dict[str, Any],
+    *,
+    validate: Callable[[], None],
+    resolve_folder_grant: Callable[[str], str] | None = None,
+) -> tuple[dict[str, Any], dict[str, str] | None]:
     validate()
     root = get_row_bot_data_dir(create=False).absolute()
     page, field, value = intent["page"], intent["field"], intent["value"]
+    action_result = None
     if (page, field) == ("tracker", "delete_all"):
         _clear_tracker_data(root, intent["settings_revision"], validate=validate)
+    elif (page, field) == ("system", "computer_use.disclosure_acknowledged"):
+        from row_bot.computer_use.readiness import (
+            acknowledge_disclosure,
+            cancel_disclosure,
+        )
+
+        if value:
+            acknowledge_disclosure()
+        else:
+            cancel_disclosure()
+    elif (page, field) == ("system", "computer_use.system_binary_verify"):
+        from row_bot.computer_use.readiness import (
+            configure_system_cua,
+            require_cua_disclosure,
+            verify_system_cua,
+        )
+
+        require_cua_disclosure()
+        configure_system_cua(value, enabled=True)
+        state = verify_system_cua()
+        action_result = {
+            "code": state.code.value,
+            "message": state.message[:256],
+            "remediation": state.remediation[:256],
+        }
+    elif (page, field) == ("system", "computer_use.remove"):
+        from row_bot.computer_use.readiness import uninstall_cua_runtime
+
+        removed = uninstall_cua_runtime()
+        _write_tool_setting(root, "system", "computer_use.enabled", False)
+        action_result = {
+            "code": "removed" if removed else "not_installed",
+            "message": "Computer Use runtime removed."
+            if removed
+            else "Computer Use runtime was not installed.",
+            "remediation": "Install the reviewed runtime to use Computer Use again.",
+        }
+    elif (page, field) == ("system", "workspace.folder_grant"):
+        if resolve_folder_grant is None:
+            raise SettingsCommandError("settings_action_unavailable")
+        selected = resolve_folder_grant(value)
+        _write_tool_setting(root, "system", "workspace.path", selected)
+    elif page == "voice" and (page, field) in _ACTION_FIELDS:
+        _run_voice_action(field)
+    elif page == "system" and (page, field) in _ACTION_FIELDS:
+        action_result = _run_system_action(field)
+    elif page == "documents" and (page, field) in _ACTION_FIELDS:
+        _run_documents_action(field, root)
     elif intent["secret"]:
         from row_bot import api_keys
 
@@ -577,7 +883,7 @@ def _apply(intent: dict[str, Any], *, validate: Callable[[], None]) -> dict[str,
         else:
             api_keys.set_key(name, value)
     elif (
-        page in {"tools", "tracker", "utilities"}
+        page in {"tools", "tracker", "knowledge", "utilities"}
         or page == "system"
         and field
         in {
@@ -591,11 +897,19 @@ def _apply(intent: dict[str, Any], *, validate: Callable[[], None]) -> dict[str,
         }
         or page == "accounts"
     ):
+        if page == "system" and field == "computer_use.enabled" and value:
+            from row_bot.computer_use.readiness import require_cua_disclosure
+
+            require_cua_disclosure()
         _write_tool_setting(root, page, field, value)
+        if page == "system" and field == "computer_use.enabled" and not value:
+            from row_bot.computer_use.service import get_computer_use_service
+
+            get_computer_use_service().stop()
     else:
         _write_json_setting(root, page, field, value)
     validate()
-    return read_settings_snapshot(validate=validate)
+    return read_settings_snapshot(validate=validate), action_result
 
 
 def execute_settings_update(
@@ -605,6 +919,7 @@ def execute_settings_update(
     command: dict[str, Any],
     validate: Callable[[], None],
     validate_review: Callable[[dict[str, Any]], None],
+    resolve_folder_grant: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     validate()
     if type(command) is not dict or command.get("type") != "settings.update":
@@ -647,6 +962,7 @@ def execute_settings_update(
         intent["field"],
         intent["value"],
         validate=validate,
+        resolve_folder_grant=resolve_folder_grant,
     )
     if review["action_digest"] != payload["action_digest"]:
         raise SettingsCommandError("settings_review_changed")
@@ -670,13 +986,18 @@ def execute_settings_update(
     if replay is not None:
         return replay
     try:
-        snapshot = _apply(intent, validate=validate)
+        snapshot, action_result = _apply(
+            intent,
+            validate=validate,
+            resolve_folder_grant=resolve_folder_grant,
+        )
         result = {
             "command_id": command_id,
             "status": "completed",
             "code": None,
             "settings_revision": snapshot["revision"],
             "snapshot": snapshot,
+            "action_result": action_result,
         }
     except Exception:
         result = {

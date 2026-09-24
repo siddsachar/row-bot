@@ -212,8 +212,12 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         ? { flow_id: flow.flow_id, server_epoch: flow.server_epoch }
         : {}),
     };
-    if (intent.value !== undefined && !intent.value.trim()) {
-      setError('Enter the authorization code or setup token.');
+    if (
+      intent.value !== undefined &&
+      (!intent.value.trim() ||
+        new TextEncoder().encode(intent.value).length > 16384)
+    ) {
+      setError('Enter a code or token of at most 16 KiB.');
       return;
     }
     const generation = epoch.current;
@@ -223,6 +227,14 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     let review: SubscriptionActionReview;
     try {
       review = await props.review(structuredClone(intent));
+      if (
+        review.provider_id !== intent.provider_id ||
+        review.provider_revision !== intent.provider_revision ||
+        review.operation !== intent.operation ||
+        (review.flow_id ?? undefined) !== intent.flow_id ||
+        (review.server_epoch ?? undefined) !== intent.server_epoch
+      )
+        throw { code: 'revision_conflict' };
     } catch (cause) {
       setError(clientError(cause).message);
       setBusy('');
@@ -260,97 +272,6 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       setError(clientError(cause).message);
       setNotice(
         'The outcome is uncertain. Read the original receipt before another action.',
-      );
-    } finally {
-      setBusy('');
-    }
-  }
-  async function review(operation: Action) {
-    if (locked || !snapshot) return;
-    const intent: Intent = {
-      provider_id: provider,
-      provider_revision: snapshot.revision,
-      operation,
-      ...(['submit', 'import_token'].includes(operation)
-        ? { value: code }
-        : {}),
-      ...(['check', 'submit'].includes(operation) && flow
-        ? { flow_id: flow.flow_id, server_epoch: flow.server_epoch }
-        : {}),
-    };
-    if (
-      intent.value !== undefined &&
-      (!intent.value.trim() ||
-        new TextEncoder().encode(intent.value).length > 16384)
-    ) {
-      setError('Enter a code or token of at most 16 KiB.');
-      return;
-    }
-    const abort = session.read();
-    setBusy('review');
-    setReviewed(null);
-    setError('');
-    try {
-      const value = await props.review(structuredClone(intent), abort.signal);
-      if (!session.active || abort.signal.aborted) return;
-      if (
-        value.provider_id !== intent.provider_id ||
-        value.provider_revision !== intent.provider_revision ||
-        value.operation !== intent.operation ||
-        (value.flow_id ?? undefined) !== intent.flow_id ||
-        (value.server_epoch ?? undefined) !== intent.server_epoch
-      )
-        throw { code: 'revision_conflict' };
-      setReviewed({ intent, review: structuredClone(value) });
-    } catch (cause) {
-      if (!abort.signal.aborted) setError(clientError(cause).message);
-    } finally {
-      session.finishRead(abort);
-      setBusy('');
-    }
-  }
-  async function confirm() {
-    if (
-      !session.active ||
-      session.get('busy', '') ||
-      session.get('pending', null)
-    )
-      return;
-    const captured = session.get<Reviewed | null>('reviewed', null);
-    if (!captured) return;
-    const original: Pending = {
-      ...structuredClone(captured),
-      commandId: crypto.randomUUID(),
-    };
-    const generation = epoch.current;
-    setPending(original);
-    setReviewed(null);
-    setBusy('apply');
-    setError('');
-    try {
-      const result = await session.perform([original], () =>
-        props.apply(
-          structuredClone(original.intent),
-          structuredClone(original.review),
-          original.commandId,
-        ),
-      );
-      if (!session.active) return;
-      if (result.command_id !== original.commandId)
-        throw { code: 'operation_uncertain' };
-      setSnapshot(result.accounts);
-      if (result.flow) setFlow(result.flow);
-      setCode('');
-      setPending(null);
-      session.resolved();
-      setNotice(
-        'The requested action is confirmed. Provider readiness remains untested.',
-      );
-      if (generation === epoch.current) props.onSaved(result.accounts);
-    } catch (cause) {
-      setError(clientError(cause).message);
-      setNotice(
-        'The original outcome is unconfirmed. Read its receipt before taking another action.',
       );
     } finally {
       setBusy('');
@@ -806,32 +727,32 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         <div className="actions">
           <Button
             disabled={locked || active || !snapshot}
-            onClick={() => void review('start')}
+            onClick={() => void performDirect('start')}
           >
-            Review sign-in
+            Start sign-in
           </Button>
           {active && provider !== 'claude_subscription' && (
             <Button
               disabled={locked || flow?.state === 'uncertain'}
-              onClick={() => void review('check')}
+              onClick={() => void performDirect('check')}
             >
-              Review login check
+              Check login
             </Button>
           )}
           {active && provider !== 'codex' && (
             <Button
               disabled={locked || !code || flow?.state === 'uncertain'}
-              onClick={() => void review('submit')}
+              onClick={() => void performDirect('submit')}
             >
-              Review authorization code
+              Connect with code
             </Button>
           )}
           {!active && provider === 'claude_subscription' && (
             <Button
               disabled={locked || !code}
-              onClick={() => void review('import_token')}
+              onClick={() => void performDirect('import_token')}
             >
-              Review setup token import
+              Import setup token
             </Button>
           )}
           <Button
@@ -841,43 +762,20 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
               account?.saved_state === 'disconnected' ||
               !account
             }
-            onClick={() => void review('disconnect')}
+            onClick={() => void performDirect('disconnect')}
           >
-            Review disconnect
+            Disconnect
           </Button>
           <Button
             disabled={locked || active || !account?.has_recovery}
-            onClick={() => void review('restore')}
+            onClick={() => void performDirect('restore')}
           >
-            Review account recovery
+            Restore account
           </Button>
           <Button disabled={locked || !!code} onClick={() => void load()}>
             Reload saved status
           </Button>
         </div>
-        {reviewed && (
-          <div
-            className="stack"
-            role="region"
-            aria-label="Review account action"
-          >
-            <p>
-              Confirm {reviewed.intent.operation.replaceAll('_', ' ')} for{' '}
-              {labels[provider]}.{' '}
-              {['start', 'check', 'submit'].includes(reviewed.intent.operation)
-                ? 'This action may contact the subscription provider.'
-                : 'This changes saved account settings.'}
-            </p>
-            <div className="actions">
-              <Button disabled={locked} onClick={() => void confirm()}>
-                Confirm account action
-              </Button>
-              <Button disabled={locked} onClick={() => setReviewed(null)}>
-                Cancel review
-              </Button>
-            </div>
-          </div>
-        )}
         {pending && (
           <div className="actions">
             <Button

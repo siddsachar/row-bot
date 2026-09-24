@@ -1,6 +1,6 @@
 # Client protocol owner
 
-The opt-in client consumes `contracts/client-platform/v1/typescript/client.ts`.
+The default React client consumes `contracts/client-platform/v1/typescript/client.ts`.
 The Python DTOs and `scripts/generate_client_platform_contracts.py` remain the
 canonical schema and generator. After an approved contract change, run
 `python scripts/generate_client_platform_contracts.py`, then the same command

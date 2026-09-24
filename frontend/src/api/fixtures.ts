@@ -255,7 +255,9 @@ export class FixtureTransport implements ClientTransport {
     const rowId = 'fixture-live-row';
     const existing = snapshot.rows.find((row) => row.id === rowId);
     const content =
-      (existing?.blocks.map((block) => block.text ?? '').join('') ?? '') + text;
+      (existing?.blocks
+        .map((block) => ('text' in block ? block.text : ''))
+        .join('') ?? '') + text;
     if (content.length > 262144) throw new Error('Fixture text limit reached');
     const record: wire.EventRecord = {
       cursor: `fixture-event-${revision}`,
@@ -422,6 +424,20 @@ export class FixtureTransport implements ClientTransport {
   ): Promise<wire.CommandReceipt> {
     this.available(signal);
     this.counters.commands += 1;
+    if (command.type === 'conversation.delete') {
+      const index = this.conversations.findIndex((row) => row.id === target);
+      if (index < 0) throw { code: 'not_found', status: 404 };
+      if (this.conversations[index].revision !== command.expected_revision)
+        throw { code: 'revision_conflict', status: 409 };
+      this.conversations.splice(index, 1);
+      const deleted: wire.CommandReceipt = {
+        command_id: command.command_id,
+        conversation_id: target,
+        status: 'DeleteCompleted',
+      };
+      this.receipts.set(command.command_id, deleted);
+      return deleted;
+    }
     const receipt: wire.CommandReceipt = {
       command_id: command.command_id,
       conversation_id: target,
@@ -455,6 +471,54 @@ export class FixtureTransport implements ClientTransport {
   async download(_reference: string, signal?: AbortSignal): Promise<Blob> {
     this.available(signal);
     return new Blob(['Synthetic fixture download']);
+  }
+  async attachmentMetadata(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<wire.AttachmentView> {
+    this.available(signal);
+    return {
+      ...recorded<wire.AttachmentView>('F-P07', 'AttachmentView')[0],
+      attachment_ref: reference,
+    };
+  }
+  async terminalRead(
+    _terminal: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalOutput> {
+    this.available(signal);
+    return {
+      cursor,
+      latest: cursor,
+      truncated: false,
+      frames: [],
+      status: 'running',
+    };
+  }
+  async terminalInput(
+    _terminal: string,
+    _data: string,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalChanged> {
+    this.available(signal);
+    return { ok: true };
+  }
+  async terminalResize(
+    _terminal: string,
+    _cols: number,
+    _rows: number,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalChanged> {
+    this.available(signal);
+    return { ok: true };
+  }
+  async terminalDisconnect(
+    _terminal: string,
+    signal?: AbortSignal,
+  ): Promise<wire.NativeTerminalClosed> {
+    this.available(signal);
+    return { disconnected: true };
   }
   clearSession(_preserveResumeIdentity = false): void {
     /* No credential or durable data is retained by fixtures. */

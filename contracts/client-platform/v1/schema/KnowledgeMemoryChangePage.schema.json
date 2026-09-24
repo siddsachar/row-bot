@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "KnowledgeMemoryChange": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 128,
+          "title": "Action",
+          "type": "string"
+        },
+        "actor": {
+          "maxLength": 128,
+          "title": "Actor",
+          "type": "string"
+        },
+        "additional_subjects": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Additional Subjects",
+          "type": "integer"
+        },
+        "new_status": {
+          "maxLength": 64,
+          "title": "New Status",
+          "type": "string"
+        },
+        "old_status": {
+          "maxLength": 64,
+          "title": "Old Status",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "subjects": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Subjects",
+          "type": "array"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "action",
+        "actor",
+        "old_status",
+        "new_status",
+        "subjects",
+        "additional_subjects",
+        "reason"
+      ],
+      "title": "KnowledgeMemoryChange",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeMemoryChange"
+      },
+      "maxItems": 20,
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "availability",
+    "items"
+  ],
+  "title": "KnowledgeMemoryChangePage",
+  "type": "object"
+}

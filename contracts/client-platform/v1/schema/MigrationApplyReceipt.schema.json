@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "MigrationFailedItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 32,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "reason"
+      ],
+      "title": "MigrationFailedItem",
+      "type": "object"
+    },
+    "MigrationPreviewSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_only": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Archive Only",
+          "type": "integer"
+        },
+        "blocked": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Blocked",
+          "type": "integer"
+        },
+        "conflicts": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Conflicts",
+          "type": "integer"
+        },
+        "errors": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Errors",
+          "type": "integer"
+        },
+        "migrated": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Migrated",
+          "type": "integer"
+        },
+        "ready": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Ready",
+          "type": "integer"
+        },
+        "selected": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Selected",
+          "type": "integer"
+        },
+        "sensitive": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Sensitive",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "total": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "selected",
+        "ready",
+        "migrated",
+        "conflicts",
+        "sensitive",
+        "archive_only",
+        "skipped",
+        "blocked",
+        "errors"
+      ],
+      "title": "MigrationPreviewSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "failed_items": {
+      "items": {
+        "$ref": "#/$defs/MigrationFailedItem"
+      },
+      "maxItems": 4096,
+      "title": "Failed Items",
+      "type": "array"
+    },
+    "report": {
+      "maxLength": 256,
+      "title": "Report",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "interrupted"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "$ref": "#/$defs/MigrationPreviewSummary"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 512,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "status",
+    "summary",
+    "report",
+    "warnings",
+    "failed_items"
+  ],
+  "title": "MigrationApplyReceipt",
+  "type": "object"
+}

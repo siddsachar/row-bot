@@ -15,7 +15,14 @@ from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentS
 
 def test_chat_approval_uses_durable_claim_and_exact_resume(platform):
     identity = fixture_id("approved-native")
-    fake = ScriptedAgentStream((("interrupt", {"__interrupt_id": "native-interrupt", "description": "Synthetic approval"}),),
+    fake = ScriptedAgentStream((("interrupt", {
+                                   "__interrupt_id": "native-interrupt",
+                                   "tool": "fixture_tool",
+                                   "description": "Synthetic approval",
+                                   "risk_class": "low",
+                                   "scope": "One synthetic action.",
+                                   "args": {"limit": 3, "path": "PRIVATE/path"},
+                               }),),
                                (("token", "Approved result"), CheckpointCommit((AIMessage(content="Approved result", id=identity),), identity),
                                 ("done", "Approved result")))
     accepted = submit(platform, fake, "approval")
@@ -24,6 +31,13 @@ def test_chat_approval_uses_durable_claim_and_exact_resume(platform):
     assert first.status == "waiting_approval"
     approval = platform.get_approval(first.approval_id)
     assert approval["action_digest"] != first.approval_id
+    assert approval["action_label"] == "fixture_tool"
+    assert approval["reason"] == "Synthetic approval"
+    assert approval["risk_class"] == "low"
+    assert approval["scope"] == "One synthetic action."
+    assert approval["safe_argument_summary"] == '{"limit":3}'
+    assert approval["requesting_trace_id"] == "native-interrupt"
+    assert "PRIVATE" not in json.dumps(approval)
     receipt = platform.execute(owner_id="owner", idempotency_key="resolve-once", target=first.approval_id,
                                command=command("approval.resolve", "resolve-once", {"decision": "approve"}))
     resumed = platform.registry.get(receipt["execution_id"])

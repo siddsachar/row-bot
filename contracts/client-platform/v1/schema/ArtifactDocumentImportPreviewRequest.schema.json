@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expected_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "filename": {
+      "maxLength": 240,
+      "minLength": 1,
+      "pattern": "^[^/\\\\:\\x00\\r\\n]+\\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$",
+      "title": "Filename",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "maximum": 26214400,
+      "minimum": 1,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "upload_id": {
+      "format": "uuid",
+      "title": "Upload Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expected_revision",
+    "upload_id",
+    "filename",
+    "sha256",
+    "size_bytes"
+  ],
+  "title": "ArtifactDocumentImportPreviewRequest",
+  "type": "object"
+}

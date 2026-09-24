@@ -29,6 +29,7 @@ ENTITY_TYPES = ('concept', 'event', 'fact', 'media', 'organisation', 'person', '
 _FIELDS = {'entity_type': 64, 'subject': 256, 'description': 32768, 'aliases': 4096, 'tags': 4096}
 _COLUMNS = {**_FIELDS, 'id': 128, 'properties': 65536, 'source': 4096, 'created_at': 128, 'updated_at': 128}
 _KINDS = {'knowledge.create', 'knowledge.edit', 'knowledge.archive', 'knowledge.restore', 'knowledge.resolve'}
+_MAINTENANCE_KINDS = {'knowledge.delete', 'knowledge.delete.bulk', 'knowledge.delete_all'}
 
 
 def _error(code='knowledge_unavailable'):
@@ -287,3 +288,169 @@ def execute_knowledge_command(command: dict, *, owner_id: str, authority_id: str
     admissions.complete_command(owner_id, key, result)
     validate()
     return public_receipt(result)
+
+
+def _maintenance_intent(kind: str, payload: dict) -> dict:
+    if kind not in _MAINTENANCE_KINDS or not isinstance(payload, dict):
+        raise _error('invalid_knowledge_command')
+    if set(payload) != {'catalog_revision', 'targets'}:
+        raise _error('invalid_knowledge_command')
+    catalog_revision = payload.get('catalog_revision')
+    if not isinstance(catalog_revision, str) or not re.fullmatch(r'[a-f0-9]{64}', catalog_revision):
+        raise _error('invalid_knowledge_command')
+    raw_targets = payload.get('targets')
+    if not isinstance(raw_targets, list) or len(raw_targets) > 100:
+        raise _error('invalid_knowledge_command')
+    targets = []
+    seen = set()
+    for item in raw_targets:
+        if not isinstance(item, dict) or set(item) != {'entity_id', 'revision'}:
+            raise _error('invalid_knowledge_command')
+        identifier = _id(item.get('entity_id'))
+        revision = item.get('revision')
+        if not isinstance(revision, str) or not re.fullmatch(r'[a-f0-9]{64}', revision) or identifier in seen:
+            raise _error('invalid_knowledge_command')
+        seen.add(identifier)
+        targets.append({'entity_id': identifier, 'revision': revision})
+    if kind == 'knowledge.delete' and len(targets) != 1:
+        raise _error('invalid_knowledge_command')
+    if kind == 'knowledge.delete.bulk' and not 1 <= len(targets) <= 100:
+        raise _error('invalid_knowledge_command')
+    if kind == 'knowledge.delete_all' and targets:
+        raise _error('invalid_knowledge_command')
+    return {'catalog_revision': catalog_revision, 'targets': targets}
+
+
+def read_knowledge_maintenance_review(kind: str, payload: dict, *, validate: Callable[[], None]) -> dict:
+    validate()
+    intent = _maintenance_intent(kind, deepcopy(payload))
+    page = knowledge_views.list_saved_entities(limit=1)
+    if page.availability not in {'available', 'missing'} or page.revision != intent['catalog_revision']:
+        raise _error('knowledge_changed')
+    if kind != 'knowledge.delete_all':
+        for target in intent['targets']:
+            detail = knowledge_views.read_saved_entity_detail(target['entity_id'])
+            if detail.availability != 'available' or detail.revision != target['revision']:
+                raise _error('knowledge_changed')
+    review = {
+        'schema_version': 1,
+        'action': kind,
+        **intent,
+        'entity_count': page.total or 0 if kind == 'knowledge.delete_all' else len(intent['targets']),
+        'side_effects': (
+            ['entities', 'relations', 'lexical_index', 'vector_index', 'managed_wiki_files']
+            if kind == 'knowledge.delete_all'
+            else ['entities', 'relations', 'lexical_index', 'vector_index', 'managed_wiki_files']
+        ),
+    }
+    review['action_digest'] = _digest(review)
+    validate()
+    return review
+
+
+def _maintenance_public(saved: dict) -> dict:
+    command_id = _uuid(saved.get('command_id'))
+    status = saved.get('status')
+    if status not in {'completed', 'partial', 'rejected'}:
+        raise _error('knowledge_operation_unavailable')
+    result = {
+        'command_id': command_id,
+        'status': status,
+        'action': saved.get('action'),
+        'deleted': saved.get('deleted', []),
+        'stale': saved.get('stale', []),
+        'missing': saved.get('missing', []),
+        'cleanup': saved.get('cleanup', {}),
+        'code': saved.get('code'),
+    }
+    if result['action'] not in _MAINTENANCE_KINDS:
+        raise _error('knowledge_operation_unavailable')
+    if any(not isinstance(value, list) or len(value) > 100 for value in (result['deleted'], result['stale'], result['missing'])):
+        raise _error('knowledge_operation_unavailable')
+    if not isinstance(result['cleanup'], dict):
+        raise _error('knowledge_operation_unavailable')
+    return result
+
+
+def read_knowledge_maintenance_command(*, owner_id: str, command_id: str, validate: Callable[[], None]) -> dict:
+    validate()
+    command_id = _uuid(command_id)
+    metadata = admissions.read_command_metadata(owner_id, command_id)
+    saved = admissions.read_command_receipt(owner_id, command_id)
+    if not metadata or metadata['target'] != 'knowledge:maintenance' or metadata['type'] not in _MAINTENANCE_KINDS or not saved:
+        raise _error('knowledge_operation_unavailable')
+    if saved.get('status') not in {'completed', 'partial', 'rejected'}:
+        saved = {
+            'command_id': command_id, 'status': 'partial', 'action': metadata['type'],
+            'deleted': [], 'stale': [], 'missing': [], 'cleanup': {},
+            'code': 'knowledge_outcome_uncertain',
+        }
+    validate()
+    return _maintenance_public(saved)
+
+
+def execute_knowledge_maintenance_command(
+    command: dict,
+    *,
+    owner_id: str,
+    key: str,
+    validate: Callable[[], None],
+    validate_review: Callable[[dict, dict], None],
+) -> dict:
+    validate()
+    command = deepcopy(command)
+    command_id = _uuid(command.get('command_id'))
+    kind = command.get('type')
+    payload = command.get('payload')
+    if kind not in _MAINTENANCE_KINDS or not isinstance(payload, dict):
+        raise _error('invalid_knowledge_command')
+    if set(payload) != {'catalog_revision', 'targets', 'action_digest', 'review_id'}:
+        raise _error('invalid_knowledge_command')
+    intent = _maintenance_intent(kind, {key: payload[key] for key in ('catalog_revision', 'targets')})
+    if admissions.read_command_metadata(owner_id, command_id) is not None:
+        try:
+            admissions.claim_command(owner_id, key, command, 'knowledge:maintenance')
+        except admissions.AdmissionError as error:
+            if str(error) != 'operation_uncertain':
+                raise _error(str(error)) from error
+        return read_knowledge_maintenance_command(owner_id=owner_id, command_id=command_id, validate=validate)
+    review = read_knowledge_maintenance_review(kind, intent, validate=validate)
+    if payload.get('action_digest') != review['action_digest']:
+        raise _error('knowledge_changed')
+    validate_review(command, review)
+    initial = {
+        'command_id': command_id, 'status': 'partial', 'action': kind, 'deleted': [],
+        'stale': [], 'missing': [], 'cleanup': {}, 'code': 'knowledge_outcome_uncertain',
+    }
+    try:
+        replay = admissions.claim_command(owner_id, key, command, 'knowledge:maintenance', exclusive_target=True, initial_result=initial)
+    except admissions.AdmissionError as error:
+        raise _error(str(error)) from error
+    if replay is not None:
+        return _maintenance_public(replay)
+    try:
+        from row_bot import knowledge_graph as kg
+
+        outcome = kg.delete_reviewed_entities(
+            {item['entity_id']: item['revision'] for item in intent['targets']},
+            catalog_revision=intent['catalog_revision'],
+            delete_all=kind == 'knowledge.delete_all',
+            validate=validate,
+        )
+        partial = bool(outcome['stale'] or outcome['missing'] or 'failed' in outcome['cleanup'].values())
+        result = {
+            'command_id': command_id,
+            'status': 'partial' if partial else 'completed',
+            'action': kind,
+            **outcome,
+            'code': 'knowledge_cleanup_partial' if partial else None,
+        }
+    except ValueError as exc:
+        if str(exc) == 'knowledge_changed':
+            result = {**initial, 'status': 'rejected', 'code': 'knowledge_changed'}
+        else:
+            result = initial
+    except Exception:
+        result = initial
+    saved = admissions.complete_command(owner_id, key, result)
+    return _maintenance_public(saved)

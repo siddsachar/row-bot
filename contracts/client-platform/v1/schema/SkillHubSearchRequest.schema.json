@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Query",
+      "type": "string"
+    },
+    "refresh": {
+      "default": false,
+      "title": "Refresh",
+      "type": "boolean"
+    },
+    "source": {
+      "default": "all",
+      "enum": [
+        "all",
+        "github",
+        "skills_sh",
+        "browse_sh",
+        "clawhub",
+        "lobehub"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "title": "SkillHubSearchRequest",
+  "type": "object"
+}

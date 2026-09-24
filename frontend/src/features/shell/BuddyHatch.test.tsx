@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import BuddyHatch, {
   type BuddyHatchProps,
@@ -25,6 +31,8 @@ function props(): BuddyHatchProps {
   return {
     scopeKey: 'owner-one',
     configRevision: 'revision-one',
+    personality: 'warm_mystical',
+    styleNotes: 'Warm and luminous',
     result: null,
     selectedPack: {
       id: 'hatch-one',
@@ -59,15 +67,12 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-async function reviewNew() {
+function generateNew() {
   fireEvent.change(
     screen.getByRole('textbox', { name: 'Describe your Buddy' }),
     { target: { value: 'Synthetic Buddy' } },
   );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Review Generate full Buddy' }),
-  );
-  await screen.findByRole('region', { name: 'Review Hatch action' });
+  fireEvent.click(screen.getByRole('button', { name: 'Generate full Buddy' }));
 }
 
 describe('Buddy Hatch explicit controls', () => {
@@ -82,7 +87,7 @@ describe('Buddy Hatch explicit controls', () => {
     expect(input.confirm).not.toHaveBeenCalled();
   });
 
-  it('presents the owner generation hierarchy without bypassing review', () => {
+  it('presents the owner generation hierarchy without starting on mount', () => {
     const input = props();
     render(<BuddyHatch {...input} />);
 
@@ -90,36 +95,46 @@ describe('Buddy Hatch explicit controls', () => {
       screen.getByRole('heading', { name: 'Generate Look' }),
     ).toBeVisible();
     expect(
-      screen.getByRole('button', { name: 'Review Generate full Buddy' }),
+      screen.getByRole('button', { name: 'Generate full Buddy' }),
     ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Review motion' })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Generate motion' }),
+    ).toBeVisible();
     expect(input.review).not.toHaveBeenCalled();
     expect(input.confirm).not.toHaveBeenCalled();
   });
 
-  it('never generates on mount and reviews exact models before one explicit confirmation', async () => {
+  it('never generates on mount and uses the exact review for one-click generation', async () => {
     const input = props();
     render(<BuddyHatch {...input} />);
     expect(input.review).not.toHaveBeenCalled();
     expect(input.confirm).not.toHaveBeenCalled();
-    await reviewNew();
-    expect(screen.getByText('Image model: openai/image')).toBeInTheDocument();
-    expect(screen.getByText('Provider calls: 7')).toBeInTheDocument();
-    expect(input.confirm).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Confirm Hatch action' }),
+    generateNew();
+    expect(input.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('User style notes: Warm and luminous'),
+      }),
     );
     await screen.findByText('2 of 6 motion clips retained.');
     expect(input.confirm).toHaveBeenCalledExactlyOnceWith('review-one');
   });
-  it('drops a stale review when configuration changes', async () => {
+  it('drops a late review when configuration changes before generation', async () => {
     const input = props();
+    const pending = deferred<HatchReview>();
+    input.review = vi.fn(() => pending.promise);
     const view = render(<BuddyHatch {...input} />);
-    await reviewNew();
+    generateNew();
     view.rerender(<BuddyHatch {...input} configRevision="revision-two" />);
-    expect(
-      screen.queryByRole('button', { name: 'Confirm Hatch action' }),
-    ).not.toBeInTheDocument();
+    await act(async () =>
+      pending.resolve({
+        review_id: 'late',
+        action: 'full',
+        config_revision: 'revision-one',
+        provider_calls: 7,
+        image_model: 'openai/image',
+        video_model: 'xai/video',
+      }),
+    );
     expect(input.confirm).not.toHaveBeenCalled();
   });
   it('does not release an active submission when authority or selection changes', async () => {
@@ -127,10 +142,8 @@ describe('Buddy Hatch explicit controls', () => {
     const pending = deferred<HatchResult>();
     input.confirm = vi.fn(() => pending.promise);
     const view = render(<BuddyHatch {...input} />);
-    await reviewNew();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Confirm Hatch action' }),
-    );
+    generateNew();
+    await waitFor(() => expect(input.confirm).toHaveBeenCalledOnce());
     view.rerender(
       <BuddyHatch
         {...input}
@@ -139,7 +152,7 @@ describe('Buddy Hatch explicit controls', () => {
       />,
     );
     expect(
-      screen.getByRole('button', { name: 'Review motion' }),
+      screen.getByRole('button', { name: 'Generate motion' }),
     ).toBeDisabled();
     await act(async () => pending.resolve(result));
     expect(
@@ -152,7 +165,7 @@ describe('Buddy Hatch explicit controls', () => {
     const pending = deferred<HatchReview>();
     input.review = vi.fn(() => pending.promise);
     const view = render(<BuddyHatch {...input} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Review motion' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generate motion' }));
     view.rerender(<BuddyHatch {...input} configRevision={null} />);
     await act(async () =>
       pending.resolve({
@@ -179,8 +192,8 @@ describe('Buddy Hatch explicit controls', () => {
     await act(async () => {});
     expect(input.refresh).toHaveBeenCalledExactlyOnceWith('command-one');
     expect(input.confirm).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Review still only' }));
-    await screen.findByText('Provider calls: 0');
+    fireEvent.click(screen.getByRole('button', { name: 'Use retained still' }));
+    await waitFor(() => expect(input.confirm).toHaveBeenCalledOnce());
     expect(input.review).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'still',
@@ -199,16 +212,13 @@ describe('Buddy Hatch explicit controls', () => {
       screen.getByText('2 of 6 motion clips retained.'),
     ).toBeInTheDocument();
   });
-  it('consumes failed confirmation and requires fresh explicit review rather than retry', async () => {
+  it('consumes failed generation and requires a fresh explicit action', async () => {
     const input = props();
     input.confirm = vi.fn(async () => {
       throw new Error('private provider body');
     });
     render(<BuddyHatch {...input} />);
-    await reviewNew();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Confirm Hatch action' }),
-    );
+    generateNew();
     await screen.findByText('Hatch needs attention');
     expect(
       screen.queryByRole('button', { name: 'Confirm Hatch action' }),
@@ -224,7 +234,9 @@ describe('Buddy Hatch explicit controls', () => {
       config_changed: true,
     }));
     render(<BuddyHatch {...input} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Review removal' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove generated look' }),
+    );
     await screen.findByRole('button', { name: 'Confirm removal' });
     expect(input.review).toHaveBeenCalledWith(
       expect.objectContaining({

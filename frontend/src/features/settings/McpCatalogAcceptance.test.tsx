@@ -70,15 +70,12 @@ function options() {
     })),
   };
 }
-async function review() {
+async function accept() {
   const button = await screen.findByRole('button', {
-    name: 'Review acceptance',
+    name: 'Accept tools',
   });
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Accept tools' })).toBeEnabled(),
-  );
 }
 
 it('reads only the exact Test and displays mandatory approval', async () => {
@@ -99,22 +96,17 @@ it('reads only the exact Test and displays mandatory approval', async () => {
   expect(props.execute).not.toHaveBeenCalled();
 });
 
-it('explicit review names all tools and acceptance preserves original exact source', async () => {
+it('one-click acceptance preserves the original exact source', async () => {
   const props = options();
   render(<McpCatalogAcceptance {...props} />);
-  await review();
-  expect(screen.getByText(/all 2 tested tools/)).toBeVisible();
-  expect(props.execute).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Accept tools' }));
+  await accept();
   await screen.findByText(/Tested tools accepted/);
   expect(props.execute.mock.calls[0][0].payload).toEqual({
     configuration_revision: page.configuration_revision,
     server_id: serverId,
     test_command_id: testCommandId,
   });
-  expect(
-    screen.getByRole('button', { name: 'Review acceptance' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
 });
 
 it('pages replace bounded rows and First uses the changed filter', async () => {
@@ -157,9 +149,7 @@ it('rejects oversized pages and a different Test source', async () => {
   expect(screen.queryByText('get_record')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'First page' }));
   await screen.findByText(/Return to the first page/);
-  expect(
-    screen.getByRole('button', { name: 'Review acceptance' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
 });
 
 it('requires manual selection when the canonical overlap owner says so', async () => {
@@ -182,9 +172,7 @@ it.each(['unavailable', 'stale', 'recovery_required'])(
     props.load.mockResolvedValue({ ...page, availability });
     render(<McpCatalogAcceptance {...props} />);
     await screen.findByText(/Catalog:/);
-    expect(
-      screen.getByRole('button', { name: 'Review acceptance' }),
-    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
     expect(props.execute).not.toHaveBeenCalled();
   },
 );
@@ -193,15 +181,12 @@ it('retains an uncertain original across remount and never creates another accep
   const props = options();
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const rendered = render(<McpCatalogAcceptance {...props} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Accept tools' }));
+  await accept();
   await screen.findByText(/original acceptance is unconfirmed/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
   render(<McpCatalogAcceptance {...props} />);
-  expect(
-    screen.getByRole('button', { name: 'Review acceptance' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
   fireEvent.click(
     screen.getByRole('button', { name: 'Check original acceptance' }),
   );
@@ -214,8 +199,8 @@ it('keeps the exact in-flight acceptance through remount and tombstones after au
   const response = deferred<McpConfigurationReceipt>();
   props.execute.mockReturnValue(response.promise);
   const rendered = render(<McpCatalogAcceptance {...props} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Accept tools' }));
+  await accept();
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   rendered.unmount();
   render(<McpCatalogAcceptance {...props} />);
   expect(
@@ -248,12 +233,12 @@ it('does not accept a review for another Test', async () => {
   }));
   render(<McpCatalogAcceptance {...props} />);
   const button = await screen.findByRole('button', {
-    name: 'Review acceptance',
+    name: 'Accept tools',
   });
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
-  await screen.findByText(/could not be reviewed/);
-  expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
+  await screen.findByText(/could not be validated/);
+  expect(props.execute).not.toHaveBeenCalled();
 });
 
 it('does not offer an original retry after explicit rejection', async () => {
@@ -263,8 +248,7 @@ it('does not offer an original retry after explicit rejection', async () => {
     status: 'rejected',
   }));
   render(<McpCatalogAcceptance {...props} />);
-  await review();
-  fireEvent.click(screen.getByRole('button', { name: 'Accept tools' }));
+  await accept();
   await screen.findByText(/Acceptance was rejected/);
   expect(
     screen.queryByRole('button', { name: 'Check original acceptance' }),

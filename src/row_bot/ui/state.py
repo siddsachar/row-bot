@@ -347,6 +347,7 @@ class P:
     live_control_refresh: Any = None
     live_control_cleanup: Any = None
     streaming_callbacks: Any = None
+    external_generation_container: Any = None
     settings_dlg: ui.dialog = None      # type: ignore[assignment]
     export_dlg: ui.dialog = None        # type: ignore[assignment]
     interrupt_dlg: ui.dialog = None     # type: ignore[assignment]
@@ -374,6 +375,7 @@ class P:
         self.live_control_refresh = None
         self.live_control_cleanup = None
         self.streaming_callbacks = None
+        self.external_generation_container = None
         self.chat_shell_generation = 0
         self.chat_upload_js_installed = False
         self.parent_agent_dialog_open = False

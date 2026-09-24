@@ -3,6 +3,7 @@
 The renderer receives stable skill identifiers and bounded text only.  File
 locations, identities, retained copies, and publication proofs remain private.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -34,7 +35,15 @@ _ACTIONS = {
     "skill.proposal.reject",
 }
 _NAME = re.compile(r"[a-z][a-z0-9_]{1,63}")
-_FIELDS = {"display_name", "icon", "description", "instructions", "tags", "activation", "version"}
+_FIELDS = {
+    "display_name",
+    "icon",
+    "description",
+    "instructions",
+    "tags",
+    "activation",
+    "version",
+}
 _MAX_SKILL_BYTES = 64 * 1024
 _MAX_PUBLIC_BYTES = 256 * 1024
 
@@ -54,7 +63,13 @@ def _uuid(value: object) -> str:
 
 def _digest(value: object) -> str:
     try:
-        raw = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        raw = json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
     except (TypeError, ValueError, RecursionError):
         raise _error("invalid_skill_command") from None
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -75,8 +90,12 @@ def _name(value: object) -> str:
 
 
 def _text(value: object, maximum: int, *, required: bool = False) -> str:
-    if (not isinstance(value, str) or len(value) > maximum or "\0" in value
-            or any(0xD800 <= ord(char) <= 0xDFFF for char in value)):
+    if (
+        not isinstance(value, str)
+        or len(value) > maximum
+        or "\0" in value
+        or any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+    ):
         raise _error("invalid_skill_fields")
     result = value.strip()
     if required and not result:
@@ -106,7 +125,11 @@ def _activation(value: object) -> dict[str, list[str]]:
 
 
 def _fields(value: object, *, partial: bool = False) -> dict:
-    if not isinstance(value, dict) or (not partial and set(value) != _FIELDS) or not set(value).issubset(_FIELDS):
+    if (
+        not isinstance(value, dict)
+        or (not partial and set(value) != _FIELDS)
+        or not set(value).issubset(_FIELDS)
+    ):
         raise _error("invalid_skill_fields")
     if partial and not value:
         raise _error("invalid_skill_fields")
@@ -128,7 +151,14 @@ def _fields(value: object, *, partial: bool = False) -> dict:
     return result
 
 
-def _public(item: dict, enabled: dict, pinned: list[str], *, detail: bool = False) -> dict:
+def _public(
+    item: dict,
+    enabled: dict,
+    pinned: list[str],
+    *,
+    detail: bool = False,
+    public: bool = False,
+) -> dict:
     skill = item["skill"]
     value = {
         "id": skill.name,
@@ -136,6 +166,7 @@ def _public(item: dict, enabled: dict, pinned: list[str], *, detail: bool = Fals
         "icon": skill.icon,
         "description": skill.description,
         "source": skill.source,
+        "public": public,
         "version": skill.version,
         "tags": list(skill.tags),
         "activation": deepcopy(skill.activation),
@@ -159,50 +190,122 @@ def _snapshot() -> dict:
         raise _error() from None
 
 
-def read_skill_library(*, query: str = "", source: str | None = None,
-                       cursor: str | None = None, limit: int = 50,
-                       validate: Callable[[], None]) -> dict:
+def read_skill_library(
+    *,
+    query: str = "",
+    source: str | None = None,
+    filter: str = "all",
+    sort: str = "name",
+    cursor: str | None = None,
+    limit: int = 50,
+    validate: Callable[[], None],
+) -> dict:
     """Read one stable, bounded page without loading or migrating skills."""
     validate()
-    if (not isinstance(query, str) or len(query) > 256 or source not in {None, "user", "bundled"}
-            or type(limit) is not int or not 1 <= limit <= 50):
+    if (
+        not isinstance(query, str)
+        or len(query) > 256
+        or source not in {None, "user", "bundled", "public"}
+        or filter not in {"all", "pinned", "available", "custom", "public"}
+        or sort not in {"name", "recent", "tokens", "source"}
+        or type(limit) is not int
+        or not 1 <= limit <= 50
+    ):
         raise _error("invalid_skill_query")
     snapshot = _snapshot()
     revision = snapshot["revision"]
-    offset = 0
-    if cursor:
-        try:
-            cursor_revision, raw_offset = cursor.split(":", 1)
-            offset = int(raw_offset)
-            if cursor_revision != revision or offset <= 0:
-                raise ValueError
-        except (AttributeError, ValueError):
-            raise _error("cursor_expired") from None
+    from row_bot.skills_hub.provenance import load_records
+
+    public_names = set(load_records())
+    telemetry = {}
+    if sort == "recent":
+        from row_bot.skills_activation import get_skill_telemetry
+
+        telemetry = get_skill_telemetry()
     needle = " ".join(query.lower().split())
     rows = []
     for item in snapshot["items"].values():
         skill = item["skill"]
         if skills.is_tool_guide(skill):
             continue
-        if source and skill.source != source:
+        is_public = skill.name in public_names
+        if source and (not is_public if source == "public" else skill.source != source):
+            continue
+        if filter == "public" and not is_public:
+            continue
+        if filter == "custom" and skill.source != "user":
+            continue
+        if filter == "pinned" and skill.name not in snapshot["pinned"]:
+            continue
+        if filter == "available" and not snapshot["enabled"].get(skill.name, False):
             continue
         haystack = " ".join(
-            [skill.name, skill.display_name, skill.description, *skill.tags]
+            [
+                skill.name,
+                skill.display_name,
+                skill.description,
+                *skill.tags,
+                "Public"
+                if is_public
+                else "Bundled"
+                if skill.source == "bundled"
+                else "Custom",
+            ]
         ).lower()
         if needle and needle not in haystack:
             continue
-        rows.append(_public(item, snapshot["enabled"], snapshot["pinned"]))
-    rows.sort(key=lambda item: (item["display_name"].casefold(), item["id"]))
+        row = _public(item, snapshot["enabled"], snapshot["pinned"], public=is_public)
+        row["_tokens"] = skills.estimate_text_tokens(skill.instructions)
+        rows.append(row)
+
+    def sort_key(item: dict) -> tuple:
+        name = item["display_name"].casefold()
+        if sort == "recent":
+            return (
+                str(telemetry.get(item["id"], {}).get("last_used") or ""),
+                name,
+                item["id"],
+            )
+        if sort == "tokens":
+            return (item["_tokens"], name, item["id"])
+        if sort == "source":
+            label = (
+                "Public"
+                if item["public"]
+                else "Bundled"
+                if item["source"] == "bundled"
+                else "Custom"
+            )
+            return (label, name, item["id"])
+        return (name, item["id"])
+
+    rows.sort(key=sort_key, reverse=sort == "recent")
+    proof = _digest(
+        [revision, query, source, filter, sort, [row["id"] for row in rows]]
+    )
+    offset = 0
+    if cursor:
+        try:
+            cursor_proof, raw_offset = cursor.split(":", 1)
+            offset = int(raw_offset)
+            if cursor_proof != proof or offset <= 0:
+                raise ValueError
+        except (AttributeError, ValueError):
+            raise _error("cursor_expired") from None
     if cursor and offset >= len(rows):
         raise _error("cursor_expired")
-    items = rows[offset:offset + limit]
+    items = rows[offset : offset + limit]
+    for item in items:
+        item.pop("_tokens")
     result = {
         "schema_version": 1,
         "revision": revision,
         "availability": "available",
         "items": items,
         "total": len(rows),
-        "next_cursor": f"{revision}:{offset + limit}" if offset + limit < len(rows) else None,
+        "next_cursor": f"{proof}:{offset + limit}"
+        if offset + limit < len(rows)
+        else None,
     }
     if len(json.dumps(result, ensure_ascii=True).encode()) > _MAX_PUBLIC_BYTES:
         raise _error("skills_response_too_large")
@@ -216,8 +319,11 @@ def read_skill_detail(skill_id: str, *, validate: Callable[[], None]) -> dict:
     item = snapshot["items"].get(_name(skill_id))
     if item is None or skills.is_tool_guide(item["skill"]):
         raise _error("skill_missing")
-    result = {"schema_version": 1, "library_revision": snapshot["revision"],
-              "skill": _public(item, snapshot["enabled"], snapshot["pinned"], detail=True)}
+    result = {
+        "schema_version": 1,
+        "library_revision": snapshot["revision"],
+        "skill": _public(item, snapshot["enabled"], snapshot["pinned"], detail=True),
+    }
     if len(json.dumps(result, ensure_ascii=True).encode()) > _MAX_PUBLIC_BYTES:
         raise _error("skills_response_too_large")
     validate()
@@ -238,8 +344,10 @@ def _proposal_store() -> tuple[list[dict], str]:
         if isinstance(value, list):
             return [public_preview(item, depth + 1) for item in value[:50]]
         if isinstance(value, dict):
-            return {str(key)[:128]: public_preview(item, depth + 1)
-                    for key, item in list(value.items())[:50]}
+            return {
+                str(key)[:128]: public_preview(item, depth + 1)
+                for key, item in list(value.items())[:50]
+            }
         return "[unavailable]"
 
     path = get_row_bot_data_dir(create=False) / "controlled_evolution.json"
@@ -249,22 +357,45 @@ def _proposal_store() -> tuple[list[dict], str]:
             return [], "missing"
         store = json.loads(raw[0])
         values = store.get("proposals")
-        if not isinstance(store, dict) or not isinstance(values, list) or len(values) > 4096:
+        if (
+            not isinstance(store, dict)
+            or not isinstance(values, list)
+            or len(values) > 4096
+        ):
             raise ValueError
         result = []
         for value in values:
-            if (not isinstance(value, dict) or value.get("proposal_type") not in
-                    {"create_skill", "patch_skill", "consolidate_skills"}):
+            if not isinstance(value, dict) or value.get("proposal_type") not in {
+                "create_skill",
+                "patch_skill",
+                "consolidate_skills",
+            }:
                 continue
             public = {
                 "id": _text(value.get("id"), 128, required=True),
                 "type": value["proposal_type"],
                 "title": redact_text(_text(value.get("title", ""), 256), max_chars=256),
-                "rationale": redact_text(_text(value.get("rationale", ""), 4096), max_chars=4096),
-                "risk": value.get("risk") if value.get("risk") in {"low", "medium", "high"} else "medium",
-                "status": value.get("status") if value.get("status") in
-                    {"draft", "ready", "approved", "applied", "verified", "rejected", "failed"} else "draft",
-                "preview": public_preview(value.get("preview")) if isinstance(value.get("preview"), dict) else {},
+                "rationale": redact_text(
+                    _text(value.get("rationale", ""), 4096), max_chars=4096
+                ),
+                "risk": value.get("risk")
+                if value.get("risk") in {"low", "medium", "high"}
+                else "medium",
+                "status": value.get("status")
+                if value.get("status")
+                in {
+                    "draft",
+                    "ready",
+                    "approved",
+                    "applied",
+                    "verified",
+                    "rejected",
+                    "failed",
+                }
+                else "draft",
+                "preview": public_preview(value.get("preview"))
+                if isinstance(value.get("preview"), dict)
+                else {},
             }
             if len(json.dumps(public, ensure_ascii=True).encode()) > 32 * 1024:
                 raise ValueError
@@ -278,8 +409,12 @@ def read_skill_proposals(*, validate: Callable[[], None]) -> dict:
     validate()
     values, revision = _proposal_store()
     values.sort(key=lambda item: item["id"], reverse=True)
-    result = {"schema_version": 1, "revision": revision, "items": values[:100],
-              "truncated": len(values) > 100}
+    result = {
+        "schema_version": 1,
+        "revision": revision,
+        "items": values[:100],
+        "truncated": len(values) > 100,
+    }
     validate()
     return result
 
@@ -301,11 +436,19 @@ def _new_skill_content(name: str, fields: dict) -> bytes:
     content = f"---\n{skills._build_ordered_frontmatter(metadata)}---\n\n{fields['instructions']}\n"
     value = content.encode()
     parsed = skills._parse_skill_text(content, Path(name) / "SKILL.md", "user")
-    if (len(value) > _MAX_SKILL_BYTES or parsed is None or parsed.name != name
-            or parsed.display_name != fields["display_name"] or parsed.icon != fields["icon"]
-            or parsed.description != fields["description"] or parsed.instructions != fields["instructions"]
-            or parsed.tags != fields["tags"] or parsed.activation != fields["activation"]
-            or parsed.version != fields["version"] or parsed.tools):
+    if (
+        len(value) > _MAX_SKILL_BYTES
+        or parsed is None
+        or parsed.name != name
+        or parsed.display_name != fields["display_name"]
+        or parsed.icon != fields["icon"]
+        or parsed.description != fields["description"]
+        or parsed.instructions != fields["instructions"]
+        or parsed.tags != fields["tags"]
+        or parsed.activation != fields["activation"]
+        or parsed.version != fields["version"]
+        or parsed.tools
+    ):
         raise _error("invalid_skill_fields")
     return value
 
@@ -315,15 +458,17 @@ def _import_content(value: object) -> tuple[str, dict, bytes]:
     parsed = skills._parse_skill_text(content, Path("import") / "SKILL.md", "user")
     if parsed is None or not _NAME.fullmatch(parsed.name) or parsed.tools:
         raise _error("invalid_skill_import")
-    fields = _fields({
-        "display_name": parsed.display_name,
-        "icon": parsed.icon,
-        "description": parsed.description,
-        "instructions": parsed.instructions,
-        "tags": list(parsed.tags),
-        "activation": deepcopy(parsed.activation),
-        "version": parsed.version,
-    })
+    fields = _fields(
+        {
+            "display_name": parsed.display_name,
+            "icon": parsed.icon,
+            "description": parsed.description,
+            "instructions": parsed.instructions,
+            "tags": list(parsed.tags),
+            "activation": deepcopy(parsed.activation),
+            "version": parsed.version,
+        }
+    )
     return parsed.name, fields, _new_skill_content(parsed.name, fields)
 
 
@@ -337,15 +482,19 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
     target: dict | None = None
     after: dict | None = None
     if action == "skill.preference":
-        if (set(payload) != {"revision", "name", "preference", "value"}
-                or payload.get("preference") not in {"availability", "pin_defaults"}
-                or type(payload.get("value")) is not bool):
+        if (
+            set(payload) != {"revision", "name", "preference", "value"}
+            or payload.get("preference") not in {"availability", "pin_defaults"}
+            or type(payload.get("value")) is not bool
+        ):
             raise _error("invalid_skill_command")
         name = _name(payload["name"])
         target = snapshot["items"].get(name)
         if target is None or skills.is_tool_guide(target["skill"]):
             raise _error("invalid_skill_target")
-        normalized.update(name=name, preference=payload["preference"], value=payload["value"])
+        normalized.update(
+            name=name, preference=payload["preference"], value=payload["value"]
+        )
     elif action in {"skill.create", "skill.import"}:
         if action == "skill.create":
             if set(payload) != {"revision", "name", "fields"}:
@@ -358,7 +507,9 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
             name, fields, content = _import_content(payload["content"])
         if name in snapshot["items"]:
             raise _error("skill_exists")
-        normalized.update(name=name, fields=fields, content_digest=hashlib.sha256(content).hexdigest())
+        normalized.update(
+            name=name, fields=fields, content_digest=hashlib.sha256(content).hexdigest()
+        )
         after = fields
     elif action == "skill.edit":
         if set(payload) != {"revision", "name", "skill_revision", "fields"}:
@@ -367,13 +518,22 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
         target = snapshot["items"].get(name)
         if target is None:
             raise _error("skill_missing")
-        if target["skill"].source != "user" or target["revision"] != payload["skill_revision"]:
+        if (
+            target["skill"].source != "user"
+            or target["revision"] != payload["skill_revision"]
+        ):
             raise _error("skill_revision_conflict")
         current = target["skill"]
-        merged = {"display_name": current.display_name, "icon": current.icon,
-                  "description": current.description, "instructions": current.instructions,
-                  "tags": list(current.tags), "activation": deepcopy(current.activation),
-                  "version": current.version, **fields}
+        merged = {
+            "display_name": current.display_name,
+            "icon": current.icon,
+            "description": current.description,
+            "instructions": current.instructions,
+            "tags": list(current.tags),
+            "activation": deepcopy(current.activation),
+            "version": current.version,
+            **fields,
+        }
         _new_skill_content(name, merged)
         normalized.update(name=name, skill_revision=target["revision"], fields=fields)
         after = merged
@@ -387,12 +547,19 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
         if new_name in snapshot["items"]:
             raise _error("skill_exists")
         current = target["skill"]
-        after = {"display_name": f"{current.display_name} (Custom)", "icon": current.icon,
-                 "description": current.description, "instructions": current.instructions,
-                 "tags": list(current.tags), "activation": deepcopy(current.activation),
-                 "version": current.version}
+        after = {
+            "display_name": f"{current.display_name} (Custom)",
+            "icon": current.icon,
+            "description": current.description,
+            "instructions": current.instructions,
+            "tags": list(current.tags),
+            "activation": deepcopy(current.activation),
+            "version": current.version,
+        }
         _new_skill_content(new_name, after)
-        normalized.update(name=name, new_name=new_name, skill_revision=target["revision"])
+        normalized.update(
+            name=name, new_name=new_name, skill_revision=target["revision"]
+        )
     elif action == "skill.delete":
         if set(payload) != {"revision", "name", "skill_revision"}:
             raise _error("invalid_skill_command")
@@ -400,7 +567,10 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
         target = snapshot["items"].get(name)
         if target is None:
             raise _error("skill_missing")
-        if target["skill"].source != "user" or target["revision"] != payload["skill_revision"]:
+        if (
+            target["skill"].source != "user"
+            or target["revision"] != payload["skill_revision"]
+        ):
             raise _error("skill_revision_conflict")
         normalized.update(name=name, skill_revision=target["revision"])
     else:
@@ -411,19 +581,31 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
         reason = _text(payload["reason"], 1024)
         proposals, proposal_revision = _proposal_store()
         proposal = next((item for item in proposals if item["id"] == proposal_id), None)
-        if proposal is None or proposal["status"] in {"applied", "verified", "rejected"}:
+        if proposal is None or proposal["status"] in {
+            "applied",
+            "verified",
+            "rejected",
+        }:
             raise _error("skill_proposal_changed")
-        normalized.update(proposal_id=proposal_id, reason=reason,
-                          proposal_revision=proposal_revision)
+        normalized.update(
+            proposal_id=proposal_id, reason=reason, proposal_revision=proposal_revision
+        )
         after = proposal
-    review = {"schema_version": 1, "action": action, "revision": snapshot["revision"],
-              "target": normalized.get("name") or normalized.get("proposal_id"),
-              "before_revision": target["revision"] if target else None,
-              "after": after, "action_digest": _digest(normalized)}
+    review = {
+        "schema_version": 1,
+        "action": action,
+        "revision": snapshot["revision"],
+        "target": normalized.get("name") or normalized.get("proposal_id"),
+        "before_revision": target["revision"] if target else None,
+        "after": after,
+        "action_digest": _digest(normalized),
+    }
     return review, normalized
 
 
-def review_skill_command(action: str, payload: dict, *, validate: Callable[[], None]) -> dict:
+def review_skill_command(
+    action: str, payload: dict, *, validate: Callable[[], None]
+) -> dict:
     validate()
     review, _ = _review(action, deepcopy(payload))
     validate()
@@ -432,6 +614,7 @@ def review_skill_command(action: str, payload: dict, *, validate: Callable[[], N
 
 def _proof(saved: dict) -> object | None:
     from row_bot.developer.edits import FileEditRecovery
+
     value = saved.get("_skill", {}).get("recovery")
     try:
         return FileEditRecovery(**value) if isinstance(value, dict) else None
@@ -444,41 +627,73 @@ def _public_receipt(saved: dict) -> dict:
     if status not in {"completed", "partial"}:
         raise _error("skill_operation_unavailable")
     result = saved.get("result")
-    if not isinstance(result, dict) or set(result) != {"command_id", "status", "action", "skill_id", "revision", "code"}:
+    if not isinstance(result, dict) or set(result) != {
+        "command_id",
+        "status",
+        "action",
+        "skill_id",
+        "revision",
+        "code",
+    }:
         raise _error("skill_operation_unavailable")
     return deepcopy(result)
 
 
-def read_skill_command(*, owner_id: str, authority_id: str, command_id: str,
-                       validate: Callable[[], None]) -> dict:
+def read_skill_command(
+    *, owner_id: str, authority_id: str, command_id: str, validate: Callable[[], None]
+) -> dict:
     validate()
     command_id = _uuid(command_id)
     metadata = admissions.read_command_metadata(owner_id, command_id)
     saved = admissions.read_command_receipt(owner_id, command_id)
     private = saved.get("_skill") if isinstance(saved, dict) else None
-    if (not metadata or metadata["target"] != "skills" or metadata["type"] not in _ACTIONS
-            or not isinstance(private, dict) or private.get("scope") !=
-            _scope(owner_id, authority_id, read_only=True)):
+    if (
+        not metadata
+        or metadata["target"] != "skills"
+        or metadata["type"] not in _ACTIONS
+        or not isinstance(private, dict)
+        or private.get("scope") != _scope(owner_id, authority_id, read_only=True)
+    ):
         raise _error("skill_operation_unavailable")
     result = _public_receipt(saved)
     if metadata["status"] == "completed":
         result["status"] = "completed"
     elif _proof(saved) is not None and private.get("root") in {"config", "skill"}:
-        root = skills.CONFIG_PATH.parent if private["root"] == "config" else skills.USER_SKILLS_DIR / private["skill_id"]
-        filename = skills.CONFIG_PATH.name if private["root"] == "config" else "SKILL.md"
-        state = read_recovery(root, filename, _proof(saved), max_bytes=1024 * 1024,
-                              unavailable_code="skill_unavailable")
-        result.update(status="completed" if state == "applied" else "partial",
-                      code=None if state == "applied" else "skill_outcome_uncertain")
+        root = (
+            skills.CONFIG_PATH.parent
+            if private["root"] == "config"
+            else skills.USER_SKILLS_DIR / private["skill_id"]
+        )
+        filename = (
+            skills.CONFIG_PATH.name if private["root"] == "config" else "SKILL.md"
+        )
+        state = read_recovery(
+            root,
+            filename,
+            _proof(saved),
+            max_bytes=1024 * 1024,
+            unavailable_code="skill_unavailable",
+        )
+        result.update(
+            status="completed" if state == "applied" else "partial",
+            code=None if state == "applied" else "skill_outcome_uncertain",
+        )
     else:
         result.update(status="partial", code="skill_outcome_uncertain")
     validate()
     return result
 
 
-def execute_skill_command(command: dict, *, owner_id: str, authority_id: str, key: str,
-                          validate: Callable[[], None], validate_action: Callable[[str], None],
-                          validate_review: Callable[[dict, dict], None]) -> dict:
+def execute_skill_command(
+    command: dict,
+    *,
+    owner_id: str,
+    authority_id: str,
+    key: str,
+    validate: Callable[[], None],
+    validate_action: Callable[[str], None],
+    validate_review: Callable[[dict, dict], None],
+) -> dict:
     """Apply exactly one reviewed command; retries recover the original receipt."""
     validate()
     command = deepcopy(command)
@@ -494,42 +709,78 @@ def execute_skill_command(command: dict, *, owner_id: str, authority_id: str, ke
             except admissions.AdmissionError as error:
                 if str(error) != "operation_uncertain":
                     raise _error(str(error)) from None
-            return read_skill_command(owner_id=owner_id, authority_id=authority_id,
-                                      command_id=command_id, validate=validate)
+            return read_skill_command(
+                owner_id=owner_id,
+                authority_id=authority_id,
+                command_id=command_id,
+                validate=validate,
+            )
         review, normalized = _review(action, payload)
+
         def authority() -> None:
             validate()
             validate_action(action)
             validate_review(command, review)
+
         authority()
-        result = {"command_id": command_id, "status": "partial", "action": action,
-                  "skill_id": normalized.get("new_name") or normalized.get("name"),
-                  "revision": None, "code": "skill_outcome_uncertain"}
-        private = {"scope": _scope(owner_id, authority_id), "recovery": None,
-                   "root": None, "skill_id": result["skill_id"]}
-        progress = {"command_id": command_id, "status": "partial", "result": result,
-                    "_skill": private}
+        result = {
+            "command_id": command_id,
+            "status": "partial",
+            "action": action,
+            "skill_id": normalized.get("new_name") or normalized.get("name"),
+            "revision": None,
+            "code": "skill_outcome_uncertain",
+        }
+        private = {
+            "scope": _scope(owner_id, authority_id),
+            "recovery": None,
+            "root": None,
+            "skill_id": result["skill_id"],
+        }
+        progress = {
+            "command_id": command_id,
+            "status": "partial",
+            "result": result,
+            "_skill": private,
+        }
         try:
-            prior = admissions.claim_command(owner_id, key, command, "skills", initial_result=progress)
+            prior = admissions.claim_command(
+                owner_id, key, command, "skills", initial_result=progress
+            )
         except admissions.AdmissionError as error:
             if str(error) != "operation_uncertain":
                 raise _error(str(error)) from None
-            return read_skill_command(owner_id=owner_id, authority_id=authority_id,
-                                      command_id=command_id, validate=validate)
+            return read_skill_command(
+                owner_id=owner_id,
+                authority_id=authority_id,
+                command_id=command_id,
+                validate=validate,
+            )
         if prior is not None:
-            return read_skill_command(owner_id=owner_id, authority_id=authority_id,
-                                      command_id=command_id, validate=validate)
+            return read_skill_command(
+                owner_id=owner_id,
+                authority_id=authority_id,
+                command_id=command_id,
+                validate=validate,
+            )
+
         def checkpoint(proof: object) -> None:
             authority()
             private["recovery"] = asdict(proof)
             admissions.command_progress(owner_id, key, progress)
+
         try:
             if action == "skill.preference":
                 private.update(root="config", skill_id=normalized["name"])
                 revision = skills.update_client_skill_preference(
-                    normalized["name"], normalized["preference"], normalized["value"],
-                    expected_revision=normalized["revision"], command_id=command_id,
-                    validate=authority, checkpoint=checkpoint)
+                    normalized["name"],
+                    normalized["preference"],
+                    normalized["value"],
+                    expected_revision=normalized["revision"],
+                    command_id=command_id,
+                    validate=authority,
+                    checkpoint=checkpoint,
+                )
             elif action in {"skill.create", "skill.import", "skill.duplicate"}:
                 name = normalized.get("new_name") or normalized["name"]
                 fields = review["after"]
@@ -537,34 +788,61 @@ def execute_skill_command(command: dict, *, owner_id: str, authority_id: str, ke
                 folder = skills.USER_SKILLS_DIR / name
                 folder.mkdir()
                 private.update(root="skill", skill_id=name)
-                revision = publish_bytes(folder.absolute(), "SKILL.md", _new_skill_content(name, fields),
-                    expected_revision="missing", command_id=command_id, validate=authority,
-                    checkpoint=checkpoint, max_bytes=_MAX_SKILL_BYTES, unavailable_code="skill_unavailable")
+                revision = publish_bytes(
+                    folder.absolute(),
+                    "SKILL.md",
+                    _new_skill_content(name, fields),
+                    expected_revision="missing",
+                    command_id=command_id,
+                    validate=authority,
+                    checkpoint=checkpoint,
+                    max_bytes=_MAX_SKILL_BYTES,
+                    unavailable_code="skill_unavailable",
+                )
             elif action == "skill.edit":
                 folder = skills.USER_SKILLS_DIR / normalized["name"]
                 private.update(root="skill", skill_id=normalized["name"])
-                revision = publish_bytes(folder.absolute(), "SKILL.md",
+                revision = publish_bytes(
+                    folder.absolute(),
+                    "SKILL.md",
                     _new_skill_content(normalized["name"], review["after"]),
-                    expected_revision=normalized["skill_revision"], command_id=command_id,
-                    validate=authority, checkpoint=checkpoint, max_bytes=_MAX_SKILL_BYTES,
-                    unavailable_code="skill_unavailable")
+                    expected_revision=normalized["skill_revision"],
+                    command_id=command_id,
+                    validate=authority,
+                    checkpoint=checkpoint,
+                    max_bytes=_MAX_SKILL_BYTES,
+                    unavailable_code="skill_unavailable",
+                )
             elif action == "skill.delete":
                 folder = skills.USER_SKILLS_DIR / normalized["name"]
                 private.update(root="skill", skill_id=normalized["name"])
-                revision = publish_bytes(folder.absolute(), "SKILL.md", None,
-                    expected_revision=normalized["skill_revision"], command_id=command_id,
-                    validate=authority, checkpoint=checkpoint, max_bytes=_MAX_SKILL_BYTES,
-                    unavailable_code="skill_unavailable")
+                revision = publish_bytes(
+                    folder.absolute(),
+                    "SKILL.md",
+                    None,
+                    expected_revision=normalized["skill_revision"],
+                    command_id=command_id,
+                    validate=authority,
+                    checkpoint=checkpoint,
+                    max_bytes=_MAX_SKILL_BYTES,
+                    unavailable_code="skill_unavailable",
+                )
             else:
                 proposals, current = _proposal_store()
                 if current != normalized["proposal_revision"]:
                     raise _error("skill_proposal_changed")
                 from row_bot import evolution
+
                 if action == "skill.proposal.apply":
-                    outcome = evolution.apply_proposal(normalized["proposal_id"], require_approval=False,
-                                                       approved_by_user=True)
+                    outcome = evolution.apply_proposal(
+                        normalized["proposal_id"],
+                        require_approval=False,
+                        approved_by_user=True,
+                    )
                 else:
-                    outcome = evolution.reject_proposal(normalized["proposal_id"], normalized["reason"])
+                    outcome = evolution.reject_proposal(
+                        normalized["proposal_id"], normalized["reason"]
+                    )
                     outcome = {"ok": outcome.get("status") == "rejected"}
                 if not outcome.get("ok"):
                     raise _error("skill_proposal_changed")
@@ -576,7 +854,11 @@ def execute_skill_command(command: dict, *, owner_id: str, authority_id: str, ke
             admissions.complete_command(owner_id, key, progress)
         except Exception:
             if private["recovery"] is not None:
-                return read_skill_command(owner_id=owner_id, authority_id=authority_id,
-                                          command_id=command_id, validate=validate)
+                return read_skill_command(
+                    owner_id=owner_id,
+                    authority_id=authority_id,
+                    command_id=command_id,
+                    validate=validate,
+                )
             raise
         return deepcopy(result)

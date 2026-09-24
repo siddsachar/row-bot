@@ -188,6 +188,32 @@ export interface ClientTransport {
     binding: string,
     signal?: AbortSignal,
   ): Promise<Wire.DeveloperRepositorySnapshot>;
+  customTools?(
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolSnapshot>;
+  insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
+  insightReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.InsightReceipt>;
+  executeInsight?(
+    command: Wire.InsightCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.InsightReceipt>;
+  customToolReceipt?(
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolReceipt>;
+  executeCustomTool?(
+    conversation: string,
+    binding: string,
+    command: Wire.CustomToolCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolReceipt>;
   reviewDeveloperRepository?(
     conversation: string,
     binding: string,
@@ -425,6 +451,16 @@ export interface ClientTransport {
     conversation: string,
     signal?: AbortSignal,
   ): Promise<Wire.ConversationWorkspace>;
+  composer?(
+    conversation: string,
+    body: Wire.ConversationComposerQuery,
+    signal?: AbortSignal,
+  ): Promise<Wire.ConversationComposer>;
+  composerCommand?(
+    conversation: string,
+    body: Wire.SlashCommandRead,
+    signal?: AbortSignal,
+  ): Promise<Wire.SlashCommandResult>;
   library?(
     kind: 'artifact' | 'workspace',
     cursor?: string,
@@ -525,6 +561,141 @@ export interface ClientTransport {
     entity: string | null,
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeEditorState>;
+  knowledgeEntityDetail?(
+    entity: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeEntityDetail>;
+  knowledgeRecalls?(signal?: AbortSignal): Promise<Wire.KnowledgeRecallPage>;
+  knowledgeChangeLog?(
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMemoryChangePage>;
+  knowledgeGraph?(
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeGraphSnapshot>;
+  monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
+  monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
+  systemDiagnosis?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
+  updates?(signal?: AbortSignal): Promise<Wire.UpdateSnapshot>;
+  updateCommand?(
+    command: Wire.UpdateCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.UpdateReceipt>;
+  startUpdateInstall?(
+    command: Wire.UpdateInstallCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.UpdateInstallStatus>;
+  updateInstall?(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UpdateInstallStatus>;
+  cancelUpdateInstall?(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UpdateInstallStatus>;
+  scanMigration?(
+    request: Wire.MigrationScanRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.MigrationPreview>;
+  searchSkillHub?(
+    request: Wire.SkillHubSearchRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillHubSearchResult>;
+  previewSkillHub?(
+    request: Wire.SkillHubPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillHubPreview>;
+  installSkillHub?(
+    command: Wire.SkillHubInstallCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillHubInstallReceipt>;
+  skillHubInstallReceipt?(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillHubInstallReceipt>;
+  skillHubInstalled?(signal?: AbortSignal): Promise<Wire.SkillHubInstalledPage>;
+  skillHubMaintenance?(
+    command: Wire.SkillHubMaintenanceCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillHubMaintenanceReceipt>;
+  skillHubMaintenanceReceipt?(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillHubMaintenanceReceipt>;
+  reviewMigration?(
+    request: Wire.MigrationApplyReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.MigrationApplyReview>;
+  applyMigration?(
+    command: Wire.MigrationApplyCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.MigrationApplyReceipt>;
+  migrationReceipt?(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MigrationApplyReceipt>;
+  githubAccess?(signal?: AbortSignal): Promise<Wire.GitHubAccessSnapshot>;
+  githubAccessCommand?(
+    command: Wire.GitHubAccessCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.GitHubAccessReceipt>;
+  githubAccessReceipt?(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.GitHubAccessReceipt>;
+  accountAuth?(
+    account: 'google' | 'x',
+    signal?: AbortSignal,
+  ): Promise<Wire.AccountAuthSnapshot>;
+  accountAuthCommand?(
+    account: 'google' | 'x',
+    command: Wire.AccountAuthCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.AccountAuthReceipt>;
+  accountAuthReceipt?(
+    account: 'google' | 'x',
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AccountAuthReceipt>;
+  cancelAccountAuth?(
+    account: 'google' | 'x',
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AccountAuthReceipt>;
+  onboarding?(signal?: AbortSignal): Promise<Wire.OnboardingSnapshot>;
+  onboardingCommand?(
+    command: Wire.OnboardingCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.OnboardingReceipt>;
+  browserPreview?(
+    conversationId: string,
+    revision: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserPreview>;
+  reviewDreamRun?(
+    body: Wire.DreamRunRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.DreamRunReview>;
+  dreamRunReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DreamRunReceipt>;
+  executeDreamRun?(
+    command: Wire.DreamRunCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.DreamRunReceipt>;
+  reviewKnowledgeMaintenance?(
+    body: Wire.KnowledgeMaintenanceRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMaintenanceReview>;
+  knowledgeMaintenanceReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMaintenanceReceipt>;
+  executeKnowledgeMaintenance?(
+    command: Wire.KnowledgeMaintenanceCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.KnowledgeMaintenanceReceipt>;
   knowledgeRelations?(
     entity: string,
     cursor?: string,
@@ -558,6 +729,7 @@ export interface ClientTransport {
     folderGrant?: string,
     signal?: AbortSignal,
   ): Promise<Wire.WikiStatus>;
+  openWikiFolder?(signal?: AbortSignal): Promise<Wire.WikiOpenFolderResult>;
   wikiArticles?(
     folderGrant: string,
     cursor?: string,
@@ -617,10 +789,24 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.PluginReceipt>;
+  reviewPluginLifecycle?(
+    body: Wire.PluginLifecycleReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.PluginLifecycleReview>;
+  pluginLifecycleReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.PluginLifecycleReceipt>;
+  executePluginLifecycle?(
+    command: Wire.PluginLifecycleCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.PluginLifecycleReceipt>;
   skills?(
     query: string,
     source?: string,
     cursor?: string,
+    filter?: string,
+    sort?: string,
     signal?: AbortSignal,
   ): Promise<Wire.SkillPage>;
   skill?(skill: string, signal?: AbortSignal): Promise<Wire.SkillDetail>;
@@ -723,6 +909,8 @@ export interface ClientTransport {
     query: string,
     source?: string,
     cursor?: string,
+    filter?: string,
+    sort?: string,
     signal?: AbortSignal,
   ): Promise<Wire.SkillPage>;
   skill?(skill: string, signal?: AbortSignal): Promise<Wire.SkillDetail>;
@@ -791,6 +979,18 @@ export interface ClientTransport {
     conversation: string,
     signal?: AbortSignal,
   ): Promise<Wire.BuddySnapshot>;
+  globalBuddy?(signal?: AbortSignal): Promise<Wire.BuddySnapshot>;
+  globalBuddyPacks?(
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BuddyPackPage>;
+  globalBuddyPack?(pack: string, signal?: AbortSignal): Promise<Wire.BuddyPack>;
+  globalBuddyMedia?(
+    pack: string,
+    asset: string,
+    revision: string,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   buddyPacks?(
     conversation: string,
     cursor?: string,
@@ -891,6 +1091,10 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.McpConfigurationPage>;
+  searchMcpDirectory?(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpDirectoryResult>;
   reviewMcpConfiguration?(
     body: Wire.McpConfigurationReviewRequest,
     signal?: AbortSignal,
@@ -941,6 +1145,15 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.EntitySummaryPage>;
+  knowledgeEntities?(
+    query?: string,
+    entityType?: string,
+    status?: string,
+    source?: string,
+    tier?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.EntitySummaryPage>;
   savedDocuments?(
     query?: string,
     status?: string,
@@ -972,6 +1185,9 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.TaskSummaryPage>;
+  taskDeliveryDefaults?(
+    signal?: AbortSignal,
+  ): Promise<Wire.TaskDeliverySnapshot>;
   cachedModels?(
     providerId?: string,
     query?: string,
@@ -1041,6 +1257,19 @@ export interface ClientTransport {
     expectedRevision: string,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactLifecycleState>;
+  artifactPalette?(
+    conversation: string,
+    binding: string,
+    expectedRevision: string,
+    query?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DesignerPalette>;
+  artifactDocumentImportPreview?(
+    conversation: string,
+    binding: string,
+    body: Wire.ArtifactDocumentImportPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactDocumentImportPreview>;
   artifactStaticPreview?(
     conversation: string,
     binding: string,
@@ -1184,6 +1413,30 @@ export interface ClientTransport {
     file: File,
     signal?: AbortSignal,
   ): Promise<Wire.AttachmentView>;
+  attachmentMetadata(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AttachmentView>;
+  terminalRead(
+    terminal: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalOutput>;
+  terminalInput(
+    terminal: string,
+    data: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  terminalResize(
+    terminal: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  terminalDisconnect(
+    terminal: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalClosed>;
   download(reference: string, signal?: AbortSignal): Promise<Blob>;
   clearSession(preserveResumeIdentity?: boolean): void;
 }

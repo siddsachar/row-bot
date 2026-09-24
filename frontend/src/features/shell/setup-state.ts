@@ -9,7 +9,7 @@ export type SetupDraft = {
   kind: 'artifact' | 'workspace';
   mode: 'create' | 'existing';
   artifactMode: NonNullable<ArtifactSetupOptions['mode']>;
-  workspaceMode: 'existing_folder' | 'empty_folder';
+  workspaceMode: 'existing_folder' | 'empty_folder' | 'clone_repository';
   selected: ResourceChoice | null;
   template: string;
   canvas: string;
@@ -53,7 +53,9 @@ function parse(raw: string | null): SetupDraft {
       !value ||
       !['artifact', 'workspace'].includes(value.kind) ||
       !['create', 'existing'].includes(value.mode) ||
-      !['existing_folder', 'empty_folder'].includes(value.workspaceMode) ||
+      !['existing_folder', 'empty_folder', 'clone_repository'].includes(
+        value.workspaceMode,
+      ) ||
       !['deck', 'document', 'landing', 'app_mockup', 'storyboard'].includes(
         value.artifactMode,
       ) ||

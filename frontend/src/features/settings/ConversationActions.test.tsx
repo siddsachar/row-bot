@@ -89,13 +89,13 @@ it('loads passively and explains the reversible archive boundary', async () => {
   );
 });
 
-it('reviews and applies an exact rename before updating the shell owner', async () => {
+it('validates and applies an exact rename in one click', async () => {
   const props = options();
   render(<ConversationActions {...props} />);
   const name = await screen.findByLabelText('Conversation name');
   fireEvent.change(name, { target: { value: 'Reviewed name' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Review rename' }));
-  await screen.findByText('Review conversation.rename');
+  fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+  await screen.findByText('Conversation action completed.');
   expect(props.review).toHaveBeenCalledWith(
     'conversation-1',
     'conversation.rename',
@@ -103,15 +103,9 @@ it('reviews and applies an exact rename before updating the shell owner', async 
     { title: 'Reviewed name' },
     expect.any(AbortSignal),
   );
-  const attempt = props.session.getSnapshot().reviewed;
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed action' }),
-  );
-  await screen.findByText('Conversation action completed.');
-  expect(props.execute).toHaveBeenCalledWith(
-    'conversation-1',
-    attempt?.command,
-    attempt?.review,
+  expect(props.execute).toHaveBeenCalledOnce();
+  expect(props.execute.mock.calls[0][2]).toEqual(
+    expect.objectContaining({ action: 'conversation.rename' }),
   );
   expect(props.onChanged).toHaveBeenCalledWith(
     expect.objectContaining({ title: 'Reviewed name', revision: '5' }),
@@ -120,7 +114,7 @@ it('reviews and applies an exact rename before updating the shell owner', async 
   expect(props.session.hasRetained()).toBe(false);
 });
 
-it('creates the reviewed local export before a separate user download', async () => {
+it('creates and downloads the local export with one click', async () => {
   const props = options();
   props.execute.mockImplementationOnce(async (_id, command) => ({
     command_id: command.command_id,
@@ -135,23 +129,13 @@ it('creates the reviewed local export before a separate user download', async ()
   }));
   render(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
-  fireEvent.click(screen.getByRole('button', { name: 'Review export' }));
-  await screen.findByText('Local export only.');
-  const attempt = props.session.getSnapshot().reviewed!;
-  expect(attempt.command.payload).toEqual({
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  await screen.findByText('Conversation export downloaded.');
+  expect(props.execute.mock.calls[0][1].payload).toEqual({
     checkpoint_revision: 'checkpoint-7',
     action_digest: 'a'.repeat(64),
     export_title: 'Saved conversation',
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed action' }),
-  );
-  const download = await screen.findByRole('button', {
-    name: 'Download conversation export',
-  });
-  expect(props.download).not.toHaveBeenCalled();
-  fireEvent.click(download);
-  await screen.findByText('Conversation export downloaded.');
   expect(props.download).toHaveBeenCalledWith(
     'conversation-1:export-1',
     'conversation-export.md',
@@ -163,11 +147,7 @@ it('retains an uncertain command across remount and checks the same identity', a
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const first = render(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
-  fireEvent.click(screen.getByRole('button', { name: 'Review pin' }));
-  await screen.findByText('Review conversation.pin');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed action' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
   const recover = await screen.findByRole('button', {
     name: 'Check original action',
   });

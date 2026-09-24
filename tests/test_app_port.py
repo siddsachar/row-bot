@@ -2,6 +2,8 @@ from pathlib import Path
 import json
 from types import SimpleNamespace
 
+import pytest
+
 import row_bot.app_port as app_port
 import row_bot.launcher as launcher
 
@@ -62,16 +64,29 @@ def test_launcher_local_url_and_browser_helper_use_explicit_loopback(monkeypatch
     monkeypatch.setattr(launcher.webbrowser, "open", opened.append)
 
     assert launcher._url_for_port(8123) == "http://127.0.0.1:8123"
+    assert launcher._client_url_for_port(8123) == "http://127.0.0.1:8123/app-v2/"
+    assert (
+        launcher._client_url_for_port(8123, client_v2=False)
+        == "http://127.0.0.1:8123"
+    )
     launcher._open_in_browser(8123)
 
-    assert opened == ["http://127.0.0.1:8123"]
+    assert opened == ["http://127.0.0.1:8123/app-v2/"]
 
 
 def test_launcher_native_window_helper_uses_explicit_loopback(monkeypatch):
     captured = {}
 
+    class _FakeStdin:
+        def write(self, value):
+            captured["script"] = value
+
+        def close(self):
+            captured["stdin_closed"] = True
+
     class _FakePopen:
         pid = 4242
+        stdin = _FakeStdin()
 
         def poll(self):
             return None
@@ -88,7 +103,63 @@ def test_launcher_native_window_helper_uses_explicit_loopback(monkeypatch):
     process = launcher._open_window(8124)
 
     assert process is not None
+    assert captured["args"][1] == "-"
+    assert "http://127.0.0.1:8124/app-v2/" in captured["args"]
+    assert captured["args"][-1] == "1"
+    assert captured["script"] == launcher._WINDOW_SCRIPT
+    assert captured["stdin_closed"] is True
+
+
+def test_launcher_legacy_fallback_is_explicit_and_disables_narrow_bridge(monkeypatch):
+    captured = {}
+
+    class _FakeStdin:
+        def write(self, value):
+            captured["script"] = value
+
+        def close(self):
+            captured["stdin_closed"] = True
+
+    class _FakePopen:
+        pid = 4243
+        stdin = _FakeStdin()
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(
+        launcher.subprocess,
+        "Popen",
+        lambda args, **kwargs: captured.update(args=args, **kwargs) or _FakePopen(),
+    )
+    monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
+
+    process = launcher._open_window(8124, client_v2=False)
+
+    assert process is not None
+    assert captured["args"][1] == "-"
     assert "http://127.0.0.1:8124" in captured["args"]
+    assert captured["args"][-1] == "0"
+    assert captured["script"] == launcher._WINDOW_SCRIPT
+    assert captured["stdin_closed"] is True
+    assert "attach_native_client" in launcher._WINDOW_SCRIPT
+    assert "client-v2 native bridge ready; terminal capability registered" in launcher._WINDOW_SCRIPT
+    assert '**({} if _CLIENT_V2 else {"js_api": _JS_API})' in launcher._WINDOW_SCRIPT
+
+
+def test_launcher_default_alias_and_legacy_choice_are_unambiguous():
+    parser = launcher._build_arg_parser()
+    assert launcher._resolve_client_v2(parser.parse_args([])) is True
+    assert launcher._resolve_client_v2(parser.parse_args(["--client-v2"])) is True
+    assert launcher._resolve_client_v2(parser.parse_args(["--legacy-ui"])) is False
+    with pytest.raises(ValueError, match="cannot be combined"):
+        launcher._resolve_client_v2(
+            parser.parse_args(["--client-v2", "--legacy-ui"])
+        )
+    help_text = parser.format_help()
+    assert "Deprecated no-op alias" in help_text
+    assert "retained legacy local UI" in help_text
 
 
 def test_launcher_selects_default_port_when_free(monkeypatch):

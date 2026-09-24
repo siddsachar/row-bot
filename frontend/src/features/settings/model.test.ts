@@ -17,7 +17,6 @@ describe('settings navigation metadata', () => {
       'Providers',
       'Models',
       'Knowledge',
-      'Wiki',
       'Buddy',
       'Goals',
       'Voice',
@@ -40,6 +39,7 @@ describe('settings navigation metadata', () => {
       ['Google', 'accounts'],
       ['Gmail', 'accounts'],
       ['Calendar', 'accounts'],
+      ['Wiki', 'knowledge'],
       ['Migration', 'preferences'],
       ['Search', 'tools'],
     ])

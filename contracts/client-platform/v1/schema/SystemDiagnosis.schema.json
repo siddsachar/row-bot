@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "SystemDiagnosisCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "checked_at": {
+          "title": "Checked At",
+          "type": "number"
+        },
+        "detail": {
+          "maxLength": 512,
+          "title": "Detail",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "settings_tab": {
+          "maxLength": 64,
+          "title": "Settings Tab",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "warn",
+            "error",
+            "inactive"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "detail",
+        "checked_at",
+        "settings_tab"
+      ],
+      "title": "SystemDiagnosisCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/SystemDiagnosisCheck"
+      },
+      "maxItems": 64,
+      "title": "Checks",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "checks"
+  ],
+  "title": "SystemDiagnosis",
+  "type": "object"
+}

@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "title": "Data",
+      "type": "string"
+    }
+  },
+  "required": [
+    "data"
+  ],
+  "title": "NativeTerminalInput",
+  "type": "object"
+}

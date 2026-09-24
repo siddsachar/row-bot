@@ -3,12 +3,43 @@
 import pytest
 
 from row_bot.designer import storage
+from row_bot.designer import tool as designer_tool
+from types import SimpleNamespace
 from tests.subsystem.client_protocol.test_artifact_modes_setup import artifact_service, _create  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_application import _client, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 from tests.subsystem.client_platform.test_workspace_setup_integrity import _completed
 
 pytestmark = pytest.mark.subsystem
+
+
+def test_bound_palette_is_explicit_revision_fenced_and_read_only(artifact_service, monkeypatch):
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        project = storage.load_project(created["resource_id"])
+        base = f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}"
+        calls = []
+
+        def tools(self):
+            calls.append("catalog")
+            return [SimpleNamespace(name="designer_generate_notes")]
+
+        monkeypatch.setattr(designer_tool.DesignerTool, "as_langchain_tools", tools)
+        before = storage.load_project(project.id).to_dict()
+        assert calls == []
+        response = client.get(
+            base + "/palette",
+            params={"expected_revision": project.updated_at, "query": "notes"},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["items"][0]["identity"] == "designer_generate_notes"
+        assert calls == ["catalog"]
+        assert storage.load_project(project.id).to_dict() == before
+        assert client.get(base + "/palette", params={"expected_revision": "old"}, headers=headers).status_code == 409
+        wrong = base.replace(created["binding_id"], "wrong")
+        assert client.get(wrong + "/palette", params={"expected_revision": project.updated_at}, headers=headers).status_code == 403
 
 
 @pytest.mark.parametrize("mode", ["deck", "document", "landing", "app_mockup", "storyboard"])

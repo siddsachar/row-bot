@@ -1,13 +1,14 @@
 """Narrow per-window native adapter; the legacy shared bridge is not authority.
 
-The v1 HTTP handshake deliberately advertises native availability as false.
-This implementation is ready for a trusted shell to compose after its separate
-platform gate; importing it never opens windows, files or native libraries.
+The authenticated v1 handshake advertises a one-shot attestation only to a
+direct local owner.  The opt-in ``/app-v2/`` shell composes this adapter after
+that independent gate; importing it never opens windows, files, or libraries.
 """
 
 from __future__ import annotations
 
 import hmac
+from dataclasses import dataclass
 from ipaddress import ip_address
 import json
 from pathlib import Path
@@ -20,8 +21,10 @@ from typing import Any, Callable, Mapping, Protocol
 from urllib.parse import urlsplit
 
 _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
+_SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
-                         "clipboard_write", "open_external", "managed_window", "save"})
+                         "clipboard_write", "open_external", "managed_window", "save",
+                         "terminal_open"})
 
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
@@ -40,6 +43,73 @@ def safe_external_url(value: object) -> str | None:
         return value
     except ValueError:
         return None
+
+
+@dataclass(frozen=True)
+class NativeDocumentContext:
+    """Host-owned identity for one loaded trusted document."""
+
+    instance_id: str
+    window_id: str
+    epoch: int
+
+
+@dataclass(frozen=True)
+class NativeDocumentAuthority:
+    """Authenticated server authority bound to a native document lease."""
+
+    session_id: str
+    policy_revision: str
+    authority_grant: str
+
+
+@dataclass(frozen=True)
+class NativeSelectionAuthority:
+    """Exact authority supplied to the server-side selection registrar."""
+
+    instance_id: str
+    session_id: str
+    window_id: str
+    window_epoch: int
+    policy_revision: str
+    authority_grant: str
+
+
+@dataclass(frozen=True)
+class NativePickerRequest:
+    """Exact, server-issued picker intent carried by a renderer request."""
+
+    selection_kind: str
+    intent_id: str
+    intent: str
+    conversation_id: str | None
+    destination: str
+
+
+def _valid_authority(value: object) -> bool:
+    return (
+        isinstance(value, NativeDocumentAuthority)
+        and all(_SCOPE_VALUE.fullmatch(item) for item in (
+            value.session_id, value.policy_revision, value.authority_grant
+        ))
+    )
+
+
+def _picker_request(payload: Mapping[str, Any], selection_kind: str) -> NativePickerRequest | None:
+    if set(payload) != {"intentId", "intent", "conversationId", "destination"}:
+        return None
+    conversation = payload.get("conversationId")
+    if conversation is not None and (
+        not isinstance(conversation, str) or not _SCOPE_VALUE.fullmatch(conversation)
+    ):
+        return None
+    values = (payload.get("intentId"), payload.get("intent"), payload.get("destination"))
+    if not all(isinstance(value, str) and _SCOPE_VALUE.fullmatch(value) for value in values):
+        return None
+    return NativePickerRequest(
+        selection_kind=selection_kind, intent_id=payload["intentId"], intent=payload["intent"],
+        conversation_id=conversation, destination=payload["destination"],
+    )
 
 
 class NativeDriver(Protocol):
@@ -131,13 +201,32 @@ class NativeClientBridge:
 
     Only ``native_client_dispatch`` is exposed to JavaScript. Underscored lease
     methods must be called by the shell's before_load/loaded/closed handlers.
-    Selection registration is the existing backend's authority callback, which
-    must revalidate resource/session/root permissions and return an opaque ref.
+    ``discover`` exchanges an opaque server attestation before any capability
+    is exposed.  Every later operation revalidates that authenticated authority.
+    Selection registration receives the exact picker request and document
+    authority and must return only an opaque, one-shot backend reference.
     """
 
     def __init__(self, *, instance_id: str, window_id: str, origin: str,
                  current_url: Callable[[], str | None], driver: NativeDriver,
-                 register_selection: Callable[[str, Path], str] | None = None,
+                 authenticate_document: Callable[
+                     [str, NativeDocumentContext], NativeDocumentAuthority | None
+                 ] | None = None,
+                 authorize_document: Callable[
+                     [NativeDocumentAuthority, NativeDocumentContext], bool
+                 ] | None = None,
+                 register_selection: Callable[
+                     [NativePickerRequest, NativeSelectionAuthority, Path], str
+                 ] | None = None,
+                 cancel_selection: Callable[
+                     [NativePickerRequest, NativeSelectionAuthority], None
+                 ] | None = None,
+                 revoke_document: Callable[
+                     [NativeDocumentAuthority, NativeDocumentContext], None
+                 ] | None = None,
+                 open_terminal: Callable[
+                     [NativeSelectionAuthority, str | None], str
+                 ] | None = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         parsed = urlsplit(origin)
         if not safe_external_url(origin) or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
@@ -153,12 +242,18 @@ class NativeClientBridge:
         self._window = window_id
         self._current_url = current_url
         self._driver = driver
+        self._authenticate = authenticate_document
+        self._authorize = authorize_document
         self._register = register_selection
+        self._cancel_selection = cancel_selection
+        self._revoke_document = revoke_document
+        self._open_terminal = open_terminal
         self._clock = clock
         self._lock = threading.RLock()
         self._token = ""
         self._epoch = 0
         self._expires = 0.0
+        self._authority: NativeDocumentAuthority | None = None
 
     def _at_shell(self) -> bool:
         try:
@@ -173,12 +268,20 @@ class NativeClientBridge:
 
     def _invalidate(self, *_args: Any) -> None:
         with self._lock:
+            authority = self._authority
+            context = self._context()
             self._token = ""
+            self._authority = None
             self._epoch += 1
+        if authority is not None and self._revoke_document is not None:
+            try:
+                self._revoke_document(authority, context)
+            except Exception:
+                pass
 
     def _bind_loaded_document(self) -> dict[str, Any] | None:
+        self._invalidate()
         with self._lock:
-            self._invalidate()
             if not self._at_shell():
                 return None
             self._token = secrets.token_urlsafe(32)
@@ -186,7 +289,10 @@ class NativeClientBridge:
             return {"instanceId": self._instance, "windowId": self._window,
                     "epoch": self._epoch, "token": self._token}
 
-    def _valid(self, proof: Mapping[str, Any]) -> bool:
+    def _context(self) -> NativeDocumentContext:
+        return NativeDocumentContext(self._instance, self._window, self._epoch)
+
+    def _valid_document(self, proof: Mapping[str, Any]) -> bool:
         if not self._at_shell() or self._clock() >= self._expires:
             self._invalidate()
             return False
@@ -197,6 +303,61 @@ class NativeClientBridge:
                     and isinstance(proof.get("token"), str)
                     and hmac.compare_digest(proof["token"], self._token))
 
+    def _valid(self, proof: Mapping[str, Any]) -> bool:
+        if not self._valid_document(proof) or self._authority is None or self._authorize is None:
+            return False
+        authority = self._authority
+        context = self._context()
+        try:
+            allowed = self._authorize(authority, context)
+        except Exception:
+            allowed = False
+        if not allowed:
+            self._authority = None
+            return False
+        return bool(
+            self._valid_document(proof)
+            and self._authority == authority
+            and self._context() == context
+        )
+
+    def _selection_authority(self) -> NativeSelectionAuthority:
+        assert self._authority is not None
+        return NativeSelectionAuthority(
+            instance_id=self._instance,
+            session_id=self._authority.session_id,
+            window_id=self._window,
+            window_epoch=self._epoch,
+            policy_revision=self._authority.policy_revision,
+            authority_grant=self._authority.authority_grant,
+        )
+
+    def _authenticate_discovery(
+        self, proof: Mapping[str, Any], payload: Mapping[str, Any], epoch: int,
+    ) -> bool:
+        if self._authenticate is None or self._authorize is None:
+            return False
+        if (set(payload) != {"attestation"}
+                or not isinstance(payload.get("attestation"), str)
+                or not _REFERENCE.fullmatch(payload["attestation"])):
+            return False
+        context = NativeDocumentContext(self._instance, self._window, epoch)
+        # The server callback can block or revoke while exchanging the opaque
+        # attestation, so do not rely on the first document check.
+        try:
+            authority = self._authenticate(payload["attestation"], context)
+        except Exception:
+            return False
+        with self._lock:
+            if (not _valid_authority(authority) or not self._valid_document(proof)
+                    or self._epoch != epoch or self._context() != context):
+                return False
+            self._authority = authority
+            if not self._valid(proof):
+                self._authority = None
+                return False
+            return True
+
     def native_client_dispatch(self, proof: object, operation: object, payload: object) -> dict[str, Any]:
         """Validate the lease and closed request before any native effect."""
         if not isinstance(proof, dict) or not isinstance(payload, dict) or not isinstance(operation, str):
@@ -205,15 +366,25 @@ class NativeClientBridge:
             if len(json.dumps(payload)) > 64 * 1024 or operation not in _OPERATIONS:
                 return _unavailable("invalid_request")
             with self._lock:
-                if not self._valid(proof):
+                if not self._valid_document(proof):
                     return _unavailable("native_proof_required")
                 epoch = self._epoch
-                available = self._driver.capabilities()
+                authenticated = self._valid(proof)
+            if operation == "discover" and not authenticated:
+                if not self._authenticate_discovery(proof, payload, epoch):
+                    return _unavailable("native_authentication_required")
+            with self._lock:
+                if not self._valid(proof) or epoch != self._epoch:
+                    return _unavailable("native_proof_required")
+            available = self._driver.capabilities()
+            if self._open_terminal is not None:
+                available.append("terminal_open")
+            with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
                 if self._register is None:
                     available = [name for name in available if name not in {"select_file", "select_folder"}]
-                if operation == "discover" and not payload:
+                if operation == "discover" and (not payload or set(payload) == {"attestation"}):
                     platform = {"win32": "windows", "darwin": "macos", "linux": "linux"}.get(sys.platform, "unknown")
                     return {"status": "ok", "value": {"kind": "pywebview", "platform": platform,
                             "capabilities": available, "instanceId": self._instance, "windowId": self._window,
@@ -222,21 +393,54 @@ class NativeClientBridge:
                     return _unavailable()
             # A picker can stay open through navigation. Do not hold the lock:
             # navigation revokes immediately and the completion is checked again.
-            if operation in {"select_file", "select_folder"} and not payload:
-                kind = "folder" if operation == "select_folder" else "file"
+            kind = "folder" if operation == "select_folder" else "file"
+            request = _picker_request(payload, kind) if operation in {"select_file", "select_folder"} else None
+            if operation in {"select_file", "select_folder"} and request is not None:
                 path = self._driver.select(kind)
                 with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
+                    authority = self._selection_authority()
                     if not path:
-                        return {"status": "cancelled"}
-                    assert self._register is not None
-                    reference = self._register(kind, Path(path))
+                        cancel = self._cancel_selection
+                    else:
+                        cancel = None
+                if not path:
+                    if cancel is not None:
+                        cancel(request, authority)
+                    with self._lock:
+                        if not self._valid(proof) or epoch != self._epoch:
+                            return _unavailable("native_proof_required")
+                    return {"status": "cancelled"}
+                assert self._register is not None
+                reference = self._register(request, authority, Path(path))
+                with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
                     if not _REFERENCE.fullmatch(reference):
                         return _unavailable("invalid_reference")
                     return {"status": "ok", "value": {"reference": reference, "kind": kind}}
+            if (
+                operation == "terminal_open"
+                and set(payload) == {"conversationId"}
+                and (
+                    payload["conversationId"] is None
+                    or isinstance(payload["conversationId"], str)
+                    and _SCOPE_VALUE.fullmatch(payload["conversationId"])
+                )
+                and self._open_terminal is not None
+            ):
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                    authority = self._selection_authority()
+                reference = self._open_terminal(authority, payload["conversationId"])
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                    if not _REFERENCE.fullmatch(reference):
+                        return _unavailable("invalid_reference")
+                return {"status": "ok", "value": {"terminalId": reference}}
             if (operation == "save" and set(payload) == {"reference", "name"}
                     and isinstance(payload["reference"], str) and _REFERENCE.fullmatch(payload["reference"])
                     and isinstance(payload["name"], str)
@@ -249,25 +453,27 @@ class NativeClientBridge:
                     return _unavailable("native_proof_required")
                 return {"status": "cancelled"} if result is None else ({"status": "ok", "value": None} if result else _unavailable())
             with self._lock:
-                if not self._valid(proof):
+                if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
-                if operation == "clipboard_read" and not payload:
-                    value = self._driver.clipboard_read()
+            if operation == "clipboard_read" and not payload:
+                value = self._driver.clipboard_read()
+                with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
-                    if value is None or len(value.encode("utf-8")) > 64 * 1024:
-                        return _unavailable()
-                    return {"status": "ok", "value": value}
-                if operation == "clipboard_write" and set(payload) == {"text"} and isinstance(payload["text"], str):
-                    result = self._driver.clipboard_write(payload["text"])
-                elif operation == "open_external" and set(payload) == {"url"} and safe_external_url(payload["url"]):
-                    result = self._driver.open_external(payload["url"])
-                elif (operation == "managed_window" and set(payload) == {"route"}
-                      and isinstance(payload["route"], str)
-                      and re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", payload["route"])):
-                    result = self._driver.managed_window(payload["route"])
-                else:
-                    return _unavailable("invalid_request")
+                if value is None or len(value.encode("utf-8")) > 64 * 1024:
+                    return _unavailable()
+                return {"status": "ok", "value": value}
+            if operation == "clipboard_write" and set(payload) == {"text"} and isinstance(payload["text"], str):
+                result = self._driver.clipboard_write(payload["text"])
+            elif operation == "open_external" and set(payload) == {"url"} and safe_external_url(payload["url"]):
+                result = self._driver.open_external(payload["url"])
+            elif (operation == "managed_window" and set(payload) == {"route"}
+                  and isinstance(payload["route"], str)
+                  and re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", payload["route"])):
+                result = self._driver.managed_window(payload["route"])
+            else:
+                return _unavailable("invalid_request")
+            with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
                 return {"status": "cancelled"} if result is None else ({"status": "ok", "value": None} if result else _unavailable())
@@ -276,17 +482,40 @@ class NativeClientBridge:
             return _unavailable("operation_failed")
 
 
-def attach_native_client(window: Any, *, instance_id: str, origin: str, driver: NativeDriver,
-                         register_selection: Callable[[str, Path], str] | None = None) -> NativeClientBridge:
+def attach_native_client(
+    window: Any, *, instance_id: str, origin: str, driver: NativeDriver,
+    authenticate_document: Callable[
+        [str, NativeDocumentContext], NativeDocumentAuthority | None
+    ] | None = None,
+    authorize_document: Callable[
+        [NativeDocumentAuthority, NativeDocumentContext], bool
+    ] | None = None,
+    register_selection: Callable[
+        [NativePickerRequest, NativeSelectionAuthority, Path], str
+    ] | None = None,
+    cancel_selection: Callable[
+        [NativePickerRequest, NativeSelectionAuthority], None
+    ] | None = None,
+    revoke_document: Callable[
+        [NativeDocumentAuthority, NativeDocumentContext], None
+    ] | None = None,
+    open_terminal: Callable[
+        [NativeSelectionAuthority, str | None], str
+    ] | None = None,
+) -> NativeClientBridge:
     """Attach only to a newly created trusted /app-v2 window, never legacy API.
 
     The caller must gate composition on independently negotiated native support.
-    v1.0 advertises unavailable, so the production launcher does not call this.
     A managed-window callback must create another independently bound window.
     """
     bridge = NativeClientBridge(instance_id=instance_id, window_id=str(window.uid), origin=origin,
                                 current_url=window.get_current_url, driver=driver,
-                                register_selection=register_selection)
+                                authenticate_document=authenticate_document,
+                                authorize_document=authorize_document,
+                                register_selection=register_selection,
+                                cancel_selection=cancel_selection,
+                                revoke_document=revoke_document,
+                                open_terminal=open_terminal)
 
     def loaded(*_args: Any) -> None:
         proof = bridge._bind_loaded_document()

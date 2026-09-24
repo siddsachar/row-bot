@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "maxLength": 32,
+      "title": "Action",
+      "type": "string"
+    },
+    "category": {
+      "maxLength": 32,
+      "title": "Category",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 256,
+      "title": "Label",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 512,
+      "title": "Reason",
+      "type": "string"
+    },
+    "requires_confirmation": {
+      "title": "Requires Confirmation",
+      "type": "boolean"
+    },
+    "selected": {
+      "title": "Selected",
+      "type": "boolean"
+    },
+    "sensitivity": {
+      "maxLength": 32,
+      "title": "Sensitivity",
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 32,
+      "title": "Status",
+      "type": "string"
+    },
+    "target": {
+      "maxLength": 256,
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "category",
+    "action",
+    "status",
+    "label",
+    "reason",
+    "target",
+    "sensitivity",
+    "selected",
+    "requires_confirmation"
+  ],
+  "title": "MigrationPreviewItem",
+  "type": "object"
+}

@@ -113,33 +113,43 @@ function fixture() {
   };
 }
 
-it('loads the initial passive queue once and preserves a review through a full remount', async () => {
+it('loads passively and pauses in one click with the original command retained on remount', async () => {
   const f = fixture();
+  const blocked = deferred<DocumentControlReceipt>();
+  f.controller.executeDocumentControl.mockImplementationOnce(
+    () => blocked.promise,
+  );
   const view = render(<DocumentQueuePanel owner={f.owner} />);
-  await screen.findByRole('button', { name: 'Review pause' });
-  fireEvent.click(screen.getByRole('button', { name: 'Review pause' }));
-  await screen.findByRole('button', { name: 'Confirm queue action' });
+  fireEvent.click(await screen.findByRole('button', { name: 'Pause' }));
+  await waitFor(() =>
+    expect(f.controller.executeDocumentControl).toHaveBeenCalledTimes(1),
+  );
   expect(f.owner.hasRetained()).toBe(true);
   view.unmount();
   render(<DocumentQueuePanel owner={f.owner} />);
   expect(
-    screen.getByRole('button', { name: 'Confirm queue action' }),
-  ).toBeEnabled();
+    screen.getByRole('button', { name: 'Refresh original queue command' }),
+  ).toBeDisabled();
   expect(f.controller.documentQueue).toHaveBeenCalledTimes(1);
   expect(f.controller.reviewDocumentControl).toHaveBeenCalledTimes(1);
-  expect(f.controller.executeDocumentControl).not.toHaveBeenCalled();
+  await act(async () =>
+    blocked.resolve(
+      receipt(f.controller.executeDocumentControl.mock.calls[0][0].command_id),
+    ),
+  );
+  expect(f.controller.executeDocumentControl).toHaveBeenCalledTimes(1);
   f.owner.dispose();
 });
 
-it('keeps global queue review across conversation navigation without another passive load', async () => {
+it('keeps destructive cancellation review across conversation navigation without another passive load', async () => {
   const f = fixture();
   await f.owner.session.load();
-  await f.owner.session.review('document.batch.pause', 'batch');
+  await f.owner.session.review('document.batch.cancel', 'batch');
   f.state.selectedConversationId = 'other';
   f.notify();
   render(<DocumentQueuePanel owner={f.owner} />);
   expect(
-    screen.getByRole('button', { name: 'Confirm queue action' }),
+    screen.getByRole('button', { name: 'Confirm cancellation' }),
   ).toBeEnabled();
   expect(f.controller.documentQueue).toHaveBeenCalledTimes(1);
   expect(f.owner.hasRetained()).toBe(true);

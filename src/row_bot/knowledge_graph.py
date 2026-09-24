@@ -42,6 +42,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import threading
 
@@ -2089,6 +2090,124 @@ def delete_entity(entity_id: str) -> bool:
         if entity_data:
             _wiki_delete_entity(entity_data)
     return deleted
+
+
+def _reviewed_catalog_revision(conn: sqlite3.Connection) -> str:
+    """Match the unfiltered passive catalog revision inside write admission."""
+    digest = hashlib.sha256()
+    for row in conn.execute(
+        "SELECT id,entity_type,subject,description,updated_at FROM entities ORDER BY id"
+    ):
+        item = {
+            "id": str(row["id"]),
+            "entity_type": str(row["entity_type"])[:64],
+            "subject": str(row["subject"])[:256],
+            "description": str(row["description"])[:1000],
+            "updated_at": str(row["updated_at"])[:64],
+            "truncated": any(
+                len(str(row[name])) > bound
+                for name, bound in (("entity_type", 64), ("subject", 256), ("description", 1000))
+            ),
+            "saved_state": "saved",
+            "semantic_state": "unknown",
+        }
+        digest.update(json.dumps([item, True], sort_keys=True, ensure_ascii=True).encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def delete_reviewed_entities(
+    expected_revisions: dict[str, str] | None = None,
+    *,
+    catalog_revision: str | None = None,
+    delete_all: bool = False,
+    validate: Callable[[], None],
+) -> dict[str, Any]:
+    """Delete exact reviewed rows atomically, then report derived cleanup truthfully."""
+    expected_revisions = dict(expected_revisions or {})
+    if delete_all == bool(expected_revisions) or len(expected_revisions) > 100:
+        raise ValueError("invalid_knowledge_maintenance")
+    conn = _get_conn()
+    captured: list[dict[str, Any]] = []
+    stale: list[str] = []
+    missing: list[str] = []
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        validate()
+        if delete_all:
+            if not isinstance(catalog_revision, str) or _reviewed_catalog_revision(conn) != catalog_revision:
+                raise ValueError("knowledge_changed")
+            captured = [dict(row) for row in conn.execute("SELECT * FROM entities ORDER BY id")]
+            conn.execute("DELETE FROM relations")
+            conn.execute("DELETE FROM entities")
+        else:
+            for identifier, revision in expected_revisions.items():
+                row = conn.execute("SELECT * FROM entities WHERE id=?", (identifier,)).fetchone()
+                if row is None:
+                    missing.append(identifier)
+                    continue
+                entity = dict(row)
+                current = hashlib.sha256(
+                    json.dumps(entity, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()
+                ).hexdigest()
+                if current != revision:
+                    stale.append(identifier)
+                    continue
+                captured.append(entity)
+            conn.executemany("DELETE FROM entities WHERE id=?", [(row["id"],) for row in captured])
+        validate()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    global _graph_ready
+    with _graph_lock:
+        _graph_ready = False
+    cleanup = {"lexical_index": "completed", "vector_index": "completed", "wiki": "completed"}
+    if delete_all:
+        try:
+            rebuild_fts_index()
+        except Exception:
+            cleanup["lexical_index"] = "failed"
+        try:
+            if not _skip_reindex:
+                rebuild_index()
+            else:
+                cleanup["vector_index"] = "skipped"
+        except Exception:
+            cleanup["vector_index"] = "failed"
+        try:
+            from row_bot import wiki_vault
+
+            wiki_vault.clear_wiki_folder()
+        except Exception:
+            cleanup["wiki"] = "failed"
+    else:
+        for entity in captured:
+            try:
+                _delete_fts_entity(str(entity["id"]))
+            except Exception:
+                cleanup["lexical_index"] = "failed"
+            try:
+                if not _skip_reindex:
+                    _remove_from_index(str(entity["id"]))
+                else:
+                    cleanup["vector_index"] = "skipped"
+            except Exception:
+                cleanup["vector_index"] = "failed"
+            try:
+                _wiki_delete_entity(entity)
+            except Exception:
+                cleanup["wiki"] = "failed"
+    return {
+        "deleted": [str(row["id"]) for row in captured],
+        "stale": stale,
+        "missing": missing,
+        "cleanup": cleanup,
+    }
 
 
 def delete_entities_by_source(source: str, *, retry_entities: list[dict] | None = None,

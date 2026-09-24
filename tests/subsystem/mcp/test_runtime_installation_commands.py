@@ -201,11 +201,14 @@ def test_live_owner_without_registry_never_claims_quiescence_or_restarts(owner, 
     service, calls, _ = owner
     monkeypatch.setattr(service, "_finish", lambda _: None)
     entered, release = threading.Event(), threading.Event()
-    resolve = requirements.resolve_managed_runtime_plan
+    original = requirements.resolve_managed_runtime_plan
+
     def blocked(*args, **kwargs):
+        result = original(*args, **kwargs)
         entered.set()
         assert release.wait(5)
-        return resolve(*args, **kwargs)
+        return result
+
     monkeypatch.setattr(requirements, "resolve_managed_runtime_plan", blocked)
     value = command(service)
     try:
@@ -213,7 +216,8 @@ def test_live_owner_without_registry_never_claims_quiescence_or_restarts(owner, 
         assert entered.wait(5)
     finally:
         release.set()
-    active = controls._OPERATIONS["node"]
+    active = controls._OPERATIONS.get("node")
+    assert active is not None
     active.thread.join(5)
     assert not active.thread.is_alive()
     # Emulate lost in-memory ownership after the worker wrote its private return,

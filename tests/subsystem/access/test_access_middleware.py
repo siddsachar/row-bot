@@ -137,14 +137,44 @@ def test_desktop_loopback_passes_and_context_reaches_downstream() -> None:
     assert context.json()["authentication_kind"] == "local_owner"
 
 
-def test_server_loopback_and_remote_browser_redirect_to_neutral_connect() -> None:
+def test_server_remote_browser_connect_targets_react_entry() -> None:
     client = _app(_server_config())
 
     response = client.get("/", headers={"accept": "text/html"})
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/connect?next=%2F"
+    assert response.headers["location"] == "/connect?next=%2Fapp-v2%2F"
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_authenticated_remote_root_redirects_to_react_without_affecting_api() -> None:
+    client = _app(_server_config())
+
+    root = client.get(
+        "/",
+        headers={"accept": "text/html", "x-test-session": "phone"},
+    )
+    private = client.get(
+        "/api/private",
+        headers={"accept": "application/json", "x-test-session": "phone"},
+    )
+
+    assert root.status_code == 307
+    assert root.headers["location"] == "/app-v2/"
+    assert root.headers["cache-control"] == "no-store"
+    assert root.headers["x-robots-tag"] == "noindex"
+
+    head = client.head(
+        "/",
+        headers={
+            "accept": "text/html",
+            "x-test-session": "phone",
+        },
+    )
+    assert head.status_code == 307
+    assert head.headers["location"] == "/app-v2/"
+    assert head.content == b""
+    assert private.status_code == 200
 
 
 def test_unpaired_api_is_json_401_and_public_probes_are_minimal() -> None:

@@ -7,6 +7,7 @@ import {
   Input,
   Select,
   Skeleton,
+  Toggle,
 } from '../../ui/primitives';
 
 export type DeveloperRepositoryAction =
@@ -20,6 +21,15 @@ export type DeveloperRepositoryAction =
   | 'developer.repository.sandbox.configure'
   | 'developer.repository.sandbox.rebuild'
   | 'developer.repository.sandbox.cleanup';
+
+function requiresConfirmation(action: DeveloperRepositoryAction) {
+  return [
+    'developer.repository.push',
+    'developer.repository.pull_request',
+    'developer.repository.sandbox.rebuild',
+    'developer.repository.sandbox.cleanup',
+  ].includes(action);
+}
 
 export type DeveloperRepositorySnapshot = {
   schema_version: 1;
@@ -322,7 +332,15 @@ export default function DeveloperRepositoryPanel(
     extra: Record<string, unknown> = {},
   ) => {
     const current = session.getSnapshot();
-    if (locked || !current.snapshot || current.pending) return;
+    if (
+      locked ||
+      current.reading ||
+      current.busy ||
+      !current.snapshot ||
+      current.pending ||
+      current.reviewed
+    )
+      return;
     const allowed = capability(current.snapshot, action);
     if (!allowed.available) {
       session.update({
@@ -333,6 +351,7 @@ export default function DeveloperRepositoryPanel(
     const request = session.beginRead();
     session.update({ reviewed: null, error: '', message: '', reading: true });
     const payload = { revision: current.snapshot.revision, ...extra };
+    let direct: Attempt | null = null;
     try {
       const review = await callbacks.current.review(
         action,
@@ -345,15 +364,23 @@ export default function DeveloperRepositoryPanel(
         review.resource_id !== current.snapshot.resource_id ||
         review.conversation_id !== current.snapshot.conversation_id ||
         review.binding_id !== current.snapshot.binding_id ||
-        review.binding_revision !== current.snapshot.binding_revision
+        review.binding_revision !== current.snapshot.binding_revision ||
+        review.resource_revision !== current.snapshot.resource_revision ||
+        review.revision !== current.snapshot.revision
       )
         throw new Error('Developer repository review target did not match.');
-      session.update({
-        reviewed: {
-          review,
-          command: { command_id: crypto.randomUUID(), type: action, payload },
-        },
-      });
+      if (review.policy_decision === 'block') {
+        session.update({
+          error: 'The current repository policy blocks this action.',
+        });
+        return;
+      }
+      const attempt: Attempt = {
+        review,
+        command: { command_id: crypto.randomUUID(), type: action, payload },
+      };
+      session.update({ reviewed: attempt });
+      if (!requiresConfirmation(action)) direct = attempt;
     } catch (error) {
       if (!request.signal.aborted)
         session.update({ error: clientError(error).message });
@@ -361,12 +388,13 @@ export default function DeveloperRepositoryPanel(
       session.endRead(request);
       if (!request.signal.aborted) session.update({ reading: false });
     }
+    if (direct) await apply(false, direct);
   };
 
-  const apply = async (recover = false) => {
+  const apply = async (recover = false, direct?: Attempt) => {
     const current = session.getSnapshot();
-    if (locked) return;
-    const attempt = recover ? current.pending : current.reviewed;
+    if (locked && !direct) return;
+    const attempt = direct ?? (recover ? current.pending : current.reviewed);
     if (!attempt || (!recover && attempt.review.policy_decision === 'block'))
       return;
     session.update({
@@ -500,7 +528,7 @@ export default function DeveloperRepositoryPanel(
               })
             }
           >
-            Review new branch
+            Create branch
           </Button>
           <Button
             disabled={
@@ -514,7 +542,7 @@ export default function DeveloperRepositoryPanel(
               })
             }
           >
-            Review branch switch
+            Switch branch
           </Button>
         </div>
 
@@ -553,7 +581,7 @@ export default function DeveloperRepositoryPanel(
             })
           }
         >
-          Review commit
+          Commit changes
         </Button>
 
         <div className="button-row">
@@ -561,7 +589,7 @@ export default function DeveloperRepositoryPanel(
             disabled={locked || !available('developer.repository.push')}
             onClick={() => void prepare('developer.repository.push')}
           >
-            Review push
+            Push branch
           </Button>
         </div>
         <Field label="Pull request title">
@@ -580,8 +608,8 @@ export default function DeveloperRepositoryPanel(
           />
         </Field>
         <label>
-          <input
-            type="checkbox"
+          <Toggle
+            label="Create as draft"
             checked={state.drafts.pullDraft}
             disabled={locked}
             onChange={(event) =>
@@ -600,7 +628,7 @@ export default function DeveloperRepositoryPanel(
             })
           }
         >
-          Review pull request
+          Open pull request
         </Button>
       </article>
 
@@ -627,7 +655,7 @@ export default function DeveloperRepositoryPanel(
             })
           }
         >
-          Review managed worktree
+          Create managed worktree
         </Button>
         {snapshot.worktrees.map((worktree) => (
           <div className="list-row" key={worktree.worktree_id}>
@@ -658,7 +686,7 @@ export default function DeveloperRepositoryPanel(
             })
           }
         >
-          Review worktree preservation
+          Preserve worktree
         </Button>
       </article>
 
@@ -721,7 +749,7 @@ export default function DeveloperRepositoryPanel(
               })
             }
           >
-            Review sandbox settings
+            Save sandbox settings
           </Button>
           <Button
             disabled={
@@ -729,7 +757,7 @@ export default function DeveloperRepositoryPanel(
             }
             onClick={() => void prepare('developer.repository.sandbox.rebuild')}
           >
-            Review sandbox rebuild
+            Rebuild sandbox
           </Button>
           <Button
             variant="danger"
@@ -738,7 +766,7 @@ export default function DeveloperRepositoryPanel(
             }
             onClick={() => void prepare('developer.repository.sandbox.cleanup')}
           >
-            Review sandbox cleanup
+            Clean up sandbox
           </Button>
         </div>
       </article>
@@ -758,9 +786,9 @@ export default function DeveloperRepositoryPanel(
         ))}
       </article>
 
-      {state.reviewed && (
-        <article className="card stack" aria-label="Reviewed repository change">
-          <h3>Review required</h3>
+      {state.reviewed && requiresConfirmation(state.reviewed.command.type) && (
+        <article className="card stack" aria-label="Confirm repository change">
+          <h3>Confirm action</h3>
           <p>{state.reviewed.review.action}</p>
           {state.reviewed.review.disclosures.map((disclosure) => (
             <p key={disclosure}>{disclosure}</p>
@@ -778,18 +806,18 @@ export default function DeveloperRepositoryPanel(
               }
               onClick={() => void apply()}
             >
-              Apply reviewed repository change
+              Confirm repository action
             </Button>
             <Button
               disabled={locked || Boolean(state.pending)}
               onClick={() =>
                 session.update({
                   reviewed: null,
-                  message: 'Review cancelled. No repository change was made.',
+                  message: 'Action cancelled. No repository change was made.',
                 })
               }
             >
-              Cancel review
+              Keep current state
             </Button>
           </div>
         </article>

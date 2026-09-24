@@ -39,7 +39,33 @@ def test_actual_submission_consumes_text_data_and_configured_vision_after_admiss
     messages = threads.get_latest_checkpoint_messages("conversation-a")
     assert len([message for message in messages if message.id == "attachment-input"]) == 1
     assert "Synthetic attached text" in messages[0].content
+    user = next(
+        row
+        for row in platform.transcript("conversation-a")["rows"]
+        if row["message_id"] == "attachment-input"
+    )
+    assert user["blocks"][0]["text"] == "Read these files"
+    attachment_blocks = [block for block in user["blocks"] if block["type"] == "attachment"]
+    assert [block["name"] for block in attachment_blocks] == list(files)
+    assert [block["attachment_ref"] for block in attachment_blocks] == refs
+    assert "Synthetic attached text" not in repr(user)
+    assert "row_bot_attachment_context" not in repr(user)
     assert len(calls) == 1 and len(fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "mime_type"),
+    [
+        ("sound.wav", b"RIFF\x04\x00\x00\x00WAVEsynthetic", "audio/wav"),
+        ("sound.ogg", b"OggSsynthetic", "audio/ogg"),
+        ("sound.flac", b"fLaCsynthetic", "audio/flac"),
+        ("sound.mp3", b"ID3synthetic", "audio/mpeg"),
+    ],
+)
+def test_attachment_audio_type_is_sniffed_from_bytes(platform, name, data, mime_type):
+    from row_bot.application.attachments import register_attachment
+
+    assert register_attachment("conversation-a", name, data)["mime_type"] == mime_type
 
 
 def test_attachment_preflight_rejects_aggregate_before_reading_bytes(platform, monkeypatch):

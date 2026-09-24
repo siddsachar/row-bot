@@ -9,6 +9,86 @@ import {
   type PanelLayout,
 } from '../panels/model';
 
+type VisualViewportLike = {
+  height: number;
+  offsetTop: number;
+  scale: number;
+  addEventListener(type: 'resize' | 'scroll', listener: EventListener): void;
+  removeEventListener(type: 'resize' | 'scroll', listener: EventListener): void;
+};
+
+type ViewportPage = {
+  innerHeight: number;
+  innerWidth: number;
+  visualViewport?: VisualViewportLike | null;
+  addEventListener(type: string, listener: EventListener): void;
+  removeEventListener(type: string, listener: EventListener): void;
+  document: Pick<Document, 'activeElement'>;
+};
+
+function acceptsTextEntry(element: Element | null): boolean {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement ||
+    (element instanceof HTMLElement && element.isContentEditable)
+  );
+}
+
+/**
+ * Publish one compact visual-viewport state for CSS. No draft, route or
+ * conversation state is stored here; teardown removes every installed value.
+ */
+export function bindVisualViewportState(
+  target: HTMLElement,
+  page: ViewportPage = window,
+): () => void {
+  const viewport = page.visualViewport;
+  const update = () => {
+    const height = viewport?.height ?? page.innerHeight;
+    const offsetTop = viewport?.offsetTop ?? 0;
+    const occluded = Math.max(0, page.innerHeight - height - offsetTop);
+    const keyboardOpen =
+      page.innerWidth < 1024 &&
+      (viewport?.scale ?? 1) === 1 &&
+      acceptsTextEntry(page.document.activeElement) &&
+      occluded >= 80;
+    target.style.setProperty(
+      '--visual-viewport-height',
+      `${Math.max(1, Math.round(height))}px`,
+    );
+    target.style.setProperty(
+      '--visual-viewport-offset-top',
+      `${Math.max(0, Math.round(offsetTop))}px`,
+    );
+    target.style.setProperty(
+      '--virtual-keyboard-inset',
+      `${keyboardOpen ? Math.round(occluded) : 0}px`,
+    );
+    target.toggleAttribute('data-virtual-keyboard', keyboardOpen);
+  };
+  const listeners: [string, EventListener][] = [
+    ['resize', update],
+    ['focusin', update],
+    ['focusout', update],
+  ];
+  for (const [name, listener] of listeners)
+    page.addEventListener(name, listener);
+  viewport?.addEventListener('resize', update);
+  viewport?.addEventListener('scroll', update);
+  update();
+  return () => {
+    for (const [name, listener] of listeners)
+      page.removeEventListener(name, listener);
+    viewport?.removeEventListener('resize', update);
+    viewport?.removeEventListener('scroll', update);
+    target.style.removeProperty('--visual-viewport-height');
+    target.style.removeProperty('--visual-viewport-offset-top');
+    target.style.removeProperty('--virtual-keyboard-inset');
+    target.removeAttribute('data-virtual-keyboard');
+  };
+}
+
 function read(
   instance: string,
   conversation: string,

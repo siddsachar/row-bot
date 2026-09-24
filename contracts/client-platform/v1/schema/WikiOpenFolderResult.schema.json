@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "enum": [
+        "opened",
+        "unavailable",
+        "not_found",
+        "denied"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "WikiOpenFolderResult",
+  "type": "object"
+}

@@ -454,7 +454,10 @@
         "code": {
           "anyOf": [
             {
-              "const": "mcp_configuration_unconfirmed",
+              "enum": [
+                "mcp_configuration_unconfirmed",
+                "mcp_cleanup_incomplete"
+              ],
               "type": "string"
             },
             {
@@ -476,7 +479,12 @@
           "title": "Revision"
         },
         "runtime_cleanup": {
-          "const": "not_requested",
+          "enum": [
+            "not_requested",
+            "not_running",
+            "stopped",
+            "cleanup_incomplete"
+          ],
           "title": "Runtime Cleanup",
           "type": "string"
         },
@@ -1439,13 +1447,14 @@
       "items": {
         "enum": [
           "created",
+          "cloned",
           "conversation",
           "associated",
           "bound"
         ],
         "type": "string"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "title": "Confirmed Stages",
       "type": "array"
     },
@@ -1488,6 +1497,14 @@
       ],
       "default": null,
       "title": "Current Revision"
+    },
+    "deletion_warnings": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Deletion Warnings",
+      "type": "array"
     },
     "execution_id": {
       "anyOf": [
@@ -1662,6 +1679,11 @@
       ],
       "default": null
     },
+    "retained_developer_work": {
+      "default": false,
+      "title": "Retained Developer Work",
+      "type": "boolean"
+    },
     "revision": {
       "anyOf": [
         {
@@ -1796,6 +1818,11 @@
     "task_created": {
       "default": false,
       "title": "Task Created",
+      "type": "boolean"
+    },
+    "task_deleted": {
+      "default": false,
+      "title": "Task Deleted",
       "type": "boolean"
     },
     "task_id": {

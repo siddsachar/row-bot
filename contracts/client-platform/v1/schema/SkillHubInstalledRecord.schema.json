@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "file_count": {
+      "minimum": 0,
+      "title": "File Count",
+      "type": "integer"
+    },
+    "installed_at": {
+      "maxLength": 64,
+      "title": "Installed At",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 160,
+      "title": "Name",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 80,
+      "title": "Source",
+      "type": "string"
+    },
+    "updated_at": {
+      "maxLength": 64,
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "source",
+    "enabled",
+    "installed_at",
+    "updated_at",
+    "file_count",
+    "revision"
+  ],
+  "title": "SkillHubInstalledRecord",
+  "type": "object"
+}

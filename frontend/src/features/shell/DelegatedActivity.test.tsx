@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { DelegatedActivityView, DelegatedRun } from '../../api/types';
@@ -248,4 +249,39 @@ it('aborts continuation on unmount and ignores its late response', async () => {
     pending.resolve(page);
   });
   expect(screen.queryByText('Research task')).not.toBeInTheDocument();
+});
+
+it('orders active agents before recent settled agents in the compact rail view', async () => {
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        compact
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={async () => ({
+          ...page,
+          items: [
+            run,
+            {
+              ...run,
+              run_id: 'run-active',
+              name: 'Active task',
+              status: 'waiting_approval',
+            },
+          ],
+        })}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+      />
+    </OverlayProvider>,
+  );
+
+  const names = (await screen.findAllByRole('listitem')).map(
+    (item) => within(item).getByRole('button').textContent,
+  );
+  expect(names[0]).toContain('Active task');
+  expect(names[1]).toContain('Research task');
+  expect(
+    screen.queryByRole('heading', { name: 'Delegated tasks' }),
+  ).not.toBeInTheDocument();
 });

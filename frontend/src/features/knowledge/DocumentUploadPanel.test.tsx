@@ -99,7 +99,7 @@ it('opens passively and retains the exact files and review across route and chat
   f.state.selectedConversationId = 'another-chat';
   f.notify();
   render(<DocumentUploadPanel owner={f.owner} />);
-  expect(screen.getByRole('button', { name: 'Confirm upload' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Upload selected' })).toBeEnabled();
   expect(f.owner.session.getSnapshot().files[0]).toBe(original);
   expect(f.owner.hasRetained()).toBe(true);
   expect(f.controller.reviewDocumentUpload).toHaveBeenCalledTimes(1);

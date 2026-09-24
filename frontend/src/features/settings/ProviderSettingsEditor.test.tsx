@@ -73,25 +73,20 @@ it('saves a key from the compact provider dialog with one explicit action', asyn
   expect(document.body.textContent).not.toContain('synthetic-private-input');
 });
 
-it('retains the exact reviewed private draft across a full editor remount', async () => {
+it('retains the private draft across a full editor remount', async () => {
   const options = props(),
     session = new ProviderSettingsSession('openai');
   const first = render(
     <ProviderSettingsEditor {...options} session={session} />,
   );
-  await enterAndReview();
+  await enterKey();
   first.unmount();
   render(<ProviderSettingsEditor {...options} session={session} />);
   expect(screen.getByLabelText('New API key')).toHaveValue(
     'synthetic-private-input',
   );
-  expect(
-    screen.getByRole('button', { name: 'Confirm replacement' }),
-  ).toBeEnabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
-  await screen.findByText(
-    'Saved locally. Provider connectivity has not been tested.',
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
+  await screen.findByText('API key saved.');
   expect(options.load).toHaveBeenCalledOnce();
   expect(options.review).toHaveBeenCalledOnce();
   expect(options.apply).toHaveBeenCalledOnce();
@@ -106,8 +101,7 @@ it('settles an in-flight result after unmount and preserves the original receipt
   const first = render(
     <ProviderSettingsEditor {...options} session={session} />,
   );
-  await enterAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
+  await enterAndSave(options);
   const originalId = options.apply.mock.calls[0][4];
   first.unmount();
   await act(async () => response.reject({ code: 'operation_uncertain' }));
@@ -139,8 +133,7 @@ it('updates a retained session after late success without notifying an unmounted
   const first = render(
     <ProviderSettingsEditor {...options} session={session} />,
   );
-  await enterAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
+  await enterAndSave(options);
   first.unmount();
   await act(async () =>
     response.resolve({ ...snapshot, revision: 'b'.repeat(64) }),
@@ -160,8 +153,7 @@ it('does not call a rejected receipt a successful replacement and unlocks fresh 
   options.apply.mockRejectedValue({ code: 'revision_conflict' });
   options.receipt.mockResolvedValue({ rejected: true, snapshot });
   render(<ProviderSettingsEditor {...options} session={session} />);
-  await enterAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
+  await enterAndSave(options);
   await waitFor(() =>
     expect(
       screen.getByRole('button', { name: 'Check original receipt' }),
@@ -179,19 +171,18 @@ it('does not call a rejected receipt a successful replacement and unlocks fresh 
   ).toBeEnabled();
   expect(session.canDiscard()).toBe(true);
 });
-async function enterAndReview() {
+async function enterKey() {
   fireEvent.change(await screen.findByLabelText('New API key'), {
     target: { value: 'synthetic-private-input' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Confirm replacement' }),
-    ).toBeEnabled(),
-  );
+}
+async function enterAndSave(options: ReturnType<typeof props>) {
+  await enterKey();
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
 }
 
-it('loads redacted saved status and requires explicit review before replacement', async () => {
+it('loads redacted saved status and saves with one explicit action', async () => {
   const options = props();
   render(<ProviderSettingsEditor {...options} />);
   const input = await screen.findByLabelText('New API key');
@@ -199,10 +190,8 @@ it('loads redacted saved status and requires explicit review before replacement'
   expect(input).toHaveAttribute('autocomplete', 'new-password');
   expect(input).toHaveValue('');
   expect(options.apply).not.toHaveBeenCalled();
-  expect(
-    screen.getByRole('button', { name: 'Confirm replacement' }),
-  ).toBeDisabled();
-  await enterAndReview();
+  expect(screen.getByRole('button', { name: 'Save key' })).toBeDisabled();
+  await enterAndSave(options);
   expect(options.review).toHaveBeenCalledWith(
     'openai',
     snapshot.revision,
@@ -211,10 +200,7 @@ it('loads redacted saved status and requires explicit review before replacement'
     expect.any(AbortSignal),
   );
   expect(document.body.textContent).not.toContain('synthetic-private-input');
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
-  await screen.findByText(
-    'Saved locally. Provider connectivity has not been tested.',
-  );
+  await screen.findByText('API key saved.');
   expect(options.apply).toHaveBeenCalledWith(
     'openai',
     snapshot.revision,
@@ -226,16 +212,16 @@ it('loads redacted saved status and requires explicit review before replacement'
   expect(options.onSaved).toHaveBeenCalledOnce();
 });
 
-it('coalesces double confirmation and clears password input before awaiting the response', async () => {
+it('coalesces double save and clears password input before awaiting the response', async () => {
   const options = props(),
     response = pending<ProviderSettingsSnapshot>();
   options.apply.mockReturnValue(response.promise);
   render(<ProviderSettingsEditor {...options} />);
-  await enterAndReview();
-  const button = screen.getByRole('button', { name: 'Confirm replacement' });
+  await enterKey();
+  const button = screen.getByRole('button', { name: 'Save key' });
   fireEvent.click(button);
   fireEvent.click(button);
-  expect(options.apply).toHaveBeenCalledOnce();
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
   expect(screen.getByLabelText('New API key')).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   await act(async () => response.resolve(snapshot));
@@ -245,8 +231,7 @@ it('keeps uncertain identity and only reads the original receipt without resendi
   const options = props();
   options.apply.mockRejectedValue(new Error('private backend details'));
   render(<ProviderSettingsEditor {...options} />);
-  await enterAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
+  await enterAndSave(options);
   const receipt = await screen.findByRole('button', {
     name: 'Check original receipt',
   });
@@ -272,7 +257,7 @@ it('keeps uncertain identity and only reads the original receipt without resendi
 });
 
 it.each(['clear', 'restore'] as const)(
-  'reviews and explicitly confirms %s without sending a secret value',
+  'applies %s with one click without sending a secret value',
   async (operation) => {
     const options = props();
     render(<ProviderSettingsEditor {...options} />);
@@ -280,11 +265,9 @@ it.each(['clear', 'restore'] as const)(
       target: { value: operation },
     });
     expect(screen.queryByLabelText('New API key')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
     const button = screen.getByRole('button', {
-      name: operation === 'clear' ? 'Confirm disconnect' : 'Confirm restore',
+      name: operation === 'clear' ? 'Disconnect key' : 'Restore key',
     });
-    await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
     await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
     expect(options.apply.mock.calls[0].slice(0, 4)).toEqual([
@@ -303,9 +286,7 @@ it.each([{ externally_managed: true }, { storage_unavailable: true }])(
     options.load.mockResolvedValue({ ...snapshot, ...state });
     render(<ProviderSettingsEditor {...options} />);
     expect(await screen.findByLabelText('New API key')).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Review change' }),
-    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save key' })).toBeDisabled();
     expect(options.apply).not.toHaveBeenCalled();
   },
 );
@@ -318,34 +299,26 @@ it('allows explicit recovery of an unavailable active generation through the exi
   fireEvent.change(await screen.findByLabelText('Credential action'), {
     target: { value: 'restore' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
-  const button = screen.getByRole('button', { name: 'Confirm restore' });
-  await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
+  fireEvent.click(screen.getByRole('button', { name: 'Restore key' }));
   await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
   expect(options.apply.mock.calls[0][2]).toBe('restore');
 });
 
-it('rejects a stale review and changing input invalidates a completed review', async () => {
+it('rejects a stale validation and allows retry with changed input', async () => {
   const options = props();
   options.review.mockResolvedValueOnce({ ...snapshot, revision: 'changed' });
   render(<ProviderSettingsEditor {...options} />);
   fireEvent.change(await screen.findByLabelText('New API key'), {
     target: { value: 'one' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
   await screen.findByRole('alert');
-  expect(
-    screen.getByRole('button', { name: 'Confirm replacement' }),
-  ).toBeDisabled();
-  await enterAndReview();
+  expect(options.apply).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('New API key'), {
     target: { value: 'different' },
   });
-  expect(
-    screen.getByRole('button', { name: 'Confirm replacement' }),
-  ).toBeDisabled();
-  expect(options.apply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
 });
 
 it('aborts late provider reads and never applies the previous provider result', async () => {
@@ -371,8 +344,7 @@ it('fences save results after unmount and cancellation before submit never write
     response = pending<ProviderSettingsSnapshot>();
   options.apply.mockReturnValue(response.promise);
   const view = render(<ProviderSettingsEditor {...options} />);
-  await enterAndReview();
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm replacement' }));
+  await enterAndSave(options);
   view.unmount();
   await act(async () => response.resolve(snapshot));
   expect(options.onSaved).not.toHaveBeenCalled();

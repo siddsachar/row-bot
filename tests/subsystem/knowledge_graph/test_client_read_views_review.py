@@ -139,7 +139,7 @@ def test_expensive_sql_is_interrupted_by_owner_budget(tmp_path, monkeypatch):
             return super().set_progress_handler(guarded, interval)
 
         def execute(self, sql, parameters=()):
-            if "FROM entities ORDER BY id" in sql:
+            if "matched" in sql and "ORDER BY id" in sql:
                 if not observed["installed"]:
                     observed["guardian"] = True
                     super().set_progress_handler(lambda: 1, 1000)

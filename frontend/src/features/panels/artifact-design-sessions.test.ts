@@ -64,6 +64,15 @@ function fixture() {
       sha256: 'a'.repeat(64),
       size_bytes: 3,
     })),
+    importPreview: vi.fn(async (_scope, body) => ({
+      resource_id: 'design',
+      resource_revision: body.expected_revision,
+      filename: body.filename,
+      source_sha256: body.sha256,
+      page_count: 1,
+      pages: [{ title: 'Synthetic', has_notes: false }],
+      replacing_page_count: 1,
+    })),
     presetReview: vi.fn(async () => ({ nonce: 'private-review' })),
     execute: vi.fn(async (_scope, id, type, payload) =>
       success(
@@ -72,7 +81,9 @@ function fixture() {
           ? String(payload.operation)
           : type === 'artifact.asset.upload'
             ? 'asset_upload'
-            : 'preset_' + payload.action,
+            : type === 'artifact.document.import'
+              ? 'document_import'
+              : 'preset_' + payload.action,
       ),
     ),
     receipt: vi.fn(async () => null),
@@ -282,6 +293,32 @@ it('stages only on explicit upload and does not reload staged data after uncerta
   });
   await f.entry.recover();
   expect(f.owner.stageUpload).toHaveBeenCalledTimes(1);
+});
+
+it('previews selected document bytes without dispatch and retains one import command after response loss', async () => {
+  const f = fixture();
+  const file = new File(['123'], 'synthetic.docx');
+  const prepared = await f.entry.prepareImport(file, 'r1');
+  expect(prepared.preview.page_count).toBe(1);
+  expect(f.owner.execute).not.toHaveBeenCalled();
+  vi.mocked(f.owner.execute).mockRejectedValueOnce(new Error('lost response'));
+  await expect(
+    f.entry.importDocument({
+      staged: prepared.staged,
+      filename: file.name,
+      revision: 'r1',
+      replace: false,
+    }),
+  ).rejects.toThrow('unconfirmed');
+  const attempt = f.entry.getSnapshot().attempt!;
+  expect(attempt.type).toBe('artifact.document.import');
+  expect(attempt.payload).toMatchObject({
+    upload_id: 'staged',
+    replace: false,
+  });
+  await f.entry.recover();
+  expect(f.owner.stageUpload).toHaveBeenCalledTimes(1);
+  expect(f.owner.importPreview).toHaveBeenCalledTimes(1);
 });
 
 it('preserves one exact global preset nonce and ID after dispatch uncertainty', async () => {

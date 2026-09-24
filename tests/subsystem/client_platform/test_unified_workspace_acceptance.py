@@ -81,7 +81,10 @@ def test_pin_unpin_and_rename_preserve_durable_history_and_identity(service):
         rows = service.transcript(conversation)["rows"]
         assert len(rows) == 1
         assert rows[0]["message_id"] == "retained-message"
-        assert rows[0]["blocks"] == [{"type": "text", "text": "Keep my history"}]
+        assert len(rows[0]["blocks"]) == 1
+        assert rows[0]["blocks"][0]["type"] == "markdown"
+        assert rows[0]["blocks"][0]["text"] == "Keep my history"
+        assert rows[0]["blocks"][0]["id"].startswith("block:")
 
 
 def test_one_client_disconnect_does_not_stop_producer_or_duplicate_final(service):

@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "asset_size": {
+      "maximum": 1000000000000,
+      "minimum": 0,
+      "title": "Asset Size",
+      "type": "integer"
+    },
+    "channel": {
+      "enum": [
+        "stable",
+        "beta"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "html_url": {
+      "maxLength": 2048,
+      "title": "Html Url",
+      "type": "string"
+    },
+    "notes": {
+      "maxLength": 16000,
+      "title": "Notes",
+      "type": "string"
+    },
+    "published_at": {
+      "maxLength": 64,
+      "title": "Published At",
+      "type": "string"
+    },
+    "verified_manifest": {
+      "title": "Verified Manifest",
+      "type": "boolean"
+    },
+    "version": {
+      "maxLength": 64,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "channel",
+    "published_at",
+    "notes",
+    "html_url",
+    "asset_size",
+    "verified_manifest"
+  ],
+  "title": "UpdateRelease",
+  "type": "object"
+}

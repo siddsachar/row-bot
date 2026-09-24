@@ -1,13 +1,19 @@
 """Provider connection cards for the interactive settings page."""
 from __future__ import annotations
 
+from row_bot.docs_capture import docs_capture_fake_provider_status, docs_capture_provider_cards
 from row_bot.providers.status import provider_status_cards
 
 
 def read_live_provider_cards() -> dict:
     """Read the same connection facts as NiceGUI without exposing credentials."""
     cards = []
-    for card in provider_status_cards(refresh_tokens=False):
+    source_cards = (
+        docs_capture_provider_cards()
+        if docs_capture_fake_provider_status()
+        else provider_status_cards(refresh_tokens=False)
+    )
+    for card in source_cards:
         probe = card.get("last_runtime_probe") or {}
         if not isinstance(probe, dict):
             probe = {}

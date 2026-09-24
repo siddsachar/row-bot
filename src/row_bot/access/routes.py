@@ -5,9 +5,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
+import asyncio
 import json
+import os
+import threading
 from typing import Any, Mapping
 from urllib.parse import parse_qs
+
+from row_bot.access.access_routes import (
+    AccessRouteConfigStore,
+    ListenMode,
+    apply_listen_mode,
+    build_route_inventory,
+    discover_private_lan_addresses,
+)
+from row_bot.access.tailscale import (
+    TailscaleOwnershipStore,
+    TailscaleServeController,
+    process_tailscale_status_cache,
+)
+from row_bot.app_port import get_app_port
 
 from fastapi import APIRouter
 from starlette.requests import Request
@@ -21,9 +38,18 @@ from row_bot.access.request_context import (
     AccessContext,
     RequestProvenance,
     request_origin_matches,
-    safe_relative_next,
 )
-from row_bot.access.service import AccessService, InvitationClaimError
+from row_bot.access.service import (
+    REMOTE_CLIENT_PATH,
+    AccessService,
+    InvitationClaimError,
+)
+
+ACCESS_REQUEST_BODY_LIMIT = 32 * 1024
+_CLAIM_RATE_LIMIT = 20
+_MANAGEMENT_RATE_LIMIT = 30
+_TAILSCALE_COMMANDS: dict[tuple[str, str, str], dict[str, Any]] = {}
+_TAILSCALE_COMMAND_LOCK = threading.RLock()
 
 ACCESS_RESPONSE_HEADERS = {
     "Cache-Control": "no-store",
@@ -113,21 +139,79 @@ def _origin_ok(request: Request, context: AccessContext | None) -> bool:
     return context is not None and request_origin_matches(context, request.scope)
 
 
+def _rate_subject(context: AccessContext | None) -> str:
+    if context is None:
+        return "unidentified"
+    return context.session_id or context.effective_client or "unidentified"
+
+
+def _rate_ok(
+    service: AccessService,
+    context: AccessContext | None,
+    *,
+    bucket: str,
+    limit: int,
+) -> bool:
+    return service.consume_request_budget(
+        bucket,
+        _rate_subject(context),
+        limit=limit,
+    )
+
+
+def _too_many_requests() -> JSONResponse:
+    response = _error(
+        429,
+        "rate_limited",
+        "Too many access requests. Wait before trying again.",
+    )
+    response.headers["Retry-After"] = "60"
+    return response
+
+
+def _payload_too_large() -> JSONResponse:
+    return _error(
+        413,
+        "request_too_large",
+        "The access request body is too large.",
+    )
+
+
 def _is_json_request(request: Request) -> bool:
     return (
         request.headers.get("content-type", "").lower().startswith("application/json")
     )
 
 
+class AccessPayloadTooLarge(ValueError):
+    """Raised before an access route buffers an oversized request body."""
+
+
 async def _payload(request: Request) -> dict[str, Any]:
+    declared = request.headers.get("content-length", "").strip()
+    if declared:
+        try:
+            declared_size = int(declared)
+        except ValueError:
+            return {}
+        if declared_size > ACCESS_REQUEST_BODY_LIMIT:
+            raise AccessPayloadTooLarge
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > ACCESS_REQUEST_BODY_LIMIT:
+            raise AccessPayloadTooLarge
+        chunks.append(bytes(chunk))
+    raw = b"".join(chunks)
     if _is_json_request(request):
         try:
-            value = await request.json()
+            value = json.loads(raw)
         except Exception:
             return {}
         return dict(value) if isinstance(value, Mapping) else {}
     try:
-        body = (await request.body()).decode("utf-8", errors="strict")
+        body = raw.decode("utf-8", errors="strict")
     except (UnicodeDecodeError, ValueError):
         return {}
     parsed = parse_qs(body, keep_blank_values=True)
@@ -197,7 +281,7 @@ def _available_connect_page(
     next_path: str,
 ) -> str:
     duration = "30 days" if lifetime is SessionLifetime.TRUSTED else "12 hours"
-    layout = "Compact" if next_path == "/?mobile=1" else "Desktop"
+    layout = "Responsive unified client"
     warning = (
         '<p class="warning">This authenticated browser receives full owner '
         "access to Row-Bot, including files, tools, providers, and settings.</p>"
@@ -258,6 +342,42 @@ def _device_public(service: AccessService, device) -> dict[str, Any]:
     return {**device.to_public_dict(), "sessions": sessions}
 
 
+def _route_inventory(request: Request, context: AccessContext):
+    """Read current owner-visible routes without probing or changing access."""
+    port = get_app_port()
+    config = AccessRouteConfigStore().load_or_default()
+    ownership_store = TailscaleOwnershipStore()
+    verified = process_tailscale_status_cache().get(
+        instance_key=str(ownership_store.path.resolve(strict=False)),
+        port=port,
+        ownership=ownership_store.load(),
+    )
+    from row_bot.tunnel import tunnel_manager
+
+    return build_route_inventory(
+        port=port,
+        config=config,
+        lan_addresses=discover_private_lan_addresses(),
+        tailscale_state=verified.status if verified else None,
+        ngrok_url=tunnel_manager.get_url(port),
+        reverse_proxy_origins=(
+            *config.configured_origins,
+            *AccessConfig.from_env().public_origins,
+        ),
+        current_server_origin=context.origin,
+    )
+
+
+def _route_settings(context: AccessContext) -> dict[str, Any]:
+    config = AccessRouteConfigStore().load_or_default()
+    return {
+        "listen_mode": config.listen_mode.value,
+        "configured_origins": list(config.configured_origins),
+        "managed_externally": "ROW_BOT_ALLOWED_HOSTS" in os.environ,
+        "can_manage_routes": context.is_local_owner,
+    }
+
+
 class AccessSessionAuthenticator:
     """Adapt access cookies and :class:`AccessService` to access middleware."""
 
@@ -304,8 +424,10 @@ def build_access_router(
     *,
     service: AccessService,
     cookies: AccessCookieManager,
+    tailscale_controller: TailscaleServeController | None = None,
 ) -> APIRouter:
     router = APIRouter()
+    selected_tailscale = tailscale_controller or TailscaleServeController()
 
     async def connect_page(request: Request) -> HTMLResponse:
         token = str(request.query_params.get("invitation") or "").strip()
@@ -334,7 +456,9 @@ def build_access_router(
                 status_code=_claim_status(inspection.status),
                 headers=CONNECT_PAGE_HEADERS,
             )
-        next_path = safe_relative_next(request.query_params.get("next"))
+        # Pairing always enters the independent responsive client. The root
+        # path remains the default NiceGUI client for ordinary local launches.
+        next_path = REMOTE_CLIENT_PATH
         return HTMLResponse(
             _available_connect_page(
                 token=token,
@@ -354,12 +478,22 @@ def build_access_router(
             )
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
-        payload = await _payload(request)
+        if not _rate_ok(
+            service,
+            context,
+            bucket="invitation_claim",
+            limit=_CLAIM_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
         token = str(payload.get("invitation") or "").strip()
         display_name = (
             str(payload.get("display_name") or "").strip() or "Connected browser"
         )
-        next_path = safe_relative_next(payload.get("next"))
+        next_path = REMOTE_CLIENT_PATH
         try:
             claim = service.claim_invitation(
                 token,
@@ -433,6 +567,13 @@ def build_access_router(
             return _error(401, "authentication_required", "Sign in required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="session_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
 
         current_token = cookies.extract_from_scope(
             dict(request.scope),
@@ -483,6 +624,15 @@ def build_access_router(
         context = _context(request)
         if context is None or not context.authenticated:
             response = _error(401, "authentication_required", "Sign in required.")
+        elif not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        elif not _rate_ok(
+            service,
+            context,
+            bucket="session_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
         else:
             revoked = bool(
                 context.session_id and service.revoke_session(context.session_id)
@@ -524,13 +674,292 @@ def build_access_router(
             }
         )
 
+    async def route_inventory(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        return _json(
+            {
+                "ok": True,
+                **_route_inventory(request, context).to_dict(),
+                **_route_settings(context),
+            }
+        )
+
+    async def set_listen_mode(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None or not context.is_local_owner:
+            return _error(403, "local_owner_required", "Use the local owner session.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service, context, bucket="access_management", limit=_MANAGEMENT_RATE_LIMIT
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        store = AccessRouteConfigStore()
+        current = store.load_or_default()
+        if payload.get("expected_mode") != current.listen_mode.value:
+            return _error(409, "route_changed", "Listen mode changed. Refresh first.")
+        try:
+            mode = ListenMode(str(payload.get("listen_mode") or ""))
+        except ValueError:
+            return _error(400, "invalid_listen_mode", "Choose a supported mode.")
+        from row_bot.access.launcher_control import request_launcher_restart
+
+        result = await apply_listen_mode(
+            store,
+            mode,
+            restart_child=lambda: request_launcher_restart().accepted,
+        )
+        return _json(
+            {
+                "ok": True,
+                "listen_mode": result.config.listen_mode.value,
+                "changed": result.changed,
+                "restarted": result.restarted,
+                "restart_required": result.restart_required,
+                "reason": result.reason,
+            }
+        )
+
+    async def change_trusted_origin(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None or not context.is_local_owner:
+            return _error(403, "local_owner_required", "Use the local owner session.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service, context, bucket="access_management", limit=_MANAGEMENT_RATE_LIMIT
+        ):
+            return _too_many_requests()
+        if "ROW_BOT_ALLOWED_HOSTS" in os.environ:
+            return _error(
+                409,
+                "externally_managed",
+                "Host admission is managed by deployment configuration.",
+            )
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        store = AccessRouteConfigStore()
+        previous = store.load_or_default()
+        if payload.get("expected_origins") != list(previous.configured_origins):
+            return _error(
+                409, "route_changed", "Trusted addresses changed. Refresh first."
+            )
+        policy = getattr(request.app.state, "row_bot_access_runtime_policy", None)
+        if policy is None:
+            return _error(
+                503, "route_policy_unavailable", "Live route policy is unavailable."
+            )
+        action = payload.get("action")
+        origin = payload.get("origin")
+        if not isinstance(origin, str) or action not in {"add", "remove"}:
+            return _error(400, "invalid_origin", "Choose an exact origin and action.")
+        try:
+            config = (
+                store.add_configured_origin(origin)
+                if action == "add"
+                else store.remove_configured_origin(origin)
+            )
+        except ValueError:
+            return _error(
+                400, "invalid_origin", "Choose one exact HTTP or HTTPS origin."
+            )
+        policy.set_configured_origins(config.configured_origins)
+        return _json(
+            {"ok": True, "configured_origins": list(config.configured_origins)}
+        )
+
+    def _remember_tailscale(status: object | None) -> None:
+        ownership_store = TailscaleOwnershipStore()
+        process_tailscale_status_cache().remember(
+            instance_key=str(ownership_store.path.resolve(strict=False)),
+            port=get_app_port(),
+            status=status,
+            ownership=ownership_store.load(),
+        )
+
+    async def tailscale_status(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        ownership_store = TailscaleOwnershipStore()
+        verified = process_tailscale_status_cache().get(
+            instance_key=str(ownership_store.path.resolve(strict=False)),
+            port=get_app_port(),
+            ownership=ownership_store.load(),
+        )
+        return _json(
+            {
+                "ok": True,
+                "can_manage": context.is_local_owner,
+                "status": verified.status.to_public_dict() if verified else None,
+                "verified_at": verified.verified_at.isoformat() if verified else None,
+            }
+        )
+
+    async def tailscale_check(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None or not context.is_local_owner:
+            return _error(403, "local_owner_required", "Use the local owner session.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service, context, bucket="access_management", limit=_MANAGEMENT_RATE_LIMIT
+        ):
+            return _too_many_requests()
+        status = await asyncio.to_thread(selected_tailscale.detect, port=get_app_port())
+        _remember_tailscale(status)
+        return _json({"ok": True, "status": status.to_public_dict()})
+
+    async def tailscale_mutate(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None or not context.is_local_owner:
+            return _error(403, "local_owner_required", "Use the local owner session.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service, context, bucket="access_management", limit=_MANAGEMENT_RATE_LIMIT
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        action = payload.get("action")
+        command_id = payload.get("command_id")
+        if (
+            action not in {"enable", "disable"}
+            or not isinstance(command_id, str)
+            or len(command_id) > 80
+            or not command_id
+        ):
+            return _error(
+                400, "invalid_command", "Choose a Tailscale action and command ID."
+            )
+        key = (service.instance_id, context.session_id or "local_owner", command_id)
+        with _TAILSCALE_COMMAND_LOCK:
+            prior = _TAILSCALE_COMMANDS.get(key)
+            if prior is not None:
+                if prior["action"] != action:
+                    return _error(
+                        409, "command_conflict", "Command ID belongs to another action."
+                    )
+                if prior.get("receipt") is None:
+                    return _error(
+                        409, "operation_pending", "Check the original Tailscale action."
+                    )
+                return _json(prior["receipt"])
+            if len(_TAILSCALE_COMMANDS) >= 64:
+                completed = next(
+                    (
+                        key
+                        for key, value in _TAILSCALE_COMMANDS.items()
+                        if value.get("receipt") is not None
+                    ),
+                    None,
+                )
+                if completed is None:
+                    return _too_many_requests()
+                _TAILSCALE_COMMANDS.pop(completed)
+            _TAILSCALE_COMMANDS[key] = {"action": action, "receipt": None}
+        try:
+            if action == "enable":
+                plan = await asyncio.to_thread(
+                    selected_tailscale.plan, port=get_app_port()
+                )
+                _remember_tailscale(plan.status)
+                if not plan.can_apply:
+                    receipt = {
+                        "ok": False,
+                        "success": False,
+                        "status": plan.status.to_public_dict(),
+                        "error": plan.description,
+                        "restart_required": False,
+                    }
+                else:
+                    result = await asyncio.to_thread(selected_tailscale.apply, plan)
+                    _remember_tailscale(result.status)
+                    receipt = {
+                        "ok": True,
+                        "success": result.success,
+                        "status": result.status.to_public_dict(),
+                        "error": result.error,
+                        "restart_required": result.restart_required,
+                    }
+            else:
+                result = await asyncio.to_thread(selected_tailscale.disable_owned)
+                _remember_tailscale(result.status)
+                receipt = {
+                    "ok": True,
+                    "success": result.success,
+                    "status": result.status.to_public_dict(),
+                    "error": result.error,
+                    "restart_required": result.restart_required,
+                }
+            if receipt["success"]:
+                from row_bot.access.launcher_control import request_launcher_restart
+
+                restart = request_launcher_restart()
+                receipt["restart_required"] = not restart.accepted
+            with _TAILSCALE_COMMAND_LOCK:
+                _TAILSCALE_COMMANDS[key]["receipt"] = receipt
+            return _json(receipt)
+        except Exception:
+            receipt = {
+                "ok": False,
+                "success": False,
+                "status": None,
+                "error": "The Tailscale outcome is uncertain. Check status before retrying.",
+                "restart_required": False,
+            }
+            with _TAILSCALE_COMMAND_LOCK:
+                _TAILSCALE_COMMANDS[key]["receipt"] = receipt
+            return _json(receipt, status_code=503)
+
+    async def tailscale_receipt(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None or not context.is_local_owner:
+            return _error(403, "local_owner_required", "Use the local owner session.")
+        command_id = str(request.path_params.get("command_id") or "")
+        if not command_id or len(command_id) > 80:
+            return _error(400, "invalid_command", "Invalid Tailscale command ID.")
+        key = (service.instance_id, context.session_id or "local_owner", command_id)
+        with _TAILSCALE_COMMAND_LOCK:
+            entry = _TAILSCALE_COMMANDS.get(key)
+            if entry is None:
+                return _error(
+                    404,
+                    "receipt_missing",
+                    "Check Tailscale status before another action.",
+                )
+            if entry["receipt"] is None:
+                return _json({"ok": True, "pending": True}, status_code=202)
+            return _json(entry["receipt"])
+
     async def create_invitation(request: Request) -> JSONResponse:
         context = _owner_context(request)
         if context is None:
             return _error(403, "forbidden", "Owner access is required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
-        payload = await _payload(request)
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
         if "profile" in payload or "access_profile" in payload:
             return _error(
                 400,
@@ -555,14 +984,29 @@ def build_access_router(
                 "invalid_invitation_options",
                 "Choose desktop or compact layout and a trusted or temporary session.",
             )
-        intended_origin = str(payload.get("origin") or context.origin).strip()
+        route_id = str(payload.get("route_id") or "").strip()
+        if route_id:
+            route = _route_inventory(request, context).resolve_invitation_route(
+                route_id
+            )
+            if route is None:
+                return _error(
+                    409,
+                    "route_changed",
+                    "The selected connection route changed. Refresh and try again.",
+                )
+            intended_origin = route.origin
+            access_route = route.kind.value
+        else:
+            intended_origin = str(payload.get("origin") or context.origin).strip()
+            access_route = str(payload.get("access_route") or "")[:80] or None
         try:
             created = service.create_invitation(
                 intended_origin=intended_origin,
                 session_lifetime=lifetime,
-                next_path="/?mobile=1" if layout == "compact" else "/",
+                next_path=REMOTE_CLIENT_PATH,
                 created_by=context.device_id or "local_owner",
-                access_route=str(payload.get("access_route") or "")[:80] or None,
+                access_route=access_route,
             )
         except ValueError:
             return _error(
@@ -601,6 +1045,13 @@ def build_access_router(
             return _error(403, "forbidden", "Owner access is required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
         invitation_id = str(request.path_params.get("invitation_id") or "")
         cancelled = service.cancel_invitation(invitation_id)
         return _json(
@@ -627,6 +1078,13 @@ def build_access_router(
             return _error(403, "forbidden", "Owner access is required.")
         if not _origin_ok(request, context):
             return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
         device_id = str(request.path_params.get("device_id") or "")
         revoked = service.revoke_device(device_id)
         response = _json(
@@ -634,6 +1092,29 @@ def build_access_router(
             status_code=200 if revoked else 404,
         )
         if context.device_id == device_id:
+            cookies.clear(response)
+        return response
+
+    async def revoke_session(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        session_id = str(request.path_params.get("session_id") or "")
+        revoked = service.revoke_session(session_id)
+        response = _json(
+            {"ok": revoked, "revoked": revoked},
+            status_code=200 if revoked else 404,
+        )
+        if context.session_id == session_id:
             cookies.clear(response)
         return response
 
@@ -651,6 +1132,21 @@ def build_access_router(
     )
     router.add_api_route("/api/access/logout", logout, methods=["POST"])
     router.add_api_route("/api/access/status", status, methods=["GET"])
+    router.add_api_route("/api/access/routes", route_inventory, methods=["GET"])
+    router.add_api_route("/api/access/routes/listen", set_listen_mode, methods=["POST"])
+    router.add_api_route(
+        "/api/access/routes/origins", change_trusted_origin, methods=["POST"]
+    )
+    router.add_api_route("/api/access/tailscale", tailscale_status, methods=["GET"])
+    router.add_api_route(
+        "/api/access/tailscale/check", tailscale_check, methods=["POST"]
+    )
+    router.add_api_route(
+        "/api/access/tailscale/actions", tailscale_mutate, methods=["POST"]
+    )
+    router.add_api_route(
+        "/api/access/tailscale/actions/{command_id}", tailscale_receipt, methods=["GET"]
+    )
     router.add_api_route(
         "/api/access/invitations",
         create_invitation,
@@ -672,6 +1168,11 @@ def build_access_router(
         revoke_device,
         methods=["POST"],
     )
+    router.add_api_route(
+        "/api/access/sessions/{session_id}/revoke",
+        revoke_session,
+        methods=["POST"],
+    )
     return router
 
 
@@ -681,6 +1182,7 @@ def register_access_routes(
     service: AccessService | None = None,
     config: AccessConfig | None = None,
     cookies: AccessCookieManager | None = None,
+    tailscale_controller: TailscaleServeController | None = None,
 ) -> AccessRouteRegistration:
     """Register access routes and return middleware-ready dependencies."""
 
@@ -703,6 +1205,7 @@ def register_access_routes(
         build_access_router(
             service=selected_service,
             cookies=selected_cookies,
+            tailscale_controller=tailscale_controller,
         )
     )
     return registration

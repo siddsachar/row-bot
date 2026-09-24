@@ -249,9 +249,9 @@ export async function openConversation(
   await expect(
     page.getByRole('button', { name: 'Browse history', exact: true }),
   ).toBeEnabled();
-  await expect(
-    page.getByRole('status').filter({ hasText: /^Connected$/ }),
-  ).toBeVisible();
+  await expect(page.locator('.connection-status.connected')).toHaveText(
+    'Connected',
+  );
   await expect(composer(page)).toBeVisible();
   await expect(composer(page)).toHaveCount(1);
 }
@@ -259,13 +259,19 @@ export async function openConversation(
 export async function newConversation(page: Page): Promise<string> {
   await retireDocument(page);
   await page.goto('/app-v2/');
-  await expect(
-    page.getByRole('status').filter({ hasText: /^Connected$/ }),
-  ).toBeVisible();
-  await page
-    .locator('.home-view')
-    .getByRole('button', { name: 'New chat', exact: true })
-    .click();
+  await expect(page.locator('.home-connection-status')).toHaveText(
+    'Connected · local workspace',
+  );
+  const newChat = page.getByRole('button', {
+    name: 'New chat',
+    exact: true,
+  });
+  if (!(await newChat.isVisible())) {
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  }
+  await newChat.click();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await expect(
     page.getByLabel('Opening conversation', { exact: true }),

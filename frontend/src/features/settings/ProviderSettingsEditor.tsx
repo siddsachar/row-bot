@@ -64,11 +64,6 @@ export default function ProviderSettingsEditor(
     'save',
   );
   const [secret, setSecret] = useProviderSettingsValue(session, 'secret', '');
-  const [reviewed, setReviewed] = useProviderSettingsValue(
-    session,
-    'reviewed',
-    false,
-  );
   const [busy, setBusy] = useProviderSettingsValue(session, 'busy', 'load');
   const [error, setError] = useProviderSettingsValue(session, 'error', '');
   const [notice, setNotice] = useProviderSettingsValue(session, 'notice', '');
@@ -80,7 +75,6 @@ export default function ProviderSettingsEditor(
   const [reload, setReload] = useProviderSettingsValue(session, 'reload', 0);
   const epoch = useRef(0);
   const effectPending = useRef(false);
-  const reviewAbort = useRef<AbortController | null>(null);
   const readAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -90,7 +84,6 @@ export default function ProviderSettingsEditor(
       epoch.current += 1;
       if (!props.session) {
         abort?.abort();
-        reviewAbort.current?.abort();
         readAbort.current?.abort();
       }
     };
@@ -98,7 +91,6 @@ export default function ProviderSettingsEditor(
     setSnapshot(null);
     setSecret('');
     setPending(null);
-    setReviewed(false);
     setOperation('save');
     setError('');
     setNotice('');
@@ -139,7 +131,6 @@ export default function ProviderSettingsEditor(
     setSnapshot,
     setSecret,
     setPending,
-    setReviewed,
     setOperation,
     setError,
     setNotice,
@@ -150,84 +141,8 @@ export default function ProviderSettingsEditor(
     session.active && (!!props.session || generation === epoch.current);
 
   function changed() {
-    reviewAbort.current?.abort();
-    setReviewed(false);
     setNotice('');
     setError('');
-  }
-  async function reviewChange() {
-    if (!snapshot || effectPending.current || busy || pending) return;
-    const abort = session.read();
-    reviewAbort.current?.abort();
-    reviewAbort.current = abort;
-    const generation = epoch.current;
-    setBusy('review');
-    setReviewed(false);
-    setError('');
-    try {
-      const result = await review(
-        providerId,
-        snapshot.revision,
-        operation,
-        operation === 'save' ? secret : undefined,
-        abort.signal,
-      );
-      if (abort.signal.aborted || !alive(generation)) return;
-      if (
-        result.provider_id !== providerId ||
-        result.revision !== snapshot.revision
-      )
-        throw { code: 'revision_conflict' };
-      if (
-        result.externally_managed ||
-        (result.storage_unavailable && operation !== 'restore')
-      )
-        throw { code: 'action_denied' };
-      setReviewed(true);
-    } catch (cause) {
-      if (!abort.signal.aborted && alive(generation))
-        setError(clientError(cause).message);
-    } finally {
-      session.finishRead(abort);
-      if (alive(generation)) setBusy('');
-    }
-  }
-  async function confirm() {
-    if (!snapshot || !reviewed || busy || pending || effectPending.current)
-      return;
-    effectPending.current = true;
-    const generation = epoch.current;
-    const identity = crypto.randomUUID();
-    const value = operation === 'save' ? secret : undefined;
-    setSecret('');
-    setPending(identity);
-    setBusy('save');
-    setReviewed(false);
-    setError('');
-    try {
-      const result = await session.perform(
-        [providerId, snapshot.revision, operation, value, identity],
-        () => apply(providerId, snapshot.revision, operation, value, identity),
-      );
-      if (!alive(generation)) return;
-      if (result.provider_id !== providerId)
-        throw { code: 'operation_uncertain' };
-      setSnapshot(result);
-      setPending(null);
-      session.resolved();
-      setNotice('Saved locally. Provider connectivity has not been tested.');
-      if (generation === epoch.current) onSaved(result);
-    } catch (cause) {
-      if (alive(generation)) {
-        setError(clientError(cause).message);
-        setNotice(
-          'The original outcome is unconfirmed. Check its receipt before starting another reviewed change.',
-        );
-      }
-    } finally {
-      effectPending.current = false;
-      if (alive(generation)) setBusy('');
-    }
   }
   async function checkReceipt() {
     if (!pending || busy || effectPending.current) return;
@@ -272,12 +187,13 @@ export default function ProviderSettingsEditor(
     !!pending ||
     !!snapshot?.externally_managed ||
     (!!snapshot?.storage_unavailable && operation !== 'restore');
-  async function performDirect(next: 'save' | 'clear') {
+  async function performDirect(next: Operation) {
     if (
       !snapshot ||
       locked ||
       effectPending.current ||
-      (next === 'save' && !secret.trim())
+      (next === 'save' && !secret.trim()) ||
+      (next === 'restore' && !snapshot.recovery_available)
     )
       return;
     const abort = session.read();
@@ -300,6 +216,11 @@ export default function ProviderSettingsEditor(
         reviewedSnapshot.revision !== snapshot.revision
       )
         throw { code: 'revision_conflict' };
+      if (
+        reviewedSnapshot.externally_managed ||
+        (reviewedSnapshot.storage_unavailable && next !== 'restore')
+      )
+        throw { code: 'action_denied' };
     } catch (cause) {
       if (!abort.signal.aborted && alive(generation))
         setError(clientError(cause).message);
@@ -326,7 +247,13 @@ export default function ProviderSettingsEditor(
       setSnapshot(result);
       setPending(null);
       session.resolved();
-      setNotice(next === 'save' ? 'API key saved.' : 'API key cleared.');
+      setNotice(
+        next === 'save'
+          ? 'API key saved.'
+          : next === 'clear'
+            ? 'API key cleared.'
+            : 'Previous local credential restored.',
+      );
       if (generation === epoch.current) onSaved(result);
     } catch (cause) {
       setError(clientError(cause).message);
@@ -476,17 +403,6 @@ export default function ProviderSettingsEditor(
             Disconnecting stops its use without deleting retained recovery
             bytes.
           </p>
-          {reviewed && (
-            <p role="status">
-              Review complete:{' '}
-              {operation === 'save'
-                ? 'replace the saved API key'
-                : operation === 'clear'
-                  ? 'disconnect the saved API key'
-                  : 'restore the previous local credential'}{' '}
-              for {snapshot.display_name}.
-            </p>
-          )}
           <div className="actions">
             <Button
               disabled={
@@ -494,21 +410,13 @@ export default function ProviderSettingsEditor(
                 (operation === 'save' && !secret.trim()) ||
                 (operation === 'restore' && !snapshot.recovery_available)
               }
-              onClick={() => void reviewChange()}
+              onClick={() => void performDirect(operation)}
             >
-              Review change
-            </Button>
-            <Button
-              variant="primary"
-              disabled={locked || !reviewed}
-              onClick={() => void confirm()}
-            >
-              Confirm{' '}
               {operation === 'save'
-                ? 'replacement'
+                ? 'Save key'
                 : operation === 'clear'
-                  ? 'disconnect'
-                  : 'restore'}
+                  ? 'Disconnect key'
+                  : 'Restore key'}
             </Button>
             {pending && (
               <Button disabled={!!busy} onClick={() => void checkReceipt()}>
@@ -532,7 +440,6 @@ export default function ProviderSettingsEditor(
           disabled={!!busy}
           onClick={() => {
             setSecret('');
-            setReviewed(false);
             onCancel();
           }}
         >

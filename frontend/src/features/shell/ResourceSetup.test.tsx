@@ -19,9 +19,9 @@ const mock = vi.hoisted(() => ({
     receipt: vi.fn(),
     intent: vi.fn(),
     library: vi.fn(),
-    pickFolder: vi.fn(),
     selectConversation: vi.fn(),
   },
+  platform: { selectFolder: vi.fn() },
   navigate: vi.fn(),
   routeKey: 'opening-route',
   selectionVersion: 1,
@@ -34,7 +34,7 @@ vi.mock('react-router-dom', async (original) => ({
   useLocation: () => ({ key: mock.routeKey }),
 }));
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: mock.controller }),
+  useRuntime: () => ({ controller: mock.controller, platform: mock.platform }),
   useClientState: () => ({ handshake: mock.handshake }),
 }));
 vi.mock('../../ui/overlays', () => ({ useOverlay: () => mock.overlay }));
@@ -119,10 +119,9 @@ it.each(['Home route', 'A-B-A selection', 'new session'])(
 );
 
 it('never restores an opaque folder grant after reopening with a new handshake', async () => {
-  mock.controller.pickFolder.mockResolvedValue({
-    status: 'selected',
-    grant_id: 'fixture-secret-grant',
-    name: 'Selected fixture',
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'fixture-secret-grant' },
   });
   let rendered!: ReturnType<typeof view>;
   await act(async () => {
@@ -138,7 +137,7 @@ it('never restores an opaque folder grant after reopening with a new handshake',
       screen.getByRole('button', { name: 'Choose existing folder' }),
     );
   });
-  expect(screen.getByText('Selected: Selected fixture')).toBeInTheDocument();
+  expect(screen.getByText('Selected: Authorized folder')).toBeInTheDocument();
   const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a');
   expect(sessionStorage.getItem(key)).not.toContain('fixture-secret-grant');
   rendered.unmount();
@@ -268,10 +267,9 @@ it.each([
 );
 
 it('requires an explicit name and parent before creating one empty workspace', async () => {
-  mock.controller.pickFolder.mockResolvedValue({
-    status: 'selected',
-    grant_id: 'parent-grant',
-    name: 'Parent',
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'parent-grant' },
   });
   await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
   await act(async () =>
@@ -309,6 +307,45 @@ it('requires an explicit name and parent before creating one empty workspace', a
   ).not.toContain('parent-grant');
 });
 
+it('clones only after a URL and local parent are chosen, with one command', async () => {
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'clone-parent-grant' },
+  });
+  await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Folder setup'), {
+      target: { value: 'clone_repository' },
+    }),
+  );
+  const clone = screen.getByRole('button', { name: 'Clone repository' });
+  expect(clone).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Repository URL'), {
+    target: { value: 'https://example.test/team/demo.git' },
+  });
+  expect(clone).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose parent folder' }),
+    ),
+  );
+  expect(clone).toBeEnabled();
+  expect(mock.controller.intent).not.toHaveBeenCalled();
+  await act(async () => fireEvent.click(clone));
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
+    kind: 'workspace',
+    intent: 'create',
+    folder_grant: 'clone-parent-grant',
+    clone_workspace: { repo_url: 'https://example.test/team/demo.git' },
+  });
+  expect(
+    sessionStorage.getItem(
+      setupSessions.scope(mock.handshake.instance_id, null),
+    ),
+  ).not.toContain('clone-parent-grant');
+});
+
 it('continues an unregistered folder using renewed authority without an undefined revision field', async () => {
   const original = crypto.randomUUID();
   const partial: CommandReceipt = {
@@ -325,10 +362,9 @@ it('continues an unregistered folder using renewed authority without an undefine
   setupSessions.reserve(key, original);
   setupSessions.confirm(key, original, partial);
   mock.controller.receipt.mockResolvedValue(partial);
-  mock.controller.pickFolder.mockResolvedValue({
-    status: 'selected',
-    grant_id: 'renewed-parent',
-    name: 'Parent',
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'ok',
+    value: { kind: 'folder', reference: 'renewed-parent' },
   });
   await act(async () => view());
   expect(screen.getByRole('button', { name: 'Continue setup' })).toBeDisabled();
@@ -410,12 +446,59 @@ it('opens the exact Home resource through canonical setup after refreshing its l
   expect(mock.navigate).toHaveBeenCalledWith('/conversations/home-origin');
 });
 
+it('repairs a missing resource origin from one click through the durable setup command', async () => {
+  const saved: ResourceChoice = {
+    resource_id: 'orphan-deck',
+    kind: 'artifact',
+    name: 'Orphan Deck',
+    revision: 'resource-revision',
+    origin_status: 'repair_required',
+    origin_conversation_id: 'missing-origin',
+    available: true,
+  };
+  mock.controller.library.mockResolvedValue({
+    items: [saved],
+    next_cursor: null,
+  });
+  mock.controller.intent.mockImplementation(
+    async (_target, _kind, _payload, _revision, id) => ({
+      ...result(id),
+      resource_id: saved.resource_id,
+      resource_revision: saved.revision,
+    }),
+  );
+  await act(async () =>
+    view(null, { kind: 'artifact', mode: 'existing', resource: saved }),
+  );
+  expect(mock.controller.intent).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Repair missing origin' }),
+    ),
+  );
+  expect(mock.overlay.open).not.toHaveBeenCalled();
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    null,
+    'resource.setup',
+    {
+      kind: 'artifact',
+      intent: 'repair',
+      resource_id: saved.resource_id,
+      expected_resource_revision: saved.revision,
+      expected_origin_id: saved.origin_conversation_id,
+    },
+    '0',
+    expect.any(String),
+  );
+});
+
 it('opens the folder starter without creating anything or launching a picker automatically', async () => {
   await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
   expect(
     screen.getByRole('button', { name: 'Register folder' }),
   ).toBeDisabled();
-  expect(mock.controller.pickFolder).not.toHaveBeenCalled();
+  expect(mock.platform.selectFolder).not.toHaveBeenCalled();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 
@@ -530,22 +613,12 @@ it('shows actual controls and target before one explicit generation and keeps it
   fireEvent.change(screen.getByLabelText('Brief (optional)'), {
     target: { value: 'First draft brief' },
   });
-  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('switch', { name: 'Generate first draft' }));
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Create and review first draft' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
   });
   expect(mock.controller.intent).toHaveBeenCalledTimes(1);
   expect(mock.controller.intent.mock.calls[0][1]).toBe('resource.setup');
-  await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Review generation controls' }),
-    );
-  });
-  expect(screen.getByText('Model: fixture::shown-model')).toBeInTheDocument();
-  expect(screen.getByText(/Shown profile/)).toBeInTheDocument();
-  expect(screen.getByText(/Target: Saved Deck/)).toBeInTheDocument();
   mock.controller.intent.mockImplementation(
     async (_target, _kind, _payload, _revision, id) => ({
       command_id: id,
@@ -557,6 +630,7 @@ it('shows actual controls and target before one explicit generation and keeps it
       screen.getByRole('button', { name: 'Generate first draft' }),
     );
   });
+  expect(mock.controller.workspaceFor).toHaveBeenCalledWith('conversation-a');
   expect(mock.controller.intent).toHaveBeenCalledTimes(2);
   expect(mock.controller.intent.mock.calls[1][2]).toMatchObject({
     text: 'First draft brief',

@@ -61,6 +61,37 @@ it('reads properties without submitting a mutation or enabling authoring', async
   ).toHaveAttribute('aria-pressed', 'false');
 });
 
+it('generates speaker notes only on click and protects unsaved edits', async () => {
+  const generateNotes = vi.fn(async () => ({ resource_revision: 'r2' }));
+  const current = props({ generateNotes });
+  await act(async () => render(<ArtifactEditor {...current} />));
+  expect(generateNotes).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Page notes'), {
+    target: { value: 'Unsaved notes' },
+  });
+  expect(
+    screen.getByRole('button', { name: 'Generate speaker notes' }),
+  ).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Page notes'), {
+    target: { value: 'Saved notes' },
+  });
+  // Saving or clearing the local draft is required before provider generation.
+  expect(
+    screen.getByRole('button', { name: 'Generate speaker notes' }),
+  ).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save page properties' }),
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate speaker notes' }),
+    ),
+  );
+  expect(generateNotes).toHaveBeenCalledWith('page-a', 'r1');
+});
+
 it('submits exact captured resource revision and plain text only after explicit Apply', async () => {
   const current = props();
   await act(async () => render(<ArtifactEditor {...current} />));

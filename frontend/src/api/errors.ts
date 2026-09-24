@@ -1,6 +1,146 @@
 import type { ClientError, ClientStatus } from './types';
 
 const descriptions: Record<string, ClientError> = {
+  route_changed: {
+    code: 'route_changed',
+    message: 'The connection route changed. Refresh routes and try again.',
+    recovery: 'retry',
+  },
+  receipt_missing: {
+    code: 'receipt_missing',
+    message:
+      'The original action record is unavailable. Check Tailscale status before trying again.',
+    recovery: 'review',
+  },
+  skill_receipt_missing: {
+    code: 'skill_receipt_missing',
+    message:
+      'The original install receipt is unavailable. Inspect the saved Skill Library before trying again.',
+    recovery: 'review',
+  },
+  skill_catalog_changed: {
+    code: 'skill_catalog_changed',
+    message: 'Public search results changed. Search again before previewing.',
+    recovery: 'retry',
+  },
+  skill_preview_expired: {
+    code: 'skill_preview_expired',
+    message: 'This skill preview expired. Inspect it again before installing.',
+    recovery: 'retry',
+  },
+  skill_preview_changed: {
+    code: 'skill_preview_changed',
+    message: 'The scanned skill changed. Inspect it again before installing.',
+    recovery: 'retry',
+  },
+  operation_pending: {
+    code: 'operation_pending',
+    message:
+      'The original Tailscale action is still running. Check its result.',
+    recovery: 'retry',
+  },
+  account_changed: {
+    code: 'account_changed',
+    message: 'Account state changed. Refresh it before another action.',
+    recovery: 'retry',
+  },
+  account_busy: {
+    code: 'account_busy',
+    message: 'An account action is already running. Check its original result.',
+    recovery: 'retry',
+  },
+  account_credentials_required: {
+    code: 'account_credentials_required',
+    message: 'Add account credentials before starting sign-in.',
+    recovery: 'review',
+  },
+  account_credentials_invalid: {
+    code: 'account_credentials_invalid',
+    message:
+      'Choose a valid Google OAuth client JSON file from Google Cloud Console.',
+    recovery: 'review',
+  },
+  account_receipt_missing: {
+    code: 'account_receipt_missing',
+    message:
+      'The original account action is unavailable. Check the saved account state before retrying.',
+    recovery: 'review',
+  },
+  migration_changed: {
+    code: 'migration_changed',
+    message:
+      'The source or target changed. Scan the folders again before importing.',
+    recovery: 'review',
+  },
+  migration_plan_missing: {
+    code: 'migration_plan_missing',
+    message: 'This migration preview expired. Scan the folders again.',
+    recovery: 'retry',
+  },
+  migration_apply_busy: {
+    code: 'migration_apply_busy',
+    message: 'A migration is already in progress. Check its original receipt.',
+    recovery: 'retry',
+  },
+  migration_receipt_missing: {
+    code: 'migration_receipt_missing',
+    message:
+      'The migration receipt is unavailable. Inspect the target folder before scanning again.',
+    recovery: 'review',
+  },
+  invalid_migration_selection: {
+    code: 'invalid_migration_selection',
+    message:
+      'Choose a valid source, target, and set of items, then scan again.',
+    recovery: 'review',
+  },
+  update_changed: {
+    code: 'update_changed',
+    message: 'Update state changed. Refresh it before choosing an action.',
+    recovery: 'retry',
+  },
+  update_unavailable: {
+    code: 'update_unavailable',
+    message: 'Installed-app updates are unavailable in this checkout.',
+    recovery: 'none',
+  },
+  update_install_busy: {
+    code: 'update_install_busy',
+    message: 'An update installation is already in progress.',
+    recovery: 'retry',
+  },
+  update_job_missing: {
+    code: 'update_job_missing',
+    message:
+      'This installation record is unavailable. Check the installed version before retrying.',
+    recovery: 'review',
+  },
+  update_command_conflict: {
+    code: 'update_command_conflict',
+    message: 'This update action conflicts with its saved command identity.',
+    recovery: 'review',
+  },
+  invalid_update_command: {
+    code: 'invalid_update_command',
+    message: 'Choose a supported update action and try again.',
+    recovery: 'review',
+  },
+  onboarding_model_required: {
+    code: 'onboarding_model_required',
+    message: 'Choose an available model in Settings, then try this step again.',
+    recovery: 'review',
+  },
+  onboarding_changed: {
+    code: 'onboarding_changed',
+    message:
+      'Setup changed. Refresh your progress before making another choice.',
+    recovery: 'retry',
+  },
+  onboarding_config_unavailable: {
+    code: 'onboarding_config_unavailable',
+    message: 'Saved setup could not be read. Its existing file was preserved.',
+    recovery: 'retry',
+  },
   invalid_settings_command: {
     code: 'invalid_settings_command',
     message: 'Review this setting and choose a supported value.',
@@ -457,6 +597,12 @@ const descriptions: Record<string, ClientError> = {
       'Choose a valid new folder name without path separators or reserved names.',
     recovery: 'review',
   },
+  clone_source_invalid: {
+    code: 'clone_source_invalid',
+    message:
+      'Enter a remote Git URL without embedded credentials or local file access.',
+    recovery: 'review',
+  },
   workspace_destination_exists: {
     code: 'workspace_destination_exists',
     message:
@@ -580,7 +726,7 @@ const descriptions: Record<string, ClientError> = {
   action_denied: {
     code: 'action_denied',
     message: 'This action is unavailable for this connection.',
-    recovery: 'authenticate',
+    recovery: 'none',
   },
   protocol_incompatible: {
     code: 'protocol_incompatible',

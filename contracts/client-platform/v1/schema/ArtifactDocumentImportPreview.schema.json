@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "ArtifactDocumentImportPage": {
+      "additionalProperties": false,
+      "properties": {
+        "has_notes": {
+          "title": "Has Notes",
+          "type": "boolean"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "has_notes"
+      ],
+      "title": "ArtifactDocumentImportPage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "filename": {
+      "maxLength": 240,
+      "title": "Filename",
+      "type": "string"
+    },
+    "page_count": {
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/ArtifactDocumentImportPage"
+      },
+      "maxItems": 100,
+      "title": "Pages",
+      "type": "array"
+    },
+    "replacing_page_count": {
+      "minimum": 0,
+      "title": "Replacing Page Count",
+      "type": "integer"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "source_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Sha256",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "filename",
+    "source_sha256",
+    "page_count",
+    "pages",
+    "replacing_page_count"
+  ],
+  "title": "ArtifactDocumentImportPreview",
+  "type": "object"
+}

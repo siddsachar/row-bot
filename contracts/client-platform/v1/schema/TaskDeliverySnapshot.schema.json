@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "TaskDeliveryChannel": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "selected": {
+          "title": "Selected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "selected"
+      ],
+      "title": "TaskDeliveryChannel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "channels": {
+      "items": {
+        "$ref": "#/$defs/TaskDeliveryChannel"
+      },
+      "maxItems": 32,
+      "title": "Channels",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "web_app_always_on": {
+      "const": true,
+      "title": "Web App Always On",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "channels",
+    "web_app_always_on"
+  ],
+  "title": "TaskDeliverySnapshot",
+  "type": "object"
+}

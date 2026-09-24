@@ -242,6 +242,40 @@ def test_running_producer_checkpoint_waits_for_terminal_event():
     asyncio.run(scenario())
 
 
+def test_running_external_producer_projects_live_rows_without_durable_reload():
+    async def scenario():
+        projection = ConversationProjection("fixture-epoch")
+        observed = []
+        ready = asyncio.Event()
+
+        def apply_live(target, snapshot, events):
+            observed.append((target, snapshot, events))
+            if any(row["id"].startswith("assistant:live:") for row in snapshot["rows"]):
+                ready.set()
+
+        viewer = LegacyViewSubscription(
+            projection,
+            lambda _: (_ for _ in ()).throw(AssertionError("durable reload during generation")),
+            lambda *_: None,
+            apply_live=apply_live,
+        )
+        viewer.observe("first")
+        projection.publish("first", "generation.state", {"status": "running"})
+        projection.publish("first", "transcript.delta", {
+            "pass_id": "pass", "segment_id": "segment",
+            "row_id": "assistant:live:pass:segment", "render_revision": "2",
+            "public_text_delta": "Synthetic live text",
+        })
+        await asyncio.wait_for(ready.wait(), 2)
+        target, snapshot, events = observed[-1]
+        assert target == "first"
+        assert snapshot["rows"][-1]["blocks"][0]["text"] == "Synthetic live text"
+        assert any(event["type"] == "transcript.delta" for event in events)
+        viewer.close()
+
+    asyncio.run(scenario())
+
+
 def test_checkpoint_reload_waits_for_legacy_renderer_to_finish_final_row():
     async def scenario():
         projection = ConversationProjection("fixture-epoch")

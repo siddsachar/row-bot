@@ -44,7 +44,7 @@ def test_workflow_status_reports_running_and_pending(monkeypatch, tmp_path):
 
 
 def test_home_status_has_aggregate_pills_for_current_settings_tabs():
-    src = open("src/row_bot/ui/status_checks.py", "r", encoding="utf-8").read()
+    src = open("src/row_bot/status_checks.py", "r", encoding="utf-8").read()
 
     expected = {
         "Search": "check_search_tools",

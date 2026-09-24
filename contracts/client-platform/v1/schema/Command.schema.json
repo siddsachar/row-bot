@@ -203,7 +203,8 @@
             "review_fix",
             "asset_insert",
             "asset_remove",
-            "asset_forget"
+            "asset_forget",
+            "block_insert"
           ],
           "title": "Operation",
           "type": "string"
@@ -238,6 +239,88 @@
         "parameters"
       ],
       "title": "ArtifactDesignControlPayload",
+      "type": "object"
+    },
+    "ArtifactDocumentImportCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ArtifactDocumentImportPayload"
+        },
+        "type": {
+          "const": "artifact.document.import",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ArtifactDocumentImportCommand",
+      "type": "object"
+    },
+    "ArtifactDocumentImportPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "filename": {
+          "maxLength": 240,
+          "minLength": 1,
+          "pattern": "^[^/\\\\:\\x00\\r\\n]+\\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$",
+          "title": "Filename",
+          "type": "string"
+        },
+        "replace": {
+          "title": "Replace",
+          "type": "boolean"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 26214400,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "target": {
+          "$ref": "#/$defs/WriteTarget"
+        },
+        "upload_id": {
+          "format": "uuid",
+          "title": "Upload Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "upload_id",
+        "filename",
+        "sha256",
+        "size_bytes",
+        "replace"
+      ],
+      "title": "ArtifactDocumentImportPayload",
       "type": "object"
     },
     "ArtifactEditCommand": {
@@ -479,6 +562,64 @@
         "format"
       ],
       "title": "ArtifactExportPayload",
+      "type": "object"
+    },
+    "ArtifactNotesGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ArtifactNotesGeneratePayload"
+        },
+        "type": {
+          "const": "artifact.notes.generate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ArtifactNotesGenerateCommand",
+      "type": "object"
+    },
+    "ArtifactNotesGeneratePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "page_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Page Id",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/WriteTarget"
+        }
+      },
+      "required": [
+        "target",
+        "page_id"
+      ],
+      "title": "ArtifactNotesGeneratePayload",
       "type": "object"
     },
     "ArtifactPresetMutateCommand": {
@@ -1346,6 +1487,19 @@
           "default": null,
           "title": "Personality"
         },
+        "personality_description": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Personality Description"
+        },
         "visible": {
           "anyOf": [
             {
@@ -1579,6 +1733,22 @@
         "payload"
       ],
       "title": "ChannelControlCommand",
+      "type": "object"
+    },
+    "CloneWorkspaceSetupPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "repo_url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Repo Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_url"
+      ],
+      "title": "CloneWorkspaceSetupPayload",
       "type": "object"
     },
     "ConversationBindCommand": {
@@ -2003,6 +2173,82 @@
         "payload"
       ],
       "title": "ConversationResumeCommand",
+      "type": "object"
+    },
+    "ConversationSkillPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "remove",
+            "dismiss",
+            "reset"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "composer_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Composer Revision",
+          "type": "string"
+        },
+        "draft": {
+          "default": "",
+          "maxLength": 200000,
+          "title": "Draft",
+          "type": "string"
+        },
+        "skill_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Skill Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "composer_revision"
+      ],
+      "title": "ConversationSkillPayload",
+      "type": "object"
+    },
+    "ConversationSkillsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationSkillPayload"
+        },
+        "type": {
+          "const": "conversation.skills",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationSkillsCommand",
       "type": "object"
     },
     "ConversationSteerCommand": {
@@ -4464,7 +4710,8 @@
             "add",
             "edit",
             "rename",
-            "import"
+            "import",
+            "delete"
           ],
           "title": "Operation",
           "type": "string"
@@ -5102,6 +5349,43 @@
         "payload"
       ],
       "title": "PluginEnableCommand",
+      "type": "object"
+    },
+    "PluginTestCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PluginTogglePayload"
+        },
+        "type": {
+          "const": "plugin.test",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "PluginTestCommand",
       "type": "object"
     },
     "PluginTogglePayload": {
@@ -6812,6 +7096,17 @@
           ],
           "default": null
         },
+        "clone_workspace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CloneWorkspaceSetupPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "deck": {
           "anyOf": [
             {
@@ -8033,6 +8328,130 @@
         "fields"
       ],
       "title": "TaskCreatePayload",
+      "type": "object"
+    },
+    "TaskDeleteCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskDeletePayload"
+        },
+        "type": {
+          "const": "task.delete",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "TaskDeleteCommand",
+      "type": "object"
+    },
+    "TaskDeletePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "task_revision"
+      ],
+      "title": "TaskDeletePayload",
+      "type": "object"
+    },
+    "TaskDeliveryUpdateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskDeliveryUpdatePayload"
+        },
+        "type": {
+          "const": "task.delivery.update",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "TaskDeliveryUpdateCommand",
+      "type": "object"
+    },
+    "TaskDeliveryUpdatePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9:_-]+$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Channels",
+          "type": "array"
+        },
+        "delivery_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Delivery Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delivery_revision",
+        "channels"
+      ],
+      "title": "TaskDeliveryUpdatePayload",
       "type": "object"
     },
     "TaskEditableFields": {
@@ -9937,8 +10356,10 @@
       "approval.resolve": "#/$defs/ApprovalResolveCommand",
       "artifact.asset.upload": "#/$defs/ArtifactAssetUploadCommand",
       "artifact.design.control": "#/$defs/ArtifactDesignControlCommand",
+      "artifact.document.import": "#/$defs/ArtifactDocumentImportCommand",
       "artifact.edit": "#/$defs/ArtifactEditCommand",
       "artifact.export": "#/$defs/ArtifactExportCommand",
+      "artifact.notes.generate": "#/$defs/ArtifactNotesGenerateCommand",
       "artifact.preset.mutate": "#/$defs/ArtifactPresetMutateCommand",
       "artifact.share": "#/$defs/ArtifactShareCommand",
       "browser.back": "#/$defs/BrowserBackCommand",
@@ -9961,6 +10382,7 @@
       "conversation.queue.remove": "#/$defs/ConversationQueueRemoveCommand",
       "conversation.rename": "#/$defs/ConversationRenameCommand",
       "conversation.resume": "#/$defs/ConversationResumeCommand",
+      "conversation.skills": "#/$defs/ConversationSkillsCommand",
       "conversation.steer": "#/$defs/ConversationSteerCommand",
       "conversation.stop": "#/$defs/ConversationStopCommand",
       "conversation.submit": "#/$defs/ConversationSubmitCommand",
@@ -10004,6 +10426,7 @@
       "plugin.configure": "#/$defs/PluginConfigureCommand",
       "plugin.disable": "#/$defs/PluginDisableCommand",
       "plugin.enable": "#/$defs/PluginEnableCommand",
+      "plugin.test": "#/$defs/PluginTestCommand",
       "profile.mutate": "#/$defs/ProfileMutateCommand",
       "provider.credential.clear": "#/$defs/ProviderCredentialClearCommand",
       "provider.credential.restore": "#/$defs/ProviderCredentialRestoreCommand",
@@ -10042,6 +10465,8 @@
       "skill.proposal.reject": "#/$defs/SkillProposalRejectCommand",
       "task.approval": "#/$defs/TaskApprovalCommand",
       "task.create": "#/$defs/TaskCreateCommand",
+      "task.delete": "#/$defs/TaskDeleteCommand",
+      "task.delivery.update": "#/$defs/TaskDeliveryUpdateCommand",
       "task.graph.update": "#/$defs/TaskGraphUpdateCommand",
       "task.run": "#/$defs/TaskRunCommand",
       "task.settings.update": "#/$defs/TaskSettingsUpdateCommand",
@@ -10112,6 +10537,9 @@
       "$ref": "#/$defs/ConversationControlsCommand"
     },
     {
+      "$ref": "#/$defs/ConversationSkillsCommand"
+    },
+    {
       "$ref": "#/$defs/ResourceSetupCommand"
     },
     {
@@ -10143,6 +10571,12 @@
     },
     {
       "$ref": "#/$defs/TaskUpdateCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskDeleteCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskDeliveryUpdateCommand"
     },
     {
       "$ref": "#/$defs/TaskSettingsUpdateCommand"
@@ -10266,6 +10700,9 @@
     },
     {
       "$ref": "#/$defs/PluginConfigureCommand"
+    },
+    {
+      "$ref": "#/$defs/PluginTestCommand"
     },
     {
       "$ref": "#/$defs/SkillPreferenceCommand"
@@ -10434,6 +10871,12 @@
     },
     {
       "$ref": "#/$defs/ArtifactAssetUploadCommand"
+    },
+    {
+      "$ref": "#/$defs/ArtifactDocumentImportCommand"
+    },
+    {
+      "$ref": "#/$defs/ArtifactNotesGenerateCommand"
     },
     {
       "$ref": "#/$defs/ArtifactPresetMutateCommand"

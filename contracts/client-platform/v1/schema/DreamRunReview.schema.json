@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "effects": {
+      "items": {
+        "enum": [
+          "knowledge_entities",
+          "knowledge_relations",
+          "dream_journal"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Effects",
+      "type": "array"
+    },
+    "review_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "snapshot_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Snapshot Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "snapshot_revision",
+    "effects",
+    "action_digest",
+    "review_id"
+  ],
+  "title": "DreamRunReview",
+  "type": "object"
+}

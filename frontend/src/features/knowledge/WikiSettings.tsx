@@ -1,7 +1,7 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { ClientController } from '../../api';
 import type { WikiSettingsSnapshot } from '../../api/types';
-import { Button, Field, Input } from '../../ui/primitives';
+import { Button, Field, Input, Toggle } from '../../ui/primitives';
 
 export type WikiAction =
   | 'wiki.configure'
@@ -100,9 +100,13 @@ export function createWikiSettingsSession(controller: ClientController) {
     },
     chooseVault: async () => {
       const result = await controller.pickFolder();
-      if (result.status === 'selected' && result.grant_id)
+      if (result.status === 'selected' && result.grant_id) {
         folderGrant = result.grant_id;
+        return result.name ?? 'Authorized folder';
+      }
+      return undefined;
     },
+    openFolder: (signal) => controller.openWikiFolder(signal),
   });
 }
 export interface WikiResult {
@@ -135,7 +139,10 @@ export interface WikiSettingsIO {
     commandId: string,
   ): Promise<WikiResult>;
   receipt(commandId: string, signal: AbortSignal): Promise<WikiResult | null>;
-  chooseVault?(): Promise<void>;
+  chooseVault?(): Promise<string | undefined>;
+  openFolder?(
+    signal: AbortSignal,
+  ): Promise<{ status: 'opened' | 'unavailable' | 'not_found' | 'denied' }>;
 }
 interface State {
   status: WikiStatus | null;
@@ -155,6 +162,8 @@ interface State {
   result: WikiResult | null;
   busy: boolean;
   error: string | null;
+  authorizedFolder: string;
+  openStatus: string;
 }
 const initial = (): State => ({
   status: null,
@@ -169,6 +178,8 @@ const initial = (): State => ({
   result: null,
   busy: false,
   error: null,
+  authorizedFolder: '',
+  openStatus: '',
 });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -261,9 +272,11 @@ export class WikiSettingsSession {
       });
     });
   };
-  enabled = (enabled: boolean) => {
-    if (!this.state.busy && !this.state.pending)
+  enabled = async (enabled: boolean) => {
+    if (!this.state.busy && !this.state.pending) {
       this.set({ enabled, review: null });
+      await this.start('wiki.configure');
+    }
   };
   entityId = (entityId: string) => {
     if (!this.state.busy && !this.state.pending)
@@ -287,14 +300,32 @@ export class WikiSettingsSession {
   chooseVault = async () => {
     if (!this.io.chooseVault || this.state.pending || this.state.busy) return;
     await this.read(async () => {
-      await this.io.chooseVault!();
+      const authorizedFolder = await this.io.chooseVault!();
+      if (authorizedFolder) this.set({ authorizedFolder });
     });
     await this.load();
   };
   canChooseVault = () => Boolean(this.io.chooseVault);
+  canOpenFolder = () => Boolean(this.io.openFolder);
+  openFolder = async () => {
+    if (!this.io.openFolder || this.state.pending || this.state.busy) return;
+    await this.read(async (signal) => {
+      const result = await this.io.openFolder!(signal);
+      if (!signal.aborted)
+        this.set({
+          openStatus:
+            result.status === 'opened'
+              ? 'Vault folder opened.'
+              : result.status === 'not_found'
+                ? 'The configured vault folder was not found.'
+                : 'Opening the vault folder is unavailable on this platform.',
+        });
+    });
+  };
   review = async (action: WikiAction, articleId?: string) => {
     const status = this.state.status;
     if (!status || this.state.pending) return;
+    this.set({ review: null });
     const payload: Payload = { revision: status.revision };
     if (action === 'wiki.configure') payload.enabled = this.state.enabled;
     if (action === 'wiki.publish') payload.entity_id = this.state.entityId;
@@ -314,6 +345,19 @@ export class WikiSettingsSession {
         result: null,
       });
     });
+  };
+  start = async (action: WikiAction, articleId?: string) => {
+    await this.review(action, articleId);
+    const current = this.state.review;
+    if (!current || current.value.action !== action) return;
+    const needsConflictConfirmation =
+      action === 'wiki.import' &&
+      this.state.page?.items.some(
+        (item) =>
+          item.article_id === articleId &&
+          ['conflict', 'legacy_review'].includes(item.status),
+      );
+    if (!needsConflictConfirmation) await this.apply();
   };
   cancelReview = () => {
     if (!this.state.busy && !this.state.pending) this.set({ review: null });
@@ -358,6 +402,13 @@ export class WikiSettingsSession {
     this.set({
       result: clone(result),
       pending: result.status === 'completed' ? null : pending,
+      status:
+        result.status === 'completed' &&
+        pending.action === 'wiki.configure' &&
+        this.state.status &&
+        pending.payload.enabled !== undefined
+          ? { ...this.state.status, enabled: pending.payload.enabled }
+          : this.state.status,
       error:
         result.status === 'partial'
           ? 'Some effects may have completed. The original command will not be sent again.'
@@ -384,8 +435,8 @@ const labels: Record<WikiAction, string> = {
   'wiki.configure': 'Save wiki configuration',
   'wiki.publish': 'Publish this entity',
   'wiki.rebuild': 'Rebuild managed wiki files',
-  'wiki.import': 'Accept reviewed vault version',
-  'wiki.sync': 'Sync reviewed vault edits',
+  'wiki.import': 'Accept vault version',
+  'wiki.sync': 'Sync vault edits',
 };
 function Versions({ article }: { article: WikiArticleReview }) {
   return (
@@ -417,21 +468,34 @@ function Versions({ article }: { article: WikiArticleReview }) {
 export default function WikiSettings({
   session,
   snapshot,
+  compact = false,
 }: {
   session: WikiSettingsSession;
   snapshot?: WikiSettingsSnapshot;
+  compact?: boolean;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const authorizedPath = state.authorizedFolder
+    ? `Authorized: ${state.authorizedFolder}`
+    : snapshot?.vault_path || 'Not configured';
+  const [pathDraft, setPathDraft] = useState(authorizedPath);
+  useEffect(() => setPathDraft(authorizedPath), [authorizedPath]);
+  const pathAuthorized = pathDraft === authorizedPath;
   useEffect(() => {
     if (!session.getSnapshot().status && !session.getSnapshot().busy)
       void session.load();
   }, [session]);
   const locked = state.busy || Boolean(state.pending);
   return (
-    <section className="stack capability-page" aria-label="Wiki vault">
-      <header className="capability-header">
+    <section
+      className={`stack capability-page ${compact ? 'settings-knowledge-wiki-panel' : ''}`}
+      aria-label="Wiki vault"
+    >
+      <header
+        className={compact ? 'settings-snapshot-heading' : 'capability-header'}
+      >
         <div>
-          <p className="eyebrow">Knowledge publishing</p>
+          {!compact && <p className="eyebrow">Knowledge publishing</p>}
           <h2>Wiki vault</h2>
           <p>
             Publish saved knowledge as Markdown. Opening articles and checking
@@ -439,14 +503,69 @@ export default function WikiSettings({
           </p>
         </div>
       </header>
-      {snapshot && <WikiSnapshotSummary snapshot={snapshot} />}
+      {snapshot && !compact && <WikiSnapshotSummary snapshot={snapshot} />}
+      {snapshot && compact && (
+        <>
+          {state.status && (
+            <label className="settings-knowledge-switch">
+              <span>Enable Wiki Vault</span>
+              <Toggle
+                label="Enable Wiki Vault"
+                checked={state.enabled}
+                disabled={locked}
+                onChange={(event) => void session.enabled(event.target.checked)}
+              />
+            </label>
+          )}
+          <Field label="Vault path">
+            <Input
+              aria-label="Vault path"
+              value={pathDraft}
+              onChange={(event) => setPathDraft(event.target.value)}
+            />
+          </Field>
+          {!pathAuthorized && (
+            <p className="settings-help" role="status">
+              Browse to authorize this folder before applying it.
+            </p>
+          )}
+          <div className="actions settings-wiki-actions">
+            {session.canChooseVault() && (
+              <Button
+                disabled={locked}
+                onClick={() => void session.chooseVault()}
+              >
+                Browse
+              </Button>
+            )}
+            <Button
+              disabled={
+                locked ||
+                !pathAuthorized ||
+                state.status?.availability !== 'available'
+              }
+              onClick={() => void session.start('wiki.configure')}
+            >
+              Use selected vault
+            </Button>
+          </div>
+          <div className="settings-summary-strip">
+            <span className="status-chip">
+              {snapshot.articles.toLocaleString()} articles
+            </span>
+            <span className="status-chip">
+              {snapshot.conversations.toLocaleString()} conversations
+            </span>
+          </div>
+        </>
+      )}
       <div className="actions settings-wiki-actions">
         <Button disabled={locked} onClick={() => void session.load()}>
           Check vault sync
         </Button>
-        {session.canChooseVault() && (
+        {!compact && session.canChooseVault() && (
           <Button disabled={locked} onClick={() => void session.chooseVault()}>
-            Choose authorized vault
+            Browse
           </Button>
         )}
         <Button
@@ -455,24 +574,23 @@ export default function WikiSettings({
             state.status?.availability !== 'available' ||
             !state.enabled
           }
-          onClick={() => void session.review('wiki.rebuild')}
+          onClick={() => void session.start('wiki.rebuild')}
         >
-          Review rebuild
+          Rebuild managed wiki files
         </Button>
         <Button
-          disabled
-          title="Opening a local folder is not exposed by the authenticated Wiki owner."
+          disabled={locked || !session.canOpenFolder()}
+          onClick={() => void session.openFolder()}
         >
           Open vault folder
         </Button>
-        <a className="button secondary" href="/settings/knowledge">
-          Browse or create knowledge
-        </a>
+        {!compact && (
+          <a className="button secondary" href="/settings/knowledge">
+            Browse or create knowledge
+          </a>
+        )}
       </div>
-      <p className="settings-help">
-        Opening the configured folder is unavailable here because the
-        authenticated Wiki owner does not expose an OS-folder action.
-      </p>
+      {state.openStatus && <p role="status">{state.openStatus}</p>}
       {state.error && <p role="alert">{state.error}</p>}
       <p role="status">
         Sync status:{' '}
@@ -484,7 +602,7 @@ export default function WikiSettings({
               ? `${state.result.status === 'completed' ? 'Finished' : 'Partial outcome'}: ${state.result.count} completed, ${state.result.conflicts} need review.`
               : state.status?.availability === 'available' &&
                   state.status.articles === null
-                ? 'Authorized folder selected. Review configuration to use it as the wiki vault.'
+                ? 'Authorized folder selected. Use it as the wiki vault when ready.'
                 : state.status?.availability === 'available'
                   ? `${state.status.articles} saved articles; ${state.status.edited} edits; ${state.status.conflicts} need review.`
                   : state.status?.availability === 'scope_required'
@@ -504,21 +622,25 @@ export default function WikiSettings({
       )}
       {state.status && (
         <>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.enabled}
-              disabled={locked}
-              onChange={(event) => session.enabled(event.target.checked)}
-            />{' '}
-            Enable wiki vault
-          </label>
-          <Button
-            disabled={locked || state.status.availability !== 'available'}
-            onClick={() => void session.review('wiki.configure')}
-          >
-            Review configuration
-          </Button>
+          {!compact && (
+            <label>
+              <Toggle
+                label="Enable wiki vault"
+                checked={state.enabled}
+                disabled={locked}
+                onChange={(event) => void session.enabled(event.target.checked)}
+              />{' '}
+              Enable wiki vault
+            </label>
+          )}
+          {!compact && (
+            <Button
+              disabled={locked || state.status.availability !== 'available'}
+              onClick={() => void session.start('wiki.configure')}
+            >
+              Use selected vault
+            </Button>
+          )}
         </>
       )}
       {state.status?.availability === 'available' && state.status.enabled && (
@@ -535,15 +657,15 @@ export default function WikiSettings({
           <div className="actions">
             <Button
               disabled={locked || !state.entityId.trim()}
-              onClick={() => void session.review('wiki.publish')}
+              onClick={() => void session.start('wiki.publish')}
             >
-              Review publish
+              Publish entity
             </Button>
             <Button
               disabled={locked || state.selected.length === 0}
-              onClick={() => void session.review('wiki.sync')}
+              onClick={() => void session.start('wiki.sync')}
             >
-              Review {state.selected.length} selected edits
+              Sync {state.selected.length} selected edits
             </Button>
           </div>
           <p>
@@ -596,10 +718,13 @@ export default function WikiSettings({
                   <Button
                     disabled={locked}
                     onClick={() =>
-                      void session.review('wiki.import', article.article_id)
+                      void session.start('wiki.import', article.article_id)
                     }
                   >
-                    Review versions: {article.title}
+                    {article.status === 'edited'
+                      ? 'Import edit'
+                      : 'Resolve versions'}
+                    : {article.title}
                   </Button>
                 )}
               </div>
@@ -620,29 +745,23 @@ export default function WikiSettings({
           </Button>
         </div>
       )}
-      {state.review && (
+      {state.review?.value.action === 'wiki.import' && (
         <div
           className="panel-section stack"
           role="region"
-          aria-label="Reviewed wiki action"
+          aria-label="Confirm vault version"
         >
           <h3>{labels[state.review.value.action]}</h3>
           <p>
-            Only this reviewed vault and captured versions will be changed.
-            Retained recovery copies and unrelated files remain available.
+            Only this vault and the shown versions will be changed. Retained
+            recovery copies and unrelated files remain available.
           </p>
-          {state.review.value.action === 'wiki.configure' && (
-            <p>
-              Wiki will be {state.review.value.enabled ? 'enabled' : 'disabled'}
-              . Rebuild is a separate action.
-            </p>
-          )}
           {state.review.value.articles.map((article) => (
             <Versions key={article.article_id} article={article} />
           ))}
           <div className="actions">
             <Button disabled={locked} onClick={session.cancelReview}>
-              Cancel review
+              Keep saved version
             </Button>
             <Button
               variant="primary"

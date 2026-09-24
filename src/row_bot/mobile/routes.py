@@ -17,7 +17,7 @@ from starlette.responses import (
 
 from row_bot.access.models import SessionLifetime
 from row_bot.access.request_context import ACCESS_CONTEXT_SCOPE_KEY, AccessContext
-from row_bot.access.service import AccessService
+from row_bot.access.service import REMOTE_CLIENT_PATH, AccessService
 from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME
 from row_bot.mobile.store import MobileAuthStore
 
@@ -122,7 +122,7 @@ async def mobile_manifest(request: Request) -> JSONResponse:  # noqa: ARG001
             "name": f"{APP_DISPLAY_NAME} Mobile",
             "short_name": APP_DISPLAY_NAME,
             "description": "Local-first compact owner access to your running Row-Bot host.",
-            "start_url": "/?mobile=1",
+            "start_url": REMOTE_CLIENT_PATH,
             "scope": "/",
             "display": "standalone",
             "background_color": "#111719",
@@ -227,7 +227,7 @@ async def mobile_pair_start(request: Request) -> JSONResponse:
         created = _access_service(request).create_invitation(
             intended_origin=origin,
             session_lifetime=SessionLifetime.TRUSTED,
-            next_path="/?mobile=1",
+            next_path=REMOTE_CLIENT_PATH,
             created_by=context.device_id or "local_owner",
             access_route=access_mode,
         )

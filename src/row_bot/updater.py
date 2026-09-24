@@ -56,7 +56,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Optional
 
 from packaging.version import InvalidVersion, Version
 
@@ -82,8 +82,7 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ════════════════════════════════════════════════════════════════════════════
 
-_DATA_DIR = get_row_bot_data_dir()
-_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_DATA_DIR = get_row_bot_data_dir(create=False)
 _CONFIG_PATH = _DATA_DIR / "update_config.json"
 _DOWNLOAD_DIR = _DATA_DIR / "updates"
 
@@ -211,6 +210,7 @@ def _load_state() -> UpdateState:
 
 def _save_state(state: UpdateState) -> None:
     try:
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         _CONFIG_PATH.write_text(
             json.dumps(state.to_dict(), indent=2), encoding="utf-8"
         )
@@ -225,6 +225,20 @@ def get_update_state() -> UpdateState:
         if _state is None:
             _state = _load_state()
         return _state
+
+
+def reload_saved_update_state(config_path: pathlib.Path) -> None:
+    """Refresh cached preferences after another client saves the shared file."""
+    global _state
+    with _state_lock:
+        if _CONFIG_PATH.resolve() != config_path.resolve():
+            return
+        previous = _state
+        current = _load_state()
+        if previous is not None and current.channel == previous.channel:
+            current.available = previous.available
+        _state = current
+    _notify()
 
 
 def set_channel(channel: str) -> None:
@@ -249,6 +263,15 @@ def skip_version(version: str) -> None:
             st.skipped_versions.append(version)
         if st.available and st.available.version == version:
             st.available = None
+        _save_state(st)
+    _notify()
+
+
+def clear_skipped_versions() -> None:
+    """Make skipped releases eligible for a future explicit check."""
+    with _state_lock:
+        st = get_update_state()
+        st.skipped_versions.clear()
         _save_state(st)
     _notify()
 

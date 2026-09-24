@@ -11,6 +11,17 @@
       "title": "Native Capture Available",
       "type": "boolean"
     },
+    "realtime_available": {
+      "default": false,
+      "title": "Realtime Available",
+      "type": "boolean"
+    },
+    "realtime_reason": {
+      "default": "host_unavailable",
+      "maxLength": 128,
+      "title": "Realtime Reason",
+      "type": "string"
+    },
     "reason": {
       "enum": [
         "available",
@@ -24,6 +35,17 @@
       "default": 1,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "talk_available": {
+      "default": false,
+      "title": "Talk Available",
+      "type": "boolean"
+    },
+    "talk_reason": {
+      "default": "host_unavailable",
+      "maxLength": 128,
+      "title": "Talk Reason",
+      "type": "string"
     }
   },
   "required": [

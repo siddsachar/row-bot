@@ -57,6 +57,11 @@
           "title": "Pinned",
           "type": "boolean"
         },
+        "public": {
+          "default": false,
+          "title": "Public",
+          "type": "boolean"
+        },
         "revision": {
           "pattern": "^[0-9a-f]{64}$",
           "title": "Revision",

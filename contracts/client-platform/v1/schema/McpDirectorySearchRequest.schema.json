@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "maxLength": 128,
+      "title": "Query",
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "McpDirectorySearchRequest",
+  "type": "object"
+}

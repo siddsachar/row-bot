@@ -20,6 +20,10 @@ def build(tmp_path: Path) -> Path:
     (root / "assets").mkdir(parents=True)
     (root / ".vite").mkdir()
     files = {"index.html": b'<html><head><script>window.theme="dark";</script></head><body><script type="module" src="/app-v2/assets/index-abcdef12.js"></script></body></html>',
+             "app.webmanifest": b'{"name":"Row-Bot fixture"}',
+             "service-worker.js": b"self.addEventListener('fetch', () => {});",
+             "icon-192.png": b"fixture-192",
+             "icon-512.png": b"fixture-512",
              "assets/index-abcdef12.js": b"export const fixture = true;",
              "assets/index-abcdef12.css": b"body { color: black }"}
     for name, data in files.items():
@@ -57,7 +61,7 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     shell = host.get("/app-v2/")
     assert shell.status_code == 200 and shell.headers["cache-control"] == "no-store"
     assert "sha256-" in shell.headers["content-security-policy"]
-    assert "frame-src 'self'" in shell.headers["content-security-policy"]
+    assert "frame-src 'self' https://www.youtube-nocookie.com" in shell.headers["content-security-policy"]
     assert "object-src 'none'" in shell.headers["content-security-policy"]
     directives = dict(part.strip().split(' ', 1) for part in shell.headers["content-security-policy"].split(';') if part.strip())
     assert directives['media-src'].split() == ["'self'", 'blob:']
@@ -67,6 +71,11 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     asset = host.get("/app-v2/assets/index-abcdef12.js")
     assert "immutable" in asset.headers["cache-control"]
     assert asset.headers["x-content-type-options"] == "nosniff"
+    for name in ("mermaid.min.js", "vis-network.min.js", "plotly.min.js"):
+        runtime = host.get("/app-v2/runtime/" + name)
+        assert runtime.status_code == 200
+        assert runtime.headers["content-type"].startswith("text/javascript")
+        assert runtime.headers["x-content-type-options"] == "nosniff"
     for path in (".vite/manifest.json", "asset-manifest.json", "assets/missing.js", "assets/missing", "secret.txt", "%252e%252e/secret", "a%5cb"):
         assert host.get("/app-v2/" + path, headers={"Accept": "text/html"}).status_code == 404
     assert host.get("/app-v2/conversation").status_code == 404
@@ -110,7 +119,7 @@ def test_preloaded_bytes_remain_exact_after_disk_swap(build: Path) -> None:
         load_client_assets(build)
 
 
-@pytest.mark.parametrize("change", ["path", "hash", "size", "version", "unhashed", "missing_chunk", "missing_asset"])
+@pytest.mark.parametrize("change", ["path", "hash", "size", "version", "unhashed", "missing_chunk", "missing_asset", "missing_public_shell"])
 def test_rejects_manifest_and_vite_corruption(build: Path, change: str) -> None:
     path = build / "asset-manifest.json"
     manifest = json.loads(path.read_text())
@@ -124,6 +133,8 @@ def test_rejects_manifest_and_vite_corruption(build: Path, change: str) -> None:
         manifest["version"] = 2
     elif change == "unhashed":
         manifest["files"]["assets/plain.js"] = manifest["files"].pop("assets/index-abcdef12.js")
+    elif change == "missing_public_shell":
+        manifest["files"].pop("service-worker.js")
     else:
         vite = json.loads((build / ".vite/manifest.json").read_text())
         vite["index.html"]["imports" if change == "missing_chunk" else "css"] = ["missing"]

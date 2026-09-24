@@ -16,11 +16,16 @@ import platform
 import shutil
 import subprocess
 import threading
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = platform.system() == "Windows"
+
+
+def _validate_dimensions(cols: int, rows: int) -> None:
+    if (type(cols) is not int or type(rows) is not int
+            or not 20 <= cols <= 500 or not 5 <= rows <= 200):
+        raise ValueError("invalid_terminal_size")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -149,6 +154,7 @@ class PtySession:
         cwd: str | None = None,
         shell: str | None = None,
     ):
+        _validate_dimensions(cols, rows)
         self.cols = cols
         self.rows = rows
         self._cwd = cwd or os.path.expanduser("~")
@@ -252,6 +258,7 @@ class PtySession:
 
     def resize(self, cols: int, rows: int) -> None:
         """Resize the PTY to new dimensions."""
+        _validate_dimensions(cols, rows)
         if self._closed:
             return
         self.cols = cols

@@ -123,6 +123,334 @@ def test_incompatible_protocol_negotiates_update_without_session():
         assert "client_session_id" not in response.json()
 
 
+def test_handshake_separates_application_and_presentation_capabilities():
+    local, _, _ = client_app()
+    remote, _, _ = client_app(remote=True)
+    request = {
+        "client_build": "row-bot-client-v2/5.0.0",
+        "presentation_features": ["responsive", "pwa", "forged-native"],
+    }
+    with local, remote:
+        local_view = local.post(
+            "/api/v1/handshake",
+            headers={"Origin": "http://localhost"},
+            json=request,
+        ).json()
+        remote_view = remote.post(
+            "/api/v1/handshake",
+            headers={"Origin": "http://localhost"},
+            json=request,
+        ).json()
+    assert local_view["client_compatibility"] == remote_view["client_compatibility"] == "current"
+    assert local_view["presentation_capabilities"] == remote_view["presentation_capabilities"] == [
+        "pwa",
+        "responsive",
+    ]
+    assert "native:bridge" in local_view["application_capabilities"]
+    assert "native:bridge" not in remote_view["application_capabilities"]
+    assert local_view["native_adapter"]["available"] is True
+    assert remote_view["native_adapter"]["available"] is False
+
+
+@pytest.mark.parametrize(
+    ("build", "status"),
+    [("row-bot-client-v1", 426), ("row-bot-client-v3", 200), ("unknown", 200)],
+)
+def test_client_build_compatibility_is_bounded_and_deterministic(build, status):
+    client, _, _ = client_app()
+    with client:
+        response = client.post(
+            "/api/v1/handshake",
+            headers={"Origin": "http://localhost"},
+            json={"client_build": build},
+        )
+    assert response.status_code == status
+    if status == 200:
+        assert response.json()["client_compatibility"] == (
+            "newer" if build == "row-bot-client-v3" else "unknown"
+        )
+
+
+def test_remote_command_dispatch_is_authoritatively_labeled_remote():
+    client, service, _ = client_app(remote=True)
+    with client:
+        data, headers = bootstrap(client)
+        command = {
+            "command_id": str(uuid4()),
+            "client_session_id": data["client_session_id"],
+            "type": "conversation.create",
+            "expected_revision": "0",
+            "payload": {"title": "Remote fixture"},
+        }
+        response = client.post(
+            "/api/v1/conversations/commands",
+            json=command,
+            headers={**headers, "Idempotency-Key": command["command_id"]},
+        )
+    assert response.status_code == 200
+    assert service.commands[-1]["runtime_surface"] == "remote_client"
+
+
+def test_native_attestation_is_one_shot_document_bound_and_policy_revocable():
+    client, _, _ = client_app()
+    with client:
+        handshake, _ = bootstrap(client)
+        adapter = handshake["native_adapter"]
+        request = {
+            "attestation": adapter["attestation"],
+            "instance_id": adapter["instance_id"],
+            "window_id": "window-a",
+            "window_epoch": 1,
+        }
+        exchange = client.post(
+            "/api/v1/native/attest",
+            json=request,
+            headers={"Origin": "http://localhost"},
+        )
+        assert exchange.status_code == 200
+        authority = exchange.json()
+        proof = {
+            **authority,
+            "instance_id": adapter["instance_id"],
+            "window_id": "window-a",
+            "window_epoch": 1,
+        }
+        assert client.post(
+            "/api/v1/native/authorize",
+            json=proof,
+            headers={"Origin": "http://localhost"},
+        ).status_code == 200
+        assert client.post(
+            "/api/v1/native/attest",
+            json=request,
+            headers={"Origin": "http://localhost"},
+        ).status_code == 403
+        assert client.post(
+            "/api/v1/native/authorize",
+            json={**proof, "window_id": "window-b"},
+            headers={"Origin": "http://localhost"},
+        ).status_code == 403
+
+
+def _native_proof(client):
+    handshake, headers = bootstrap(client)
+    adapter = handshake["native_adapter"]
+    exchange = client.post(
+        "/api/v1/native/attest",
+        json={
+            "attestation": adapter["attestation"],
+            "instance_id": adapter["instance_id"],
+            "window_id": "window-a",
+            "window_epoch": 1,
+        },
+        headers={"Origin": "http://localhost"},
+    )
+    assert exchange.status_code == 200
+    return {
+        **exchange.json(),
+        "instance_id": adapter["instance_id"],
+        "window_id": "window-a",
+        "window_epoch": 1,
+    }, headers
+
+
+def test_native_folder_reference_is_exact_opaque_and_one_shot(tmp_path):
+    client, service, _ = client_app()
+    with client:
+        proof, headers = _native_proof(client)
+        selected = client.post(
+            "/api/v1/native/selections/complete",
+            headers={"Origin": "http://localhost"},
+            json={
+                **proof,
+                "selection_kind": "folder",
+                "intent_id": str(uuid4()),
+                "intent": "resource_setup",
+                "conversation_id": None,
+                "destination": "workspace:existing_folder",
+                "path": str(tmp_path),
+            },
+        )
+        assert selected.status_code == 200
+        assert str(tmp_path) not in selected.text
+        grant = selected.json()["reference"]
+        command = {
+            "command_id": str(uuid4()),
+            "client_session_id": headers["X-Client-Session"],
+            "type": "resource.setup",
+            "expected_revision": "0",
+            "payload": {
+                "kind": "workspace",
+                "intent": "create",
+                "folder_grant": grant,
+            },
+        }
+        response = client.post(
+            "/api/v1/resources/commands",
+            headers={**headers, "Idempotency-Key": command["command_id"]},
+            json=command,
+        )
+        assert response.status_code == 200
+        assert service.commands[-1]["authorized_folder"].path == tmp_path
+        command["command_id"] = str(uuid4())
+        replay = client.post(
+            "/api/v1/resources/commands",
+            headers={**headers, "Idempotency-Key": command["command_id"]},
+            json=command,
+        )
+        assert replay.status_code == 409
+
+
+def test_native_window_revoke_invalidates_selection_before_dispatch(tmp_path):
+    client, service, _ = client_app()
+    with client:
+        proof, headers = _native_proof(client)
+        selected = client.post(
+            "/api/v1/native/selections/complete",
+            headers={"Origin": "http://localhost"},
+            json={
+                **proof,
+                "selection_kind": "folder",
+                "intent_id": str(uuid4()),
+                "intent": "resource_setup",
+                "conversation_id": None,
+                "destination": "workspace:existing_folder",
+                "path": str(tmp_path),
+            },
+        )
+        assert selected.status_code == 200
+        assert client.post(
+            "/api/v1/native/revoke",
+            headers={"Origin": "http://localhost"},
+            json=proof,
+        ).json() == {"revoked": True}
+        command = {
+            "command_id": str(uuid4()),
+            "client_session_id": headers["X-Client-Session"],
+            "type": "resource.setup",
+            "expected_revision": "0",
+            "payload": {
+                "kind": "workspace",
+                "intent": "create",
+                "folder_grant": selected.json()["reference"],
+            },
+        }
+        response = client.post(
+            "/api/v1/resources/commands",
+            headers={**headers, "Idempotency-Key": command["command_id"]},
+            json=command,
+        )
+        assert response.status_code == 409
+        assert service.commands == []
+
+
+def test_native_bootstrap_is_local_exact_origin_only():
+    local, _, _ = client_app()
+    remote, _, _ = client_app(remote=True)
+    with local, remote:
+        assert local.get(
+            "/api/v1/native/bootstrap",
+            headers={"Origin": "http://localhost"},
+        ).json() == {"instance_id": "fixture-instance"}
+        assert remote.get(
+            "/api/v1/native/bootstrap",
+            headers={"Origin": "http://localhost"},
+        ).status_code == 403
+
+
+def test_native_terminal_lease_is_session_bound_revocable_and_bounded(monkeypatch):
+    from row_bot.terminal_bridge import TerminalBridge
+
+    class TerminalClient:
+        def __init__(self, authority, authorize):
+            self.authority = authority
+            self.authorize = authorize
+            self.inputs = []
+            self.sizes = []
+            self.closed = False
+
+        def require(self):
+            if not self.authorize(self.authority):
+                raise RuntimeError("capability_revoked")
+
+        def read(self, cursor=0, _max_bytes=65536):
+            self.require()
+            return {
+                "cursor": cursor + 1,
+                "latest": cursor + 1,
+                "truncated": False,
+                "frames": [{"sequence": cursor + 1, "data": "fixture output"}],
+                "status": "running",
+            }
+
+        def input(self, data):
+            self.require()
+            self.inputs.append(data)
+
+        def resize(self, cols, rows):
+            self.require()
+            self.sizes.append((cols, rows))
+
+        def disconnect(self):
+            self.closed = True
+
+    class Bridge:
+        is_running = True
+
+        def __init__(self):
+            self.clients = []
+
+        def open_native_client(
+            self, authority, *, authorize, local_owner, direct_loopback
+        ):
+            assert local_owner and direct_loopback and authorize(authority)
+            client = TerminalClient(authority, authorize)
+            self.clients.append(client)
+            return client
+
+    bridge = Bridge()
+    monkeypatch.setattr(
+        TerminalBridge, "get_instance", classmethod(lambda _cls: bridge)
+    )
+    client, _, _ = client_app()
+    with client:
+        proof, headers = _native_proof(client)
+        opened = client.post(
+            "/api/v1/native/terminal/open",
+            headers={"Origin": "http://localhost"},
+            json={**proof, "conversation_id": None},
+        )
+        assert opened.status_code == 200
+        terminal = opened.json()["terminal_id"]
+        output = client.get(
+            f"/api/v1/native/terminals/{terminal}?cursor=0&max_bytes=4096",
+            headers=headers,
+        )
+        assert output.json()["frames"] == [
+            {"sequence": 1, "data": "fixture output"}
+        ]
+        assert client.post(
+            f"/api/v1/native/terminals/{terminal}/input",
+            headers=headers,
+            json={"data": "echo fixture\r"},
+        ).status_code == 200
+        assert client.post(
+            f"/api/v1/native/terminals/{terminal}/resize",
+            headers=headers,
+            json={"cols": 120, "rows": 30},
+        ).status_code == 200
+        assert bridge.clients[0].inputs == ["echo fixture\r"]
+        assert bridge.clients[0].sizes == [(120, 30)]
+        assert client.post(
+            "/api/v1/native/revoke",
+            headers={"Origin": "http://localhost"},
+            json=proof,
+        ).status_code == 200
+        assert client.get(
+            f"/api/v1/native/terminals/{terminal}", headers=headers
+        ).status_code == 403
+
+
 def test_no_csrf_no_command_and_no_validation_input_leak():
     client, service, _ = client_app()
     with client:

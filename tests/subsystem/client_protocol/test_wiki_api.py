@@ -12,7 +12,7 @@ from row_bot.api.v1.security import ClientSecurity
 from row_bot.application.folder_selections import FolderSelections
 from tests.integration.wiki_vault.conftest import wiki_stack  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_application import _isolated_service
-from tests.subsystem.client_protocol.test_protocol_security import bootstrap
+from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
 
 pytestmark = pytest.mark.subsystem
 
@@ -79,6 +79,30 @@ def test_status_is_passive_and_requires_explicit_folder_scope(api):
     assert scoped.status_code == 200, scoped.text
     assert scoped.json()["availability"] == "available"
     assert scoped.json()["scope_id"] and str(stack["vault"]) not in scoped.text
+
+
+def test_local_owner_can_open_only_the_configured_folder_through_typed_result(api, monkeypatch):
+    _stack, client, headers, _clock, _picked = api
+    from row_bot.application import wiki_commands
+
+    calls = []
+    monkeypatch.setattr(
+        wiki_commands,
+        "open_configured_wiki_folder",
+        lambda *, validate: (validate(), calls.append(True), {"status": "opened"})[-1],
+    )
+    response = client.post("/api/v1/settings/wiki/open-folder", headers=headers)
+    assert response.status_code == 200 and response.json() == {"status": "opened"}
+    assert calls == [True]
+
+
+def test_remote_authenticated_owner_cannot_open_a_desktop_folder():
+    client, _service, _active = client_app(remote=True)
+    with client:
+        _handshake, headers = bootstrap(client)
+        response = client.post("/api/v1/settings/wiki/open-folder", headers=headers)
+    assert response.status_code == 403
+    assert response.json()["code"] == "action_denied"
 
 
 def test_articles_open_without_import_or_path_disclosure(api, monkeypatch):

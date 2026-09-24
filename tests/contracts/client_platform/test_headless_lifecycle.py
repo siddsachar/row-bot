@@ -59,6 +59,47 @@ def command(kind: str, label: str, payload: dict | None = None, revision: str = 
             "type": kind, "expected_revision": revision, "payload": payload or {}}
 
 
+def test_library_categories_follow_shared_thread_classification(platform, monkeypatch):
+    from row_bot import threads
+
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute(
+            "UPDATE thread_meta SET thread_type = 'code' WHERE thread_id = 'conversation-a'"
+        )
+        connection.execute(
+            "INSERT INTO thread_meta(thread_id,name,project_id) VALUES(?,?,?)",
+            ("conversation-design", "Synthetic design", "synthetic-project"),
+        )
+    monkeypatch.setattr(threads, "get_workflow_thread_ids", lambda: {"conversation-b"})
+
+    page = platform.list_conversations()
+    assert {row["id"]: row["category"] for row in page["items"]} == {
+        "conversation-a": "code",
+        "conversation-b": "workflow",
+        "conversation-design": "designer",
+    }
+    assert platform.get_conversation("conversation-a")["category"] == "code"
+
+
+def test_conversation_delete_receipt_discloses_safe_cleanup_warnings(platform, monkeypatch):
+    from row_bot import thread_cleanup
+
+    monkeypatch.setattr(
+        thread_cleanup,
+        "delete_thread",
+        lambda target: thread_cleanup.ThreadDeletionResult(
+            thread_id=target,
+            deleted=True,
+            retained_sandbox=True,
+            warnings=("Some Developer state could not be reconciled.",),
+        ),
+    )
+    result = platform._execute(command("conversation.delete", "safe-cleanup"), "conversation-a")
+    assert result["status"] == "DeleteCompleted"
+    assert result["deletion_warnings"] == ["Some Developer state could not be reconciled."]
+    assert result["retained_developer_work"] is True
+
+
 def submit(service, fake: ScriptedAgentStream, label: str = "submission") -> dict:
     service.stream_factory = fake.stream
     service.resume_factory = fake.resume

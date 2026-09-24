@@ -3,6 +3,7 @@ import type { ClientController } from '../../api/controller';
 import type { DictationHandle, TalkStart, VoiceRunView } from '../../api/types';
 import type { DictationScope } from './VoiceControls';
 import { Button, Field, Select } from '../../ui/primitives';
+import { AudioLines } from 'lucide-react';
 import TalkControls from './TalkControls';
 import RealtimeTalkControls from './RealtimeTalkControls';
 
@@ -10,6 +11,8 @@ export default function ConversationVoice(props: {
   controller: ClientController;
   scope: DictationScope;
   available: boolean;
+  compact?: boolean;
+  unavailableReason?: string;
   disabled: boolean;
   running: boolean;
   context: Omit<TalkStart, 'request_id'> | null;
@@ -94,17 +97,23 @@ export default function ConversationVoice(props: {
     };
   }, [controller, scope, mode, active]);
 
-  if (!props.available) return null;
   return (
     <div className="conversation-voice">
       {!busy && (
         <Button
+          iconOnly={props.compact}
           variant="ghost"
+          aria-label="Talk"
+          title={
+            props.available
+              ? 'Talk'
+              : props.unavailableReason || 'Talk is unavailable'
+          }
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          disabled={busy}
+          disabled={busy || !props.available}
         >
-          Talk
+          {props.compact ? <AudioLines size={18} aria-hidden /> : 'Talk'}
         </Button>
       )}
       {open && (

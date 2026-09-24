@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "OnboardingIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 32,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "OnboardingIntent",
+      "type": "object"
+    },
+    "OnboardingStep": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 256,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 32,
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 64,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description"
+      ],
+      "title": "OnboardingStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "completed_steps": {
+      "items": {
+        "maxLength": 32,
+        "type": "string"
+      },
+      "maxItems": 11,
+      "title": "Completed Steps",
+      "type": "array"
+    },
+    "dismissed_home_card": {
+      "title": "Dismissed Home Card",
+      "type": "boolean"
+    },
+    "intents": {
+      "items": {
+        "$ref": "#/$defs/OnboardingIntent"
+      },
+      "maxItems": 7,
+      "title": "Intents",
+      "type": "array"
+    },
+    "profile": {
+      "items": {
+        "maxLength": 32,
+        "type": "string"
+      },
+      "maxItems": 7,
+      "title": "Profile",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "setup_complete": {
+      "title": "Setup Complete",
+      "type": "boolean"
+    },
+    "skipped_steps": {
+      "items": {
+        "maxLength": 32,
+        "type": "string"
+      },
+      "maxItems": 11,
+      "title": "Skipped Steps",
+      "type": "array"
+    },
+    "starter_workflows_missing": {
+      "maximum": 32,
+      "minimum": 0,
+      "title": "Starter Workflows Missing",
+      "type": "integer"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/OnboardingStep"
+      },
+      "maxItems": 11,
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "setup_complete",
+    "starter_workflows_missing",
+    "profile",
+    "completed_steps",
+    "skipped_steps",
+    "dismissed_home_card",
+    "steps",
+    "intents"
+  ],
+  "title": "OnboardingSnapshot",
+  "type": "object"
+}

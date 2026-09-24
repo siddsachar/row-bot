@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { Button } from '../../ui/primitives';
+import { Button, Toggle } from '../../ui/primitives';
 
 export type NativeMcpState = {
   schema_version: 1;
@@ -195,18 +195,14 @@ export default function McpFacadeControls({
         result.enabled !== command.payload.enabled
       )
         throw Error();
-      session.update({
-        reviewed: { command, review: result },
-        busy: '',
-        message:
-          'Review complete. Save chat access explicitly applies this change.',
-      });
+      const attempt = { command, review: result };
+      session.update({ reviewed: attempt, busy: '', message: '' });
+      void save(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
-          message:
-            'This change could not be reviewed. Refresh and review again.',
+          message: 'This change could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -294,39 +290,27 @@ export default function McpFacadeControls({
         <Button disabled={locked} onClick={() => void read()}>
           Refresh chat access
         </Button>
-        <Button
-          disabled={locked || !available}
-          onClick={() =>
-            session.update({ draft: true, reviewed: null, message: '' })
-          }
-        >
-          Enable in chat
-        </Button>
-        <Button
-          disabled={locked || !available}
-          onClick={() =>
-            session.update({ draft: false, reviewed: null, message: '' })
-          }
-        >
-          Disable in chat
-        </Button>
+        <label className="settings-knowledge-switch">
+          <span>Enable in chat</span>
+          <Toggle
+            label="Enable in chat"
+            checked={state.draft ?? state.snapshot?.saved_enabled ?? false}
+            disabled={locked || !available}
+            onChange={(event) => {
+              session.update({
+                draft: event.target.checked,
+                reviewed: null,
+                message: '',
+              });
+              void requestReview();
+            }}
+          />
+        </label>
       </div>
       {state.draft !== null && (
         <p>Proposed chat access: {label(state.draft)}.</p>
       )}
       <div className="button-row">
-        <Button
-          disabled={locked || !available || state.draft === null}
-          onClick={() => void requestReview()}
-        >
-          Review chat access
-        </Button>
-        <Button
-          disabled={locked || !state.reviewed}
-          onClick={() => void save(state.reviewed)}
-        >
-          Save chat access
-        </Button>
         {state.pending && (
           <Button
             disabled={!state.active || Boolean(state.busy)}

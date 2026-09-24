@@ -92,36 +92,39 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
     setOutcome(null);
     setError('');
   }
-  async function run(execute: boolean) {
-    if (operation.current || !props.visible || (execute && !review)) return;
+  async function run(confirm = false) {
+    if (operation.current || !props.visible || (confirm && !review)) return;
     const identity = Symbol('sharing');
     operation.current = identity;
     setBusy(true);
     setError('');
     const resourceId = props.resourceId;
+    const selected = structuredClone(options);
     try {
-      if (!execute) {
-        const result = await props.prepare(options);
-        if (current.current.resourceId !== resourceId) return;
-        if (
-          result.resource_id !== resourceId ||
-          result.resource_revision !== current.current.resourceRevision
-        )
-          throw { code: 'share_review_changed' };
-        setReview(result);
+      const reviewed =
+        confirm && review ? review : await props.prepare(selected);
+      if (current.current.resourceId !== resourceId) return;
+      if (
+        reviewed.resource_id !== resourceId ||
+        reviewed.resource_revision !== current.current.resourceRevision ||
+        reviewed.action !== selected.action
+      )
+        throw { code: 'share_review_changed' };
+      if (!confirm && selected.action !== 'publish') {
+        setReview(reviewed);
         setOutcome(null);
-      } else if (review) {
-        const result = await props.execute(
-          options,
-          review.review_id,
-          review.resource_revision,
-        );
-        if (current.current.resourceId !== resourceId) return;
-        if (result.resource_id !== resourceId)
-          throw { code: 'share_review_changed' };
-        setOutcome(result);
-        setReview(null);
+        return;
       }
+      const result = await props.execute(
+        selected,
+        reviewed.review_id,
+        reviewed.resource_revision,
+      );
+      if (current.current.resourceId !== resourceId) return;
+      if (result.resource_id !== resourceId)
+        throw { code: 'share_review_changed' };
+      setOutcome(result);
+      setReview(null);
     } catch (reason) {
       if (current.current.resourceId !== resourceId) return;
       const code =
@@ -331,30 +334,36 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
           (options.action === 'channel' && !options.channel_name) ||
           !options.pages.trim()
         }
-        onClick={() => void run(false)}
+        onClick={() => void run()}
       >
-        Review sharing
+        {options.action === 'publish'
+          ? actionLabel
+          : options.action === 'x'
+            ? 'Prepare X post'
+            : 'Prepare channel send'}
       </Button>
-      {review && (
-        <div role="group" aria-label="Sharing review">
+      {review && options.action !== 'publish' && (
+        <div role="group" aria-label="Confirm sharing destination">
           <p>
             {review.page_count} pages · {review.delivery}
           </p>
           {review.recipient && <p>Recipient: {review.recipient}</p>}
-          <p>
-            {options.action === 'publish'
-              ? 'This will create or replace the saved published copy.'
-              : 'This sends the reviewed content outside Row-Bot.'}
-          </p>
           <Button
             variant="primary"
             disabled={busy}
             onClick={() => void run(true)}
           >
-            {actionLabel}
+            {options.action === 'x'
+              ? 'Confirm post to X'
+              : 'Confirm send to channel'}
           </Button>
         </div>
       )}
+      <p>
+        {options.action === 'publish'
+          ? 'Publishing creates or replaces the saved published copy.'
+          : 'Sending shares the selected content outside Row-Bot.'}
+      </p>
       {error && <ErrorState title="Sharing unavailable">{error}</ErrorState>}
       {outcome && (
         <div role="status">

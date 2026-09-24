@@ -618,7 +618,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
                   variant="ghost"
                   onClick={() => props.onUndo?.(change.id)}
                 >
-                  Review Undo {change.summary || change.id}
+                  Undo {change.summary || change.id}
                 </Button>
               )}
             </li>

@@ -358,6 +358,14 @@ export function createKnowledgeRelationsSession(
         accept(current, result);
         return result;
       }),
+    async add() {
+      await this.reviewAdd();
+      return this.confirm();
+    },
+    async supersede() {
+      await this.reviewSupersede();
+      return this.confirm();
+    },
     refresh: () =>
       run(async () => {
         if (!attempt) throw new Error('knowledge_operation_unavailable');
@@ -456,7 +464,7 @@ export default function KnowledgeRelations({
                         perform(() => session.reviewRemove(edge.id))
                       }
                     >
-                      Review removal of {edge.relation_type}
+                      Remove {edge.relation_type} relation
                     </Button>
                   </li>
                 ))}
@@ -543,42 +551,36 @@ export default function KnowledgeRelations({
               </Field>
               <Button
                 disabled={locked || !state.relationType.trim()}
-                onClick={() => perform(session.reviewAdd)}
+                onClick={() => perform(() => session.add())}
               >
-                Review new relation
+                Add relation
               </Button>
               <Button
                 disabled={locked}
-                onClick={() => perform(session.reviewSupersede)}
+                onClick={() => perform(() => session.supersede())}
               >
-                Review Supersede with selected entry
+                Supersede with selected entry
               </Button>
             </div>
           )}
         </>
       )}
-      {state.review && (
+      {state.review?.action === 'knowledge.relation.remove' && (
         <div
           className="surface stack"
           role="group"
-          aria-label="Review relation change"
+          aria-label="Confirm relation removal"
         >
-          <p>
-            {state.review.action === 'knowledge.supersede'
-              ? 'Mark this entry superseded and link the selected replacement. Both entries are retained.'
-              : state.review.action === 'knowledge.relation.remove'
-                ? 'Remove this reviewed relation. Both entities are retained.'
-                : 'Save the reviewed directed relation. Existing normalized duplicates are reused.'}
-          </p>
+          <p>Remove this relation? Both entities are retained.</p>
           <Button
             disabled={locked}
             variant="primary"
             onClick={() => perform(session.confirm)}
           >
-            Confirm relation change
+            Confirm relation removal
           </Button>
           <Button disabled={locked} onClick={session.dismissReview}>
-            Cancel review
+            Keep relation
           </Button>
         </div>
       )}

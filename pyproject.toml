@@ -191,9 +191,14 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "row_bot.computer_use" = ["*.json"]
+"row_bot.designer.runtime" = ["runtime_bridge.js", "runtime_bridge.css"]
 "row_bot.voice" = ["realtime_runtime.js", "realtime_runtime.d.ts"]
 "row_bot" = [
   "static/client-v2/index.html",
+  "static/client-v2/app.webmanifest",
+  "static/client-v2/service-worker.js",
+  "static/client-v2/icon-192.png",
+  "static/client-v2/icon-512.png",
   "static/client-v2/asset-manifest.json",
   "static/client-v2/.vite/manifest.json",
   "static/client-v2/assets/*",

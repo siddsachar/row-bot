@@ -1,0 +1,566 @@
+{
+  "$defs": {
+    "MonitorDreamEnrichment": {
+      "additionalProperties": false,
+      "properties": {
+        "new_description": {
+          "maxLength": 512,
+          "title": "New Description",
+          "type": "string"
+        },
+        "new_length": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "New Length",
+          "type": "integer"
+        },
+        "old_length": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Old Length",
+          "type": "integer"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "old_length",
+        "new_length",
+        "new_description"
+      ],
+      "title": "MonitorDreamEnrichment",
+      "type": "object"
+    },
+    "MonitorDreamJournalEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "enrichments": {
+          "items": {
+            "$ref": "#/$defs/MonitorDreamEnrichment"
+          },
+          "maxItems": 50,
+          "title": "Enrichments",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Errors",
+          "type": "array"
+        },
+        "inferred_relations": {
+          "items": {
+            "$ref": "#/$defs/MonitorDreamRelation"
+          },
+          "maxItems": 50,
+          "title": "Inferred Relations",
+          "type": "array"
+        },
+        "merges": {
+          "items": {
+            "$ref": "#/$defs/MonitorDreamMerge"
+          },
+          "maxItems": 50,
+          "title": "Merges",
+          "type": "array"
+        },
+        "summary": {
+          "maxLength": 512,
+          "title": "Summary",
+          "type": "string"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "summary",
+        "merges",
+        "enrichments",
+        "inferred_relations",
+        "errors"
+      ],
+      "title": "MonitorDreamJournalEntry",
+      "type": "object"
+    },
+    "MonitorDreamMerge": {
+      "additionalProperties": false,
+      "properties": {
+        "duplicate_subject": {
+          "maxLength": 256,
+          "title": "Duplicate Subject",
+          "type": "string"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Score"
+        },
+        "survivor_subject": {
+          "maxLength": 256,
+          "title": "Survivor Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "duplicate_subject",
+        "survivor_subject",
+        "score"
+      ],
+      "title": "MonitorDreamMerge",
+      "type": "object"
+    },
+    "MonitorDreamRecent": {
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "maxLength": 512,
+          "title": "Summary",
+          "type": "string"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "summary"
+      ],
+      "title": "MonitorDreamRecent",
+      "type": "object"
+    },
+    "MonitorDreamRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "evidence": {
+          "maxLength": 512,
+          "title": "Evidence",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 64,
+          "title": "Relation Type",
+          "type": "string"
+        },
+        "source_subject": {
+          "maxLength": 256,
+          "title": "Source Subject",
+          "type": "string"
+        },
+        "target_subject": {
+          "maxLength": 256,
+          "title": "Target Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_subject",
+        "target_subject",
+        "relation_type",
+        "confidence",
+        "evidence"
+      ],
+      "title": "MonitorDreamRelation",
+      "type": "object"
+    },
+    "MonitorDreamStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "unavailable",
+            "corrupt"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Run"
+        },
+        "last_summary": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Summary"
+        },
+        "recent": {
+          "items": {
+            "$ref": "#/$defs/MonitorDreamRecent"
+          },
+          "maxItems": 3,
+          "title": "Recent",
+          "type": "array"
+        },
+        "window": {
+          "maxLength": 64,
+          "title": "Window",
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "enabled",
+        "window",
+        "last_run",
+        "last_summary",
+        "recent"
+      ],
+      "title": "MonitorDreamStatus",
+      "type": "object"
+    },
+    "MonitorExtractionJournalEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "contradictions_blocked": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Contradictions Blocked",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Errors",
+          "type": "array"
+        },
+        "islands_repaired": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Islands Repaired",
+          "type": "integer"
+        },
+        "low_confidence_skipped": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Low Confidence Skipped",
+          "type": "integer"
+        },
+        "summary": {
+          "maxLength": 512,
+          "title": "Summary",
+          "type": "string"
+        },
+        "threads": {
+          "items": {
+            "$ref": "#/$defs/MonitorExtractionThread"
+          },
+          "maxItems": 50,
+          "title": "Threads",
+          "type": "array"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "summary",
+        "contradictions_blocked",
+        "low_confidence_skipped",
+        "islands_repaired",
+        "threads",
+        "errors"
+      ],
+      "title": "MonitorExtractionJournalEntry",
+      "type": "object"
+    },
+    "MonitorExtractionStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "unavailable",
+            "corrupt"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "entities_saved": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Entities Saved",
+          "type": "integer"
+        },
+        "interval_hours": {
+          "maximum": 168,
+          "minimum": 1,
+          "title": "Interval Hours",
+          "type": "integer"
+        },
+        "islands_repaired": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Islands Repaired",
+          "type": "integer"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Run"
+        },
+        "threads_scanned": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Threads Scanned",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "availability",
+        "last_run",
+        "interval_hours",
+        "threads_scanned",
+        "entities_saved",
+        "islands_repaired"
+      ],
+      "title": "MonitorExtractionStatus",
+      "type": "object"
+    },
+    "MonitorExtractionThread": {
+      "additionalProperties": false,
+      "properties": {
+        "extracted": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Extracted",
+          "type": "integer"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "saved": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Saved",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "label",
+        "extracted",
+        "saved"
+      ],
+      "title": "MonitorExtractionThread",
+      "type": "object"
+    },
+    "MonitorLogEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "exception": {
+          "maxLength": 1024,
+          "title": "Exception",
+          "type": "string"
+        },
+        "level": {
+          "maxLength": 32,
+          "title": "Level",
+          "type": "string"
+        },
+        "logger": {
+          "maxLength": 128,
+          "title": "Logger",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "level",
+        "logger",
+        "message",
+        "exception"
+      ],
+      "title": "MonitorLogEntry",
+      "type": "object"
+    },
+    "MonitorLogs": {
+      "additionalProperties": false,
+      "properties": {
+        "authorized": {
+          "title": "Authorized",
+          "type": "boolean"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "unavailable",
+            "corrupt"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/MonitorLogEntry"
+          },
+          "maxItems": 200,
+          "title": "Entries",
+          "type": "array"
+        },
+        "full_available": {
+          "title": "Full Available",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "availability",
+        "authorized",
+        "entries",
+        "full_available"
+      ],
+      "title": "MonitorLogs",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "dream": {
+      "$ref": "#/$defs/MonitorDreamStatus"
+    },
+    "dream_journal": {
+      "items": {
+        "$ref": "#/$defs/MonitorDreamJournalEntry"
+      },
+      "maxItems": 20,
+      "title": "Dream Journal",
+      "type": "array"
+    },
+    "dream_journal_availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "title": "Dream Journal Availability",
+      "type": "string"
+    },
+    "dream_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dream Revision",
+      "type": "string"
+    },
+    "extraction": {
+      "$ref": "#/$defs/MonitorExtractionStatus"
+    },
+    "extraction_journal": {
+      "items": {
+        "$ref": "#/$defs/MonitorExtractionJournalEntry"
+      },
+      "maxItems": 20,
+      "title": "Extraction Journal",
+      "type": "array"
+    },
+    "extraction_journal_availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "title": "Extraction Journal Availability",
+      "type": "string"
+    },
+    "logs": {
+      "$ref": "#/$defs/MonitorLogs"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "dream_revision",
+    "extraction",
+    "extraction_journal",
+    "extraction_journal_availability",
+    "dream",
+    "dream_journal",
+    "dream_journal_availability",
+    "logs"
+  ],
+  "title": "MonitorSnapshot",
+  "type": "object"
+}

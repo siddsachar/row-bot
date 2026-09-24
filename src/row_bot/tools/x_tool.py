@@ -14,7 +14,6 @@ import os
 import pathlib
 import re
 import secrets
-import threading
 import time
 from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -203,7 +202,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         pass  # Suppress HTTP access log noise
 
 
-def _run_oauth_flow(client_id: str, client_secret: str) -> dict:
+def _run_oauth_flow(client_id: str, client_secret: str, *, persist: bool = True) -> dict:
     """Run the full OAuth 2.0 PKCE flow.
 
     Opens the user's browser to X's authorization page, starts a local
@@ -310,7 +309,8 @@ def _run_oauth_flow(client_id: str, client_secret: str) -> dict:
         raise RuntimeError(f"X token exchange failed (HTTP {resp.status_code}): {body}")
     token = resp.json()
     token["expires_at"] = time.time() + token.get("expires_in", 7200)
-    _save_token(token)
+    if persist:
+        _save_token(token)
     return token
 
 
@@ -861,8 +861,8 @@ class XTool(BaseTool):
                 self._tier_info[endpoint] = "unavailable"
                 _save_tier_info(self._tier_info)
                 raise RuntimeError(
-                    f"This operation is not available on your X API tier. "
-                    f"Upgrade at developer.x.com to access this feature."
+                    "This operation is not available on your X API tier. "
+                    "Upgrade at developer.x.com to access this feature."
                 )
             raise RuntimeError(f"X API access denied: {detail or resp.text}")
 

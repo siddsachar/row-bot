@@ -10,10 +10,20 @@ export type Selection =
   | { kind: 'folder'; files: File[] }
   | { kind: 'file' | 'folder'; reference: string };
 
+export type SelectionIntent = {
+  intentId: string;
+  intent: string;
+  conversationId: string | null;
+  destination: string;
+};
+
 export interface PlatformInfo {
   kind: 'browser' | 'pywebview' | 'fake';
   platform: 'browser' | 'windows' | 'macos' | 'linux' | 'unknown';
   capabilities: string[];
+  instanceId?: string;
+  windowId?: string;
+  epoch?: number;
 }
 
 // Implemented by the authenticated ClientController; never a second transport.
@@ -28,8 +38,14 @@ export interface MediaTransport {
 
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
-  selectFile(signal?: AbortSignal): Promise<CapabilityResult<Selection>>;
-  selectFolder(signal?: AbortSignal): Promise<CapabilityResult<Selection>>;
+  selectFile(
+    signal?: AbortSignal,
+    intent?: SelectionIntent,
+  ): Promise<CapabilityResult<Selection>>;
+  selectFolder(
+    signal?: AbortSignal,
+    intent?: SelectionIntent,
+  ): Promise<CapabilityResult<Selection>>;
   upload(
     conversationId: string,
     file: File,
@@ -39,6 +55,9 @@ export interface ClientPlatform {
   writeClipboard(text: string): Promise<CapabilityResult<null>>;
   openExternal(url: string): Promise<CapabilityResult<null>>;
   managedWindow(route: string): Promise<CapabilityResult<null>>;
+  openTerminal(
+    conversationId: string | null,
+  ): Promise<CapabilityResult<{ terminalId: string }>>;
   save(
     reference: string,
     name: string,

@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "entry_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revision",
+    "entry_id"
+  ],
+  "title": "SkillHubPreviewRequest",
+  "type": "object"
+}

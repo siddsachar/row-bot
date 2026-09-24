@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "pin",
+        "unpin",
+        "dismiss",
+        "generate",
+        "review_skills",
+        "apply",
+        "reject"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "insight_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Insight Id",
+      "type": "string"
+    },
+    "proposal_id": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "reason": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Reason",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "revision",
+    "action"
+  ],
+  "title": "InsightCommand",
+  "type": "object"
+}

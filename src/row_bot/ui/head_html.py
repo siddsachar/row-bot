@@ -1,7 +1,7 @@
 """Row-Bot UI — ``<head>`` HTML injection (CSS + JS).
 
-Call ``inject_head_html()`` once per page load to add highlight.js,
-vis-network, and custom Row-Bot styles/scripts.
+Call ``inject_head_html()`` once per page load to add locally served visual
+helpers and custom Row-Bot styles/scripts. The core UI must remain offline-safe.
 """
 
 from __future__ import annotations
@@ -14,9 +14,6 @@ HEAD_HTML = """\
 <meta name="theme-color" content="__ROW_BOT_BRAND_ACCENT__">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Row-Bot">
-<link rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/static/vis-network.min.js"></script>
 <script src="/static/mermaid.min.js"></script>
 <script>

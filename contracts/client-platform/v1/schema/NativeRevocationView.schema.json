@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "revoked": {
+      "title": "Revoked",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "revoked"
+  ],
+  "title": "NativeRevocationView",
+  "type": "object"
+}

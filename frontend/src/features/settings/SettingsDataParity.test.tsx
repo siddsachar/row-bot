@@ -40,22 +40,25 @@ it('presents saved graph totals and an owner-sized initial knowledge catalog', a
   const view = render(
     <KnowledgeCatalog
       snapshot={snapshot}
-      load={async () => ({
+      load={async (_query, _type, cursor) => ({
         schema_version: 1,
         revision: 'saved-knowledge',
         availability: 'available',
         total: 30,
-        next_cursor: null,
-        items: Array.from({ length: 30 }, (_, index) => ({
-          id: `knowledge-${index}`,
-          entity_type: index % 2 ? 'person' : 'fact',
-          subject: `Knowledge ${index}`,
-          description: 'Saved description',
-          updated_at: '2026-09-14',
-          truncated: false,
-          saved_state: 'saved' as const,
-          semantic_state: 'unknown' as const,
-        })),
+        next_cursor: cursor ? null : 'next',
+        items: Array.from({ length: cursor ? 5 : 25 }, (_, offset) => {
+          const index = offset + (cursor ? 25 : 0);
+          return {
+            id: `knowledge-${index}`,
+            entity_type: index % 2 ? 'person' : 'fact',
+            subject: `Knowledge ${index}`,
+            description: 'Saved description',
+            updated_at: '2026-09-14',
+            truncated: false,
+            saved_state: 'saved' as const,
+            semantic_state: 'unknown' as const,
+          };
+        }),
       })}
     />,
   );
@@ -64,28 +67,27 @@ it('presents saved graph totals and an owner-sized initial knowledge catalog', a
   expect(
     view.container.querySelectorAll('.settings-knowledge-result'),
   ).toHaveLength(25);
-  expect(screen.getByText('Showing 25 of 30')).toBeVisible();
-  expect(screen.getByRole('combobox')).toHaveValue('');
+  expect(screen.getByText('Showing 25 of 30 matching entries.')).toBeVisible();
+  expect(screen.getAllByRole('combobox')[0]).toHaveValue('');
   expect(screen.getByRole('option', { name: 'All categories' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'person' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Load more knowledge' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+  await screen.findByLabelText('Knowledge 29 · person');
   expect(
     view.container.querySelectorAll('.settings-knowledge-result'),
   ).toHaveLength(30);
-  expect(screen.getByText('Showing 30 of 30')).toBeVisible();
+  expect(screen.getByText('Showing 30 of 30 matching entries.')).toBeVisible();
   expect(screen.getByText('599 entities')).toBeVisible();
   expect(screen.getByText('956 relations')).toBeVisible();
   expect(screen.getByText('Types: fact: 411, person: 23')).toBeVisible();
   expect(screen.getByText('538 entities')).toBeVisible();
   expect(screen.getByText('597 active')).toBeVisible();
   expect(screen.getByText('2 archived')).toBeVisible();
-  expect(
-    screen.getByRole('link', { name: 'Open Wiki settings' }),
-  ).toHaveAttribute('href', '/settings/wiki');
+  expect(screen.queryByRole('link', { name: 'Open Wiki settings' })).toBeNull();
   expect(screen.getByText('Recent recall decisions')).toBeVisible();
   expect(screen.getByText('Memory change log')).toBeVisible();
   expect(
-    screen.getByRole('button', { name: 'Delete all knowledge' }),
+    screen.getByRole('button', { name: /Delete all knowledge/ }),
   ).toBeDisabled();
   const graph = screen.getByRole('heading', { name: 'Memory graph' });
   const catalog = screen.getByRole('heading', { name: 'Stored Knowledge' });
@@ -147,7 +149,9 @@ it('shows the saved wiki vault and counts without authorizing or mutating it', a
   expect(
     screen.getByRole('button', { name: 'Check vault sync' }),
   ).toBeEnabled();
-  expect(screen.getByRole('button', { name: 'Review rebuild' })).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
+  ).toBeDisabled();
   expect(
     screen.getByRole('button', { name: 'Open vault folder' }),
   ).toBeDisabled();

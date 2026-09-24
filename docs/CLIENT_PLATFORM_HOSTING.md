@@ -1,31 +1,39 @@
 # Unified client hosting
 
-The default `/` route remains NiceGUI. The optional `/app-v2/` shell and
-authenticated `/api/v1/` routes run in that same Python process and use the
-existing access middleware, application services and data. Selecting a client
-does not copy or migrate user data. Node is needed for build/test work only.
+The launcher opens the `/app-v2/` React shell by default. The `/` route remains
+the retained NiceGUI fallback, selected explicitly with `--legacy-ui`. Both
+clients and the authenticated `/api/v1/` routes run in the same Python process
+and use the existing access middleware, application services and data.
+Selecting a client does not copy or migrate user data. Node is needed for
+build/test work only.
 
 | Route | Behavior |
 | --- | --- |
-| `/` | Existing NiceGUI application |
+| `/` | Retained NiceGUI application for direct desktop loopback; authenticated server/remote browser navigation redirects to `/app-v2/` |
 | `/app-v2` | Redirect to `/app-v2/` |
 | `/app-v2/` and extensionless HTML navigation below it | Local shell, `Cache-Control: no-store` |
 | `/app-v2/assets/<hashed-name>` | Verified local assets, private immutable caching |
 | `/api/v1/` including events | Existing authenticated protocol, origin/CSRF/revocation controls |
 | `/connect`, `/mobile/pair`, existing mobile session/connect routes | Existing compatibility behavior and access classification |
 
-`row_bot.client_assets.install_client_assets(app)` adds only the two opt-in
+`row_bot.client_assets.install_client_assets(app)` adds only the React shell
 routes. It does not replace lifespan or exception handlers. The existing
 middleware authenticates navigation/assets just as it authenticates the API.
 The helper itself also requires the resolved access context; installing it
-without access middleware fails closed. Unauthenticated server-mode navigation
-goes through `/connect`; direct desktop loopback retains its existing policy.
+without access middleware fails closed. Unauthenticated server/remote root
+navigation goes through `/connect` with a safe `/app-v2/` continuation. After
+authentication, server, LAN, and managed-tunnel root navigation redirects to
+the React shell. Direct desktop loopback `/` remains the explicit NiceGUI
+diagnostic fallback. This routing distinction does not grant native desktop
+authority: terminal and other native operations still require the separately
+attested pywebview window.
 
 In a source checkout the default asset root is `frontend/dist`. Installed and
 frozen builds use `row_bot/static/client-v2` beside the Python modules.
 `asset_root=Path(...)` is an explicit test/composition override, not an HTTP
-parameter. Missing or invalid assets return a safe 503 only for the preview;
-NiceGUI remains available. Build assets before starting the backend. Rebuilding
+parameter. Missing or invalid assets return a safe 503 for the default client;
+NiceGUI remains available at `/` for diagnosis. Build assets before starting
+the backend. Rebuilding
 requires restarting the **owned development host** to load the new immutable
 snapshot; never restart a daily-use application as part of a test.
 
@@ -63,7 +71,8 @@ HMR publicly. A production build uses same-origin relative API URLs without a
 proxy. See `frontend/README.md` for exact commands and build/payload checks.
 
 Installer integration copies the verified build and its two manifests into
-the existing static payload. Python/runtime extras, NiceGUI assets, launch
-defaults, paired-session database and installed-data readers remain owned by
-their current modules. Real clean-machine installer/upgrade/rollback checks
-are separate platform gates.
+the existing static payload. Python/runtime extras, NiceGUI assets, paired-session
+database and installed-data readers remain owned by their current modules. The
+launcher default changes only the opened URL; it does not remount routes or
+migrate data. Real clean-machine installer/upgrade/rollback checks are separate
+platform gates.

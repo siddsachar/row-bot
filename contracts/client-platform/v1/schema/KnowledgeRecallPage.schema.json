@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "KnowledgeRecallCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Score"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "score"
+      ],
+      "title": "KnowledgeRecallCandidate",
+      "type": "object"
+    },
+    "KnowledgeRecallDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeRecallCandidate"
+          },
+          "maxItems": 3,
+          "title": "Candidates",
+          "type": "array"
+        },
+        "context_characters": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Context Characters",
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "used",
+            "skipped"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "rejection_reasons": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Rejection Reasons",
+          "type": "array"
+        },
+        "selected_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "timestamp": {
+          "maxLength": 128,
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "outcome",
+        "reason",
+        "candidate_count",
+        "selected_count",
+        "context_characters",
+        "candidates",
+        "rejection_reasons"
+      ],
+      "title": "KnowledgeRecallDecision",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "available",
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeRecallDecision"
+      },
+      "maxItems": 10,
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "availability",
+    "items"
+  ],
+  "title": "KnowledgeRecallPage",
+  "type": "object"
+}

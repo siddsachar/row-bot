@@ -24,6 +24,10 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts/client_build.py").write_text("# isolated build-helper fixture\n")
     files = {"index.html": b'<script src="/app-v2/assets/index-abcdef12.js"></script>',
+             "app.webmanifest": b'{"name":"Row-Bot fixture"}',
+             "service-worker.js": b"self.addEventListener('fetch', () => {});",
+             "icon-192.png": b"fixture-192",
+             "icon-512.png": b"fixture-512",
              "assets/index-abcdef12.js": b"export const fixture = true;"}
     for name, data in files.items():
         (root / name).write_bytes(data)
@@ -90,7 +94,8 @@ def test_reused_build_and_failed_wheel_stages_are_never_merged_or_removed(projec
 
 
 @pytest.mark.parametrize("change", ["missing_root", "missing_asset", "missing_vite", "bad_json", "bad_hash",
-                                    "wrong_size", "traversal", "unhashed", "too_large", "missing_reference"])
+                                    "wrong_size", "traversal", "unhashed", "too_large", "missing_reference",
+                                    "missing_public_shell"])
 def test_invalid_payload_fails_before_any_build_output(project: Path, change: str) -> None:
     root = project / "src/row_bot/static/client-v2"
     inventory = root / "asset-manifest.json"
@@ -108,6 +113,9 @@ def test_invalid_payload_fails_before_any_build_output(project: Path, change: st
         value = json.loads(vite.read_text())
         value["index.html"]["dynamicImports"] = ["missing"]
         vite.write_text(json.dumps(value))
+    elif change == "missing_public_shell":
+        metadata["files"].pop("service-worker.js")
+        inventory.write_text(json.dumps(metadata))
     else:
         entry = metadata["files"]["assets/index-abcdef12.js"]
         if change == "bad_hash":

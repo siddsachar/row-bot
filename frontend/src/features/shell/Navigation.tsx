@@ -14,6 +14,7 @@ import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Brand, Button, Hint, Skeleton, Select } from '../../ui/primitives';
 import SearchConversations from './SearchConversations';
+import ConversationLibrary from './ConversationLibrary';
 
 const PREVIEW_COUNT = 10;
 
@@ -23,11 +24,13 @@ export default function Navigation({
   onOpenHome,
   onNewChat,
   creatingChat = false,
+  showBuddy = true,
 }: {
   onOpenConversation?: () => void;
   onOpenHome?: () => void;
   onNewChat?: () => void;
   creatingChat?: boolean;
+  showBuddy?: boolean;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -88,7 +91,7 @@ export default function Navigation({
   return (
     <nav className="navigation" aria-label="Workspace navigation">
       <Brand />
-      <BuddySurface />
+      {showBuddy && <BuddySurface />}
       <div
         className="nav-primary-actions"
         role="group"
@@ -133,6 +136,20 @@ export default function Navigation({
       >
         <Search size={16} aria-hidden />
         Search conversations
+      </Button>
+      <Button
+        className="nav-library"
+        variant="ghost"
+        onClick={() =>
+          overlay.open({
+            title: 'All Conversations',
+            description:
+              'Filter, select and review saved conversations before deletion.',
+            content: <ConversationLibrary controller={controller} />,
+          })
+        }
+      >
+        Manage conversations
       </Button>
       <Button
         id={sectionHeadingId}

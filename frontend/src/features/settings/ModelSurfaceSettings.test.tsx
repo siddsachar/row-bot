@@ -189,7 +189,7 @@ it('loads only passive saved owners and renders the NiceGUI role order', async (
   expect(props.apply).not.toHaveBeenCalled();
 });
 
-it('reviews and saves exact provider-qualified picker membership once', async () => {
+it('saves exact provider-qualified picker membership in one click', async () => {
   const props = fixture();
   view(props);
   await screen.findByLabelText('Image pinned choice');
@@ -197,7 +197,10 @@ it('reviews and saves exact provider-qualified picker membership once', async ()
     target: { value: 'model:image-provider:image-model' },
   });
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review add Image picker choice' }),
+    screen.getByRole('button', { name: 'Add Image picker choice' }),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Add Image picker choice' }),
   );
   await waitFor(() =>
     expect(props.review).toHaveBeenCalledWith(
@@ -211,11 +214,6 @@ it('reviews and saves exact provider-qualified picker membership once', async ()
       expect.any(AbortSignal),
     ),
   );
-  const save = await screen.findByRole('button', {
-    name: 'Save reviewed picker change',
-  });
-  fireEvent.click(save);
-  fireEvent.click(save);
   await screen.findByText(
     'Image picker membership saved. No provider or model was started.',
   );
@@ -231,7 +229,7 @@ it('reviews and saves exact provider-qualified picker membership once', async ()
     expect.objectContaining({ nonce: 'original-nonce' }),
   );
   expect(
-    screen.getByRole('button', { name: 'Review remove Image picker choice' }),
+    screen.getByRole('button', { name: 'Remove Image picker choice' }),
   ).toBeEnabled();
   expect(props.onChanged).toHaveBeenCalledOnce();
 });
@@ -244,13 +242,9 @@ it('retains an uncertain picker command across route remount and reads only its 
   const first = view(props);
   await screen.findByLabelText('Vision pinned choice');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Review remove Vision picker choice' }),
+    screen.getByRole('button', { name: 'Remove Vision picker choice' }),
   );
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Save reviewed picker change',
-    }),
-  );
+  await waitFor(() => expect(props.apply).toHaveBeenCalledOnce());
   const commandId = props.apply.mock.calls[0][3];
   first.unmount();
   await act(async () => uncertain.reject({ code: 'operation_uncertain' }));

@@ -8,18 +8,28 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type {
+  ConversationComposer,
   ConversationControls,
   ReasoningSelectionValue,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { Button, Field, Hint, Input, Menu } from '../../ui/primitives';
+import ComposerSkills, { type ComposerSkillAction } from './ComposerSkills';
 
 /** The server supplies exact-model choices; presentation never invents efforts. */
 export default function ComposerControls({
+  composer,
+  onSkillAction = async () => undefined,
+  skillsOpen = false,
+  onSkillsOpenChange = () => undefined,
   disabled = false,
   onError,
 }: {
+  composer?: ConversationComposer;
+  onSkillAction?: ComposerSkillAction;
+  skillsOpen?: boolean;
+  onSkillsOpenChange?(open: boolean): void;
   disabled?: boolean;
   onError: (error: string) => void;
 }) {
@@ -222,6 +232,15 @@ export default function ComposerControls({
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+      )}
+      {composer && (
+        <ComposerSkills
+          composer={composer}
+          disabled={blocked}
+          action={onSkillAction}
+          open={skillsOpen}
+          onOpenChange={onSkillsOpenChange}
+        />
       )}
       <Menu
         label="Approvals"

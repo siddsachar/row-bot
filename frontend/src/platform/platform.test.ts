@@ -29,7 +29,7 @@ describe('browser capabilities', () => {
       pywebview: { api: { choose_file: legacy } },
       __ROW_BOT_NATIVE__: true,
     });
-    const adapter = selectClientPlatform(media(), undefined);
+    const adapter = await selectClientPlatform(media(), undefined);
     expect(await adapter.discover()).toMatchObject({
       status: 'ok',
       value: { kind: 'browser' },
@@ -245,6 +245,68 @@ describe('browser capabilities', () => {
 });
 
 describe('safe native and fake capabilities', () => {
+  const nativeIntent = {
+    intentId: '11111111-1111-4111-8111-111111111111',
+    intent: 'fixture',
+    conversationId: 'conversation-a',
+    destination: 'fixture',
+  };
+
+  it('selects native only after server authorization and matching authenticated discovery', async () => {
+    const endpoint = {
+      dispatch: vi.fn().mockResolvedValue({
+        status: 'ok',
+        value: {
+          kind: 'pywebview',
+          platform: 'windows',
+          capabilities: ['select_folder'],
+          instanceId: 'instance-a',
+          windowId: 'window-a',
+          epoch: 1,
+        },
+      }),
+    };
+    Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', {
+      configurable: true,
+      value: endpoint,
+    });
+    const authorized = await selectClientPlatform(media(), {
+      native_adapter: {
+        available: true,
+        proof_required: true,
+        instance_id: 'instance-a',
+        attestation: 'a'.repeat(32),
+      },
+    });
+    expect((await authorized.discover()).status).toBe('ok');
+    expect(endpoint.dispatch).toHaveBeenCalledWith('discover', {
+      attestation: 'a'.repeat(32),
+    });
+    endpoint.dispatch.mockResolvedValueOnce({
+      status: 'ok',
+      value: {
+        kind: 'pywebview',
+        platform: 'windows',
+        capabilities: [],
+        instanceId: 'other-instance',
+        windowId: 'window-a',
+        epoch: 1,
+      },
+    });
+    const mismatched = await selectClientPlatform(media(), {
+      native_adapter: {
+        available: true,
+        proof_required: true,
+        instance_id: 'instance-a',
+        attestation: 'b'.repeat(32),
+      },
+    });
+    expect(await mismatched.discover()).toMatchObject({
+      status: 'ok',
+      value: { kind: 'browser' },
+    });
+    Reflect.deleteProperty(window, '__ROW_BOT_NATIVE_CLIENT__');
+  });
   it.each(['file', 'folder', 'save'] as const)(
     'discards the late native %s completion after abort',
     async (operation) => {
@@ -257,13 +319,17 @@ describe('safe native and fake capabilities', () => {
             }),
         ),
       };
-      const adapter = createPyWebViewPlatform(endpoint, media());
+      const adapter = createPyWebViewPlatform(
+        endpoint,
+        media(),
+        'a'.repeat(32),
+      );
       const controller = new AbortController();
       const pending =
         operation === 'file'
-          ? adapter.selectFile(controller.signal)
+          ? adapter.selectFile(controller.signal, nativeIntent)
           : operation === 'folder'
-            ? adapter.selectFolder(controller.signal)
+            ? adapter.selectFolder(controller.signal, nativeIntent)
             : adapter.save('fixture', 'fixture.txt', controller.signal);
       controller.abort();
       complete({
@@ -274,9 +340,11 @@ describe('safe native and fake capabilities', () => {
             : { kind: operation, reference: 'fixture' },
       });
       expect(await pending).toEqual({ status: 'cancelled' });
-      expect(await adapter.selectFile(controller.signal)).toEqual({
-        status: 'cancelled',
-      });
+      expect(await adapter.selectFile(controller.signal, nativeIntent)).toEqual(
+        {
+          status: 'cancelled',
+        },
+      );
       expect(endpoint.dispatch).toHaveBeenCalledTimes(1);
     },
   );
@@ -288,8 +356,8 @@ describe('safe native and fake capabilities', () => {
         value: { kind: 'file', reference: 'fixture' },
       }),
     };
-    const adapter = createPyWebViewPlatform(endpoint, media());
-    expect(await adapter.selectFile()).toEqual({
+    const adapter = createPyWebViewPlatform(endpoint, media(), 'a'.repeat(32));
+    expect(await adapter.selectFile(undefined, nativeIntent)).toEqual({
       status: 'ok',
       value: { kind: 'file', reference: 'fixture' },
     });
@@ -297,7 +365,7 @@ describe('safe native and fake capabilities', () => {
       status: 'ok',
       value: { kind: 'file', reference: 'C:\\private' },
     });
-    expect(await adapter.selectFile()).toMatchObject({
+    expect(await adapter.selectFile(undefined, nativeIntent)).toMatchObject({
       status: 'unavailable',
       reason: 'invalid_native_response',
     });
@@ -315,7 +383,11 @@ describe('safe native and fake capabilities', () => {
       dispatch: vi.fn().mockRejectedValue(new Error('private sentinel')),
     };
     const transport = media();
-    const adapter = createPyWebViewPlatform(endpoint, transport);
+    const adapter = createPyWebViewPlatform(
+      endpoint,
+      transport,
+      'a'.repeat(32),
+    );
     expect(await adapter.save('fixture', 'fixture.txt')).toEqual({
       status: 'unavailable',
       reason: 'native_operation_failed',

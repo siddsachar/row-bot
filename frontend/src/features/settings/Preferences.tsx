@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import { RotateCcw } from 'lucide-react';
 import type { SettingsSnapshot } from '../../api/types';
-import { Button, Field, Select } from '../../ui/primitives';
+import { Button, Field, Select, Toggle } from '../../ui/primitives';
 import { useTheme } from '../../ui/theme';
 import { useOverlay } from '../../ui/overlays';
 import type { Accent, Appearance } from '../../ui/theme-model';
@@ -15,20 +16,26 @@ export default function Preferences({
   snapshot,
   mutation,
   snapshotState,
+  showUpdateControls = false,
 }: {
   onReset?: () => void;
   snapshot?: SettingsSnapshot['preferences'];
   mutation?: SettingsMutationIO | null;
   snapshotState?: ReactNode;
+  showUpdateControls?: boolean;
 }) {
   const { preference, update } = useTheme();
-  const { open, notify } = useOverlay();
+  const { notify } = useOverlay();
   const workspaceActions = useWorkspaceActions();
   const reset = onReset ?? workspaceActions?.resetLayout;
   return (
     <div className="stack settings-preferences">
       {snapshot && mutation ? (
-        <PreferencesSnapshotPanel snapshot={snapshot} mutation={mutation} />
+        <PreferencesSnapshotPanel
+          snapshot={snapshot}
+          mutation={mutation}
+          showUpdateControls={showUpdateControls}
+        />
       ) : (
         snapshotState
       )}
@@ -93,16 +100,16 @@ export default function Preferences({
                 </Select>
               </Field>
             </div>
-            <label className="check-field">
-              <input
-                type="checkbox"
+            <div className="check-field">
+              <span>Reduce transparency</span>
+              <Toggle
+                label="Reduce transparency"
                 checked={preference.reduce_transparency}
                 onChange={(event) =>
                   update({ reduce_transparency: event.target.checked })
                 }
               />
-              Reduce transparency
-            </label>
+            </div>
           </section>
           <section
             className="settings-section stack"
@@ -119,21 +126,13 @@ export default function Preferences({
             </div>
             {reset ? (
               <Button
-                onClick={() =>
-                  open({
-                    kind: 'alert',
-                    title: 'Reset layout?',
-                    description:
-                      'Restore the default panel sizes and close panels. Your conversations and appearance stay saved.',
-                    confirmLabel: 'Reset layout',
-                    onConfirm: () => {
-                      reset();
-                      notify('Layout reset');
-                    },
-                  })
-                }
+                onClick={() => {
+                  reset();
+                  notify('Layout reset');
+                }}
               >
-                Review layout reset
+                <RotateCcw size={16} aria-hidden />
+                Reset layout
               </Button>
             ) : (
               <p className="muted">

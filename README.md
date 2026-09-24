@@ -794,7 +794,7 @@ python -m pip install -r requirements.txt
 python launcher.py
 ```
 
-On Windows and macOS, `launcher.py` starts the tray icon and opens the app on the first available local port, normally `http://localhost:8080`. On Linux it opens in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port.
+On Windows and macOS, `launcher.py` starts the tray icon and opens the React app on the first available local port, normally `http://localhost:8080/app-v2/`. On Linux it opens the same client in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port. Use `launcher.py --legacy-ui` to open the retained local NiceGUI fallback at `/`; the older `--client-v2` option is a deprecated no-op alias for the default.
 
 Authenticated headless/server mode:
 
@@ -806,13 +806,13 @@ The installed console entry point is `row-bot serve`. The legacy
 `python launcher.py --server --no-open` form remains temporarily compatible but
 is deprecated.
 
-Direct app launch:
+Direct NiceGUI fallback launch:
 
 ```bash
 python app.py
 ```
 
-Direct launches default to `http://localhost:8080`. Set `ROW_BOT_PORT` to choose a different port.
+The direct wrapper opens NiceGUI at `http://localhost:8080`. Set `ROW_BOT_PORT` to choose a different port.
 
 Dependency edits go through `pyproject.toml`, not `requirements.txt`:
 

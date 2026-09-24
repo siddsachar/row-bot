@@ -127,7 +127,9 @@ def test_compact_owner_claim_allows_private_routes_and_revoke_blocks_it(
     assert claim.status_code == 200
     assert "profile" not in claim.json()["device"]
     assert claim.cookies.get(registration.cookies.names.http)
-    assert remote.get("/").status_code == 200
+    root = remote.get("/")
+    assert root.status_code == 307
+    assert root.headers["location"] == "/app-v2/"
     assert remote.get("/_media/thread/file.png").status_code == 200
     assert remote.get("/published/page.html").status_code == 200
     assert service.inspect_invitation(invitation).status == "already_claimed"

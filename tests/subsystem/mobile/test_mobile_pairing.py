@@ -64,7 +64,7 @@ def test_pair_start_creates_compact_owner_invitation_without_duplicate_secret(
 
     assert token.startswith("rbi_")
     pairing_query = parse_qs(urlsplit(pairing["pairing_url"]).query)
-    assert pairing_query["next"] == ["/?mobile=1"]
+    assert pairing_query["next"] == ["/app-v2/"]
     assert "code" not in pairing
     assert pairing["access_mode"] == "lan"
     assert "profile" not in service.inspect_invitation(token).invitation.to_public_dict()

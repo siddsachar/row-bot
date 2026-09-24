@@ -313,6 +313,10 @@ export function createDocumentJobsSession(
         emit({ pending: true });
         accept(await read(() => transport.execute(structuredClone(command))));
       }),
+    async start(action: DocumentJobAction, id?: string) {
+      await this.review(action, id);
+      await this.confirm();
+    },
     refresh: () =>
       run(async () => {
         if (!attempt) throw new Error('document_command_required');
@@ -377,7 +381,7 @@ export function DocumentJobs({
             item.status === 'paused' &&
             !item.cancel_requested && (
               <Button disabled={disabled} onClick={() => onProcess(item)}>
-                Review processing {item.id}
+                Process {item.id}
               </Button>
             )}
           <Button
@@ -404,7 +408,7 @@ export function DocumentJobs({
                 disabled={disabled}
                 onClick={() =>
                   invoke(() =>
-                    session.review(
+                    session.start(
                       item.pause_requested
                         ? 'document.batch.resume'
                         : 'document.batch.pause',
@@ -413,7 +417,7 @@ export function DocumentJobs({
                   )
                 }
               >
-                {item.pause_requested ? 'Review resume' : 'Review pause'}
+                {item.pause_requested ? 'Resume' : 'Pause'}
               </Button>
               <Button
                 disabled={disabled}
@@ -421,7 +425,7 @@ export function DocumentJobs({
                   invoke(() => session.review('document.batch.cancel', item.id))
                 }
               >
-                Review cancel remaining
+                Cancel remaining
               </Button>
             </>
           )}
@@ -439,7 +443,7 @@ export function DocumentJobs({
             invoke(() => session.review('document.jobs.clear_finished'))
           }
         >
-          Review clear selected finished
+          Clear selected finished
         </Button>
       )}
       {state.jobs && (
@@ -470,10 +474,10 @@ export function DocumentJobs({
             <Button
               disabled={disabled}
               onClick={() =>
-                invoke(() => session.review('document.job.retry', item.id))
+                invoke(() => session.start('document.job.retry', item.id))
               }
             >
-              Review retry {item.name}
+              Retry {item.name}
             </Button>
           ) : (
             !['completed', 'cancelled', 'skipped_duplicate'].includes(
@@ -485,7 +489,7 @@ export function DocumentJobs({
                   invoke(() => session.review('document.job.cancel', item.id))
                 }
               >
-                Review cancel {item.name}
+                Cancel {item.name}
               </Button>
             )
           )}
@@ -497,8 +501,8 @@ export function DocumentJobs({
         </Button>
       )}
       {state.review && (
-        <div role="group" aria-label="Document queue action review">
-          <p>Reviewed action: {state.review.action}</p>
+        <div role="group" aria-label="Confirm document queue action">
+          <p>Selected action: {state.review.action}</p>
           {state.review.provider_work && (
             <p>
               This explicitly resumes queued parsing, embedding or knowledge
@@ -512,7 +516,9 @@ export function DocumentJobs({
             </p>
           )}
           <Button disabled={disabled} onClick={() => invoke(session.confirm)}>
-            Confirm queue action
+            {state.review.action === 'document.jobs.clear_finished'
+              ? 'Confirm clear selected'
+              : 'Confirm cancellation'}
           </Button>
         </div>
       )}

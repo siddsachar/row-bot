@@ -39,11 +39,6 @@
             }
           ]
         },
-        "credentials_path": {
-          "maxLength": 4096,
-          "title": "Credentials Path",
-          "type": "string"
-        },
         "enabled": {
           "anyOf": [
             {
@@ -97,7 +92,6 @@
         "enabled",
         "configured",
         "authentication_state",
-        "credentials_path",
         "credential",
         "operations",
         "read_operations",
@@ -748,6 +742,33 @@
       "title": "PreferenceSettingsSnapshot",
       "type": "object"
     },
+    "SettingsActionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 256,
+          "title": "Message",
+          "type": "string"
+        },
+        "remediation": {
+          "maxLength": 256,
+          "title": "Remediation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "remediation"
+      ],
+      "title": "SettingsActionResult",
+      "type": "object"
+    },
     "SettingsChoice": {
       "additionalProperties": false,
       "properties": {
@@ -782,6 +803,11 @@
           "title": "Disclosure Acknowledged",
           "type": "boolean"
         },
+        "disclosure_text": {
+          "maxLength": 2400,
+          "title": "Disclosure Text",
+          "type": "string"
+        },
         "enabled": {
           "anyOf": [
             {
@@ -793,9 +819,32 @@
           ],
           "title": "Enabled"
         },
+        "local_owner_control_available": {
+          "title": "Local Owner Control Available",
+          "type": "boolean"
+        },
+        "platform": {
+          "enum": [
+            "windows",
+            "macos",
+            "unsupported"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "remediation": {
+          "maxLength": 256,
+          "title": "Remediation",
+          "type": "string"
+        },
         "runtime_state": {
-          "const": "cached_unknown",
+          "maxLength": 64,
           "title": "Runtime State",
+          "type": "string"
+        },
+        "status_message": {
+          "maxLength": 256,
+          "title": "Status Message",
           "type": "string"
         },
         "system_binary_configured": {
@@ -807,8 +856,13 @@
         "available",
         "enabled",
         "runtime_state",
+        "local_owner_control_available",
+        "platform",
         "disclosure_acknowledged",
-        "system_binary_configured"
+        "system_binary_configured",
+        "status_message",
+        "remediation",
+        "disclosure_text"
       ],
       "title": "SettingsComputerUseSnapshot",
       "type": "object"
@@ -926,10 +980,9 @@
     "SettingsLoggingSnapshot": {
       "additionalProperties": false,
       "properties": {
-        "directory": {
-          "maxLength": 4096,
-          "title": "Directory",
-          "type": "string"
+        "directory_available": {
+          "title": "Directory Available",
+          "type": "boolean"
         },
         "level": {
           "enum": [
@@ -944,7 +997,7 @@
       },
       "required": [
         "level",
-        "directory"
+        "directory_available"
       ],
       "title": "SettingsLoggingSnapshot",
       "type": "object"
@@ -1123,7 +1176,7 @@
           "title": "Enabled"
         },
         "runtime_state": {
-          "const": "cached_unknown",
+          "maxLength": 64,
           "title": "Runtime State",
           "type": "string"
         }
@@ -1255,6 +1308,26 @@
         "credential": {
           "$ref": "#/$defs/SettingsCredentialState"
         },
+        "local_owner_control_available": {
+          "title": "Local Owner Control Available",
+          "type": "boolean"
+        },
+        "main_app_enabled": {
+          "title": "Main App Enabled",
+          "type": "boolean"
+        },
+        "main_app_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Main App Url"
+        },
         "provider": {
           "maxLength": 64,
           "title": "Provider",
@@ -1270,7 +1343,10 @@
         "provider",
         "credential",
         "runtime_state",
-        "active_count"
+        "active_count",
+        "main_app_enabled",
+        "main_app_url",
+        "local_owner_control_available"
       ],
       "title": "SettingsTunnelSnapshot",
       "type": "object"
@@ -1286,14 +1362,14 @@
           "title": "Exists",
           "type": "boolean"
         },
-        "path": {
-          "maxLength": 4096,
-          "title": "Path",
+        "label": {
+          "maxLength": 255,
+          "title": "Label",
           "type": "string"
         }
       },
       "required": [
-        "path",
+        "label",
         "configured",
         "exists"
       ],
@@ -2002,6 +2078,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "action_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettingsActionResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "code": {
       "anyOf": [
         {

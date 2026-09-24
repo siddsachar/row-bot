@@ -14,6 +14,7 @@ import PluginSettings, {
 } from './PluginSettings';
 
 const capabilities = {
+  test: { available: true, code: null },
   install: { available: false, code: 'plugin_lifecycle_worker_unavailable' },
   update: { available: false, code: 'plugin_lifecycle_worker_unavailable' },
   remove: { available: false, code: 'plugin_lifecycle_worker_unavailable' },
@@ -172,6 +173,17 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
   expect(props.execute).not.toHaveBeenCalled();
 });
 
+it('runs the saved plugin self-test in one click before enablement', async () => {
+  const props = options();
+  render(<PluginSettings {...props} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Test Sample Plugin' }),
+  );
+  await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
+  expect(props.review.mock.calls[0][0]).toBe('plugin.test');
+  expect(props.execute.mock.calls[0][0].type).toBe('plugin.test');
+});
+
 it('prioritizes owner-style marketplace and reload actions above closed filters', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
@@ -201,7 +213,7 @@ it('keeps path-like settings and saved secrets write-only', async () => {
   expect(screen.getByText(/saved value is never displayed/)).toBeVisible();
 });
 
-it('reviews then applies exact configuration with a write-only secret', async () => {
+it('saves exact configuration with a write-only secret in one click', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
   await manage();
@@ -211,10 +223,7 @@ it('reviews then applies exact configuration with a write-only secret', async ()
   fireEvent.change(screen.getByLabelText(/Token/), {
     target: { value: 'private-token' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review configuration' }));
-  await screen.findByText('Synthetic reviewed plugin effect.');
-  expect(props.execute).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Apply plugin change' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
   await screen.findByText(/Plugin change completed/);
   expect(props.review).toHaveBeenCalledWith(
     'plugin.configure',
@@ -231,28 +240,124 @@ it('reviews then applies exact configuration with a write-only secret', async ()
   });
 });
 
-it('requires a separate reviewed action before enabling', async () => {
+it('enables a plugin with one click', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
   await manage();
-  fireEvent.click(screen.getByRole('button', { name: 'Enable plugin' }));
-  await screen.findByText('Synthetic reviewed plugin effect.');
+  fireEvent.click(screen.getByRole('switch', { name: 'Plugin enabled' }));
+  await screen.findByText(/Plugin change completed/);
   expect(props.review.mock.calls[0][0]).toBe('plugin.enable');
-  expect(props.execute).not.toHaveBeenCalled();
+  expect(props.execute).toHaveBeenCalledOnce();
 });
 
-it('exposes supported enablement from the resting plugin row and still stops at review', async () => {
+it('exposes one-click enablement from the resting plugin row', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
   await screen.findByText('1 matching plugins.');
-  fireEvent.click(screen.getByRole('button', { name: 'Enable Sample Plugin' }));
-  await screen.findByText('Synthetic reviewed plugin effect.');
+  fireEvent.click(
+    screen.getByRole('switch', { name: 'Sample Plugin enabled' }),
+  );
+  await screen.findByText(/Plugin change completed/);
   expect(props.open).toHaveBeenCalledWith(
     'sample-plugin',
     expect.any(AbortSignal),
   );
   expect(props.review.mock.calls[0][0]).toBe('plugin.enable');
-  expect(props.execute).not.toHaveBeenCalled();
+  expect(props.execute).toHaveBeenCalledOnce();
+});
+
+it('refreshes the enabled switch after the saved command completes', async () => {
+  const props = options();
+  let enabled = false;
+  props.load.mockImplementation(async () => ({
+    ...page,
+    items: [
+      {
+        ...page.items[0],
+        enabled,
+        capabilities: {
+          ...capabilities,
+          enable: {
+            available: !enabled,
+            code: enabled ? 'plugin_already_enabled' : null,
+          },
+          disable: {
+            available: enabled,
+            code: enabled ? null : 'plugin_already_disabled',
+          },
+        },
+      },
+    ],
+    total: 1,
+  }));
+  props.execute.mockImplementation(async (command) => {
+    enabled = true;
+    return {
+      command_id: command.command_id,
+      status: 'completed',
+      plugin: { plugin_id: 'sample-plugin', action: command.type, enabled },
+    };
+  });
+  render(<PluginSettings {...props} />);
+  const toggle = await screen.findByRole('switch', {
+    name: 'Sample Plugin enabled',
+  });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(
+      screen.getByRole('switch', { name: 'Sample Plugin enabled' }),
+    ).toBeChecked(),
+  );
+  expect(props.load).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Plugin change completed.')).toBeVisible();
+});
+
+it('keeps a newly installed marketplace plugin visible for its next action', async () => {
+  sessionStorage.clear();
+  const props = options();
+  let installed = false;
+  props.load.mockImplementation(async ({ source }) => {
+    const item = {
+      ...page.items[1],
+      installed,
+      source: installed ? ('installed' as const) : ('marketplace' as const),
+    };
+    return {
+      ...page,
+      items: source === 'all' || source === item.source ? [item] : [],
+      total: source === 'all' || source === item.source ? 1 : 0,
+    };
+  });
+  const lifecycle = {
+    review: vi.fn().mockResolvedValue({ revision: 'd'.repeat(64) }),
+    execute: vi.fn().mockImplementation(async (command) => {
+      installed = true;
+      return {
+        command_id: command.command_id,
+        status: 'completed',
+        action: 'install',
+        plugin_id: 'cached-plugin',
+        message: 'Installed cached-plugin and kept it disabled.',
+      };
+    }),
+    receipt: vi.fn(),
+  };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  await screen.findByText('0 matching plugins.');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Browse saved marketplace' }),
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  await waitFor(() =>
+    expect(props.load).toHaveBeenLastCalledWith(
+      { query: '', source: 'all', cursor: undefined },
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Uninstall' }),
+  ).toBeVisible();
 });
 
 it('retains one uncertain original across remount and never creates a second command', async () => {
@@ -260,9 +365,7 @@ it('retains one uncertain original across remount and never creates a second com
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const rendered = render(<PluginSettings {...props} />);
   await manage();
-  fireEvent.click(screen.getByRole('button', { name: 'Enable plugin' }));
-  await screen.findByText('Synthetic reviewed plugin effect.');
-  fireEvent.click(screen.getByRole('button', { name: 'Apply plugin change' }));
+  fireEvent.click(screen.getByRole('switch', { name: 'Plugin enabled' }));
   await screen.findByText(/original plugin change is unconfirmed/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
@@ -288,9 +391,8 @@ it('tombstones pending secrets and commands when authentication is lost', async 
   fireEvent.change(screen.getByLabelText(/Token/), {
     target: { value: 'private-token' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review configuration' }));
-  await screen.findByText('Synthetic reviewed plugin effect.');
-  fireEvent.click(screen.getByRole('button', { name: 'Apply plugin change' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   act(() => props.session.dispose());
   await act(async () =>
     resolve({

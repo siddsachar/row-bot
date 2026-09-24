@@ -49,6 +49,8 @@ export type BuddyHatchProps = {
   configRevision: string | null;
   initialPrompt?: string;
   selectedPack: BuddyPack | null;
+  personality: string;
+  styleNotes: string;
   result: HatchResult | null;
   review(request: HatchRequest): Promise<HatchReview>;
   confirm(reviewId: string): Promise<HatchResult | HatchRemoval>;
@@ -56,6 +58,39 @@ export type BuddyHatchProps = {
   refresh(commandId: string): Promise<HatchResult>;
   cancel(jobId: string): Promise<void>;
 };
+
+const personalityNames: Record<string, string> = {
+  warm_mystical: 'Warm mystical',
+  calm_focus: 'Calm focus',
+  playful_helper: 'Playful helper',
+  quiet_guardian: 'Quiet guardian',
+  curious_scholar: 'Curious scholar',
+};
+const personalityHints: Record<string, string> = {
+  warm_mystical: 'gentle, luminous, encouraging, and a little mysterious',
+  calm_focus: 'minimal, steady, precise, and designed for deep work',
+  playful_helper:
+    'bright, expressive, nimble, and visibly helpful without feeling noisy',
+  quiet_guardian: 'protective, quiet, observant, and reassuring',
+  curious_scholar: 'bookish, inquisitive, analytical, and warmly attentive',
+};
+
+export function composeHatchPrompt(
+  concept: string,
+  personality: string,
+  styleNotes: string,
+) {
+  const selected = personalityNames[personality]
+    ? personality
+    : 'warm_mystical';
+  return [
+    concept.trim(),
+    `Personality style: ${personalityNames[selected]} - ${personalityHints[selected]}.`,
+    styleNotes.trim() ? `User style notes: ${styleNotes.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 const active = (result: HatchResult | null) =>
   result !== null &&
@@ -194,7 +229,16 @@ export default function BuddyHatch(props: BuddyHatchProps) {
             action === 'retained-motion'
               ? 'motion'
               : (action as HatchRequest['action']),
-          prompt: prompt.trim() || 'Retained Buddy look',
+          prompt:
+            action === 'full' ||
+            action === 'motion' ||
+            action === 'retained-motion'
+              ? composeHatchPrompt(
+                  prompt.trim() || 'Retained Buddy look',
+                  props.personality,
+                  props.styleNotes,
+                )
+              : prompt.trim() || 'Retained Buddy look',
           config_revision: revision,
         };
         if (
@@ -218,7 +262,15 @@ export default function BuddyHatch(props: BuddyHatchProps) {
             approved.config_revision !== revision
           )
             throw new Error('hatch_review_changed');
-          setReview(approved);
+          if (request.action === 'remove') setReview(approved);
+          else {
+            const outcome = await props.confirm(approved.review_id);
+            if (!stillCurrent()) return;
+            if (!('command_id' in outcome))
+              throw new Error('hatch_result_changed');
+            setResult(outcome);
+            setReview(null);
+          }
         }
       }
     } catch {
@@ -270,7 +322,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
           disabled={busy || running || !prompt.trim()}
           onClick={() => void run('full')}
         >
-          Review Generate full Buddy
+          Generate full Buddy
         </Button>
         {props.selectedPack?.available &&
           props.selectedPack.assets.some((asset) => asset.id === 'preview') && (
@@ -278,44 +330,39 @@ export default function BuddyHatch(props: BuddyHatchProps) {
               disabled={busy || running}
               onClick={() => void run('motion')}
             >
-              Review motion
+              Generate motion
             </Button>
           )}
         {result?.has_still && !running && (
           <>
             <Button disabled={busy} onClick={() => void run('still')}>
-              Review still only
+              Use retained still
             </Button>
             <Button disabled={busy} onClick={() => void run('retained-motion')}>
-              Review motion from still
+              Generate motion from still
             </Button>
           </>
         )}
         {props.selectedPack?.generated && (
           <Button disabled={busy || running} onClick={() => void run('remove')}>
-            Review removal
+            Remove generated look
           </Button>
         )}
       </div>
-      {review && (
+      {review?.action === 'remove' && (
         <section
           className="buddy-hatch-review"
-          aria-label="Review Hatch action"
+          aria-label="Confirm generated look removal"
         >
           <p>
-            {review.action === 'remove'
-              ? 'Remove this generated look from the catalog. Its files will be retained; the default look is selected if needed.'
-              : review.action === 'still'
-                ? 'Create a new look from the retained still without contacting a provider.'
-                : `Generate ${review.action === 'full' ? 'a new look and six clips' : 'six new motion clips'}.`}
+            Remove this generated look from the catalog? Its files will be
+            retained; the default look is selected if needed.
           </p>
           {review.image_model && <p>Image model: {review.image_model}</p>}
           {review.video_model && <p>Video model: {review.video_model}</p>}
           <p>Provider calls: {review.provider_calls}</p>
           <Button disabled={busy} onClick={() => void run('confirm')}>
-            {review.action === 'remove'
-              ? 'Confirm removal'
-              : 'Confirm Hatch action'}
+            Confirm removal
           </Button>
           <Button
             disabled={busy}
@@ -325,7 +372,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
               setReview(null);
             }}
           >
-            Dismiss review
+            Keep generated look
           </Button>
         </section>
       )}

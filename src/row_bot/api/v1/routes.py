@@ -7,8 +7,11 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
+from pathlib import Path
+import secrets
 import threading
 from typing import Any
 from uuid import UUID, uuid4
@@ -48,6 +51,25 @@ HEADERS = {
     "X-Content-Type-Options": "nosniff",
 }
 logger = logging.getLogger(__name__)
+_APPLICATION_CAPABILITIES = (
+    "client:conversations",
+    "client:resources",
+    "client:artifacts",
+    "client:settings",
+    "client:tasks",
+    "client:knowledge",
+    "client:monitor",
+    "client:voice",
+    "browser:upload",
+)
+_LOCAL_APPLICATION_CAPABILITIES = (
+    "native:bridge",
+    "native:filesystem",
+    "native:terminal",
+    "native:logs",
+    "computer:interactive",
+)
+_PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
 _STATUS = {
     "not_found": 404,
     "cursor_expired": 410,
@@ -91,6 +113,53 @@ _STATUS.update(
         "settings_review_changed": 409,
         "settings_unavailable": 503,
         "settings_save_unconfirmed": 409,
+    }
+)
+_STATUS.update(
+    {
+        "invalid_onboarding_command": 422,
+        "onboarding_command_conflict": 409,
+        "onboarding_changed": 409,
+        "onboarding_model_required": 409,
+        "onboarding_config_unavailable": 503,
+    }
+)
+_STATUS.update(
+    {
+        "invalid_update_command": 422,
+        "update_command_conflict": 409,
+        "update_changed": 409,
+        "update_unavailable": 409,
+        "update_install_busy": 429,
+        "update_job_missing": 404,
+    }
+)
+_STATUS.update(
+    {
+        "invalid_migration_selection": 422,
+        "migration_plan_too_large": 413,
+        "migration_plan_missing": 404,
+        "migration_changed": 409,
+        "migration_path_escaped": 403,
+        "invalid_migration_command": 422,
+        "migration_command_conflict": 409,
+        "migration_apply_busy": 429,
+        "migration_confirmation_required": 409,
+        "migration_receipt_missing": 404,
+    }
+)
+_STATUS.update(
+    {
+        "invalid_account_command": 422,
+        "account_command_conflict": 409,
+        "account_changed": 409,
+        "account_busy": 429,
+        "github_cli_missing": 409,
+        "github_cli_host_terminal_required": 409,
+        "account_receipt_missing": 404,
+        "account_credentials_invalid": 422,
+        "account_credentials_required": 409,
+        "account_confirmation_required": 409,
     }
 )
 
@@ -233,6 +302,27 @@ _STATUS.update(
 )
 _STATUS.update(
     {
+        "owner_local_only": 403,
+        "custom_tool_draft_unavailable": 404,
+        "custom_tool_receipt_unavailable": 404,
+        "custom_tool_revision_conflict": 409,
+        "invalid_custom_tool_command": 422,
+        "invalid_insight_command": 422,
+        "insight_revision_conflict": 409,
+        "insight_unavailable": 404,
+        "insight_proposal_unavailable": 404,
+        "insight_proposal_finished": 409,
+        "insight_receipt_unavailable": 404,
+        "invalid_plugin_lifecycle_command": 422,
+        "plugin_marketplace_unavailable": 409,
+        "plugin_marketplace_entry_unavailable": 404,
+        "plugin_source_unavailable": 409,
+        "plugin_lifecycle_changed": 409,
+        "plugin_lifecycle_receipt_unavailable": 404,
+    }
+)
+_STATUS.update(
+    {
         "invalid_browser_command": 422,
         "invalid_browser_url": 422,
         "browser_action_denied": 403,
@@ -321,6 +411,9 @@ _STATUS.update(
             "task_advanced_edit_required",
             "task_delivery_review_required",
             "task_review_unsupported_fields",
+            "task_delete_revision_conflict",
+            "task_delete_review_required",
+            "task_delivery_revision_conflict",
         ),
         409,
     )
@@ -331,6 +424,8 @@ _STATUS.update(
         "task_metadata_too_large": 413,
         "task_schedule_unconfirmed": 503,
         "task_saved_read_unconfirmed": 503,
+        "task_delete_schedule_unconfirmed": 503,
+        "task_delivery_unconfirmed": 503,
     }
 )
 _STATUS.update(
@@ -382,6 +477,22 @@ _STATUS.update(
     }
 )
 _STATUS["invalid_catalog_query"] = 422
+_STATUS.update(
+    {
+        "invalid_skill_query": 422,
+        "skill_catalog_expired": 410,
+        "skill_catalog_changed": 409,
+        "skill_preview_expired": 410,
+        "skill_preview_changed": 409,
+        "skill_command_conflict": 409,
+        "skill_install_pending": 409,
+        "skill_receipt_missing": 404,
+        "skill_not_installed": 404,
+        "skill_record_changed": 409,
+        "skill_confirmation_required": 409,
+        "invalid_skill_action": 422,
+    }
+)
 _STATUS.update(
     dict.fromkeys(
         ("subscription_flow_unavailable", "subscription_recovery_unavailable"), 409
@@ -444,6 +555,18 @@ _STATUS["runtime_installation_command_unavailable"] = 404
 _STATUS["mcp_policy_unavailable"] = 409
 _STATUS.update(dict.fromkeys(("mcp_catalog_unavailable", "mcp_catalog_stale"), 409))
 _STATUS.update(dict.fromkeys(("knowledge_changed", "knowledge_outcome_uncertain"), 409))
+_STATUS.update(
+    {
+        "invalid_monitor_query": 422,
+        "invalid_dream_command": 422,
+        "dream_changed": 409,
+        "dream_disabled": 409,
+        "dream_unavailable": 503,
+        "dream_operation_unavailable": 404,
+        "dream_outcome_uncertain": 409,
+        "dream_failed": 503,
+    }
+)
 _STATUS.update(
     dict.fromkeys(("knowledge_missing", "knowledge_operation_unavailable"), 404)
 )
@@ -777,6 +900,7 @@ _STATUS.update(
 _STATUS.update(
     {
         "workspace_name_invalid": 422,
+        "clone_source_invalid": 422,
         "workspace_creation_denied": 403,
         "workspace_registration_failed": 503,
     }
@@ -1044,6 +1168,8 @@ def create_router(
     runtime_installations = McpRuntimeInstallationService()
     voice_workers: set[asyncio.Task] = set()
     document_workers: set[asyncio.Task] = set()
+    terminal_clients: dict[str, Any] = {}
+    terminal_clients_lock = threading.RLock()
 
     def voice_worker_finished(worker: asyncio.Task) -> None:
         voice_workers.discard(worker)
@@ -1077,6 +1203,11 @@ def create_router(
             except asyncio.CancelledError:
                 pass
             uploads.close()
+            with terminal_clients_lock:
+                closing_terminals = tuple(terminal_clients.values())
+                terminal_clients.clear()
+            for terminal_client in closing_terminals:
+                terminal_client.disconnect()
             if not await asyncio.to_thread(runtime_installations.close):
                 logger.warning(
                     "Managed runtime shutdown has admitted work still stopping"
@@ -1168,6 +1299,19 @@ def create_router(
             or body.maximum_minor < body.minimum_minor
         ):
             raise ProtocolError("protocol_incompatible", 426)
+        build = body.client_build.strip().lower()
+        if build.startswith("row-bot-client-v"):
+            try:
+                build_major = int(
+                    build.removeprefix("row-bot-client-v").split("/", 1)[0]
+                )
+            except ValueError:
+                raise ProtocolError("protocol_incompatible", 426) from None
+            if build_major < 2:
+                raise ProtocolError("protocol_incompatible", 426)
+            compatibility = "current" if build_major == 2 else "newer"
+        else:
+            compatibility = "unknown"
         current = security.handshake(
             context,
             session_id=str(body.client_session_id) if body.client_session_id else None,
@@ -1175,6 +1319,24 @@ def create_router(
         )
         security.rate(current, "query")
         discovery = await call(choices)
+        local_owner = context.is_local_owner and context.direct_loopback
+        if not local_owner:
+            discovery = {
+                **discovery,
+                "capabilities": [
+                    {
+                        **item,
+                        "available": False,
+                        "unavailable_reason": "unavailable",
+                    }
+                    if item["id"] == "computer_use"
+                    else item
+                    for item in discovery["capabilities"]
+                ],
+            }
+        native_attestation = (
+            security.issue_native_attestation(current) if local_owner else None
+        )
         return await respond(
             request,
             dto.HandshakeView,
@@ -1187,12 +1349,330 @@ def create_router(
                 "client_group_id": current.group_id,
                 "csrf_token": current.csrf,
                 "authentication_kind": context.authentication_kind,
+                "client_compatibility": compatibility,
+                "application_capabilities": [
+                    *_APPLICATION_CAPABILITIES,
+                    *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                ],
+                "presentation_capabilities": sorted(
+                    set(body.presentation_features) & _PRESENTATION_FEATURES
+                ),
                 "policy_revision": security.policy_revision,
                 "session_ttl_seconds": max(0, int(current.expires - security.clock())),
-                "native_adapter": {"available": False},
+                "native_adapter": {
+                    "available": local_owner,
+                    "proof_required": True,
+                    "instance_id": security.instance_id if local_owner else None,
+                    "attestation": native_attestation,
+                },
                 "limits": dto.Limits().model_dump(),
                 **discovery,
             },
+        )
+
+    def require_native_local(request: Request, context: AccessContext) -> None:
+        if not context.is_local_owner or not context.direct_loopback:
+            raise ProtocolError("action_denied", 403)
+        # Browsers omit Origin on ordinary same-origin GETs. Keep a supplied
+        # Origin strict, and require it for commands that can change state.
+        origin_required = request.method not in {"GET", "HEAD"} or bool(
+            request.headers.get("origin")
+        )
+        if origin_required and not request_origin_matches(context, request.scope):
+            raise ProtocolError("origin_rejected", 403)
+
+    @router.get("/native/bootstrap")
+    async def native_bootstrap(request: Request) -> JSONResponse:
+        """Expose only the process identity needed to compose a trusted shell.
+
+        This endpoint does not create a client session or native authority.  A
+        loaded React document must still perform the ordinary handshake and
+        exchange its one-shot attestation through the native bridge.
+        """
+        context = await _context(request)
+        require_native_local(request, context)
+        return await respond(
+            request,
+            dto.NativeBootstrapView,
+            {"instance_id": security.instance_id},
+        )
+
+    @router.post("/native/attest")
+    async def native_attest(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeAttestationRequest, 4096)
+        current, revision, grant = security.exchange_native_attestation(
+            body.attestation,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+        )
+        return await respond(
+            request,
+            dto.NativeAttestationView,
+            {
+                "session_id": current.id,
+                "policy_revision": revision,
+                "authority_grant": grant,
+            },
+        )
+
+    @router.post("/native/authorize")
+    async def native_authorize(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeGrantRequest, 4096)
+        if not security.authorize_native_grant(
+            body.authority_grant,
+            session_id=body.session_id,
+            policy_revision=body.policy_revision,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+        ):
+            raise ProtocolError("action_denied", 403)
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/native/revoke")
+    async def native_revoke(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeGrantRequest, 4096)
+        revoked = security.revoke_native_grant(
+            body.authority_grant,
+            session_id=body.session_id,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+        )
+        folder_selections.revoke_window(
+            instance_id=body.instance_id,
+            session_id=body.session_id,
+            window_id=body.window_id,
+        )
+        return await respond(
+            request,
+            dto.NativeRevocationView,
+            {"revoked": revoked},
+        )
+
+    @router.post("/native/selections/complete")
+    async def native_selection_complete(request: Request) -> JSONResponse:
+        """Admit one host-selected path and return only an opaque reference."""
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeSelectionCompleteRequest, 16384)
+
+        def authorized() -> None:
+            if not security.authorize_native_grant(
+                body.authority_grant,
+                session_id=body.session_id,
+                policy_revision=body.policy_revision,
+                instance_id=body.instance_id,
+                window_id=body.window_id,
+                window_epoch=body.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        authorized()
+        from row_bot.application.folder_selections import FolderSelectionScope
+
+        scope = FolderSelectionScope(
+            session_id=body.session_id,
+            instance_id=body.instance_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+            intent=body.intent,
+            conversation_id=body.conversation_id,
+            destination=body.destination,
+            authority_grant=body.authority_grant,
+            policy_revision=body.policy_revision,
+        )
+        selected = Path(body.path)
+        if body.selection_kind == "folder":
+            native_intent = await call(folder_selections.begin_exact, scope)
+            value = await call(
+                folder_selections.complete_exact,
+                native_intent,
+                scope,
+                selected,
+                authorized,
+            )
+            if value.get("status") != "selected":
+                raise ProtocolError("action_denied", 403)
+            return await respond(
+                request,
+                dto.NativeSelectionView,
+                {"reference": value["grant_id"], "kind": "folder"},
+            )
+
+        if body.conversation_id is None or body.intent != "attachment":
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.attachments import read_native_selection
+
+        name, data = await call(read_native_selection, selected)
+        authorized()
+        identity = str(uuid4())
+        value = await call(
+            service.register_attachment,
+            owner_id=security.instance_id,
+            idempotency_key=identity,
+            command_id=identity,
+            client_session_id=body.session_id,
+            conversation_id=body.conversation_id,
+            name=name,
+            data=data,
+            mime_type="application/octet-stream",
+            validate=authorized,
+        )
+        return await respond(
+            request,
+            dto.NativeSelectionView,
+            {"reference": value["attachment_ref"], "kind": "file"},
+        )
+
+    @router.post("/native/terminal/open")
+    async def native_terminal_open(request: Request) -> JSONResponse:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeTerminalOpenRequest, 4096)
+
+        def authorize(authority: Any) -> bool:
+            return security.authorize_native_grant(
+                authority.authority_grant,
+                session_id=authority.session_id,
+                policy_revision=authority.policy_revision,
+                instance_id=authority.instance_id,
+                window_id=authority.window_id,
+                window_epoch=authority.window_epoch,
+            )
+
+        from row_bot.terminal_bridge import TerminalBridge, TerminalClientAuthority
+
+        authority = TerminalClientAuthority(
+            instance_id=body.instance_id,
+            session_id=body.session_id,
+            window_id=body.window_id,
+            window_epoch=body.window_epoch,
+            policy_revision=body.policy_revision,
+            authority_grant=body.authority_grant,
+            conversation_id=body.conversation_id,
+        )
+        bridge = TerminalBridge.get_instance()
+        if not bridge.is_running:
+            bridge.start()
+        client = bridge.open_native_client(
+            authority,
+            authorize=authorize,
+            local_owner=True,
+            direct_loopback=True,
+        )
+        with terminal_clients_lock:
+            if len(terminal_clients) >= 32:
+                client.disconnect()
+                raise ProtocolError("rate_limited", 429)
+            identifier = secrets.token_urlsafe(32)
+            terminal_clients[identifier] = client
+        return await respond(
+            request,
+            dto.NativeTerminalView,
+            {"terminal_id": identifier},
+        )
+
+    @router.post("/native/attachments/{reference}")
+    async def native_attachment_download(reference: str, request: Request) -> Response:
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeGrantRequest, 4096)
+
+        def authorize() -> None:
+            if not security.authorize_native_grant(
+                body.authority_grant,
+                session_id=body.session_id,
+                policy_revision=body.policy_revision,
+                instance_id=body.instance_id,
+                window_id=body.window_id,
+                window_epoch=body.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        authorize()
+        from row_bot.application.attachments import read_attachment
+        from urllib.parse import quote
+
+        metadata, data = await call(read_attachment, reference)
+        authorize()
+        return Response(
+            data,
+            media_type="application/octet-stream",
+            headers={
+                **HEADERS,
+                "Content-Disposition": "attachment; filename*=UTF-8''"
+                + quote(metadata["name"], safe=""),
+            },
+        )
+
+    def terminal_client(identifier: str, current: Any) -> Any:
+        with terminal_clients_lock:
+            client = terminal_clients.get(identifier)
+        if client is None or client.authority.session_id != current.id:
+            raise ProtocolError("not_found", 404)
+        return client
+
+    @router.get("/native/terminals/{terminal_id}")
+    async def native_terminal_read(
+        terminal_id: str,
+        request: Request,
+        cursor: int = 0,
+        max_bytes: int = 65536,
+    ) -> JSONResponse:
+        current = await session(request, lane="observation")
+        try:
+            value = await call(
+                terminal_client(terminal_id, current).read, cursor, max_bytes
+            )
+        except (ValueError, RuntimeError) as exc:
+            raise ProtocolError(str(exc), 403) from exc
+        return await respond(request, dto.NativeTerminalOutput, value)
+
+    @router.post("/native/terminals/{terminal_id}/input")
+    async def native_terminal_input(terminal_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.NativeTerminalInput, 32768)
+        try:
+            await call(terminal_client(terminal_id, current).input, body.data)
+        except (ValueError, RuntimeError) as exc:
+            raise ProtocolError(str(exc), 403) from exc
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/native/terminals/{terminal_id}/resize")
+    async def native_terminal_resize(
+        terminal_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.NativeTerminalResize, 4096)
+        try:
+            await call(
+                terminal_client(terminal_id, current).resize, body.cols, body.rows
+            )
+        except (ValueError, RuntimeError) as exc:
+            raise ProtocolError(str(exc), 403) from exc
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.delete("/native/terminals/{terminal_id}")
+    async def native_terminal_disconnect(
+        terminal_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="control")
+        client = terminal_client(terminal_id, current)
+        with terminal_clients_lock:
+            terminal_clients.pop(terminal_id, None)
+        await call(client.disconnect)
+        return await respond(
+            request,
+            dto.NativeTerminalClosed,
+            {"disconnected": True},
         )
 
     def dictation_transport() -> Any:
@@ -1281,6 +1761,16 @@ def create_router(
                 "native_capture_available": False,
                 "reason": "host_unavailable",
             }
+        )
+        value.update(
+            talk_available=getattr(service, "talk", None) is not None,
+            realtime_available=getattr(service, "realtime", None) is not None,
+            talk_reason="available"
+            if getattr(service, "talk", None) is not None
+            else "host_unavailable",
+            realtime_reason="available"
+            if getattr(service, "realtime", None) is not None
+            else "host_unavailable",
         )
         return await respond(request, dto.DictationCapability, value)
 
@@ -1903,6 +2393,26 @@ def create_router(
         result = await call(read_browser_controls, conversation_id, validate=validate)
         return await respond(request, dto.BrowserControlSnapshot, result)
 
+    @router.get("/conversations/{conversation_id}/browser/preview")
+    async def browser_control_preview(
+        conversation_id: str, request: Request, revision: str
+    ) -> JSONResponse:
+        current = await session(request, lane="view")
+        validate, _validate_action, _authority_id = await browser_control_authority(
+            conversation_id, request, current
+        )
+        from row_bot.application.client_browser_controls import read_browser_preview
+
+        result = await call(
+            read_browser_preview,
+            conversation_id,
+            revision,
+            validate=validate,
+        )
+        response = await respond(request, dto.BrowserPreview, result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @router.post("/conversations/{conversation_id}/browser/review")
     async def browser_control_review(
         conversation_id: str, request: Request
@@ -2137,6 +2647,56 @@ def create_router(
         await readable_conversation(conversation_id)
         return await respond(request, dto.ConversationWorkspace, result)
 
+    @router.post("/conversations/{conversation_id}/composer/query")
+    async def composer_query(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        body = await _body(request, dto.ConversationComposerQuery, 20 * 1024)
+        from row_bot.application.conversation_composer import read_conversation_composer
+
+        validate = dictation_validation(request, current, conversation_id)
+        result = await call(
+            read_conversation_composer,
+            conversation_id,
+            draft=body.draft,
+            command_query=body.command_query,
+            command_limit=body.command_limit,
+            validate=validate,
+        )
+        await readable_conversation(conversation_id)
+        return await respond(request, dto.ConversationComposer, result)
+
+    @router.post("/conversations/{conversation_id}/composer/command")
+    async def composer_command(conversation_id: str, request: Request) -> JSONResponse:
+        await session(request, lane="view")
+        body = await _body(request, dto.SlashCommandRead, 1024)
+        await readable_conversation(conversation_id)
+        if body.command_id in {"status", "tools"}:
+            from row_bot.tools.row_bot_status_tool import _row_bot_status
+
+            text = _row_bot_status(
+                "overview" if body.command_id == "status" else "tools"
+            )
+            title = "Status" if body.command_id == "status" else "Tools"
+        elif body.command_id == "profiles":
+            from row_bot.agent_commands import format_agent_profiles
+
+            title, text = "Agent Profiles", format_agent_profiles()
+        elif body.command_id == "agents":
+            from row_bot.agent_commands import format_agents_status
+
+            title = "Agents"
+            text = format_agents_status(parent_thread_id=conversation_id)
+        else:
+            from row_bot.slash_commands import help_text
+
+            title, text = "Slash Commands", help_text(include_skills=True)
+        await readable_conversation(conversation_id)
+        return await respond(
+            request,
+            dto.SlashCommandResult,
+            {"command_id": body.command_id, "title": title, "text": str(text)[:16384]},
+        )
+
     @router.get("/conversations/{conversation_id}/delegated")
     async def delegated_activity(
         conversation_id: str, request: Request, cursor: str | None = None
@@ -2293,6 +2853,8 @@ def create_router(
             in {
                 "task.create",
                 "task.update",
+                "task.delete",
+                "task.delivery.update",
                 "task.graph.update",
                 "task.settings.update",
                 "task.webhook.rotate",
@@ -2374,6 +2936,7 @@ def create_router(
         await _context(request)
         validate_access = dispatch_validation(request, current)
         folder = None
+        native_folder_scope = None
         if (
             body.type == "resource.setup"
             and body.payload.get("intent") == "new_conversation"
@@ -2390,9 +2953,32 @@ def create_router(
                 or not context.direct_loopback
             ):
                 raise ProtocolError("action_denied", 403)
-            folder = await call(
-                folder_selections.resolve, body.payload["folder_grant"], current.id
+
+            def validate_native_folder(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            exact = await call(
+                folder_selections.consume_exact_resource,
+                body.payload["folder_grant"],
+                current.id,
+                validate_native_folder,
             )
+            if exact is None:
+                folder = await call(
+                    folder_selections.resolve,
+                    body.payload["folder_grant"],
+                    current.id,
+                )
+            else:
+                folder, native_folder_scope = exact
 
         def validate_dispatch() -> None:
             validate_access()
@@ -2406,7 +2992,12 @@ def create_router(
                     str(body.command_id),
                 )
             if folder is not None:
-                folder_selections.resolve(body.payload["folder_grant"], current.id)
+                if native_folder_scope is not None:
+                    validate_native_folder(native_folder_scope)
+                    if not folder.path.is_dir():
+                        raise ProtocolError("resource_unavailable", 404)
+                else:
+                    folder_selections.resolve(body.payload["folder_grant"], current.id)
             if approval and (
                 not previous or previous.get("status") not in {"completed", "accepted"}
             ):
@@ -2930,6 +3521,11 @@ def create_router(
             command=wire,
             target=target,
             validate=validate_dispatch,
+            runtime_surface=(
+                "normal_chat"
+                if (await _context(request)).is_local_owner
+                else "remote_client"
+            ),
             **(
                 {"validate_approval": validate_task_approval}
                 if body.type == "task.approval"
@@ -2947,7 +3543,7 @@ def create_router(
             ),
             **(
                 {"resolve_upload": resolve_asset_upload}
-                if body.type == "artifact.asset.upload"
+                if body.type in {"artifact.asset.upload", "artifact.document.import"}
                 else {}
             ),
             **({"authorized_folder": folder} if folder is not None else {}),
@@ -2974,6 +3570,19 @@ def create_router(
     @router.post("/tasks/commands")
     async def task_mutation(request: Request) -> JSONResponse:
         return await command("tasks", request, task_command=True)
+
+    @router.get("/tasks/delivery-defaults")
+    async def task_delivery_defaults(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.task_delivery_controls import (
+            read_task_delivery_defaults,
+        )
+
+        result = await call(
+            read_task_delivery_defaults,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.TaskDeliverySnapshot, result)
 
     @router.get("/tasks/{task_id}/editing")
     async def task_editing(task_id: str, request: Request) -> JSONResponse:
@@ -3202,6 +3811,20 @@ def create_router(
             scope, validate = None, dispatch_validation(request, current)
         result = await call(read_wiki_status, scope=scope, validate=validate)
         return await respond(request, dto.WikiStatus, result)
+
+    @router.post("/settings/wiki/open-folder")
+    async def wiki_open_folder(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        if context.authentication_kind != "local_owner" or not context.direct_loopback:
+            raise ProtocolError("action_denied", 403)
+        from row_bot.application.wiki_commands import open_configured_wiki_folder
+
+        result = await call(
+            open_configured_wiki_folder,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.WikiOpenFolderResult, result)
 
     @router.get("/settings/wiki/articles")
     async def wiki_articles(
@@ -3447,6 +4070,59 @@ def create_router(
         )
         return await respond(request, dto.PluginCatalogPage, result)
 
+    async def plugin_lifecycle_authority(request: Request) -> None:
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("owner_local_only", 403)
+
+    @router.post("/settings/plugins/lifecycle/review")
+    async def plugin_lifecycle_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        await plugin_lifecycle_authority(request)
+        body = await _body(request, dto.PluginLifecycleReviewRequest, 4096)
+        from row_bot.application.client_plugin_lifecycle import review_plugin_lifecycle
+
+        result = await call(
+            review_plugin_lifecycle,
+            body.action,
+            body.plugin_id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.PluginLifecycleReview, result)
+
+    @router.get("/settings/plugins/lifecycle/commands/{command_id}")
+    async def plugin_lifecycle_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        await plugin_lifecycle_authority(request)
+        from row_bot.application.client_plugin_lifecycle import read_plugin_lifecycle_receipt
+
+        result = await call(
+            read_plugin_lifecycle_receipt,
+            str(command_id),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.PluginLifecycleReceipt, result)
+
+    @router.post("/settings/plugins/lifecycle/commands")
+    async def plugin_lifecycle_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        await plugin_lifecycle_authority(request)
+        body = await _body(request, dto.PluginLifecycleCommand, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_plugin_lifecycle import execute_plugin_lifecycle
+
+        result = await call(
+            execute_plugin_lifecycle,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.PluginLifecycleReceipt, result)
+
     @router.get("/settings/plugins/{plugin_id}")
     async def plugin_detail(plugin_id: str, request: Request) -> JSONResponse:
         current = await session(request)
@@ -3503,7 +4179,7 @@ def create_router(
     async def plugin_command(plugin_id: str, request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.Command, 128 * 1024)
-        kinds = {"plugin.enable", "plugin.disable", "plugin.configure"}
+        kinds = {"plugin.enable", "plugin.disable", "plugin.configure", "plugin.test"}
         if (
             body.type not in kinds
             or str(body.client_session_id) != current.id
@@ -3542,6 +4218,8 @@ def create_router(
         request: Request,
         query: str = "",
         source: str | None = None,
+        filter: str = "all",
+        sort: str = "name",
         cursor: str | None = None,
         limit: int = 50,
     ) -> JSONResponse:
@@ -3552,11 +4230,153 @@ def create_router(
             read_skill_library,
             query=query,
             source=source,
+            filter=filter,
+            sort=sort,
             cursor=cursor,
             limit=limit,
             validate=dispatch_validation(request, current),
         )
         return await respond(request, dto.SkillPage, result)
+
+    @router.post("/settings/skills/hub/search")
+    async def skill_hub_search(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillHubSearchRequest, 4096)
+        from row_bot.application.client_skill_hub import (
+            SkillHubCommandError,
+            search_public_skills,
+        )
+
+        try:
+            result = await call(
+                search_public_skills,
+                owner_id=current.id,
+                query=body.query,
+                source=body.source,
+                refresh=body.refresh,
+            )
+        except SkillHubCommandError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
+        return await respond(request, dto.SkillHubSearchResult, result)
+
+    @router.post("/settings/skills/hub/preview")
+    async def skill_hub_preview(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillHubPreviewRequest, 4096)
+        from row_bot.application.client_skill_hub import (
+            SkillHubCommandError,
+            preview_public_skill,
+        )
+
+        try:
+            result = await call(
+                preview_public_skill,
+                owner_id=current.id,
+                revision=body.revision,
+                entry_id=body.entry_id,
+            )
+        except SkillHubCommandError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
+        return await respond(request, dto.SkillHubPreview, result)
+
+    @router.post("/settings/skills/hub/install")
+    async def skill_hub_install(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillHubInstallCommand, 4096)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_skill_hub import (
+            SkillHubCommandError,
+            install_previewed_skill,
+        )
+
+        try:
+            result = await call(
+                install_previewed_skill,
+                owner_id=current.id,
+                command_id=str(body.command_id),
+                preview_id=body.preview_id,
+                content_hash=body.content_hash,
+                make_available=body.make_available,
+                validate=dispatch_validation(request, current),
+            )
+        except SkillHubCommandError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
+        return await respond(request, dto.SkillHubInstallReceipt, result)
+
+    @router.get("/settings/skills/hub/install/{command_id}")
+    async def skill_hub_install_receipt(
+        command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_skill_hub import (
+            SkillHubCommandError,
+            read_skill_install_receipt,
+        )
+
+        try:
+            result = await call(
+                read_skill_install_receipt,
+                owner_id=current.id,
+                command_id=str(command_id),
+            )
+        except SkillHubCommandError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
+        return await respond(request, dto.SkillHubInstallReceipt, result)
+
+    @router.get("/settings/skills/hub/installed")
+    async def skill_hub_installed(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_skill_hub import read_installed_public_skills
+
+        result = await call(read_installed_public_skills)
+        return await respond(request, dto.SkillHubInstalledPage, result)
+
+    @router.post("/settings/skills/hub/maintenance")
+    async def skill_hub_maintenance(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillHubMaintenanceCommand, 4096)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_skill_hub import (
+            SkillHubCommandError,
+            execute_public_skill_maintenance,
+        )
+
+        try:
+            result = await call(
+                execute_public_skill_maintenance,
+                owner_id=current.id,
+                command_id=str(body.command_id),
+                name=body.name,
+                expected_revision=body.expected_revision,
+                action=body.action,
+                confirmed=body.confirmed,
+                validate=dispatch_validation(request, current),
+            )
+        except SkillHubCommandError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
+        return await respond(request, dto.SkillHubMaintenanceReceipt, result)
+
+    @router.get("/settings/skills/hub/maintenance/{command_id}")
+    async def skill_hub_maintenance_receipt(
+        command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_skill_hub import (
+            SkillHubCommandError,
+            read_skill_maintenance_receipt,
+        )
+
+        try:
+            result = await call(
+                read_skill_maintenance_receipt,
+                owner_id=current.id,
+                command_id=str(command_id),
+            )
+        except SkillHubCommandError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
+        return await respond(request, dto.SkillHubMaintenanceReceipt, result)
 
     @router.get("/settings/skills/items/{skill_id}")
     async def skill_detail(skill_id: str, request: Request) -> JSONResponse:
@@ -3917,6 +4737,394 @@ def create_router(
         )
         return await respond(request, dto.ProfileReceipt, result)
 
+    @router.get("/knowledge/graph")
+    async def knowledge_graph(request: Request, limit: int = 250) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_knowledge_graph
+
+        result = await call(
+            read_knowledge_graph,
+            limit=limit,
+        )
+        return await respond(request, dto.KnowledgeGraphSnapshot, asdict(result))
+
+    @router.get("/monitor")
+    async def monitor_snapshot(request: Request) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        from row_bot.application.client_monitor import read_monitor_snapshot
+
+        result = await call(
+            read_monitor_snapshot,
+            include_logs=context.is_local_owner and context.direct_loopback,
+        )
+        return await respond(request, dto.MonitorSnapshot, result)
+
+    @router.get("/monitor/logs")
+    async def monitor_logs(request: Request, limit: int = 200) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_monitor import read_monitor_logs
+
+        result = await call(read_monitor_logs, limit=limit)
+        return await respond(request, dto.MonitorLogs, result)
+
+    @router.post("/monitor/diagnosis")
+    async def monitor_diagnosis(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_diagnosis import run_system_diagnosis
+
+        result = await call(run_system_diagnosis)
+        return await respond(request, dto.SystemDiagnosis, result)
+
+    @router.get("/system/updates")
+    async def update_snapshot(request: Request) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_updates import read_updates
+
+        return await respond(request, dto.UpdateSnapshot, await call(read_updates))
+
+    @router.post("/system/updates/commands")
+    async def update_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.UpdateCommand, 4096)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_updates import execute_update_choice
+
+        result = await call(
+            execute_update_choice,
+            owner_id=current.id,
+            command_id=str(body.command_id),
+            expected_revision=body.expected_revision,
+            action=body.action,
+            version=body.version,
+        )
+        return await respond(request, dto.UpdateReceipt, result)
+
+    @router.post("/system/updates/installs")
+    async def update_install_start(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.UpdateInstallCommand, 4096)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_updates import start_update_install
+
+        result = await call(
+            start_update_install,
+            owner_id=current.id,
+            command_id=str(body.command_id),
+            expected_revision=body.expected_revision,
+            version=body.version,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.UpdateInstallStatus, result)
+
+    @router.get("/system/updates/installs/{command_id}")
+    async def update_install_status(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_updates import read_update_install
+
+        result = await call(
+            read_update_install, owner_id=current.id, command_id=str(command_id)
+        )
+        return await respond(request, dto.UpdateInstallStatus, result)
+
+    @router.post("/system/updates/installs/{command_id}/cancel")
+    async def update_install_cancel(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_updates import cancel_update_install
+
+        result = await call(
+            cancel_update_install, owner_id=current.id, command_id=str(command_id)
+        )
+        return await respond(request, dto.UpdateInstallStatus, result)
+
+    @router.get("/accounts/github/access")
+    async def github_access(request: Request) -> JSONResponse:
+        current = await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_accounts import read_github_access
+
+        result = await call(read_github_access, owner_id=current.id)
+        return await respond(request, dto.GitHubAccessSnapshot, result)
+
+    @router.post("/accounts/github/access/commands")
+    async def github_access_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.GitHubAccessCommand, 4096)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_accounts import execute_github_access
+
+        result = await call(
+            execute_github_access,
+            owner_id=current.id,
+            command_id=str(body.command_id),
+            expected_revision=body.expected_revision,
+            action=body.action,
+        )
+        return await respond(request, dto.GitHubAccessReceipt, result)
+
+    @router.get("/accounts/github/access/commands/{command_id}")
+    async def github_access_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_accounts import read_github_receipt
+
+        result = await call(
+            read_github_receipt, owner_id=current.id, command_id=str(command_id)
+        )
+        return await respond(request, dto.GitHubAccessReceipt, result)
+
+    @router.get("/accounts/{account}/auth")
+    async def account_auth_snapshot(account: str, request: Request) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_account_oauth import read_account_auth
+
+        result = await call(read_account_auth, account=account)
+        return await respond(request, dto.AccountAuthSnapshot, result)
+
+    @router.post("/accounts/{account}/auth/commands")
+    async def account_auth_command(account: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.AccountAuthCommand, 80000)
+        if body.account != account or request.headers.get("idempotency-key", "") != str(
+            body.command_id
+        ):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_account_oauth import execute_account_auth
+
+        result = await call(
+            execute_account_auth,
+            owner_id=current.id,
+            command_id=str(body.command_id),
+            account=account,
+            action=body.action,
+            expected_revision=body.expected_revision,
+            confirmed=body.confirmed,
+            credentials_json=body.credentials_json,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.AccountAuthReceipt, result)
+
+    @router.get("/accounts/{account}/auth/commands/{command_id}")
+    async def account_auth_receipt(
+        account: str, command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_account_oauth import read_account_auth_receipt
+
+        result = await call(
+            read_account_auth_receipt, owner_id=current.id, command_id=str(command_id)
+        )
+        if result["account"] != account:
+            raise ProtocolError("action_denied", 403)
+        return await respond(request, dto.AccountAuthReceipt, result)
+
+    @router.post("/accounts/{account}/auth/commands/{command_id}/cancel")
+    async def account_auth_cancel(
+        account: str, command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_account_oauth import cancel_account_auth
+
+        result = await call(
+            cancel_account_auth, owner_id=current.id, command_id=str(command_id)
+        )
+        if result["account"] != account:
+            raise ProtocolError("action_denied", 403)
+        return await respond(request, dto.AccountAuthReceipt, result)
+
+    @router.post("/system/migration/scan")
+    async def migration_scan(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.MigrationScanRequest, 8192)
+        from row_bot.application.client_migration import scan_migration
+
+        result = await call(
+            scan_migration,
+            owner_id=current.id,
+            provider=body.provider,
+            source=body.source,
+            target=body.target,
+            include_secrets=body.include_secrets,
+        )
+        return await respond(request, dto.MigrationPreview, result)
+
+    @router.post("/system/migration/review")
+    async def migration_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.MigrationApplyReviewRequest, 524288)
+        from row_bot.application.client_migration import review_migration_apply
+
+        result = await call(
+            review_migration_apply,
+            owner_id=current.id,
+            plan_id=str(body.plan_id),
+            revision=body.revision,
+            selected_ids=body.selected_ids,
+            overwrite=body.overwrite,
+        )
+        return await respond(request, dto.MigrationApplyReview, result)
+
+    @router.post("/system/migration/apply")
+    async def migration_apply(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.MigrationApplyCommand, 524288)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_migration import apply_selected_migration
+
+        result = await call(
+            apply_selected_migration,
+            owner_id=current.id,
+            command_id=str(body.command_id),
+            plan_id=str(body.plan_id),
+            revision=body.revision,
+            review_digest=body.review_digest,
+            selected_ids=body.selected_ids,
+            overwrite=body.overwrite,
+            confirmed=body.confirmed,
+        )
+        return await respond(request, dto.MigrationApplyReceipt, result)
+
+    @router.get("/system/migration/apply/{command_id}")
+    async def migration_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_migration import read_migration_receipt
+
+        result = await call(
+            read_migration_receipt, owner_id=current.id, command_id=str(command_id)
+        )
+        return await respond(request, dto.MigrationApplyReceipt, result)
+
+    @router.get("/setup/onboarding")
+    async def onboarding_snapshot(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_onboarding import read_onboarding
+
+        return await respond(
+            request, dto.OnboardingSnapshot, await call(read_onboarding)
+        )
+
+    @router.post("/setup/onboarding/commands")
+    async def onboarding_command(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.OnboardingCommand, 4096)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_onboarding import execute_onboarding
+
+        result = await call(
+            execute_onboarding,
+            command_id=str(body.command_id),
+            expected_revision=body.expected_revision,
+            action=body.action,
+            profile=body.profile,
+            step=body.step,
+        )
+        return await respond(request, dto.OnboardingReceipt, result)
+
+    @router.post("/monitor/dream/review")
+    async def monitor_dream_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.DreamRunRequest, 4096)
+        from row_bot.application.client_monitor import review_dream_run
+
+        result = await call(
+            review_dream_run,
+            body.snapshot_revision,
+            validate=dispatch_validation(request, current),
+        )
+        result["review_id"] = security.approval_nonce(
+            current,
+            "monitor:dream",
+            result["snapshot_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.DreamRunReview, result)
+
+    @router.get("/monitor/dream/commands/{command_id}")
+    async def monitor_dream_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_monitor import read_dream_command
+
+        result = await call(
+            read_dream_command,
+            owner_id=current.id,
+            command_id=str(command_id),
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.DreamRunReceipt, result)
+
+    @router.post("/monitor/dream/commands")
+    async def monitor_dream_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.DreamRunCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_dream_command", 422)
+        key = request.headers.get("idempotency-key", "")
+        if key != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_monitor import execute_dream_command
+
+        validate_access = dispatch_validation(request, current)
+
+        def validate_review(command: dict, review: dict) -> None:
+            validate_access()
+            security.consume_nonce(
+                current,
+                "monitor:dream",
+                review["snapshot_revision"],
+                review["action_digest"],
+                command["payload"]["review_id"],
+                command["command_id"],
+            )
+
+        result = await call(
+            execute_dream_command,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            key=key,
+            validate=validate_access,
+            validate_review=validate_review,
+        )
+        return await respond(request, dto.DreamRunReceipt, result)
+
     @router.get("/knowledge/entities/editor")
     async def knowledge_editor(
         request: Request, entity_id: str | None = None
@@ -4017,6 +5225,85 @@ def create_router(
             validate_review=validate_review,
         )
         return await respond(request, dto.KnowledgeReceipt, result)
+
+    @router.post("/knowledge/maintenance/review")
+    async def knowledge_maintenance_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.KnowledgeMaintenanceRequest, 64 * 1024)
+        from row_bot.application.knowledge_commands import (
+            read_knowledge_maintenance_review,
+        )
+
+        payload = {
+            "catalog_revision": body.catalog_revision,
+            "targets": [item.model_dump(mode="json") for item in body.targets],
+        }
+        result = await call(
+            read_knowledge_maintenance_review,
+            body.action,
+            payload,
+            validate=dispatch_validation(request, current),
+        )
+        result["review_id"] = security.approval_nonce(
+            current,
+            "knowledge:maintenance",
+            result["catalog_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.KnowledgeMaintenanceReview, result)
+
+    @router.get("/knowledge/maintenance/commands/{command_id}")
+    async def knowledge_maintenance_receipt(
+        command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.knowledge_commands import (
+            read_knowledge_maintenance_command,
+        )
+
+        result = await call(
+            read_knowledge_maintenance_command,
+            owner_id=current.id,
+            command_id=str(command_id),
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.KnowledgeMaintenanceReceipt, result)
+
+    @router.post("/knowledge/maintenance/commands")
+    async def knowledge_maintenance_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.KnowledgeMaintenanceCommand, 64 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("action_denied", 403)
+        key = request.headers.get("idempotency-key", "")
+        if key != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.knowledge_commands import (
+            execute_knowledge_maintenance_command,
+        )
+
+        validate_access = dispatch_validation(request, current)
+
+        def validate_review(_command: dict, review: dict) -> None:
+            validate_access()
+            security.consume_nonce(
+                current,
+                "knowledge:maintenance",
+                review["catalog_revision"],
+                review["action_digest"],
+                body.payload.review_id,
+                str(body.command_id),
+            )
+
+        result = await call(
+            execute_knowledge_maintenance_command,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            key=key,
+            validate=validate_access,
+            validate_review=validate_review,
+        )
+        return await respond(request, dto.KnowledgeMaintenanceReceipt, result)
 
     @router.get("/knowledge/relations")
     async def knowledge_relations(
@@ -4123,6 +5410,9 @@ def create_router(
         request: Request,
         query: str = "",
         entity_type: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
+        tier: str | None = None,
         cursor: str | None = None,
         limit: int = 50,
     ) -> JSONResponse:
@@ -4137,10 +5427,46 @@ def create_router(
                     list_saved_entities,
                     query=query,
                     entity_type=entity_type,
+                    status=status,
+                    source=source,
+                    tier=tier,
                     cursor=cursor,
                     limit=limit,
                 )
             ),
+        )
+
+    @router.get("/knowledge/entities/{entity_id}")
+    async def saved_entity_detail(entity_id: str, request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_saved_entity_detail
+
+        return await respond(
+            request,
+            dto.KnowledgeEntityDetail,
+            asdict(await call(read_saved_entity_detail, entity_id)),
+        )
+
+    @router.get("/knowledge/recalls")
+    async def knowledge_recalls(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_recent_recall_decisions
+
+        return await respond(
+            request,
+            dto.KnowledgeRecallPage,
+            asdict(await call(read_recent_recall_decisions)),
+        )
+
+    @router.get("/knowledge/change-log")
+    async def knowledge_change_log(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.knowledge_views import read_memory_change_log
+
+        return await respond(
+            request,
+            dto.KnowledgeMemoryChangePage,
+            asdict(await call(read_memory_change_log)),
         )
 
     @router.get("/knowledge/documents")
@@ -4264,12 +5590,23 @@ def create_router(
             read_settings_snapshot,
             validate=dispatch_validation(request, current),
         )
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            result["system"]["tunnel"]["main_app_url"] = None
+            result["system"]["tunnel"]["local_owner_control_available"] = False
+            result["system"]["computer_use"]["local_owner_control_available"] = False
         return await respond(request, dto.SettingsSnapshot, result)
 
     @router.post("/settings/snapshot/review")
     async def settings_snapshot_review(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.SettingsMutationRequest, 32768)
+        if body.page == "system" and body.field.startswith(
+            ("tunnel.", "computer_use.")
+        ):
+            context = await _context(request)
+            if not (context.is_local_owner and context.direct_loopback):
+                raise ProtocolError("action_denied", 403)
         from row_bot.application.settings_commands import review_settings_update
 
         result = await call(
@@ -4279,6 +5616,9 @@ def create_router(
             body.field,
             body.value,
             validate=dispatch_validation(request, current),
+            resolve_folder_grant=lambda grant_id: str(
+                folder_selections.resolve(grant_id, current.id).path
+            ),
         )
         result["review_id"] = security.approval_nonce(
             current,
@@ -4309,6 +5649,12 @@ def create_router(
     async def settings_snapshot_command(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.SettingsMutationCommand, 32768)
+        if body.payload.page == "system" and body.payload.field.startswith(
+            ("tunnel.", "computer_use.")
+        ):
+            context = await _context(request)
+            if not (context.is_local_owner and context.direct_loopback):
+                raise ProtocolError("action_denied", 403)
         if request.headers.get("idempotency-key") != str(body.command_id):
             raise ProtocolError("idempotency_mismatch", 409)
         if str(body.client_session_id) != current.id:
@@ -4336,6 +5682,9 @@ def create_router(
             command=wire,
             validate=validate,
             validate_review=validate_review,
+            resolve_folder_grant=lambda grant_id: str(
+                folder_selections.resolve(grant_id, current.id).path
+            ),
         )
         return await respond(request, dto.SettingsMutationReceipt, result)
 
@@ -4389,15 +5738,31 @@ def create_router(
         current = await session(request, lane="mutation")
         from row_bot.providers.catalog import get_provider_definition
         from row_bot.providers.custom import get_custom_endpoint
-        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+        from row_bot.providers.model_catalog_cache import (
+            start_model_catalog_refresh_background,
+        )
 
-        if get_provider_definition(provider_id) is None and get_custom_endpoint(provider_id) is None:
+        if (
+            get_provider_definition(provider_id) is None
+            and get_custom_endpoint(provider_id) is None
+        ):
             raise ProtocolError("not_found", 404)
         await call(dispatch_validation(request, current))
-        started = await call(start_model_catalog_refresh_background, reason="manual", provider_id=provider_id, force=True)
-        return await respond(request, dto.ProviderCatalogRefresh, {
-            "running": True, "started": started, "provider_id": provider_id if started else "",
-        })
+        started = await call(
+            start_model_catalog_refresh_background,
+            reason="manual",
+            provider_id=provider_id,
+            force=True,
+        )
+        return await respond(
+            request,
+            dto.ProviderCatalogRefresh,
+            {
+                "running": True,
+                "started": started,
+                "provider_id": provider_id if started else "",
+            },
+        )
 
     @router.get("/settings/providers/live/refresh")
     async def live_provider_refresh_state(request: Request) -> JSONResponse:
@@ -4405,25 +5770,46 @@ def create_router(
         from row_bot.providers.model_catalog_cache import model_catalog_refresh_state
 
         state = await call(model_catalog_refresh_state)
-        result = state.get("last_result") if isinstance(state.get("last_result"), dict) else {}
+        result = (
+            state.get("last_result")
+            if isinstance(state.get("last_result"), dict)
+            else {}
+        )
         provider_id = str(result.get("provider_id") or "")
-        provider_statuses = result.get("provider_status") if isinstance(result.get("provider_status"), dict) else {}
-        provider = provider_statuses.get(provider_id) if isinstance(provider_statuses.get(provider_id), dict) else {}
+        provider_statuses = (
+            result.get("provider_status")
+            if isinstance(result.get("provider_status"), dict)
+            else {}
+        )
+        provider = (
+            provider_statuses.get(provider_id)
+            if isinstance(provider_statuses.get(provider_id), dict)
+            else {}
+        )
         count = provider.get("count")
         await call(dispatch_validation(request, current))
-        return await respond(request, dto.ProviderCatalogRefresh, {
-            "running": bool(state.get("running")), "started": False,
-            "provider_id": provider_id,
-            "ok": bool(result.get("ok")) if result else None,
-            "model_count": count if type(count) is int and count >= 0 else None,
-            "message": "",
-        })
+        return await respond(
+            request,
+            dto.ProviderCatalogRefresh,
+            {
+                "running": bool(state.get("running")),
+                "started": False,
+                "provider_id": provider_id,
+                "ok": bool(result.get("ok")) if result else None,
+                "model_count": count if type(count) is int and count >= 0 else None,
+                "message": "",
+            },
+        )
 
     @router.post("/settings/providers/live/{provider_id}/runtime-test")
-    async def live_provider_runtime_test(provider_id: str, request: Request) -> JSONResponse:
+    async def live_provider_runtime_test(
+        provider_id: str, request: Request
+    ) -> JSONResponse:
         current = await session(request, lane="mutation")
         if provider_id == "claude_subscription":
-            from row_bot.providers.claude_subscription import run_claude_subscription_runtime_probe as probe
+            from row_bot.providers.claude_subscription import (
+                run_claude_subscription_runtime_probe as probe,
+            )
         elif provider_id == "xai_oauth":
             from row_bot.providers.xai_oauth import run_xai_oauth_runtime_probe as probe
         else:
@@ -4435,10 +5821,17 @@ def create_router(
             result = {"ok": False}
         await call(dispatch_validation(request, current))
         ok = bool(result.get("ok")) if isinstance(result, dict) else False
-        return await respond(request, dto.ProviderRuntimeProbe, {
-            "provider_id": provider_id, "ok": ok,
-            "detail": "Runtime and tool calls work" if ok else "Runtime test failed",
-        })
+        return await respond(
+            request,
+            dto.ProviderRuntimeProbe,
+            {
+                "provider_id": provider_id,
+                "ok": ok,
+                "detail": "Runtime and tool calls work"
+                if ok
+                else "Runtime test failed",
+            },
+        )
 
     @router.post("/settings/providers/commands")
     async def provider_mutation(request: Request) -> JSONResponse:
@@ -5094,6 +6487,18 @@ def create_router(
         )
         return await respond(request, dto.McpConfigurationPage, asdict(result))
 
+    @router.post("/settings/mcp/directory/search")
+    async def mcp_directory_search(request: Request) -> JSONResponse:
+        require_native_local(request, await _context(request))
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpDirectorySearchRequest, 2048)
+        from row_bot.application.client_mcp_directory import search_directory
+
+        result = await call(
+            search_directory, body.query, validate=dispatch_validation(request, current)
+        )
+        return await respond(request, dto.McpDirectoryResult, result)
+
     @router.get("/settings/mcp/catalog")
     async def mcp_tested_catalog(
         request: Request,
@@ -5331,21 +6736,124 @@ def create_router(
             validate_confirmation=confirmation,
         )
 
+    @router.get("/buddy")
+    async def global_buddy_snapshot(request: Request) -> JSONResponse:
+        """Return passive shell Buddy state without choosing a conversation."""
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import read_buddy
+
+        result = await call(
+            read_buddy,
+            validate=dispatch_validation(request, current),
+        )
+        value = asdict(result)
+        value.update(conversation_id=None, activity="idle")
+        return await respond(request, dto.BuddySnapshot, value)
+
+    @router.get("/buddy/packs")
+    async def global_buddy_packs(
+        request: Request, cursor: str | None = None
+    ) -> JSONResponse:
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import list_buddy_packs
+
+        result = await call(
+            list_buddy_packs,
+            cursor=cursor,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.BuddyPackPage, asdict(result))
+
+    @router.get("/buddy/packs/{pack_id}")
+    async def global_buddy_pack(pack_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import _pack
+
+        validate = dispatch_validation(request, current)
+
+        def read() -> dict:
+            validate()
+            result = asdict(_pack(pack_id)[0])
+            validate()
+            return result
+
+        return await respond(request, dto.BuddyPack, await call(read))
+
+    @router.get("/buddy/packs/{pack_id}/media/{asset_id}")
+    async def global_buddy_media(
+        pack_id: str,
+        asset_id: str,
+        revision: str,
+        request: Request,
+    ) -> Response:
+        current = await session(request, lane="view")
+        from row_bot.buddy.client_service import read_buddy_media
+
+        validate = dispatch_validation(request, current)
+        data, content_type = await call(
+            read_buddy_media,
+            pack_id,
+            asset_id,
+            expected_revision=revision,
+            validate=validate,
+        )
+
+        async def chunks() -> Any:
+            for offset in range(0, len(data), EVENT_LIMIT):
+                security.session(await _context(request), current.id, current.csrf)
+                yield data[offset : offset + EVENT_LIMIT]
+
+        return StreamingResponse(
+            chunks(),
+            media_type=content_type,
+            headers={
+                **HEADERS,
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+
     @router.get("/conversations/{conversation_id}/buddy")
     async def buddy_snapshot(conversation_id: str, request: Request) -> JSONResponse:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import read_buddy
 
         result = await call(
             read_buddy, validate=dictation_validation(request, current, conversation_id)
         )
-        return await respond(request, dto.BuddySnapshot, asdict(result))
+        value = asdict(result)
+        snapshot = service.projection.snapshot(conversation_id)
+        generation = snapshot.get("generation") or {}
+        status = generation.get("status")
+        if status == "waiting_approval":
+            activity = "approval"
+        elif status == "stopping":
+            activity = "stopping"
+        elif status in {"stopped", "interrupted"}:
+            activity = "stopped"
+        elif status == "completed":
+            activity = "completed"
+        elif status == "running":
+            cursor = str(max(0, int(snapshot.get("projection_revision") or 0) - 8))
+            recent = service.projection.events_since(conversation_id, cursor).get(
+                "events", []
+            )
+            event_type = recent[-1]["type"] if recent else ""
+            activity = {
+                "tool.activity": "tool",
+                "transcript.delta": "streaming",
+                "generation.error": "error",
+            }.get(event_type, "thinking")
+        else:
+            activity = "idle"
+        value.update(conversation_id=conversation_id, activity=activity)
+        return await respond(request, dto.BuddySnapshot, value)
 
     @router.get("/conversations/{conversation_id}/buddy/packs")
     async def buddy_packs(
         conversation_id: str, request: Request, cursor: str | None = None
     ) -> JSONResponse:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import list_buddy_packs
 
         result = await call(
@@ -5359,7 +6867,7 @@ def create_router(
     async def buddy_pack(
         conversation_id: str, pack_id: str, request: Request
     ) -> JSONResponse:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import _pack
 
         validate = dictation_validation(request, current, conversation_id)
@@ -5382,7 +6890,7 @@ def create_router(
         revision: str,
         request: Request,
     ) -> Response:
-        current = await session(request)
+        current = await session(request, lane="view")
         from row_bot.buddy.client_service import read_buddy_media
 
         data, content_type = await call(
@@ -5805,19 +7313,31 @@ def create_router(
     async def models_settings_state(request: Request) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_models_settings import read_models_settings
-        return await respond(request, dto.ModelsSettingsState, await call(
-            read_models_settings, validate=dispatch_validation(request, current)))
+
+        return await respond(
+            request,
+            dto.ModelsSettingsState,
+            await call(
+                read_models_settings, validate=dispatch_validation(request, current)
+            ),
+        )
 
     @router.post("/settings/models/surface")
     async def models_surface_update(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.ModelSurfaceMutation, 2048)
         from row_bot.application.client_models_settings import update_model_surface
+
         try:
-            result = await call(update_model_surface, body.surface, body.action,
-                selection_ref=body.selection_ref, enabled=body.enabled,
+            result = await call(
+                update_model_surface,
+                body.surface,
+                body.action,
+                selection_ref=body.selection_ref,
+                enabled=body.enabled,
                 camera_index=body.camera_index,
-                validate=dispatch_validation(request, current))
+                validate=dispatch_validation(request, current),
+            )
         except ValueError as exc:
             raise ProtocolError(str(exc), 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
@@ -5827,9 +7347,14 @@ def create_router(
         current = await session(request, lane="mutation")
         body = await _body(request, dto.ModelContextMutation, 2048)
         from row_bot.application.client_models_settings import update_model_context
+
         try:
-            result = await call(update_model_context, body.policy_kind, body.cap,
-                validate=dispatch_validation(request, current))
+            result = await call(
+                update_model_context,
+                body.policy_kind,
+                body.cap,
+                validate=dispatch_validation(request, current),
+            )
         except ValueError as exc:
             raise ProtocolError(str(exc), 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
@@ -5838,17 +7363,27 @@ def create_router(
     async def models_agent_settings(request: Request) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_models_settings import read_agent_settings
-        return await respond(request, dto.AgentRuntimeSettingsState, await call(
-            read_agent_settings, validate=dispatch_validation(request, current)))
+
+        return await respond(
+            request,
+            dto.AgentRuntimeSettingsState,
+            await call(
+                read_agent_settings, validate=dispatch_validation(request, current)
+            ),
+        )
 
     @router.post("/settings/models/agents")
     async def models_agent_settings_save(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.AgentRuntimeSettingsState, 2048)
         from row_bot.application.client_models_settings import save_agent_settings
+
         try:
-            result = await call(save_agent_settings, body.model_dump(mode="json"),
-                validate=dispatch_validation(request, current))
+            result = await call(
+                save_agent_settings,
+                body.model_dump(mode="json"),
+                validate=dispatch_validation(request, current),
+            )
         except ValueError as exc:
             raise ProtocolError("invalid_agent_settings", 422) from exc
         return await respond(request, dto.AgentRuntimeSettingsState, result)
@@ -5857,17 +7392,25 @@ def create_router(
     async def models_agent_settings_reset(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         from row_bot.application.client_models_settings import save_agent_settings
-        result = await call(save_agent_settings, None,
-            validate=dispatch_validation(request, current))
+
+        result = await call(
+            save_agent_settings, None, validate=dispatch_validation(request, current)
+        )
         return await respond(request, dto.AgentRuntimeSettingsState, result)
 
     @router.get("/settings/models/catalog-summary")
-    async def models_catalog_summary(request: Request, surface: str = "chat") -> JSONResponse:
+    async def models_catalog_summary(
+        request: Request, surface: str = "chat"
+    ) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_models_settings import catalog_provider_summary
+
         try:
-            result = await call(catalog_provider_summary, surface,
-                validate=dispatch_validation(request, current))
+            result = await call(
+                catalog_provider_summary,
+                surface,
+                validate=dispatch_validation(request, current),
+            )
         except ValueError:
             raise ProtocolError("invalid_model_surface", 422) from None
         return await respond(request, dto.ModelCatalogSummary, result)
@@ -5875,34 +7418,67 @@ def create_router(
     @router.post("/settings/models/refresh")
     async def models_catalog_refresh(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
-        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+        from row_bot.providers.model_catalog_cache import (
+            start_model_catalog_refresh_background,
+        )
+
         await call(dispatch_validation(request, current))
-        started = await call(start_model_catalog_refresh_background,
-            reason="manual", force=True)
-        return await respond(request, dto.ProviderCatalogRefresh, {
-            "running": True, "started": started, "provider_id": ""})
+        started = await call(
+            start_model_catalog_refresh_background, reason="manual", force=True
+        )
+        return await respond(
+            request,
+            dto.ProviderCatalogRefresh,
+            {"running": True, "started": started, "provider_id": ""},
+        )
 
     @router.post("/settings/models/cameras/refresh")
     async def models_cameras_refresh(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         from row_bot.vision import list_cameras
+
         result = await call(list_cameras)
         await call(dispatch_validation(request, current))
-        return await respond(request, dto.ModelCameraList, {
-            "cameras": [camera for camera in result if type(camera) is int and 0 <= camera <= 64][:65]})
+        return await respond(
+            request,
+            dto.ModelCameraList,
+            {
+                "cameras": [
+                    camera
+                    for camera in result
+                    if type(camera) is int and 0 <= camera <= 64
+                ][:65]
+            },
+        )
 
     @router.get("/settings/models/catalog")
-    async def models_catalog_page(request: Request, surface: str = "chat",
-                                  provider_id: str | None = None, query: str = "",
-                                  cursor: str | None = None) -> JSONResponse:
+    async def models_catalog_page(
+        request: Request,
+        surface: str = "chat",
+        provider_id: str | None = None,
+        query: str = "",
+        cursor: str | None = None,
+    ) -> JSONResponse:
         current = await session(request)
-        from row_bot.providers.client_status import ProviderStatusError, list_cached_models
+        from row_bot.providers.client_status import (
+            ProviderStatusError,
+            list_cached_models,
+        )
+
         try:
-            result = await call(list_cached_models, surface=surface,
-                provider_id=provider_id, query=query, cursor=cursor, limit=80,
-                readiness=True)
+            result = await call(
+                list_cached_models,
+                surface=surface,
+                provider_id=provider_id,
+                query=query,
+                cursor=cursor,
+                limit=80,
+                readiness=True,
+            )
         except ProviderStatusError as exc:
-            raise ProtocolError(exc.code, 410 if exc.code == "cursor_expired" else 422) from None
+            raise ProtocolError(
+                exc.code, 410 if exc.code == "cursor_expired" else 422
+            ) from None
         await call(dispatch_validation(request, current))
         return await respond(request, dto.CachedModelPage, asdict(result))
 
@@ -6103,6 +7679,58 @@ def create_router(
             raise ProtocolError("resource_binding_revoked", 403)
         return await respond(request, dto.ArtifactEditingState, asdict(result))
 
+    @router.get("/conversations/{conversation_id}/artifacts/{binding_id}/palette")
+    async def artifact_palette(
+        conversation_id: str,
+        binding_id: str,
+        request: Request,
+        expected_revision: str,
+        query: str = "",
+    ) -> JSONResponse:
+        await session(request, lane="view")
+        if not 1 <= len(expected_revision) <= 128 or len(query) > 128:
+            raise ProtocolError("invalid_command", 422)
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        from row_bot.designer.client_palette import read_palette
+
+        result = await call(
+            read_palette,
+            identity,
+            expected_revision=expected_revision,
+            query=query,
+        )
+        if (
+            await call(bound_resource, conversation_id, binding_id, "artifact")
+            != identity
+        ):
+            raise ProtocolError("resource_binding_revoked", 403)
+        return await respond(request, dto.DesignerPalette, result)
+
+    @router.post("/conversations/{conversation_id}/artifacts/{binding_id}/document-import-preview")
+    async def artifact_document_import_preview(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="view")
+        body = await _body(request, dto.ArtifactDocumentImportPreviewRequest, 4096)
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        validate = dispatch_validation(request, current)
+        data = await call(
+            uploads.read_staged, current.id, str(body.upload_id),
+            conversation_id=conversation_id, name=body.filename, validate=validate,
+        )
+        if len(data) != body.size_bytes or hashlib.sha256(data).hexdigest() != body.sha256:
+            raise ProtocolError("upload_identity_conflict", 409)
+        from row_bot.designer.client_import import preview_document
+
+        result = await call(
+            preview_document, identity, expected_revision=body.expected_revision,
+            filename=body.filename, data=data,
+        )
+        await call(validate)
+        if await call(bound_resource, conversation_id, binding_id, "artifact") != identity:
+            raise ProtocolError("resource_binding_revoked", 403)
+        return await respond(request, dto.ArtifactDocumentImportPreview, asdict(result))
+
     @router.get("/conversations/{conversation_id}/artifacts/{binding_id}/lifecycle")
     async def artifact_lifecycle(
         conversation_id: str,
@@ -6172,7 +7800,7 @@ def create_router(
     ) -> JSONResponse:
         from row_bot.designer.client_design_controls import read_controls
 
-        if section not in {"elements", "assets", "fonts", "presets", "interactions"}:
+        if section not in {"elements", "assets", "fonts", "presets", "interactions", "blocks"}:
             raise ProtocolError("invalid_design_control", 422)
         return await design_view(
             conversation_id,
@@ -6755,6 +8383,124 @@ def create_router(
         )
         return await respond(request, dto.DeveloperRepositoryReceipt, result)
 
+    async def insight_authority(request: Request) -> None:
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("owner_local_only", 403)
+
+    @router.get("/insights")
+    async def insights_snapshot(request: Request) -> JSONResponse:
+        current = await session(request)
+        await insight_authority(request)
+        from row_bot.application.client_insights import read_insights
+
+        return await respond(
+            request,
+            dto.InsightsSnapshot,
+            await call(read_insights, validate=dispatch_validation(request, current)),
+        )
+
+    @router.get("/insights/commands/{command_id}")
+    async def insight_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        await insight_authority(request)
+        from row_bot.application.client_insights import read_insight_receipt
+
+        result = await call(
+            read_insight_receipt,
+            str(command_id),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.InsightReceipt, result)
+
+    @router.post("/insights/commands")
+    async def insight_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        await insight_authority(request)
+        body = await _body(request, dto.InsightCommand, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_insights import execute_insight
+
+        result = await call(
+            execute_insight,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.InsightReceipt, result)
+
+    async def custom_tool_authority(
+        conversation_id: str, binding_id: str, request: Request, current: Any
+    ) -> tuple[str, Callable[[], None]]:
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("owner_local_only", 403)
+        return await import_authority(conversation_id, binding_id, request, current)
+
+    @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools")
+    async def custom_tool_snapshot(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        identity, validate = await custom_tool_authority(
+            conversation_id, binding_id, request, current
+        )
+        from row_bot.developer.client_custom_tools import read_custom_tools
+
+        result = await call(read_custom_tools, identity, conversation_id, validate=validate)
+        return await respond(request, dto.CustomToolSnapshot, result)
+
+    @router.get(
+        "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands/{command_id}"
+    )
+    async def custom_tool_receipt(
+        conversation_id: str, binding_id: str, command_id: UUID, request: Request
+    ) -> JSONResponse:
+        current = await session(request)
+        identity, validate = await custom_tool_authority(
+            conversation_id, binding_id, request, current
+        )
+        from row_bot.developer.client_custom_tools import read_custom_tool_receipt
+
+        result = await call(
+            read_custom_tool_receipt,
+            identity,
+            conversation_id,
+            str(command_id),
+            owner_id=current.id,
+            validate=validate,
+        )
+        return await respond(request, dto.CustomToolReceipt, result)
+
+    @router.post("/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands")
+    async def custom_tool_command(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.CustomToolCommand, 64 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        identity, validate = await custom_tool_authority(
+            conversation_id, binding_id, request, current
+        )
+        from row_bot.developer.client_custom_tools import execute_custom_tool
+
+        result = await call(
+            execute_custom_tool,
+            identity,
+            conversation_id,
+            body.model_dump(mode="json"),
+            owner_id=current.id,
+            validate=validate,
+        )
+        return await respond(request, dto.CustomToolReceipt, result)
+
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/imports")
     async def workspace_imports(
         conversation_id: str,
@@ -7263,6 +9009,12 @@ def create_router(
                 "revision",
                 "expires_at",
                 "summary",
+                "action_label",
+                "reason",
+                "risk_class",
+                "scope",
+                "safe_argument_summary",
+                "requesting_trace_id",
                 "policy_revision",
             )
             if k in view
@@ -7565,6 +9317,17 @@ def create_router(
         current = await session(request, lane="control")
         await call(uploads.cancel, current.id, upload_id)
         return await respond(request, dto.UploadCancelled, {"cancelled": True})
+
+    @router.get("/attachments/{reference}/metadata")
+    async def attachment_metadata(reference: str, request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.attachments import inspect_attachment
+
+        return await respond(
+            request,
+            dto.AttachmentView,
+            await call(inspect_attachment, reference),
+        )
 
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:

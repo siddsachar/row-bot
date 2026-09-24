@@ -164,10 +164,44 @@
     "NativeAdapter": {
       "additionalProperties": false,
       "properties": {
+        "attestation": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attestation"
+        },
         "available": {
-          "const": false,
           "default": false,
           "title": "Available",
+          "type": "boolean"
+        },
+        "instance_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instance Id"
+        },
+        "proof_required": {
+          "const": true,
+          "default": true,
+          "title": "Proof Required",
           "type": "boolean"
         }
       },
@@ -177,6 +211,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "application_capabilities": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9:_-]+$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Application Capabilities",
+      "type": "array"
+    },
     "authentication_kind": {
       "enum": [
         "local_owner",
@@ -197,6 +242,16 @@
       "default": true,
       "title": "Catalog Stale",
       "type": "boolean"
+    },
+    "client_compatibility": {
+      "default": "unknown",
+      "enum": [
+        "current",
+        "newer",
+        "unknown"
+      ],
+      "title": "Client Compatibility",
+      "type": "string"
     },
     "client_group_id": {
       "format": "uuid",
@@ -244,6 +299,17 @@
       "pattern": "^(0|[1-9][0-9]{0,19})$",
       "title": "Policy Revision",
       "type": "string"
+    },
+    "presentation_capabilities": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9:_-]+$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Presentation Capabilities",
+      "type": "array"
     },
     "protocol_version": {
       "const": "1.0",

@@ -11,7 +11,14 @@ const mock = vi.hoisted(() => ({
     handshake: { models: [] as ModelChoice[] },
   },
   version: 1,
-  controller: { intent: vi.fn(), getSelectionVersion: vi.fn() },
+  drafts: new Map<string, { text: string; attachments: [] }>(),
+  controller: {
+    intent: vi.fn(),
+    getSelectionVersion: vi.fn(),
+    skills: vi.fn(),
+    getDraft: vi.fn(),
+    setDraft: vi.fn(),
+  },
 }));
 vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
@@ -22,6 +29,21 @@ beforeEach(() => {
   mock.version = 1;
   mock.controller.getSelectionVersion.mockImplementation(() => mock.version);
   mock.controller.intent.mockResolvedValue({ status: 'completed' });
+  mock.controller.skills.mockResolvedValue({
+    schema_version: 1,
+    revision: 'skills-a',
+    availability: 'available',
+    items: [],
+    total: 0,
+    next_cursor: null,
+  });
+  mock.drafts.clear();
+  mock.controller.getDraft.mockImplementation(
+    (id: string) => mock.drafts.get(id) ?? { text: '', attachments: [] as [] },
+  );
+  mock.controller.setDraft.mockImplementation((id, draft) =>
+    mock.drafts.set(id, draft),
+  );
   mock.state.status = 'ready';
   mock.state.selectedConversationId = 'conversation-a';
   mock.state.handshake.models = [

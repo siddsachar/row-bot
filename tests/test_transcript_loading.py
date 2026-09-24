@@ -170,6 +170,26 @@ def test_checkpoint_tool_identity_rejects_malformed_metadata_and_preserves_direc
     ]
 
 
+def test_checkpoint_tool_identity_recovers_direct_call_name_when_result_omits_it():
+    from langchain_core.messages import AIMessage, ToolMessage
+    from row_bot.ui.helpers import langchain_messages_to_ui_messages
+
+    ui_messages = langchain_messages_to_ui_messages([
+        AIMessage(content="", tool_calls=[{
+            "id": "direct-call",
+            "name": "fixture_image",
+            "args": {},
+            "type": "tool_call",
+        }]),
+        ToolMessage(content="created", tool_call_id="direct-call"),
+        AIMessage(content="done"),
+    ])
+
+    assert ui_messages[-1]["tool_results"] == [
+        {"name": "fixture_image", "content": "created"},
+    ]
+
+
 def test_langchain_messages_to_ui_messages_does_not_surface_reasoning_only_planning_after_vision_tool():
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from row_bot.ui.helpers import langchain_messages_to_ui_messages

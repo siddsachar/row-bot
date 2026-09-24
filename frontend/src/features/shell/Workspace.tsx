@@ -52,8 +52,9 @@ import {
   type PanelPlacement,
 } from '../panels/model';
 import { PanelSubscriptions } from '../panels/subscriptions';
-import { useWorkspaceLayout } from './layout';
+import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import Commands from './Commands';
+import BuddySurface from '../buddy/BuddySurface';
 import Navigation from './Navigation';
 import Home from './Home';
 import useNewChat from './useNewChat';
@@ -62,6 +63,7 @@ import Conversation from './Conversation';
 import ResourceSetup from './ResourceSetup';
 import ResourcePanel from '../panels/ResourcePanel';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
+import NativeTerminal from '../panels/NativeTerminal';
 import { WorkspaceActionsContext } from './workspace-actions';
 
 const subscriptions = new PanelSubscriptions();
@@ -144,6 +146,7 @@ function BrowserPanel({ visible }: { visible: boolean }) {
     <BrowserLiveControls
       session={session}
       load={controller.browserControls}
+      loadPreview={controller.browserPreview}
       review={(action, payload, signal) =>
         controller.reviewBrowserControl(conversationId, action, payload, signal)
       }
@@ -166,6 +169,8 @@ function PanelContent({
     <ResourcePanel panel={panel} visible={visible} />
   ) : panel.descriptor.panel_kind === 'browser.live' ? (
     <BrowserPanel visible={visible} />
+  ) : panel.descriptor.panel_kind === 'native.terminal' ? (
+    <NativeTerminal visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -408,14 +413,10 @@ export default function Workspace() {
             })),
             {
               label: 'Reset layout',
-              run: () =>
-                overlay.open({
-                  kind: 'alert',
-                  title: 'Reset layout?',
-                  description: 'Restore panel sizes and close panels.',
-                  confirmLabel: 'Reset layout',
-                  onConfirm: () => update(resetLayout),
-                }),
+              run: () => {
+                overlay.close();
+                update(resetLayout);
+              },
             },
           ]}
         />
@@ -447,6 +448,7 @@ export default function Workspace() {
     visibility();
     return () => document.removeEventListener('visibilitychange', visibility);
   }, [controller]);
+  useEffect(() => bindVisualViewportState(document.documentElement), []);
   useEffect(() => {
     navRef.current?.resize(
       desktop ? (layout.navigation.collapsed ? 48 : layout.navigation.size) : 0,
@@ -720,6 +722,7 @@ export default function Workspace() {
   }
   const navigation = (
     <Navigation
+      showBuddy={desktop && !layout.navigation.collapsed}
       onNewChat={() => void creation.newChat()}
       creatingChat={creation.creatingChat}
       onOpenConversation={() =>
@@ -741,6 +744,11 @@ export default function Workspace() {
       </a>
       <header className="app-header">
         <Brand compact />
+        {(!desktop || layout.navigation.collapsed) && (
+          <div className="shell-buddy-presence">
+            <BuddySurface />
+          </div>
+        )}
         <div className="header-actions">
           <Button
             className="command-trigger"
@@ -786,6 +794,16 @@ export default function Workspace() {
                 resource_kind: resource.binding.kind,
                 resource_revision: resource.resource_revision,
               })),
+              ...(state.handshake?.application_capabilities?.includes(
+                'native:terminal',
+              )
+                ? [
+                    {
+                      panel_kind: 'native.terminal',
+                      title: 'Interactive terminal',
+                    },
+                  ]
+                : []),
               ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
                 ? samplePanels
                 : []),
@@ -840,7 +858,7 @@ export default function Workspace() {
           )}
           {creation.canReview && (
             <Button onClick={creation.reviewMissingReceipt}>
-              Review pending receipt
+              Check pending receipt
             </Button>
           )}
         </aside>
@@ -991,44 +1009,20 @@ export default function Workspace() {
                   ) : null}
                   <Conversation
                     onPanel={showPanel}
+                    onNewChat={() => void creation.newChat()}
                     focusConversationId={creation.focusConversationId}
                     onComposerFocused={creation.onComposerFocused}
+                    firstPrompt={creation.firstPrompt}
+                    onFirstPromptConsumed={creation.onFirstPromptConsumed}
+                    compactContext={!desktop}
                   />
-                  {import.meta.env.VITE_ENABLE_FIXTURES === '1' &&
-                    state.suggestions
-                      .filter(
-                        (item) =>
-                          item.conversation_id ===
-                            state.selectedConversationId &&
-                          item.descriptor.panel_kind.startsWith('fake.'),
-                      )
-                      .map((suggestion) => (
-                        <aside
-                          className="suggestion"
-                          key={panelKey(suggestion.descriptor)}
-                          aria-label="Suggested panel"
-                        >
-                          <p>Suggested: {suggestion.descriptor.title}</p>
-                          <Button
-                            onClick={() => {
-                              showPanel(suggestion.descriptor);
-                              controller.dismissSuggestion(suggestion);
-                            }}
-                          >
-                            Open suggested panel
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              controller.dismissSuggestion(suggestion)
-                            }
-                          >
-                            Dismiss suggestion
-                          </Button>
-                        </aside>
-                      ))}
                 </section>
-                {homeOpen && <Home />}
+                {homeOpen && (
+                  <Home
+                    onExamplePrompt={(prompt) => void creation.newChat(prompt)}
+                    exampleBusy={creation.creatingChat || !!creation.pending}
+                  />
+                )}
                 {compact && !routeOpen && (
                   <section className="compact-tab" aria-label="Compact panel">
                     <Button

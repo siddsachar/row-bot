@@ -7,6 +7,7 @@ import shutil
 
 import pytest
 
+from row_bot.client_assets import load_client_assets
 from scripts.verify_client_assets import PayloadValidationError, main, verify_client_asset_payload
 from tests.subsystem.client_host.test_assets import build  # noqa: F401 - shared deterministic build fixture
 
@@ -19,7 +20,7 @@ def test_valid_payload_output_matches_build_without_writes(build: Path, tmp_path
     before = {path.relative_to(staged).as_posix(): path.read_bytes() for path in staged.rglob("*") if path.is_file()}
     assert main(["--root", str(staged), "--compare", str(build), "--strict"]) == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["asset_count"] == 3
+    assert output["asset_count"] == len(load_client_assets(build))
     assert output["total_bytes"] > 0
     assert len(output["asset_set_sha256"]) == 64
     assert output["strict"] and output["compared"]

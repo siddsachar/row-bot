@@ -60,21 +60,22 @@ function props(extra: Partial<WorkspaceUndoProps> = {}): WorkspaceUndoProps {
     ...extra,
   };
 }
-async function reviewed() {
-  fireEvent.click(screen.getByRole('button', { name: 'Review Undo' }));
-  await screen.findByRole('button', { name: 'Undo these changes' });
+async function started(io: WorkspaceUndoProps) {
+  fireEvent.click(screen.getByRole('button', { name: 'Undo change' }));
+  await waitFor(() => expect(io.apply).toHaveBeenCalledTimes(1));
 }
-it('requires an explicit review and confirmation, displays plain names and retained folders, and cancels without an effect', async () => {
+it('reviews and restores in one click without executing on mount', async () => {
   const io = props();
   render(<WorkspaceUndo {...io} />);
   expect(io.review).not.toHaveBeenCalled();
-  await reviewed();
-  expect(screen.getByText('<script>text.txt')).toBeInTheDocument();
-  expect(screen.getByText('new/nested')).toBeInTheDocument();
+  await started(io);
+  await screen.findByText(/Original files restored/);
+  expect(io.review).toHaveBeenCalledTimes(1);
+  expect(io.apply).toHaveBeenCalledTimes(1);
   expect(document.querySelector('section script')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
-  expect(io.apply).not.toHaveBeenCalled();
-  expect(screen.getByRole('status')).toHaveTextContent('Files are unchanged');
+  expect(
+    screen.queryByRole('button', { name: 'Undo these changes' }),
+  ).toBeNull();
 });
 it('preserves the original immutable nonce and command across partial recovery and remount', async () => {
   const session = new WorkspaceUndoSession('auth:chat:binding');
@@ -91,11 +92,10 @@ it('preserves the original immutable nonce and command across partial recovery a
     ),
   });
   const first = render(<WorkspaceUndo {...io} />);
-  await reviewed();
+  await started(io);
+  await screen.findByText(/Undo is incomplete/);
   mutable.nonce = 'changed';
   mutable.files[0] = 'other.txt';
-  fireEvent.click(screen.getByRole('button', { name: 'Undo these changes' }));
-  await screen.findByText(/Undo is incomplete/);
   expect(session.hasRetained()).toBe(true);
   const [original, command] = vi.mocked(io.apply).mock.calls[0];
   expect(original.nonce).toBe('original-nonce');
@@ -122,10 +122,10 @@ it('admits one in-flight operation and settles it after panel unmount', async ()
     ),
   });
   const first = render(<WorkspaceUndo {...io} />);
-  await reviewed();
-  const button = screen.getByRole('button', { name: 'Undo these changes' });
+  const button = screen.getByRole('button', { name: 'Undo change' });
   fireEvent.click(button);
   fireEvent.click(button);
+  await waitFor(() => expect(io.apply).toHaveBeenCalledTimes(1));
   expect(io.apply).toHaveBeenCalledTimes(1);
   const command = vi.mocked(io.apply).mock.calls[0][1];
   first.unmount();
@@ -139,8 +139,7 @@ it('keeps an uncertain original on an absent or mismatched receipt without resen
     apply: vi.fn().mockRejectedValue(new Error('response lost')),
   });
   render(<WorkspaceUndo {...io} />);
-  await reviewed();
-  fireEvent.click(screen.getByRole('button', { name: 'Undo these changes' }));
+  await started(io);
   await screen.findByText(/outcome is unconfirmed/);
   fireEvent.click(screen.getByRole('button', { name: 'Check Undo receipt' }));
   await screen.findByText(/No confirmed receipt/);
@@ -166,8 +165,7 @@ it('disposal purges private review and ignores late settlement; another auth sco
     ),
   });
   const view = render(<WorkspaceUndo {...io} />);
-  await reviewed();
-  fireEvent.click(screen.getByRole('button', { name: 'Undo these changes' }));
+  await started(io);
   const command = vi.mocked(io.apply).mock.calls[0][1];
   act(() => session.dispose());
   await act(async () => settle(result(command)));
@@ -185,18 +183,19 @@ it('blocks confirmation when policy denies and fences a cancelled late review', 
     review: vi.fn().mockResolvedValue({ ...review, policy_decision: 'block' }),
   });
   render(<WorkspaceUndo {...io} />);
-  await reviewed();
-  expect(
-    screen.getByRole('button', { name: 'Undo these changes' }),
-  ).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo change' }));
+  await screen.findByText('The current policy blocks Undo.');
+  expect(screen.getByText('<script>text.txt')).toBeInTheDocument();
+  expect(screen.getByText('new/nested')).toBeInTheDocument();
+  expect(io.apply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss details' }));
   vi.mocked(io.review).mockImplementation(
     () =>
       new Promise((done) => {
         resolve = done;
       }),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review Undo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo change' }));
   act(() => session.cancelReview());
   await act(async () => resolve(review));
   expect(

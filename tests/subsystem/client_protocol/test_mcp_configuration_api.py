@@ -1,4 +1,5 @@
 """Authenticated MCP saved settings, with isolated files and no live servers."""
+
 # ruff: noqa: F811 -- shared isolated fixtures.
 import copy
 import json
@@ -7,6 +8,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from row_bot.access.config import AccessConfig, DeploymentMode
+from row_bot.access.request_context import SessionIdentity
 from row_bot.api.v1.routes import create_client_platform_app
 from row_bot.api.v1.security import ClientSecurity
 from row_bot.mcp_client import config
@@ -16,55 +19,199 @@ from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 from tests.subsystem.mcp.test_capability_configuration_controls import owner  # noqa: F401
 
 pytestmark = pytest.mark.subsystem
-BASE = '/api/v1/settings/mcp'
+BASE = "/api/v1/settings/mcp"
+
+
+def test_directory_rejects_authenticated_remote_owner_before_search(service, monkeypatch):
+    from row_bot.mcp_client import marketplace
+
+    monkeypatch.setattr(
+        marketplace,
+        "search_marketplace_with_status",
+        lambda *_a, **_kw: pytest.fail("remote directory contacted a source"),
+    )
+    app = create_client_platform_app(
+        service,
+        access_config=AccessConfig(deployment_mode=DeploymentMode.SERVER),
+        session_authenticator=lambda _scope, _provenance: SessionIdentity(
+            "fixture-device", "fixture-session"
+        ),
+        choices=lambda: {"models": [], "capabilities": []},
+    )
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as remote:
+        _, headers = bootstrap(remote)
+        response = remote.post(
+            BASE + "/directory/search", headers=headers, json={"query": "fixture"}
+        )
+        assert response.status_code == 403
+        assert response.json()["code"] == "action_denied"
 
 
 def review(client, headers, intent=None):
-    page = client.get(BASE + '/configuration', headers=headers)
+    page = client.get(BASE + "/configuration", headers=headers)
     assert page.status_code == 200, page.text
-    payload = {'configuration_revision': page.json()['revision'], 'intent': intent or {
-        'operation': 'add', 'fields': {'name': 'Synthetic MCP', 'transport': 'stdio',
-            'command': 'synthetic-command', 'args': ['--synthetic-private-argument'], 'env': {'SYNTHETIC': 'private-value'}}}}
-    response = client.post(BASE + '/configuration/review', headers=headers, json=payload)
+    payload = {
+        "configuration_revision": page.json()["revision"],
+        "intent": intent
+        or {
+            "operation": "add",
+            "fields": {
+                "name": "Synthetic MCP",
+                "transport": "stdio",
+                "command": "synthetic-command",
+                "args": ["--synthetic-private-argument"],
+                "env": {"SYNTHETIC": "private-value"},
+            },
+        },
+    }
+    response = client.post(
+        BASE + "/configuration/review", headers=headers, json=payload
+    )
     assert response.status_code == 200, response.text
-    assert 'private-value' not in response.text
-    return {'command_id': str(uuid4()), 'client_session_id': headers['X-Client-Session'], 'type': 'mcp.configuration.save',
-            'expected_revision': '0', 'payload': {**payload, 'nonce': response.json()['nonce']}}
+    assert "private-value" not in response.text
+    return {
+        "command_id": str(uuid4()),
+        "client_session_id": headers["X-Client-Session"],
+        "type": "mcp.configuration.save",
+        "expected_revision": "0",
+        "payload": {**payload, "nonce": response.json()["nonce"]},
+    }
 
 
-def send(client, headers, body, path=BASE + '/commands'):
-    return client.post(path, headers={**headers, 'Idempotency-Key': body['command_id']}, json=body)
+def send(client, headers, body, path=BASE + "/commands"):
+    return client.post(
+        path, headers={**headers, "Idempotency-Key": body["command_id"]}, json=body
+    )
 
 
 def client_for(service, security=None):
-    return TestClient(create_client_platform_app(service, security=security, choices=lambda: {'models': [], 'capabilities': []}),
-        base_url='http://localhost', client=('127.0.0.1', 12345))
+    return TestClient(
+        create_client_platform_app(
+            service,
+            security=security,
+            choices=lambda: {"models": [], "capabilities": []},
+        ),
+        base_url="http://localhost",
+        client=("127.0.0.1", 12345),
+    )
 
 
-def test_saved_configuration_add_edit_rename_import_preserves_private_launch_fields(service, owner):
+def test_saved_configuration_add_edit_rename_import_preserves_private_launch_fields(
+    service, owner
+):
     with client_for(service) as client:
         _, headers = bootstrap(client)
         body = review(client, headers)
         assert not config.CONFIG_PATH.exists()
         response = send(client, headers, body)
         assert response.status_code == 200, response.text
-        assert response.json()['mcp_configuration']['saved_disabled']
-        page = client.get(BASE + '/configuration', headers=headers).json()
-        assert page['items'][0]['configured_fields'] == ['command', 'args', 'env']
-        assert 'private-value' not in json.dumps(page) + response.text
-        identity = page['items'][0]['server_id']
-        for intent in ({'operation': 'edit', 'server_id': identity, 'fields': {'output_limit': 500}},
-                       {'operation': 'rename', 'server_id': identity, 'fields': {'name': 'Renamed MCP'}},
-                       {'operation': 'import', 'import_json': '{"mcpServers":{"Imported":{"command":"synthetic-other"}}}'}):
+        assert response.json()["mcp_configuration"]["saved_disabled"]
+        page = client.get(BASE + "/configuration", headers=headers).json()
+        assert page["items"][0]["configured_fields"] == ["command", "args", "env"]
+        assert "private-value" not in json.dumps(page) + response.text
+        identity = page["items"][0]["server_id"]
+        for intent in (
+            {
+                "operation": "edit",
+                "server_id": identity,
+                "fields": {"output_limit": 500},
+            },
+            {
+                "operation": "rename",
+                "server_id": identity,
+                "fields": {"name": "Renamed MCP"},
+            },
+            {
+                "operation": "import",
+                "import_json": '{"mcpServers":{"Imported":{"command":"synthetic-other"}}}',
+            },
+        ):
             command = review(client, headers, intent)
             result = send(client, headers, command)
             assert result.status_code == 200, result.text
-        saved = config.read_saved_configuration().document['servers']
-        assert saved['Renamed MCP']['env'] == {'SYNTHETIC': 'private-value'}
-        assert not saved['Renamed MCP']['enabled'] and not saved['Imported']['enabled']
-        receipt = client.get('/api/v1/commands/' + body['command_id'], headers=headers)
+        saved = config.read_saved_configuration().document["servers"]
+        assert saved["Renamed MCP"]["env"] == {"SYNTHETIC": "private-value"}
+        assert not saved["Renamed MCP"]["enabled"] and not saved["Imported"]["enabled"]
+        receipt = client.get("/api/v1/commands/" + body["command_id"], headers=headers)
         assert receipt.status_code == 200, receipt.text
-        assert '_mcp_configuration' not in receipt.text and 'private-value' not in receipt.text
+        assert (
+            "_mcp_configuration" not in receipt.text
+            and "private-value" not in receipt.text
+        )
+
+
+def test_directory_search_requires_click_and_returns_bounded_disabled_template(
+    service, owner, monkeypatch
+):
+    from row_bot.mcp_client import marketplace
+
+    calls = []
+    entry = marketplace.MarketplaceEntry(
+        id="fixture",
+        name="Fixture",
+        description="Test server",
+        source="curated",
+        install={"command": "synthetic-command"},
+    )
+    monkeypatch.setattr(
+        marketplace,
+        "search_marketplace_with_status",
+        lambda query, *, limit: (
+            calls.append(query)
+            or marketplace.MarketplaceSearchResult([entry], "curated")
+        ),
+    )
+    with client_for(service) as client:
+        _, headers = bootstrap(client)
+        assert client.get(BASE + "/configuration", headers=headers).status_code == 200
+        assert calls == []
+        response = client.post(
+            BASE + "/directory/search", headers=headers, json={"query": "fixture"}
+        )
+        assert response.status_code == 200, response.text
+        assert calls == ["fixture"]
+        assert response.json()["items"][0]["name"] == "Fixture"
+        assert not config.CONFIG_PATH.exists()
+    with TestClient(
+        create_client_platform_app(
+            service, choices=lambda: {"models": [], "capabilities": []}
+        ),
+        base_url="http://localhost",
+        client=("198.51.100.42", 12345),
+    ) as remote:
+        denied = remote.post(BASE + "/directory/search", json={"query": "fixture"})
+        assert denied.status_code == 401
+    assert calls == ["fixture"]
+
+
+def test_server_delete_requires_review_and_reuses_original_command(service, owner):
+    config.CONFIG_PATH.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "enabled": True,
+                "servers": {
+                    "Synthetic": {"enabled": False, "command": "synthetic-command"}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    with client_for(service) as client:
+        _, headers = bootstrap(client)
+        page = client.get(BASE + "/configuration", headers=headers).json()
+        value = review(
+            client,
+            headers,
+            {"operation": "delete", "server_id": page["items"][0]["server_id"]},
+        )
+        result = send(client, headers, value)
+        assert result.status_code == 200, result.text
+        assert result.json()["mcp_configuration"]["runtime_cleanup"] == "not_running"
+        assert (
+            client.get(BASE + "/configuration", headers=headers).json()["items"] == []
+        )
+        assert send(client, headers, value).json() == result.json()
 
 
 def test_review_tamper_or_foreign_namespace_cannot_claim_original(service, owner):
@@ -72,31 +219,45 @@ def test_review_tamper_or_foreign_namespace_cannot_claim_original(service, owner
         _, headers = bootstrap(client)
         body = review(client, headers)
         bad = copy.deepcopy(body)
-        bad['payload']['intent']['fields']['command'] = 'different-synthetic'
+        bad["payload"]["intent"]["fields"]["command"] = "different-synthetic"
         response = send(client, headers, bad)
-        assert response.status_code == 409 and response.json()['code'] == 'approval_expired'
+        assert (
+            response.status_code == 409
+            and response.json()["code"] == "approval_expired"
+        )
         assert not config.CONFIG_PATH.exists()
-        assert send(client, headers, body, '/api/v1/settings/providers/commands').status_code == 422
+        assert (
+            send(
+                client, headers, body, "/api/v1/settings/providers/commands"
+            ).status_code
+            == 422
+        )
         assert send(client, headers, body).status_code == 200
 
 
-def test_original_lost_ack_reconciles_without_new_approval_or_file_publication(service, owner, monkeypatch):
+def test_original_lost_ack_reconciles_without_new_approval_or_file_publication(
+    service, owner, monkeypatch
+):
     security = ClientSecurity(service.instance_id)
     with client_for(service, security) as client:
         _, headers = bootstrap(client)
         body = review(client, headers)
         complete = admissions.complete_command
-        monkeypatch.setattr(admissions, 'complete_command', lambda *a, **k: (_ for _ in ()).throw(OSError('Synthetic lost receipt')))
+        monkeypatch.setattr(
+            admissions,
+            "complete_command",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("Synthetic lost receipt")),
+        )
         response = send(client, headers, body)
         assert response.status_code == 503, response.text
         before = config.CONFIG_PATH.read_bytes()
-        monkeypatch.setattr(admissions, 'complete_command', complete)
+        monkeypatch.setattr(admissions, "complete_command", complete)
         security._nonces.clear()
         result = send(client, headers, body)
         assert result.status_code == 200, result.text
-        assert result.json()['status'] == 'completed'
+        assert result.json()["status"] == "completed"
         assert config.CONFIG_PATH.read_bytes() == before
         bad = copy.deepcopy(body)
-        bad['payload']['intent']['fields']['command'] = 'different-synthetic'
+        bad["payload"]["intent"]["fields"]["command"] = "different-synthetic"
         assert send(client, headers, bad).status_code == 409
         assert config.CONFIG_PATH.read_bytes() == before

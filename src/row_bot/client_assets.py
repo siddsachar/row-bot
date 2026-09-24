@@ -18,11 +18,15 @@ from starlette.responses import RedirectResponse, Response
 from row_bot.access.policy import require_authenticated_owner
 
 _HASHED_ASSET = re.compile(r"assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpg|jpeg|webp|ico|woff2?)$")
+_PUBLIC_SHELL_ASSETS = frozenset(
+    {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
+)
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 _MIME = {".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
          ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
          ".webp": "image/webp", ".ico": "image/x-icon", ".woff": "font/woff",
-         ".woff2": "font/woff2", ".html": "text/html"}
+         ".woff2": "font/woff2", ".html": "text/html",
+         ".webmanifest": "application/manifest+json"}
 _MAX_TOTAL_BYTES = 32 * 1024 * 1024
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 
@@ -103,10 +107,16 @@ def load_client_assets(root: Path) -> dict[str, ClientAsset]:
         entries = manifest["files"]
         if not isinstance(entries, dict) or "index.html" not in entries or not 2 <= len(entries) <= 512:
             raise AssetValidationError("invalid_asset_manifest")
+        if not _PUBLIC_SHELL_ASSETS.issubset(entries):
+            raise AssetValidationError("missing_public_shell_asset")
         result: dict[str, ClientAsset] = {}
         total = 0
         for name, entry in entries.items():
-            if name != "index.html" and not _HASHED_ASSET.fullmatch(name):
+            if (
+                name != "index.html"
+                and name not in _PUBLIC_SHELL_ASSETS
+                and not _HASHED_ASSET.fullmatch(name)
+            ):
                 raise AssetValidationError("unhashed_asset")
             if (not isinstance(entry, dict) or set(entry) != {"sha256", "size"}
                     or not isinstance(entry["sha256"], str) or not _DIGEST.fullmatch(entry["sha256"])
@@ -165,13 +175,43 @@ def _shell_headers(content: bytes) -> dict[str, str]:
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
-            "font-src 'self' data:; object-src 'none'; frame-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
+            "font-src 'self' data:; worker-src 'self'; manifest-src 'self'; object-src 'none'; "
+            "frame-src 'self' https://www.youtube-nocookie.com; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
+
+
+def _client_runtime_assets() -> dict[str, ClientAsset]:
+    """Load reviewed local renderers used by typed transcript blocks."""
+
+    from row_bot.runtime_paths import static_dir
+
+    candidates: dict[str, tuple[Path, str]] = {
+        "runtime/mermaid.min.js": (static_dir(), "mermaid.min.js"),
+        "runtime/vis-network.min.js": (static_dir(), "vis-network.min.js"),
+    }
+    try:
+        import plotly
+
+        candidates["runtime/plotly.min.js"] = (
+            Path(plotly.__file__).resolve().parent / "package_data",
+            "plotly.min.js",
+        )
+    except (ImportError, AttributeError, OSError):
+        pass
+    result: dict[str, ClientAsset] = {}
+    for public_name, (root, name) in candidates.items():
+        try:
+            content = _read_regular(root, name, _MAX_FILE_BYTES)
+        except AssetValidationError:
+            continue
+        digest = hashlib.sha256(content).hexdigest()
+        result[public_name] = ClientAsset(content, "text/javascript", digest)
+    return result
 
 
 def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> None:
     """Mount only /app-v2, preserving the host's root, lifespan and access owner.
 
-    Invalid/missing builds give a safe 503 only on the opt-in client. This helper
+    Invalid/missing builds give a safe 503 only on the React client. This helper
     also requires access context itself so accidentally mounting without the
     shared middleware cannot expose the shell or assets.
     """
@@ -184,6 +224,7 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
     except (AssetValidationError, UnicodeError, OSError):
         assets = {}
         shell_headers = {}
+    runtime_assets = _client_runtime_assets()
 
     async def serve(request: Request, path: str = "") -> Response:
         try:
@@ -199,13 +240,40 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
         if not assets:
             return Response("Client preview is not built. Build the local frontend and restart the host.",
                             503, media_type="text/plain", headers=headers)
+        runtime = runtime_assets.get(path)
+        if runtime is not None:
+            return Response(
+                runtime.content if request.method != "HEAD" else b"",
+                media_type=runtime.media_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "ETag": '"' + runtime.sha256 + '"',
+                    "Content-Length": str(len(runtime.content)),
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
         asset = assets.get(path)
         if asset is not None and path != "index.html":
-            return Response(asset.content if request.method != "HEAD" else b"", media_type=asset.media_type,
-                            headers={"Cache-Control": "private, max-age=31536000, immutable",
-                                     "ETag": '"' + asset.sha256 + '"',
-                                     "Content-Length": str(len(asset.content)),
-                                     "X-Content-Type-Options": "nosniff"})
+            cache_control = (
+                "no-cache"
+                if path == "service-worker.js"
+                else "public, max-age=86400"
+                if path in _PUBLIC_SHELL_ASSETS
+                else "public, max-age=31536000, immutable"
+            )
+            headers = {
+                "Cache-Control": cache_control,
+                "ETag": '"' + asset.sha256 + '"',
+                "Content-Length": str(len(asset.content)),
+                "X-Content-Type-Options": "nosniff",
+            }
+            if path == "service-worker.js":
+                headers["Service-Worker-Allowed"] = "/app-v2/"
+            return Response(
+                asset.content if request.method != "HEAD" else b"",
+                media_type=asset.media_type,
+                headers=headers,
+            )
         if path not in {"", "index.html"} and ("." in path or path.startswith("assets/")
                                                 or "text/html" not in request.headers.get("accept", "")):
             return Response("Not found", 404, headers=headers)

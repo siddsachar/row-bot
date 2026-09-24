@@ -7,6 +7,7 @@ import { createClientController } from './api';
 import { selectClientPlatform } from './platform';
 import { RuntimeContext } from './runtime';
 import { bindPageLifecycle } from './page-lifecycle';
+import { PwaStatus } from './pwa';
 import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
@@ -49,6 +50,7 @@ import {
 import './ui/styles.css';
 
 const Gallery = lazy(() => import('./features/shell/Gallery'));
+const Onboarding = lazy(() => import('./features/shell/Onboarding'));
 const SettingRoute = lazy(() => import('./features/settings/SettingRoute'));
 const SettingsIndex = lazy(() => import('./features/settings/SettingsIndex'));
 
@@ -183,7 +185,11 @@ async function start() {
     location.pathname.replace(/^\/app-v2(?:\/|$)/, '/') || '/',
     browserSessionStorage(),
   );
-  let platform = selectClientPlatform(controller, undefined);
+  await controller.start();
+  let platform = await selectClientPlatform(
+    controller,
+    controller.getSnapshot().handshake,
+  );
   const workspaceEditSessions = createWorkspaceEditSessions(controller, {
     capacity: 8,
   });
@@ -308,6 +314,7 @@ async function start() {
   }
   createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
+      <PwaStatus />
       <RenderBoundary>
         <RuntimeContext.Provider
           value={{
@@ -353,6 +360,7 @@ async function start() {
                       element={null}
                     />
                     <Route path="primitives" element={<Gallery />} />
+                    <Route path="setup" element={<Onboarding />} />
                     <Route path="settings" element={<SettingsIndex />} />
                     <Route
                       path="tasks"
@@ -451,7 +459,6 @@ async function start() {
       controller.dispose();
     },
   });
-  void controller.start();
 }
 void start().catch(() => {
   const root = document.getElementById('root')!;

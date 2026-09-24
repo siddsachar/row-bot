@@ -50,18 +50,10 @@ function options() {
     })),
   };
 }
-async function reviewChoice(enabled = true) {
-  const choose = await screen.findByRole('button', {
-    name: enabled ? 'Enable in chat' : 'Disable in chat',
-  });
-  await waitFor(() => expect(choose).toBeEnabled());
-  fireEvent.click(choose);
-  fireEvent.click(screen.getByRole('button', { name: 'Review chat access' }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Save chat access' }),
-    ).toBeEnabled(),
-  );
+async function toggle() {
+  const control = await screen.findByRole('switch', { name: 'Enable in chat' });
+  await waitFor(() => expect(control).toBeEnabled());
+  fireEvent.click(control);
 }
 
 it('mount reads only and distinguishes saved access from connection management', async () => {
@@ -78,13 +70,13 @@ it('mount reads only and distinguishes saved access from connection management',
 });
 
 it.each([true, false])(
-  'reviews then saves the exact %s toggle',
+  'saves the exact %s toggle with one click',
   async (enabled) => {
     const props = options();
+    if (!enabled)
+      props.load.mockResolvedValue({ ...snapshot, saved_enabled: true });
     render(<McpFacadeControls {...props} />);
-    await reviewChoice(enabled);
-    expect(props.execute).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Save chat access' }));
+    await toggle();
     await screen.findByText(
       'Chat access saved. Server connections were not changed.',
     );
@@ -100,15 +92,12 @@ it('preserves the original uncertain command across full remount and checks only
   const props = options();
   props.execute.mockRejectedValueOnce(Error('response lost'));
   let rendered = render(<McpFacadeControls {...props} />);
-  await reviewChoice();
-  fireEvent.click(screen.getByRole('button', { name: 'Save chat access' }));
+  await toggle();
   await screen.findByText(/original save is unconfirmed/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
   rendered = render(<McpFacadeControls {...props} />);
-  expect(
-    screen.getByRole('button', { name: 'Disable in chat' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('switch', { name: 'Enable in chat' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
   await screen.findByText(
     'Chat access saved. Server connections were not changed.',
@@ -123,8 +112,8 @@ it('retains an in-flight command through remount without repeating it', async ()
   const response = deferred<NativeMcpReceipt>();
   props.execute.mockReturnValue(response.promise);
   let rendered = render(<McpFacadeControls {...props} />);
-  await reviewChoice();
-  fireEvent.click(screen.getByRole('button', { name: 'Save chat access' }));
+  await toggle();
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   rendered.unmount();
   rendered = render(<McpFacadeControls {...props} />);
   expect(
@@ -146,8 +135,8 @@ it('auth purge prevents late settlement from restoring saved state or original i
   const response = deferred<NativeMcpReceipt>();
   props.execute.mockReturnValue(response.promise);
   render(<McpFacadeControls {...props} />);
-  await reviewChoice();
-  fireEvent.click(screen.getByRole('button', { name: 'Save chat access' }));
+  await toggle();
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   act(() => props.session.dispose());
   await act(async () =>
     response.resolve({
@@ -180,13 +169,13 @@ it.each(['unavailable', 'registration_unavailable', 'recovery_required'])(
       'Saved access: Unknown. Current chat access: Unknown.',
     );
     expect(
-      screen.getByRole('button', { name: 'Enable in chat' }),
+      screen.getByRole('switch', { name: 'Enable in chat' }),
     ).toBeDisabled();
     expect(props.review).not.toHaveBeenCalled();
   },
 );
 
-it('rejects a mismatched review without enabling Save', async () => {
+it('rejects a mismatched validation without execution', async () => {
   const props = options();
   props.review.mockImplementation(async (payload) => ({
     ...payload,
@@ -195,14 +184,9 @@ it('rejects a mismatched review without enabling Save', async () => {
     action_digest: 'b'.repeat(64),
   }));
   render(<McpFacadeControls {...props} />);
-  const choose = await screen.findByRole('button', { name: 'Enable in chat' });
-  await waitFor(() => expect(choose).toBeEnabled());
-  fireEvent.click(choose);
-  fireEvent.click(screen.getByRole('button', { name: 'Review chat access' }));
-  await screen.findByText(/could not be reviewed/);
-  expect(
-    screen.getByRole('button', { name: 'Save chat access' }),
-  ).toBeDisabled();
+  await toggle();
+  await screen.findByText(/could not be validated/);
+  expect(props.execute).not.toHaveBeenCalled();
 });
 
 it('rejects another command receipt and retains its own uncertain command', async () => {
@@ -212,8 +196,7 @@ it('rejects another command receipt and retains its own uncertain command', asyn
     status: 'completed',
   });
   render(<McpFacadeControls {...props} />);
-  await reviewChoice();
-  fireEvent.click(screen.getByRole('button', { name: 'Save chat access' }));
+  await toggle();
   await screen.findByText(/original save is unconfirmed/);
   expect(props.session.hasRetained()).toBe(true);
 });
@@ -225,8 +208,7 @@ it('a rejected command cannot be blindly retried', async () => {
     status: 'rejected',
   }));
   render(<McpFacadeControls {...props} />);
-  await reviewChoice();
-  fireEvent.click(screen.getByRole('button', { name: 'Save chat access' }));
+  await toggle();
   await screen.findByText(/change was rejected/);
   expect(
     screen.queryByRole('button', { name: 'Check original save' }),

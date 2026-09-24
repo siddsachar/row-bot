@@ -20,6 +20,18 @@ import type {
   Snapshot,
   SubscriptionView,
   TranscriptPage,
+  OnboardingCommand,
+  UpdateCommand,
+  UpdateInstallCommand,
+  MigrationScanRequest,
+  MigrationApplyReviewRequest,
+  MigrationApplyCommand,
+  SkillHubSearchRequest,
+  SkillHubPreviewRequest,
+  SkillHubInstallCommand,
+  SkillHubMaintenanceCommand,
+  GitHubAccessCommand,
+  AccountAuthCommand,
 } from './types';
 
 const INITIAL: ClientState = {
@@ -186,6 +198,10 @@ export class ClientController {
         browser_dictation_available: false,
         native_capture_available: false as const,
         reason: 'host_unavailable' as const,
+        talk_available: false,
+        realtime_available: false,
+        talk_reason: 'host_unavailable',
+        realtime_reason: 'host_unavailable',
       }
     );
   }
@@ -574,6 +590,9 @@ export class ClientController {
         client_session_id: result.client_session_id,
         client_group_id: result.client_group_id,
         authentication_kind: result.authentication_kind,
+        client_compatibility: result.client_compatibility ?? 'unknown',
+        application_capabilities: result.application_capabilities ?? [],
+        presentation_capabilities: result.presentation_capabilities ?? [],
         policy_revision: result.policy_revision,
         session_ttl_seconds: result.session_ttl_seconds,
         native_adapter: result.native_adapter,
@@ -662,6 +681,44 @@ export class ClientController {
           });
       }
     }
+  }
+  /** An explicit library review reads every page without the sidebar's 1,000-row cache cap. */
+  async readConversationLibrary(
+    signal?: AbortSignal,
+  ): Promise<import('./types').ConversationView[]> {
+    if (
+      this.disposed ||
+      !this.online ||
+      !this.state.handshake ||
+      this.state.status !== 'ready'
+    )
+      throw clientError({ code: 'authentication_required' });
+    const authentication = this.authenticationNumber;
+    const rows: import('./types').ConversationView[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      signal?.throwIfAborted();
+      const page = validateWire<import('./types').ConversationPage>(
+        'ConversationPage',
+        await this.transport.listConversations(cursor, signal, 'all'),
+      );
+      if (
+        this.disposed ||
+        authentication !== this.authenticationNumber ||
+        !this.online
+      )
+        throw clientError({ code: 'operation_uncertain' });
+      for (const row of page.items) {
+        if (seen.has(row.id)) throw clientError({ code: 'cursor_expired' });
+        seen.add(row.id);
+        rows.push(row);
+      }
+      if (page.has_more && (!page.next_cursor || page.next_cursor === cursor))
+        throw clientError({ code: 'cursor_expired' });
+      cursor = page.has_more ? (page.next_cursor ?? undefined) : undefined;
+    } while (cursor);
+    return rows;
   }
   async setConversationGroup(
     group: ClientState['conversationGroup'],
@@ -988,8 +1045,9 @@ export class ClientController {
           ? { id: delta.row_id, role: 'assistant' as const, blocks: [] }
           : current.rows[index];
       const text =
-        row.blocks.map((block) => block.text).join('') +
-        delta.public_text_delta;
+        row.blocks
+          .map((block) => ('text' in block ? block.text : ''))
+          .join('') + delta.public_text_delta;
       if (text.length > 262144 || (index < 0 && current.rows.length >= 200))
         return 'reset';
       const changed = {
@@ -1018,7 +1076,12 @@ export class ClientController {
     ].includes(event.type)
       ? [...this.state.activity, record].slice(-200)
       : this.state.activity;
-    this.update({ projection: next, activity });
+    const workspace =
+      event.type === 'context.updated' &&
+      this.state.workspace?.conversation_id === event.conversation_id
+        ? { ...this.state.workspace, context_usage: event.payload }
+        : this.state.workspace;
+    this.update({ projection: next, activity, workspace });
     if (
       event.type === 'tool.activity' &&
       [
@@ -1343,6 +1406,19 @@ export class ClientController {
         this.failed(error);
     }
   }
+  composer = (
+    conversation: string,
+    body: import('./types').ConversationComposerQuery,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.composer?.(conversation, body, signal));
+  composerCommand = (
+    conversation: string,
+    command_id: import('./types').SlashCommandRead['command_id'],
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.composerCommand?.(conversation, { command_id }, signal),
+    );
   private setDraftStatus(id: string, status: ClientState['draftStatus']): void {
     this.draftStates.set(id, status);
     if (this.state.selectedConversationId === id)
@@ -1544,6 +1620,8 @@ export class ClientController {
     });
   mcpConfiguration = (query: string, cursor?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.mcpConfiguration?.(query, cursor, signal));
+  searchMcpDirectory = (query: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.searchMcpDirectory?.(query, signal));
   mcpPolicy = (
     query: { server_id: string | null; query: string; cursor?: string },
     signal?: AbortSignal,
@@ -1635,6 +1713,148 @@ export class ClientController {
     this.query(() => this.transport.defaultModel?.(signal));
   knowledgeEditor = (entity: string | null, signal?: AbortSignal) =>
     this.query(() => this.transport.knowledgeEditor?.(entity, signal));
+  knowledgeEntityDetail = (entity: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeEntityDetail?.(entity, signal));
+  knowledgeRecalls = (signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeRecalls?.(signal));
+  knowledgeChangeLog = (signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeChangeLog?.(signal));
+  knowledgeGraph = (limit = 250, signal?: AbortSignal) =>
+    this.query(() => this.transport.knowledgeGraph?.(limit, signal));
+  monitorSnapshot = (signal?: AbortSignal) =>
+    this.query(() => this.transport.monitorSnapshot?.(signal));
+  monitorLogs = (limit = 200, signal?: AbortSignal) =>
+    this.query(() => this.transport.monitorLogs?.(limit, signal));
+  systemDiagnosis = (signal?: AbortSignal) =>
+    this.query(() => this.transport.systemDiagnosis?.(signal));
+  updates = (signal?: AbortSignal) =>
+    this.query(() => this.transport.updates?.(signal));
+  updateCommand = (command: UpdateCommand, signal?: AbortSignal) =>
+    this.query(() => this.transport.updateCommand?.(command, signal));
+  startUpdateInstall = (command: UpdateInstallCommand, signal?: AbortSignal) =>
+    this.query(() => this.transport.startUpdateInstall?.(command, signal));
+  updateInstall = (commandId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.updateInstall?.(commandId, signal));
+  cancelUpdateInstall = (commandId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.cancelUpdateInstall?.(commandId, signal));
+  scanMigration = (request: MigrationScanRequest, signal?: AbortSignal) =>
+    this.query(() => this.transport.scanMigration?.(request, signal));
+  searchSkillHub = (request: SkillHubSearchRequest, signal?: AbortSignal) =>
+    this.query(() => this.transport.searchSkillHub?.(request, signal));
+  previewSkillHub = (request: SkillHubPreviewRequest, signal?: AbortSignal) =>
+    this.query(() => this.transport.previewSkillHub?.(request, signal));
+  installSkillHub = (command: SkillHubInstallCommand, signal?: AbortSignal) =>
+    this.query(() => this.transport.installSkillHub?.(command, signal));
+  skillHubInstallReceipt = (commandId: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.skillHubInstallReceipt?.(commandId, signal),
+    );
+  skillHubInstalled = (signal?: AbortSignal) =>
+    this.query(() => this.transport.skillHubInstalled?.(signal));
+  skillHubMaintenance = (
+    command: SkillHubMaintenanceCommand,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.skillHubMaintenance?.(command, signal));
+  skillHubMaintenanceReceipt = (commandId: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.skillHubMaintenanceReceipt?.(commandId, signal),
+    );
+  reviewMigration = (
+    request: MigrationApplyReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewMigration?.(request, signal));
+  applyMigration = (command: MigrationApplyCommand, signal?: AbortSignal) =>
+    this.query(() => this.transport.applyMigration?.(command, signal));
+  migrationReceipt = (commandId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.migrationReceipt?.(commandId, signal));
+  githubAccess = (signal?: AbortSignal) =>
+    this.query(() => this.transport.githubAccess?.(signal));
+  githubAccessCommand = (command: GitHubAccessCommand, signal?: AbortSignal) =>
+    this.query(() => this.transport.githubAccessCommand?.(command, signal));
+  githubAccessReceipt = (commandId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.githubAccessReceipt?.(commandId, signal));
+  accountAuth = (account: 'google' | 'x', signal?: AbortSignal) =>
+    this.query(() => this.transport.accountAuth?.(account, signal));
+  accountAuthCommand = (
+    account: 'google' | 'x',
+    command: AccountAuthCommand,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.accountAuthCommand?.(account, command, signal),
+    );
+  accountAuthReceipt = (
+    account: 'google' | 'x',
+    commandId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.accountAuthReceipt?.(account, commandId, signal),
+    );
+  cancelAccountAuth = (
+    account: 'google' | 'x',
+    commandId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.cancelAccountAuth?.(account, commandId, signal),
+    );
+  onboarding = (signal?: AbortSignal) =>
+    this.query(() => this.transport.onboarding?.(signal));
+  onboardingCommand = (command: OnboardingCommand, signal?: AbortSignal) =>
+    this.query(() => this.transport.onboardingCommand?.(command, signal));
+  browserPreview = (
+    conversationId: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.browserPreview?.(conversationId, revision, signal),
+    );
+  reviewDreamRun = (
+    body: import('./types').DreamRunRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewDreamRun?.(body, signal));
+  dreamRunReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.dreamRunReceipt?.(command, signal));
+  executeDreamRun = async (
+    command: import('./types').DreamRunCommand,
+    signal?: AbortSignal,
+  ) => {
+    const result = await this.query(() =>
+      this.transport.executeDreamRun?.(command, signal),
+    );
+    if (result.command_id !== command.command_id)
+      throw clientError({ code: 'operation_uncertain' });
+    return result;
+  };
+  reviewKnowledgeMaintenance = (
+    body: import('./types').KnowledgeMaintenanceRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.reviewKnowledgeMaintenance?.(body, signal));
+  knowledgeMaintenanceReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.knowledgeMaintenanceReceipt?.(command, signal),
+    );
+  executeKnowledgeMaintenance = async (
+    original: Omit<
+      import('./types').KnowledgeMaintenanceCommand,
+      'client_session_id'
+    >,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').KnowledgeMaintenanceCommand>(
+      'KnowledgeMaintenanceCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    return this.authenticatedResult((signal) => {
+      if (!this.transport.executeKnowledgeMaintenance)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeKnowledgeMaintenance(command, signal);
+    });
+  };
   knowledgeRelations = (
     entity: string,
     cursor?: string,
@@ -1718,6 +1938,8 @@ export class ClientController {
   };
   wikiStatus = (folderGrant?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.wikiStatus?.(folderGrant, signal));
+  openWikiFolder = (signal?: AbortSignal) =>
+    this.query(() => this.transport.openWikiFolder?.(signal));
   wikiArticles = (folderGrant: string, cursor?: string, signal?: AbortSignal) =>
     this.query(() =>
       this.transport.wikiArticles?.(folderGrant, cursor, signal),
@@ -1844,12 +2066,53 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     return result;
   };
+  reviewPluginLifecycle = (
+    action: import('./types').PluginLifecycleReviewRequest['action'],
+    pluginId = '',
+    signal?: AbortSignal,
+  ) => {
+    const body = validateWire<import('./types').PluginLifecycleReviewRequest>(
+      'PluginLifecycleReviewRequest',
+      { action, plugin_id: pluginId },
+    );
+    return this.query(() =>
+      this.transport.reviewPluginLifecycle?.(body, signal),
+    );
+  };
+  pluginLifecycleReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.pluginLifecycleReceipt?.(command, signal));
+  executePluginLifecycle = async (
+    original: Omit<
+      import('./types').PluginLifecycleCommand,
+      'client_session_id'
+    >,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').PluginLifecycleCommand>(
+      'PluginLifecycleCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executePluginLifecycle)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executePluginLifecycle(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   skills = (
     query: string,
     source?: string,
     cursor?: string,
+    filter?: string,
+    sort?: string,
     signal?: AbortSignal,
-  ) => this.query(() => this.transport.skills?.(query, source, cursor, signal));
+  ) =>
+    this.query(() =>
+      this.transport.skills?.(query, source, cursor, filter, sort, signal),
+    );
   skill = (skill: string, signal?: AbortSignal) =>
     this.query(() => this.transport.skill?.(skill, signal));
   skillProposals = (signal?: AbortSignal) =>
@@ -2504,6 +2767,21 @@ export class ClientController {
   };
   buddy = (conversation: string, signal?: AbortSignal) =>
     this.query(() => this.transport.buddy?.(conversation, signal));
+  globalBuddy = (signal?: AbortSignal) =>
+    this.query(() => this.transport.globalBuddy?.(signal));
+  globalBuddyPacks = (cursor?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.globalBuddyPacks?.(cursor, signal));
+  globalBuddyPack = (pack: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.globalBuddyPack?.(pack, signal));
+  globalBuddyMedia = (
+    pack: string,
+    asset: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.globalBuddyMedia?.(pack, asset, revision, signal),
+    );
   buddyPacks = (conversation: string, cursor?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.buddyPacks?.(conversation, cursor, signal));
   buddyPack = (conversation: string, pack: string, signal?: AbortSignal) =>
@@ -2858,6 +3136,8 @@ export class ClientController {
     type:
       | 'artifact.design.control'
       | 'artifact.asset.upload'
+      | 'artifact.document.import'
+      | 'artifact.notes.generate'
       | 'artifact.preset.mutate',
     payload: Record<string, unknown>,
     expectedRevision: string,
@@ -2972,6 +3252,26 @@ export class ClientController {
     this.query(() =>
       this.transport.savedEntities?.(query, entityType, cursor, signal),
     );
+  knowledgeEntities = (
+    query = '',
+    entityType?: string,
+    status?: string,
+    source?: string,
+    tier?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.knowledgeEntities?.(
+        query,
+        entityType,
+        status,
+        source,
+        tier,
+        cursor,
+        signal,
+      ),
+    );
   savedDocuments = (
     query = '',
     status?: string,
@@ -2999,6 +3299,8 @@ export class ClientController {
     this.query(() =>
       this.transport.savedTasks?.(query, enabled, cursor, signal),
     );
+  taskDeliveryDefaults = (signal?: AbortSignal) =>
+    this.query(() => this.transport.taskDeliveryDefaults?.(signal));
   taskEditor = (task: string, signal?: AbortSignal) =>
     this.query(() => this.transport.taskEditor?.(task, signal));
   taskGraph = (task: string, signal?: AbortSignal) =>
@@ -3106,6 +3408,71 @@ export class ClientController {
     this.query(() =>
       this.transport.developerRepository?.(conversation, binding, signal),
     );
+  customTools = (conversation: string, binding: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.customTools?.(conversation, binding, signal),
+    );
+  insights = (signal?: AbortSignal) =>
+    this.query(() => this.transport.insights?.(signal));
+  insightReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.insightReceipt?.(command, signal));
+  executeInsight = async (
+    original: Omit<import('./types').InsightCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').InsightCommand>(
+      'InsightCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeInsight)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeInsight(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  customToolReceipt = (
+    conversation: string,
+    binding: string,
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.customToolReceipt?.(
+        conversation,
+        binding,
+        command,
+        signal,
+      ),
+    );
+  executeCustomTool = async (
+    conversation: string,
+    binding: string,
+    original: Omit<import('./types').CustomToolCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').CustomToolCommand>(
+      'CustomToolCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeCustomTool)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeCustomTool(
+        conversation,
+        binding,
+        command,
+        signal,
+      );
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   reviewDeveloperRepository = (
     conversation: string,
     binding: string,
@@ -3616,6 +3983,36 @@ export class ClientController {
         signal,
       ),
     );
+  artifactPalette = (
+    conversation: string,
+    binding: string,
+    expectedRevision: string,
+    query = '',
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactPalette?.(
+        conversation,
+        binding,
+        expectedRevision,
+        query,
+        signal,
+      ),
+    );
+  artifactDocumentImportPreview = (
+    conversation: string,
+    binding: string,
+    body: import('./types').ArtifactDocumentImportPreviewRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactDocumentImportPreview?.(
+        conversation,
+        binding,
+        body,
+        signal,
+      ),
+    );
   inspector = (
     conversation: string,
     binding: string,
@@ -4023,6 +4420,41 @@ export class ClientController {
   upload(conversation: string, file: File, signal?: AbortSignal) {
     return this.authenticatedResult(
       (current) => this.transport.upload(conversation, file, current),
+      signal,
+    );
+  }
+  attachmentMetadata(reference: string, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.attachmentMetadata(reference, current),
+      signal,
+    );
+  }
+  terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalRead(terminal, cursor, current),
+      signal,
+    );
+  }
+  terminalInput(terminal: string, data: string, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalInput(terminal, data, current),
+      signal,
+    );
+  }
+  terminalResize(
+    terminal: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalResize(terminal, cols, rows, current),
+      signal,
+    );
+  }
+  terminalDisconnect(terminal: string, signal?: AbortSignal) {
+    return this.authenticatedResult(
+      (current) => this.transport.terminalDisconnect(terminal, current),
       signal,
     );
   }

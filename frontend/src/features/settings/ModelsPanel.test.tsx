@@ -207,6 +207,15 @@ it('renders actual defaults and limits while leaving the catalog off the initial
   ).not.toBeInTheDocument();
 });
 
+it('offers explicit Ollama setup navigation without starting an install on render', async () => {
+  const { controller } = show();
+  const link = await screen.findByRole('link', { name: 'Download Ollama' });
+  expect(link).toHaveAttribute('href', 'https://ollama.com/download');
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(controller.executeDefaultModel).not.toHaveBeenCalled();
+});
+
 it('reviews and saves the selected Brain default internally with the exact qualified identity', async () => {
   const { controller } = show();
   const select = await screen.findByRole('combobox', { name: 'Default model' });
@@ -228,7 +237,7 @@ it('reviews and saves the selected Brain default internally with the exact quali
 it('updates media toggles, defaults, camera, context, and delegation through their typed owners', async () => {
   const { controller } = show();
   await screen.findByRole('combobox', { name: 'Image model' });
-  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Enabled' })[1]);
+  fireEvent.click(screen.getByRole('switch', { name: 'Enable image' }));
   await waitFor(() =>
     expect(controller.updateModelSurface).toHaveBeenCalledWith({
       surface: 'image',

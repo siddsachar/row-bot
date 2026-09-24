@@ -77,9 +77,7 @@ describe('reviewed document removal', () => {
     render(<DocumentRemoval session={session} label="the selected document" />);
     expect(api.review).not.toHaveBeenCalled();
     expect(api.execute).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Review document removal' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove document' }));
     await screen.findByRole('button', { name: 'Confirm document removal' });
     expect(api.execute).not.toHaveBeenCalled();
     fireEvent.click(
@@ -111,7 +109,7 @@ describe('reviewed document removal', () => {
     mounted.unmount();
     render(<DocumentRemoval session={session} label="the selected document" />);
     expect(
-      screen.queryByRole('button', { name: 'Review document removal' }),
+      screen.queryByRole('button', { name: 'Remove document' }),
     ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Refresh original removal' }),

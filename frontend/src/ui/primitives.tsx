@@ -93,6 +93,27 @@ export const Input = forwardRef<
 >(function Input({ className = '', ...props }, ref) {
   return <input ref={ref} className={`input ${className}`} {...props} />;
 });
+export const Toggle = forwardRef<
+  HTMLInputElement,
+  Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: string }
+>(function Toggle({ label, className = '', checked, ...props }, ref) {
+  return (
+    <span className={`toggle-control ${className}`}>
+      <input
+        ref={ref}
+        type="checkbox"
+        role="switch"
+        aria-label={label}
+        checked={checked}
+        {...props}
+      />
+      <span className="toggle-track" aria-hidden="true" />
+      <span className="toggle-state" aria-hidden="true">
+        {checked ? 'On' : 'Off'}
+      </span>
+    </span>
+  );
+});
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select {...props} className={`input select ${props.className ?? ''}`} />

@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { TaskSummaryPage } from '../../api/types';
+import { OverlayProvider } from '../../ui/overlays';
 import { SavedTasks } from './TaskLibrary';
 
 function page(
@@ -82,10 +83,15 @@ it('bounds rendered task rows while preserving full forward traversal and reload
   );
   expect(screen.queryByText(/Showing entries/)).not.toBeInTheDocument();
 }, 15_000);
-function show(load: React.ComponentProps<typeof SavedTasks>['load']) {
+function show(
+  load: React.ComponentProps<typeof SavedTasks>['load'],
+  props: Omit<React.ComponentProps<typeof SavedTasks>, 'load'> = {},
+) {
   return render(
     <MemoryRouter>
-      <SavedTasks load={load} />
+      <OverlayProvider>
+        <SavedTasks load={load} {...props} />
+      </OverlayProvider>
     </MemoryRouter>,
   );
 }
@@ -213,4 +219,110 @@ it('aborts the initial read when unmounted', async () => {
   view.unmount();
   expect(load.mock.calls[0][3]?.aborted).toBe(true);
   await act(async () => late.resolve(page()));
+});
+
+it('shows delivery defaults and keeps the web app visibly locked on', async () => {
+  const load = vi.fn(async () => page());
+  const remove = vi.fn(async () => undefined);
+  show(load, {
+    deliveryDefaults: [{ id: 'desktop', label: 'Desktop' }],
+    onRemoveDeliveryDefault: remove,
+  });
+  await screen.findByText('Saved task');
+  expect(
+    screen.getByRole('group', { name: 'Delivery defaults' }),
+  ).toHaveTextContent('Desktop');
+  expect(screen.getByText('Web app always on')).toBeVisible();
+  await userEvent.click(
+    screen.getByRole('button', {
+      name: 'Remove Desktop from delivery defaults',
+    }),
+  );
+  expect(remove).toHaveBeenCalledWith('desktop');
+});
+
+it('selects bounded visible workflows and confirms bulk deletion', async () => {
+  const load = vi.fn(async () => ({
+    ...page(),
+    items: [page('First').items[0], page('Second').items[0]],
+  }));
+  const bulkDelete = vi.fn(async () => undefined);
+  show(load, { onBulkDelete: bulkDelete });
+  await screen.findByText('First');
+  await userEvent.click(screen.getByRole('button', { name: 'Select' }));
+  await userEvent.click(
+    screen.getByRole('checkbox', { name: 'Select workflow: First' }),
+  );
+  expect(screen.getByText('1 workflow selected')).toBeVisible();
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Delete selected' }),
+  );
+  expect(
+    screen.getByRole('alertdialog', { name: 'Delete 1 workflow?' }),
+  ).toBeVisible();
+  expect(bulkDelete).not.toHaveBeenCalled();
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Delete 1 workflow' }),
+  );
+  expect(bulkDelete).toHaveBeenCalledWith(['First']);
+});
+
+it('exposes reviewed direct enable and delete actions', async () => {
+  const load = vi.fn(async () => page());
+  const toggle = vi.fn(async () => undefined);
+  const remove = vi.fn(async () => undefined);
+  show(load, { onToggleEnabled: toggle, onDelete: remove });
+  await screen.findByText('Saved task');
+  await userEvent.click(
+    screen.getByRole('switch', { name: 'Enable workflow: Saved task' }),
+  );
+  expect(toggle).toHaveBeenCalledWith('Saved task', true);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Delete workflow: Saved task' }),
+  );
+  expect(remove).not.toHaveBeenCalled();
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Delete workflow' }),
+  );
+  expect(remove).toHaveBeenCalledWith('Saved task');
+});
+
+it('runs enabled workflows and stops running workflows without using history', async () => {
+  const enabled = {
+    ...page('Ready'),
+    items: [{ ...page('Ready').items[0], enabled: true }],
+  };
+  const running = {
+    ...page('Running'),
+    items: [
+      {
+        ...page('Running').items[0],
+        enabled: true,
+        last_status: 'running',
+      },
+    ],
+  };
+  const loadReady = vi.fn(async () => enabled);
+  const run = vi.fn(async () => undefined);
+  const history = vi.fn();
+  const readyView = show(loadReady, { onRun: run, onRuns: history });
+  await screen.findByText('Ready');
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Run workflow: Ready' }),
+  );
+  expect(run).toHaveBeenCalledWith('Ready');
+  expect(history).not.toHaveBeenCalled();
+  readyView.unmount();
+
+  const stop = vi.fn(async () => undefined);
+  show(
+    vi.fn(async () => running),
+    { onStop: stop, onRuns: history },
+  );
+  await screen.findByText('Running');
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Stop running workflow: Running' }),
+  );
+  expect(stop).toHaveBeenCalledWith('Running');
+  expect(history).not.toHaveBeenCalled();
 });

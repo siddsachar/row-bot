@@ -6,6 +6,7 @@ import SkillsSettings, {
   type SkillAction,
   type SkillDetail,
   type SkillPage,
+  type SkillSummary,
   type SkillProposalPage,
   type SkillReceipt,
   type SkillReview,
@@ -128,6 +129,8 @@ it('renders path-free skills as text and searches only on submission', async () 
     'saved',
     undefined,
     undefined,
+    'all',
+    'name',
     expect.any(AbortSignal),
   );
   expect(container.textContent).not.toMatch(/[A-Z]:\\|\/Users\/|\/home\//);
@@ -136,32 +139,34 @@ it('renders path-free skills as text and searches only on submission', async () 
 it('presents compact skill rows with saved metrics, filters, and sorting', async () => {
   const original = page().items[0];
   const api = io({
-    list: vi.fn(async () =>
-      page({
-        total: 3,
-        items: [
-          {
-            ...original,
-            id: 'zulu',
-            display_name: 'Zulu bundled',
-            source: 'bundled',
-            pinned: true,
-            editable: false,
-          },
-          {
-            ...original,
-            id: 'alpha',
-            display_name: 'Alpha custom',
-            available: false,
-          },
-          {
-            ...original,
-            id: 'beta',
-            display_name: 'Beta custom',
-          },
-        ],
-      }),
-    ),
+    list: vi.fn(async (_query, _source, _cursor, filter, sort) => {
+      const items: SkillSummary[] = [
+        {
+          ...original,
+          id: 'zulu',
+          display_name: 'Zulu bundled',
+          source: 'bundled',
+          pinned: true,
+          editable: false,
+        },
+        {
+          ...original,
+          id: 'alpha',
+          display_name: 'Alpha custom',
+          available: false,
+        },
+        {
+          ...original,
+          id: 'beta',
+          display_name: 'Beta custom',
+        },
+      ];
+      const filtered =
+        filter === 'pinned' ? items.filter((item) => item.pinned) : items;
+      if (sort === 'name')
+        filtered.sort((a, b) => a.display_name.localeCompare(b.display_name));
+      return page({ total: filtered.length, items: filtered });
+    }),
   });
   const { container } = render(
     <SkillsSettings session={createSkillsSettingsSession()} io={api} />,
@@ -179,12 +184,22 @@ it('presents compact skill rows with saved metrics, filters, and sorting', async
   ).toEqual(['✨ Alpha custom', '✨ Beta custom', '✨ Zulu bundled']);
 
   await userEvent.selectOptions(screen.getByLabelText('Filter'), 'pinned');
+  expect(await screen.findByText(/1 shown of 1 matching skills/)).toBeVisible();
   expect(screen.queryByText('✨ Alpha custom')).not.toBeInTheDocument();
   expect(screen.getByText('✨ Zulu bundled')).toBeVisible();
-  expect(screen.getByText(/1 shown of 3 matching skills/)).toBeVisible();
 
-  await userEvent.selectOptions(screen.getByLabelText('Filter'), '');
-  await userEvent.selectOptions(screen.getByLabelText('Sort'), 'pinned');
+  await userEvent.selectOptions(screen.getByLabelText('Filter'), 'all');
+  expect(await screen.findByText(/3 shown of 3 matching skills/)).toBeVisible();
+  await userEvent.selectOptions(screen.getByLabelText('Sort'), 'tokens');
+  expect(await screen.findByText(/3 shown of 3 matching skills/)).toBeVisible();
+  expect(api.list).toHaveBeenLastCalledWith(
+    '',
+    undefined,
+    undefined,
+    'all',
+    'tokens',
+    expect.any(AbortSignal),
+  );
   expect(
     [...list.querySelectorAll('.settings-skill-summary strong')].map(
       (item) => item.textContent,
@@ -192,14 +207,14 @@ it('presents compact skill rows with saved metrics, filters, and sorting', async
   ).toEqual(['✨ Zulu bundled', '✨ Alpha custom', '✨ Beta custom']);
 });
 
-it('reviews and applies availability without silently changing the row', async () => {
+it('updates availability through an accessible switch in one click', async () => {
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
   const row = within(
     (await screen.findByText('✨ Sample skill')).closest('li')!,
   );
-  fireEvent.click(row.getByRole('button', { name: 'Make unavailable' }));
-  expect(await screen.findByText(/Review complete/)).toBeVisible();
+  fireEvent.click(row.getByRole('switch', { name: 'Sample skill available' }));
+  expect(await screen.findByText('Skill change saved.')).toBeVisible();
   expect(row.getByText('Available')).toBeVisible();
   expect(row.getByRole('button', { name: 'Pin for new work' })).toHaveAttribute(
     'aria-pressed',
@@ -215,10 +230,6 @@ it('reviews and applies availability without silently changing the row', async (
     },
     expect.any(AbortSignal),
   );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed change' }),
-  );
-  await screen.findByText('Skill change saved.');
   expect(api.execute).toHaveBeenCalledWith(
     expect.objectContaining({
       type: 'skill.preference',
@@ -228,7 +239,7 @@ it('reviews and applies availability without silently changing the row', async (
   );
 });
 
-it('creates and imports only through explicit review', async () => {
+it('creates and imports from one explicit click per action', async () => {
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
   await screen.findByText('✨ Sample skill');
@@ -239,10 +250,9 @@ it('creates and imports only through explicit review', async () => {
     screen.getByLabelText('Instructions'),
     'Review this workflow.',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Review create' }));
-  await screen.findByText(/Review complete/);
-  expect(api.execute).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save new skill' }));
+  await screen.findByText('Skill change saved.');
+  expect(api.execute).toHaveBeenCalledTimes(1);
 
   const text = '---\nname: imported\n---\nImported workflow.';
   expect(screen.getByLabelText('Import SKILL.md text')).not.toBeVisible();
@@ -250,8 +260,8 @@ it('creates and imports only through explicit review', async () => {
   fireEvent.change(screen.getByLabelText('Import SKILL.md text'), {
     target: { value: text },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review import' }));
-  await screen.findByText(/Review complete/);
+  fireEvent.click(screen.getByRole('button', { name: 'Import skill' }));
+  await screen.findByText('Skill change saved.');
   expect(api.review).toHaveBeenLastCalledWith(
     'skill.import',
     {
@@ -290,7 +300,17 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
-it('opens, edits, duplicates, and offers destructive delete review', async () => {
+it('keeps public discovery explicit and links to the in-app hub', async () => {
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
+
+  const browse = await screen.findByRole('link', { name: 'Browse skills' });
+  expect(browse).toHaveAttribute('href', '#public-skill-hub');
+  expect(
+    screen.getByText('Import a skill').closest('details'),
+  ).not.toHaveAttribute('open');
+});
+
+it('opens, edits, duplicates, and confirms destructive deletion', async () => {
   const api = io();
   render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
   const row = within(
@@ -302,8 +322,8 @@ it('opens, edits, duplicates, and offers destructive delete review', async () =>
   fireEvent.change(screen.getByLabelText('Instructions'), {
     target: { value: 'Edited workflow.' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Review edit' }));
-  await screen.findByText(/Review complete/);
+  fireEvent.click(screen.getByRole('button', { name: 'Save skill' }));
+  await screen.findByText('Skill change saved.');
   expect(api.review).toHaveBeenLastCalledWith(
     'skill.edit',
     expect.objectContaining({
@@ -313,18 +333,20 @@ it('opens, edits, duplicates, and offers destructive delete review', async () =>
     }),
     expect.any(AbortSignal),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Review duplicate' }));
-  await screen.findByText(/Review complete/);
+  fireEvent.click(row.getByRole('button', { name: 'Open' }));
+  await screen.findByText('Use approved inputs.');
+  fireEvent.click(screen.getByRole('button', { name: 'Duplicate skill' }));
+  await screen.findByText('Skill change saved.');
   expect(api.review).toHaveBeenLastCalledWith(
     'skill.duplicate',
     expect.objectContaining({ new_name: 'sample_custom' }),
     expect.any(AbortSignal),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel review' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Review delete' }));
+  fireEvent.click(row.getByRole('button', { name: 'Open' }));
+  await screen.findByText('Use approved inputs.');
+  fireEvent.click(screen.getByRole('button', { name: 'Delete skill' }));
   expect(
-    await screen.findByRole('button', { name: 'Apply reviewed change' }),
+    await screen.findByRole('button', { name: 'Confirm removal' }),
   ).toHaveClass('danger');
 });
 
@@ -345,10 +367,6 @@ it('keeps the exact unconfirmed command and performs receipt-only recovery', asy
     (await screen.findByText('✨ Sample skill')).closest('li')!,
   );
   fireEvent.click(row.getByRole('button', { name: 'Pin for new work' }));
-  await screen.findByText(/Review complete/);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Apply reviewed change' }),
-  );
   expect(
     await screen.findByText(/original change is unconfirmed/),
   ).toBeVisible();
@@ -372,7 +390,7 @@ it('redacts failures, rejects mismatched receipts, and aborts reads on disposal'
     reject = no;
   });
   const api = io({
-    list: vi.fn((_query, _source, _cursor, signal) => {
+    list: vi.fn((_query, _source, _cursor, _filter, _sort, signal) => {
       signal.addEventListener('abort', () =>
         reject(new Error('private C:\\Users\\secret')),
       );
@@ -383,7 +401,7 @@ it('redacts failures, rejects mismatched receipts, and aborts reads on disposal'
   render(<SkillsSettings session={session} io={api} />);
   expect(await screen.findByText('Loading saved skills')).toBeInTheDocument();
   act(() => session.dispose());
-  expect((api.list as ReturnType<typeof vi.fn>).mock.calls[0][3].aborted).toBe(
+  expect((api.list as ReturnType<typeof vi.fn>).mock.calls[0][5].aborted).toBe(
     true,
   );
   expect(screen.queryByText(/private|Users\\secret/)).toBeNull();

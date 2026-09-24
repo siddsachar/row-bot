@@ -98,6 +98,48 @@ it('loads saved controls passively without a review or mutation', async () => {
   expect(current.review).not.toHaveBeenCalled();
 });
 
+it('shows curated blocks only in supported modes and inserts the selected catalog entry', async () => {
+  const current = props({
+    load: vi.fn(async (options: Parameters<DesignControlsProps['load']>[0]) =>
+      options.section === 'blocks'
+        ? {
+            ...state,
+            mode: 'deck',
+            section: 'blocks' as const,
+            items: [
+              {
+                id: 'hero_callout',
+                label: 'Hero Callout',
+                kind: 'Story',
+                detail: 'Two-column opener',
+                available: true,
+              },
+            ],
+          }
+        : { ...state, mode: 'deck' },
+    ),
+  });
+  render(<ArtifactDesignControls {...current} />);
+  await screen.findByRole('option', { name: 'Curated blocks' });
+  expect(current.apply).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Design catalog'), {
+    target: { value: 'blocks' },
+  });
+  await screen.findByRole('button', { name: 'Insert Hero Callout' });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Insert Hero Callout' }),
+    ),
+  );
+  expect(current.apply).toHaveBeenCalledWith(
+    'block_insert',
+    { component_name: 'hero_callout' },
+    'r1',
+    'first',
+    'element-a',
+  );
+});
+
 it('submits an explicit brand update under the exact revision and retains confirmation after refresh', async () => {
   const current = props();
   const view = render(<ArtifactDesignControls {...current} />);
@@ -291,7 +333,7 @@ it('keeps chosen asset bytes local until explicit upload and discloses retained 
   expect(current.upload).toHaveBeenCalledTimes(1);
 });
 
-it('reviews global preset scope before explicit mutation and keeps project revision', async () => {
+it('saves a global preset on one click and keeps project revision', async () => {
   const current = props({
     load: vi.fn(async (options) => ({
       ...state,
@@ -315,15 +357,10 @@ it('reviews global preset scope before explicit mutation and keeps project revis
   fireEvent.change(screen.getByLabelText('New global preset name'), {
     target: { value: 'Shared brand' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save current brand as preset' }),
-  );
-  expect(current.mutatePreset).not.toHaveBeenCalled();
-  expect(screen.getByLabelText('Global preset review')).toHaveTextContent(
-    'all projects',
-  );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Confirm global preset change' }),
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save current brand as preset' }),
+    ),
   );
   await screen.findByText('Global preset saved.');
   expect(current.mutatePreset).toHaveBeenCalledWith(

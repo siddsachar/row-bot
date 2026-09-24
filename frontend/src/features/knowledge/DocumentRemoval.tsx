@@ -289,12 +289,15 @@ export default function DocumentRemoval({
             onClick={() => void session.review().catch(() => {})}
           >
             {session.documentId === null
-              ? 'Review clear all documents'
-              : 'Review document removal'}
+              ? 'Clear all documents'
+              : 'Remove document'}
           </Button>
         )}
       {state.review && (
-        <section aria-label="Review document removal" className="surface stack">
+        <section
+          aria-label="Confirm document removal"
+          className="surface stack"
+        >
           <p>
             {state.review.source_command_id
               ? 'Continue only the unfinished stages of the original removal.'
@@ -317,7 +320,7 @@ export default function DocumentRemoval({
             disabled={state.busy}
             onClick={() => session.dismissReview()}
           >
-            Cancel review
+            Keep document
           </Button>
         </section>
       )}
@@ -361,7 +364,7 @@ export default function DocumentRemoval({
               disabled={state.busy}
               onClick={() => void session.reviewRetry().catch(() => {})}
             >
-              Review remaining cleanup
+              Continue cleanup
             </Button>
           )}
         </section>

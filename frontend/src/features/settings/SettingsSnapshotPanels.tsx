@@ -7,6 +7,7 @@ import {
   Calculator,
   CalendarClock,
   ChevronDown,
+  Download,
   CloudSun,
   FileKey,
   FileText,
@@ -22,10 +23,13 @@ import {
   Network,
   Radio,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  Square,
+  Play,
   Trash2,
   Volume2,
   Wrench,
@@ -38,13 +42,27 @@ import {
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import type { ClientPlatform } from '../../platform';
+import { writeClipboardText } from '../../platform/clipboard';
+import { ModalTask } from '../../ui/overlays';
+import ConnectedUpdateControls from './UpdateControls';
+import ConnectedMigrationControls from './MigrationControls';
+import ConnectedGitHubAccessControls from './GitHubAccessControls';
+import ConnectedAccountAuthControls from './AccountAuthControls';
 import type {
   SettingsMutationReceipt,
   SettingsMutationRequest,
   SettingsMutationReview,
   SettingsSnapshot,
 } from '../../api/types';
-import { Button, Field, Input, Select } from '../../ui/primitives';
+import {
+  Button,
+  CompactAction,
+  Field,
+  Input,
+  Select,
+  Toggle,
+} from '../../ui/primitives';
 
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
 export type SettingsPage = SettingsMutationRequest['page'];
@@ -79,6 +97,7 @@ export class SettingsDraftOwner {
 export type SettingsMutationIO = {
   revision: string;
   page: SettingsPage;
+  sessionId?: string;
   review: (
     request: SettingsMutationRequest,
     signal?: AbortSignal,
@@ -93,9 +112,18 @@ export type SettingsMutationIO = {
     commandId: string,
     signal?: AbortSignal,
   ) => Promise<SettingsMutationReceipt>;
+  refreshSnapshot?: () => Promise<SettingsSnapshot>;
   drafts: SettingsDraftOwner;
   onSnapshot: (snapshot: SettingsSnapshot) => void;
 };
+export type SettingsFolderGrant = {
+  status: 'selected' | 'cancelled' | 'unavailable';
+  grant_id?: string | null;
+  name?: string | null;
+};
+export type SettingsFolderPicker = (
+  signal?: AbortSignal,
+) => Promise<SettingsFolderGrant>;
 
 function StateChip({
   active,
@@ -300,7 +328,7 @@ const utilityPresentation: Record<
   },
   custom_tool_builder: {
     label: 'Custom Tool Builder',
-    description: 'Build reviewed local tools.',
+    description: 'Build local tools.',
   },
 };
 function operationLabel(value: string) {
@@ -318,6 +346,7 @@ function SavedSetting({
   hint,
   validate,
   group = false,
+  autoSave = false,
   onDraftChange,
   children,
 }: {
@@ -327,6 +356,7 @@ function SavedSetting({
   value: SettingsValue;
   hint?: string;
   group?: boolean;
+  autoSave?: boolean;
   validate?: (value: SettingsValue) => string;
   onDraftChange?: (value: SettingsValue) => void;
   children: (state: {
@@ -340,14 +370,12 @@ function SavedSetting({
       ? (mutation.drafts.read(mutation.page, field) as SettingsValue)
       : value,
   );
-  const [review, setReview] = useState<SettingsMutationReview | null>(null);
-  const [reviewedRequest, setReviewedRequest] =
-    useState<SettingsMutationRequest | null>(null);
   const [busy, setBusy] = useState<'review' | 'save' | ''>('');
   const [pendingCommand, setPendingCommand] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const abort = useRef<AbortController | null>(null);
+  const running = useRef(false);
   const dirty = !sameValue(draft, value);
 
   useEffect(() => {
@@ -356,27 +384,20 @@ function SavedSetting({
       setDraft(value);
     }
   }, [busy, dirty, field, mutation.drafts, mutation.page, value]);
-  useEffect(() => {
-    if (review && review.settings_revision !== mutation.revision) {
-      setReview(null);
-      setReviewedRequest(null);
-      setNotice('Saved Settings changed. Review this draft again.');
-    }
-  }, [mutation.revision, review]);
   useEffect(() => () => abort.current?.abort(), []);
   function change(next: SettingsValue) {
     setDraft(next);
     onDraftChange?.(next);
     if (sameValue(next, value)) mutation.drafts.discard(mutation.page, field);
     else mutation.drafts.write(mutation.page, field, next);
-    setReview(null);
-    setReviewedRequest(null);
     setError('');
     setNotice('');
+    if (autoSave && !sameValue(next, value)) void saveChange(next);
   }
-  async function reviewChange() {
-    if (!dirty || busy) return;
-    const validation = validate?.(draft) ?? '';
+  async function saveChange(nextValue: SettingsValue = draft) {
+    if (sameValue(nextValue, value) || running.current || pendingCommand)
+      return;
+    const validation = validate?.(nextValue) ?? '';
     if (validation) {
       setError(validation);
       return;
@@ -385,13 +406,15 @@ function SavedSetting({
       settings_revision: mutation.revision,
       page: mutation.page,
       field,
-      value: Array.isArray(draft) ? [...draft] : draft,
+      value: Array.isArray(nextValue) ? [...nextValue] : nextValue,
     };
     abort.current?.abort();
     abort.current = new AbortController();
+    running.current = true;
     setBusy('review');
     setError('');
     setNotice('');
+    let submitted = false;
     try {
       const result = await mutation.review(request, abort.current.signal);
       if (
@@ -401,50 +424,36 @@ function SavedSetting({
         result.field !== request.field
       )
         throw { code: 'revision_conflict' };
-      setReview(result);
-      setReviewedRequest(request);
-      setNotice(`Review ready: ${result.value_summary}`);
-    } catch (cause) {
-      if (!abort.current.signal.aborted) setError(clientError(cause).message);
-    } finally {
-      setBusy('');
-    }
-  }
-  async function save() {
-    if (!review || !reviewedRequest || busy) return;
-    setBusy('save');
-    setError('');
-    const commandId = crypto.randomUUID();
-    setPendingCommand(commandId);
-    try {
-      const receipt = await mutation.execute(
-        reviewedRequest,
-        review,
-        commandId,
-      );
-      setReview(null);
-      setReviewedRequest(null);
+      if (abort.current.signal.aborted) return;
+      setBusy('save');
+      const commandId = crypto.randomUUID();
+      setPendingCommand(commandId);
+      submitted = true;
+      const receipt = await mutation.execute(request, result, commandId);
       if (receipt.status === 'completed' && receipt.snapshot) {
         setPendingCommand('');
         mutation.drafts.discard(mutation.page, field);
+        if (field === 'computer_use.system_binary_verify') setDraft('');
         mutation.onSnapshot(receipt.snapshot);
-        setNotice(`${label} saved.`);
-      } else if (receipt.status === 'partial')
         setNotice(
-          'The outcome is unconfirmed. Reload the saved snapshot before trying again.',
+          receipt.action_result
+            ? `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim()
+            : `${label} saved.`,
         );
-      else {
+      } else if (receipt.status === 'partial') {
+        setNotice('The outcome is unconfirmed. Check the original receipt.');
+      } else {
         setPendingCommand('');
-        setError(
-          'The reviewed change was rejected. Reload and review it again.',
-        );
+        setError('The change was rejected. Refresh and try again.');
       }
     } catch (cause) {
-      setError(clientError(cause).message);
-      setNotice(
-        'The outcome is unconfirmed. This change was not automatically repeated.',
-      );
+      if (!abort.current.signal.aborted) {
+        setError(clientError(cause).message);
+        if (submitted)
+          setNotice('The outcome is unconfirmed. Check the original receipt.');
+      }
     } finally {
+      running.current = false;
       setBusy('');
     }
   }
@@ -466,10 +475,15 @@ function SavedSetting({
       setPendingCommand('');
       if (receipt.status === 'completed' && receipt.snapshot) {
         mutation.drafts.discard(mutation.page, field);
+        if (field === 'computer_use.system_binary_verify') setDraft('');
         mutation.onSnapshot(receipt.snapshot);
-        setNotice(`${label} save confirmed.`);
+        setNotice(
+          receipt.action_result
+            ? `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim()
+            : `${label} save confirmed.`,
+        );
       } else {
-        setError('The original reviewed change was rejected.');
+        setError('The original change was rejected.');
       }
     } catch (cause) {
       if (!abort.current.signal.aborted) setError(clientError(cause).message);
@@ -499,50 +513,277 @@ function SavedSetting({
         </Field>
       )}
       <div className="settings-control-actions">
-        {dirty && !review && !pendingCommand && (
-          <Button onClick={() => void reviewChange()} disabled={!!busy}>
-            {busy === 'review' ? 'Reviewing…' : 'Review change'}
+        {dirty && autoSave && error && !pendingCommand && (
+          <Button onClick={() => void saveChange()} disabled={!!busy}>
+            Retry
           </Button>
         )}
-        {review && (
-          <>
-            <Button
-              variant="primary"
-              onClick={() => void save()}
-              disabled={!!busy}
-            >
-              {busy === 'save' ? 'Saving…' : 'Save reviewed change'}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setReview(null);
-                setReviewedRequest(null);
-                setNotice('');
-              }}
-              disabled={!!busy}
-            >
-              Edit
-            </Button>
-          </>
+        {dirty && !autoSave && !pendingCommand && (
+          <Button
+            variant="primary"
+            onClick={() => void saveChange()}
+            disabled={!!busy}
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
         )}
         {pendingCommand && (
           <Button onClick={() => void checkReceipt()} disabled={!!busy}>
             {busy === 'save' ? 'Checking…' : 'Check original receipt'}
           </Button>
         )}
-        {dirty && !pendingCommand && (
-          <Button
-            variant="ghost"
+        {dirty && !autoSave && !pendingCommand && (
+          <CompactAction
+            label={`Revert ${label}`}
             onClick={() => change(value)}
             disabled={!!busy}
           >
-            Revert
-          </Button>
+            <RotateCcw size={16} aria-hidden />
+          </CompactAction>
         )}
       </div>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
+    </div>
+  );
+}
+
+function ReviewedSettingsAction({
+  mutation,
+  field,
+  label,
+  description,
+  variant,
+  confirm,
+}: {
+  mutation: SettingsMutationIO;
+  field: string;
+  label: string;
+  description: string;
+  variant?: 'danger' | 'primary' | 'ghost';
+  confirm?: string;
+}) {
+  const tunnelRecovery =
+    field === 'tunnel.start_main' || field === 'tunnel.stop_main';
+  const computerRecovery = field.startsWith('computer_use.');
+  const recoveryKey =
+    (tunnelRecovery || computerRecovery) && mutation.sessionId
+      ? `${tunnelRecovery ? 'row-bot.settings-tunnel.pending.v1' : 'row-bot.settings-computer.pending.v1'}:${mutation.sessionId}:${field}`
+      : '';
+  function readPending() {
+    if (!recoveryKey) return '';
+    try {
+      const value = sessionStorage.getItem(recoveryKey) || '';
+      return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(value) ? value : '';
+    } catch {
+      return '';
+    }
+  }
+  function storePending(value: string) {
+    if (!recoveryKey) return;
+    try {
+      if (value) sessionStorage.setItem(recoveryKey, value);
+      else sessionStorage.removeItem(recoveryKey);
+    } catch {
+      // The original server receipt remains authoritative if tab storage fails.
+    }
+  }
+  const [pendingCommand, setPendingCommand] = useState(readPending);
+  const [terminalPartial, setTerminalPartial] = useState(false);
+  const [inspectedPartial, setInspectedPartial] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+  const running = useRef(false);
+  useEffect(() => () => abort.current?.abort(), []);
+
+  async function runAction() {
+    if (running.current || pendingCommand) return;
+    const next: SettingsMutationRequest = {
+      settings_revision: mutation.revision,
+      page: mutation.page,
+      field,
+      value: true,
+    };
+    abort.current?.abort();
+    abort.current = new AbortController();
+    running.current = true;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    let submitted = false;
+    try {
+      const result = await mutation.review(next, abort.current.signal);
+      if (
+        result.settings_revision !== next.settings_revision ||
+        result.page !== next.page ||
+        result.field !== next.field
+      )
+        throw { code: 'revision_conflict' };
+      if (abort.current.signal.aborted) return;
+      const commandId = crypto.randomUUID();
+      storePending(commandId);
+      setPendingCommand(commandId);
+      submitted = true;
+      const receipt = await mutation.execute(next, result, commandId);
+      if (receipt.status === 'completed' && receipt.snapshot) {
+        storePending('');
+        setPendingCommand('');
+        mutation.onSnapshot(receipt.snapshot);
+        setMessage(
+          receipt.action_result
+            ? `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim()
+            : `${label} completed.`,
+        );
+      } else if (receipt.status === 'partial') {
+        setMessage('The outcome is unconfirmed. Check the original receipt.');
+      } else {
+        storePending('');
+        setPendingCommand('');
+        setError('The action was rejected. Refresh and try again.');
+      }
+    } catch (cause) {
+      if (!abort.current.signal.aborted) {
+        setError(clientError(cause).message);
+        if (submitted)
+          setMessage('The outcome is unconfirmed. Check the original receipt.');
+      }
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function checkReceipt() {
+    if (!pendingCommand || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const receipt = await mutation.receipt(pendingCommand);
+      if (receipt.status === 'partial') {
+        setTerminalPartial(true);
+        setMessage('The original outcome is still unconfirmed.');
+      } else {
+        storePending('');
+        setPendingCommand('');
+        if (receipt.status === 'completed' && receipt.snapshot) {
+          mutation.onSnapshot(receipt.snapshot);
+          setMessage(
+            receipt.action_result
+              ? `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim()
+              : `${label} confirmed.`,
+          );
+        } else setError('The original action was rejected.');
+      }
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inspectPartial() {
+    if (!mutation.refreshSnapshot || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const snapshot = await mutation.refreshSnapshot();
+      mutation.onSnapshot(snapshot);
+      const tunnel = snapshot.system.tunnel;
+      if (computerRecovery) {
+        const computer = snapshot.system.computer_use;
+        setMessage(
+          `Computer Use: ${computer.status_message} ${computer.remediation} ` +
+            'You can start a new action after inspecting this state.',
+        );
+      } else {
+        setMessage(
+          `Current saved restart choice: ${tunnel.main_app_enabled ? 'enabled' : 'disabled'}; ` +
+            `app tunnel: ${tunnel.main_app_url ? 'active' : 'not active'}. ` +
+            'You can start a new action after inspecting this state.',
+        );
+      }
+      setInspectedPartial(true);
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-reviewed-action" aria-busy={busy}>
+      <p className="settings-help">{description}</p>
+      {!pendingCommand && (
+        <Button
+          variant={variant}
+          disabled={busy}
+          onClick={() => (confirm ? setConfirmOpen(true) : void runAction())}
+        >
+          {field.endsWith('.install') ? (
+            <Download size={16} aria-hidden />
+          ) : field.includes('stop') ? (
+            <Square size={16} aria-hidden />
+          ) : field.includes('check') || field.includes('rebuild') ? (
+            <RefreshCw size={16} aria-hidden />
+          ) : (
+            <Play size={16} aria-hidden />
+          )}
+          {busy ? 'Working…' : label}
+        </Button>
+      )}
+      {pendingCommand && (
+        <Button disabled={busy} onClick={() => void checkReceipt()}>
+          {busy ? 'Checking…' : 'Check original receipt'}
+        </Button>
+      )}
+      {pendingCommand &&
+        terminalPartial &&
+        (tunnelRecovery || computerRecovery) &&
+        mutation.refreshSnapshot && (
+          <Button disabled={busy} onClick={() => void inspectPartial()}>
+            Inspect current {computerRecovery ? 'Computer Use' : 'tunnel'} state
+          </Button>
+        )}
+      {pendingCommand && inspectedPartial && (
+        <Button
+          disabled={busy}
+          onClick={() => {
+            storePending('');
+            setPendingCommand('');
+            setTerminalPartial(false);
+            setInspectedPartial(false);
+            setMessage('The next action will use the refreshed saved state.');
+          }}
+        >
+          {tunnelRecovery
+            ? 'Try another tunnel action'
+            : 'Try another Computer Use action'}
+        </Button>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {message && <p role="status">{message}</p>}
+      <ModalTask
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={label}
+        description={confirm || ''}
+      >
+        <div className="button-row">
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              setConfirmOpen(false);
+              void runAction();
+            }}
+          >
+            {label}
+          </Button>
+        </div>
+      </ModalTask>
     </div>
   );
 }
@@ -702,18 +943,15 @@ function SwitchSetting({
       label={label}
       value={value}
       hint={hint}
+      autoSave
     >
       {({ value: draft, setValue, disabled }) => (
-        <span className="check-field settings-switch-field">
-          <input
-            aria-label={label}
-            type="checkbox"
-            checked={Boolean(draft)}
-            disabled={disabled}
-            onChange={(event) => setValue(event.target.checked)}
-          />
-          {draft ? 'Enabled' : 'Disabled'}
-        </span>
+        <Toggle
+          label={label}
+          checked={Boolean(draft)}
+          disabled={disabled}
+          onChange={(event) => setValue(event.target.checked)}
+        />
       )}
     </SavedSetting>
   );
@@ -1195,79 +1433,155 @@ export function VoiceSnapshotPanel({
               />
             </>
           ) : (
-            <StateChip warning>Kokoro not installed</StateChip>
+            <>
+              <StateChip warning>Kokoro not installed</StateChip>
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="tts.install"
+                label="Install Kokoro TTS"
+                description="Downloads the Kokoro model and voices, then keeps speech generation local. This action uses network access."
+              />
+            </>
           )}
         </div>
+        {snapshot.tts.installed && (
+          <ReviewedSettingsAction
+            mutation={mutation}
+            field="tts.test"
+            label="Test voice"
+            description="Plays one fixed local phrase through the selected output device."
+          />
+        )}
       </Section>
-      <Section
-        title="Voice Models"
-        description="Saved runtime choices and masked provider configuration."
-        icon={Radio}
-      >
-        <h4>Runtime Voice Models</h4>
-        <ul className="settings-voice-model-list">
-          <VoiceModelRow
-            title={`Whisper ${snapshot.local.whisper_model}`}
-            description="Dictation and local Talk transcription"
-            provider="Local"
-            status={savedStateLabel(snapshot.local.runtime_state)}
-          />
-          <VoiceModelRow
-            title="SenseVoice"
-            description="Talk and Dictation multilingual transcription"
-            provider="Local"
-            status={
-              snapshot.local.sensevoice_path_configured
-                ? 'Configured'
-                : 'Setup needed'
-            }
-            ready={snapshot.local.sensevoice_path_configured}
-          />
-          <VoiceModelRow
-            title="Kokoro"
-            description={`Speech output · ${snapshot.tts.voice}`}
-            provider="Local"
-            status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
-            ready={snapshot.tts.installed}
-          />
-          <VoiceModelRow
-            title="OpenAI Realtime Talk"
-            description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice}`}
-            provider="OpenAI"
-            status={
-              snapshot.openai_realtime_credential.configured
-                ? 'Credential saved · not checked'
-                : 'Setup needed'
-            }
-            ready={
-              snapshot.openai_realtime_credential.configured ? undefined : false
-            }
-          />
-        </ul>
-        <Link className="button" to="/settings/providers">
-          Open Providers
-        </Link>
-      </Section>
-      <Section
-        title="Diagnostics"
-        description="Cached audio configuration; no device or provider was probed."
-        icon={ShieldCheck}
-      >
-        <Facts>
-          <Fact label="Settings availability" value={snapshot.availability} />
-          <Fact label="Microphone/provider readiness" value="Not checked" />
-        </Facts>
-      </Section>
+      <details className="settings-snapshot-disclosure">
+        <summary>Models &amp; setup</summary>
+        <Section
+          title="Voice Models"
+          description="Saved runtime choices and masked provider configuration."
+          icon={Radio}
+        >
+          <h4>Runtime Voice Models</h4>
+          <ul className="settings-voice-model-list">
+            <VoiceModelRow
+              title={`Whisper ${snapshot.local.whisper_model}`}
+              description="Dictation and local Talk transcription"
+              provider="Local"
+              status={savedStateLabel(snapshot.local.runtime_state)}
+            />
+            <VoiceModelRow
+              title="SenseVoice"
+              description="Talk and Dictation multilingual transcription"
+              provider="Local"
+              status={
+                snapshot.local.sensevoice_path_configured
+                  ? 'Configured'
+                  : 'Setup needed'
+              }
+              ready={snapshot.local.sensevoice_path_configured}
+            />
+            <VoiceModelRow
+              title="Kokoro"
+              description={`Speech output · ${snapshot.tts.voice}`}
+              provider="Local"
+              status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
+              ready={snapshot.tts.installed}
+            />
+            <VoiceModelRow
+              title="OpenAI Realtime Talk"
+              description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice}`}
+              provider="OpenAI"
+              status={
+                snapshot.openai_realtime_credential.configured
+                  ? 'Credential saved · not checked'
+                  : 'Setup needed'
+              }
+              ready={
+                snapshot.openai_realtime_credential.configured
+                  ? undefined
+                  : false
+              }
+            />
+          </ul>
+          {!snapshot.local.sensevoice_path_configured && (
+            <>
+              <a
+                href="https://modelscope.cn/models/iic/SenseVoiceSmall"
+                target="_blank"
+                rel="noreferrer"
+              >
+                SenseVoice Small model and Apache-2.0 license
+              </a>
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="sensevoice.install"
+                label="Install SenseVoice Small"
+                description="Downloads the Apache-2.0 SenseVoice Small model from ModelScope. No audio, prompts, or usage data are sent."
+              />
+            </>
+          )}
+          <Link className="button" to="/settings/providers">
+            Open Providers
+          </Link>
+        </Section>
+      </details>
+      <details className="settings-snapshot-disclosure">
+        <summary>Diagnostics</summary>
+        <Section
+          title="Diagnostics"
+          description="Cached audio configuration; no device or provider was probed."
+          icon={ShieldCheck}
+        >
+          <Facts>
+            <Fact label="Settings availability" value={snapshot.availability} />
+            <Fact label="Microphone/provider readiness" value="Not checked" />
+          </Facts>
+          <p className="settings-help">
+            Talk can call models and tools. Realtime sessions can incur provider
+            cost while active.
+          </p>
+        </Section>
+      </details>
     </div>
+  );
+}
+
+function TaskWebhookUrl({
+  baseUrl,
+  writeClipboard,
+}: {
+  baseUrl: string;
+  writeClipboard?: ClientPlatform['writeClipboard'];
+}) {
+  const [copyState, setCopyState] = useState('');
+  const url = `${baseUrl}/api/webhook/{task_id}`;
+  async function copy() {
+    if (await writeClipboardText(url, writeClipboard)) {
+      setCopyState('Copied');
+    } else {
+      setCopyState('Could not copy. Select the URL above or try again.');
+    }
+  }
+  return (
+    <p className="settings-help">
+      Task webhook URL: <code className="settings-break-word">{url}</code>{' '}
+      <Button type="button" variant="ghost" onClick={() => void copy()}>
+        Copy URL
+      </Button>
+      {copyState && <span role="status">{copyState}</span>}
+    </p>
   );
 }
 
 export function SystemSnapshotPanel({
   snapshot,
   mutation,
+  pickFolder,
+  writeClipboard,
 }: {
   snapshot: SettingsSnapshot['system'];
   mutation: SettingsMutationIO;
+  pickFolder?: SettingsFolderPicker;
+  writeClipboard?: ClientPlatform['writeClipboard'];
 }) {
   return (
     <div className="stack settings-snapshot-page settings-system-page">
@@ -1276,11 +1590,12 @@ export function SystemSnapshotPanel({
         description="The filesystem tool is sandboxed to this folder."
         icon={HardDrive}
       >
-        <TextSetting
+        <WorkspaceFolderSetting
+          key={mutation.revision}
           mutation={mutation}
-          field="workspace.path"
-          label="Workspace folder"
-          value={snapshot.workspace.path}
+          configured={snapshot.workspace.configured}
+          currentName={snapshot.workspace.label}
+          pickFolder={pickFolder}
         />
         <StateChip
           active={snapshot.workspace.exists}
@@ -1334,6 +1649,12 @@ export function SystemSnapshotPanel({
                 label="Enable Browser tool"
                 value={snapshot.browser.enabled}
               />
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="browser.install"
+                label="Install browser runtime"
+                description="Downloads Row-Bot's managed Playwright Chromium. Installed Chrome or Edge remains preferred."
+              />
             </div>
           ) : (
             <StateChip warning>Browser tool not found</StateChip>
@@ -1343,43 +1664,150 @@ export function SystemSnapshotPanel({
             <div className="settings-system-runtime-row">
               <div>
                 <strong>Computer Use (Beta)</strong>
-                <small>
-                  Runtime:{' '}
-                  {savedStateLabel(snapshot.computer_use.runtime_state)}
-                </small>
+                <small>{snapshot.computer_use.status_message}</small>
               </div>
-              <SwitchSetting
-                mutation={mutation}
-                field="computer_use.enabled"
-                label="Computer Use (Beta)"
-                value={snapshot.computer_use.enabled}
-              />
+              {snapshot.computer_use.local_owner_control_available &&
+              snapshot.computer_use.disclosure_acknowledged ? (
+                <SwitchSetting
+                  mutation={mutation}
+                  field="computer_use.enabled"
+                  label="Computer Use (Beta)"
+                  value={snapshot.computer_use.enabled}
+                />
+              ) : !snapshot.computer_use.disclosure_acknowledged ? (
+                <StateChip warning>Telemetry notice required</StateChip>
+              ) : (
+                <StateChip>Host setup is local only</StateChip>
+              )}
             </div>
           ) : (
             <StateChip warning>Computer Use unavailable</StateChip>
           )}
         </div>
         {snapshot.computer_use.available && (
-          <details className="settings-system-detail">
-            <summary>Computer Use setup details</summary>
-            <Facts>
-              <Fact
-                label="Disclosure"
-                value={
-                  snapshot.computer_use.disclosure_acknowledged
-                    ? 'Acknowledged'
-                    : 'Not acknowledged'
-                }
-              />
-              <Fact
-                label="System Cua executable"
-                value={configuredLabel(
-                  snapshot.computer_use.system_binary_configured,
-                )}
-              />
-            </Facts>
-          </details>
+          <>
+            {snapshot.computer_use.local_owner_control_available &&
+              !snapshot.computer_use.disclosure_acknowledged && (
+                <div className="settings-system-detail">
+                  <p className="settings-help">
+                    {snapshot.computer_use.disclosure_text}
+                  </p>
+                  <SwitchSetting
+                    mutation={mutation}
+                    field="computer_use.disclosure_acknowledged"
+                    label="Accept Cua Driver telemetry notice"
+                    value={false}
+                  />
+                </div>
+              )}
+            {snapshot.computer_use.local_owner_control_available &&
+              snapshot.computer_use.disclosure_acknowledged && (
+                <div className="settings-system-detail">
+                  <p className="settings-help">
+                    {snapshot.computer_use.remediation}
+                  </p>
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="computer_use.check"
+                    label="Check Computer Use setup"
+                    description="Run the reviewed local driver diagnostics and report missing access."
+                  />
+                  {snapshot.computer_use.platform === 'macos' && (
+                    <details>
+                      <summary>macOS permission recovery</summary>
+                      <p className="settings-help">
+                        Switch on Row-Bot in Accessibility and Screen Recording,
+                        then check setup again. macOS may ask you to reopen
+                        Row-Bot.
+                      </p>
+                      <ReviewedSettingsAction
+                        mutation={mutation}
+                        field="computer_use.open_accessibility"
+                        label="Open Accessibility settings"
+                        description="Open the local macOS Privacy & Security pane."
+                      />
+                      <ReviewedSettingsAction
+                        mutation={mutation}
+                        field="computer_use.open_screen_recording"
+                        label="Open Screen Recording settings"
+                        description="Open the local macOS Privacy & Security pane."
+                      />
+                    </details>
+                  )}
+                  {snapshot.computer_use.runtime_state === 'ready' && (
+                    <ReviewedSettingsAction
+                      mutation={mutation}
+                      field="computer_use.test"
+                      label="Test with Calculator"
+                      description="Open Calculator briefly and verify a local target window."
+                    />
+                  )}
+                  <details>
+                    <summary>Advanced system Cua executable</summary>
+                    <p className="settings-help">
+                      Verifying starts the executable you select on this host.
+                      Use only a separately reviewed Cua Driver binary.
+                    </p>
+                    <TextSetting
+                      mutation={mutation}
+                      field="computer_use.system_binary_verify"
+                      label="Verify system Cua executable"
+                      value=""
+                      maxLength={4096}
+                    />
+                    {snapshot.computer_use.system_binary_configured && (
+                      <ReviewedSettingsAction
+                        mutation={mutation}
+                        field="computer_use.use_managed_runtime"
+                        label="Use managed Cua runtime"
+                        description="Return to Row-Bot's reviewed managed component."
+                      />
+                    )}
+                  </details>
+                  <details>
+                    <summary>Manage Computer Use runtime</summary>
+                    <ReviewedSettingsAction
+                      mutation={mutation}
+                      field="computer_use.remove"
+                      label="Remove managed Cua runtime"
+                      description="Remove Row-Bot's managed Cua Driver and disable Computer Use."
+                      variant="danger"
+                      confirm="This deletes the managed runtime files. You can install the reviewed runtime again later."
+                    />
+                  </details>
+                </div>
+              )}
+            <details className="settings-system-detail">
+              <summary>Computer Use setup details</summary>
+              <Facts>
+                <Fact
+                  label="Disclosure"
+                  value={
+                    snapshot.computer_use.disclosure_acknowledged
+                      ? 'Acknowledged'
+                      : 'Not acknowledged'
+                  }
+                />
+                <Fact
+                  label="System Cua executable"
+                  value={configuredLabel(
+                    snapshot.computer_use.system_binary_configured,
+                  )}
+                />
+              </Facts>
+            </details>
+          </>
         )}
+        {snapshot.computer_use.available &&
+          snapshot.computer_use.local_owner_control_available &&
+          snapshot.computer_use.disclosure_acknowledged && (
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="computer_use.install"
+              label="Install Computer Use runtime"
+              description="Downloads the pinned Cua Driver artifact for this platform."
+            />
+          )}
       </Section>
       <Section
         title="File Operations"
@@ -1412,6 +1840,28 @@ export function SystemSnapshotPanel({
         description="Credentials remain masked; tunnel checks require an explicit action."
         icon={Network}
       >
+        <details>
+          <summary>Tunnel setup</summary>
+          <p className="settings-help">
+            Create an ngrok account at{' '}
+            <a
+              href="https://ngrok.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ngrok.com
+            </a>
+            , then copy your authtoken from the{' '}
+            <a
+              href="https://dashboard.ngrok.com/get-started/your-authtoken"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ngrok dashboard
+            </a>
+            . Save it below before checking or starting a tunnel.
+          </p>
+        </details>
         <SelectSetting
           mutation={mutation}
           field="tunnel.provider"
@@ -1433,6 +1883,49 @@ export function SystemSnapshotPanel({
             : `${snapshot.tunnel.active_count} active tunnels.`}{' '}
           Opening Settings never starts or exposes a tunnel.
         </p>
+        <Facts>
+          <Fact
+            label="Expose task webhook endpoint after restart"
+            value={enabledLabel(snapshot.tunnel.main_app_enabled)}
+          />
+          <Fact
+            label="Current app tunnel"
+            value={snapshot.tunnel.main_app_url ? 'Active' : 'Not active'}
+          />
+        </Facts>
+        {snapshot.tunnel.main_app_url &&
+          snapshot.tunnel.local_owner_control_available && (
+            <TaskWebhookUrl
+              baseUrl={snapshot.tunnel.main_app_url}
+              writeClipboard={writeClipboard}
+            />
+          )}
+        {snapshot.tunnel.local_owner_control_available ? (
+          <div className="settings-action-grid">
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="tunnel.check"
+              label="Check tunnel setup"
+              description="Checks saved local configuration without opening a tunnel."
+            />
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="tunnel.start_main"
+              label="Start app tunnel"
+              description="Exposes the local app and task webhook endpoint through ngrok and saves this choice for restart."
+            />
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="tunnel.stop_main"
+              label="Stop app tunnel"
+              description="Stops the Row-Bot app tunnel and disables its restart preference."
+            />
+          </div>
+        ) : (
+          <p className="settings-help">
+            Tunnel controls are available in the local owner session.
+          </p>
+        )}
       </Section>
       <Section
         title="Remote Access"
@@ -1493,10 +1986,90 @@ export function SystemSnapshotPanel({
           ]}
         />
         <Facts>
-          <Fact label="Log directory" value={snapshot.logging.directory} />
+          <Fact
+            label="Log directory"
+            value={
+              snapshot.logging.directory_available
+                ? 'Available locally'
+                : 'Created when logging starts'
+            }
+          />
         </Facts>
+        <ReviewedSettingsAction
+          mutation={mutation}
+          field="logging.open"
+          label="Open Log Folder"
+          description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
+        />
       </Section>
     </div>
+  );
+}
+
+function WorkspaceFolderSetting({
+  mutation,
+  configured,
+  currentName,
+  pickFolder,
+}: {
+  mutation: SettingsMutationIO;
+  configured: boolean;
+  currentName: string;
+  pickFolder?: SettingsFolderPicker;
+}) {
+  const [selectedName, setSelectedName] = useState('');
+  const [pickError, setPickError] = useState('');
+  const [picking, setPicking] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
+  return (
+    <SavedSetting
+      mutation={mutation}
+      field="workspace.folder_grant"
+      label="Workspace folder grant"
+      value=""
+      group
+    >
+      {({ setValue, disabled }) => (
+        <div className="stack">
+          <p className="settings-help">
+            {configured
+              ? `Current folder: ${currentName || 'Selected local folder'}.`
+              : 'No workspace folder selected.'}{' '}
+            The full local path is never sent to the renderer.
+          </p>
+          <Button
+            disabled={disabled || picking || !pickFolder}
+            onClick={() => {
+              if (!pickFolder || picking) return;
+              abort.current?.abort();
+              abort.current = new AbortController();
+              setPicking(true);
+              setPickError('');
+              void pickFolder(abort.current.signal)
+                .then((result) => {
+                  if (result.status === 'unavailable') {
+                    setPickError('The local folder picker is unavailable.');
+                    return;
+                  }
+                  if (result.status !== 'selected' || !result.grant_id) return;
+                  setSelectedName(result.name || 'Selected local folder');
+                  setValue(result.grant_id);
+                })
+                .catch((cause) => {
+                  if (!abort.current?.signal.aborted)
+                    setPickError(clientError(cause).message);
+                })
+                .finally(() => setPicking(false));
+            }}
+          >
+            {picking ? 'Choosing folder…' : 'Choose workspace folder'}
+          </Button>
+          {selectedName && <p role="status">Selected: {selectedName}</p>}
+          {pickError && <p role="alert">{pickError}</p>}
+        </div>
+      )}
+    </SavedSetting>
   );
 }
 
@@ -1742,12 +2315,14 @@ function AccountPanel({
   account,
   mutation,
   prefix,
+  showActions = false,
 }: {
   label: string;
   icon: Icon;
   account: SettingsSnapshot['accounts']['github'];
   mutation: SettingsMutationIO;
   prefix: 'github' | 'x';
+  showActions?: boolean;
 }) {
   const status =
     prefix === 'github' && account.authentication_state === 'not_configured'
@@ -1796,6 +2371,12 @@ function AccountPanel({
             configured={account.credential?.configured ?? false}
             source={account.credential?.source}
           />
+        )}
+        {prefix === 'github' && showActions && (
+          <ConnectedGitHubAccessControls />
+        )}
+        {prefix === 'x' && showActions && (
+          <ConnectedAccountAuthControls account="x" />
         )}
         {prefix === 'x' && (
           <>
@@ -1862,10 +2443,12 @@ function GoogleAccountPanel({
   gmail,
   calendar,
   mutation,
+  showActions = false,
 }: {
   gmail: SettingsSnapshot['accounts']['gmail'];
   calendar: SettingsSnapshot['accounts']['calendar'];
   mutation: SettingsMutationIO;
+  showActions?: boolean;
 }) {
   const status =
     gmail.authentication_state === calendar.authentication_state
@@ -1904,18 +2487,6 @@ function GoogleAccountPanel({
             />
           )}
         </div>
-        <TextSetting
-          mutation={mutation}
-          field="gmail.credentials_path"
-          label="Gmail credentials file"
-          value={gmail.credentials_path}
-        />
-        <TextSetting
-          mutation={mutation}
-          field="calendar.credentials_path"
-          label="Calendar credentials file"
-          value={calendar.credentials_path}
-        />
         <ChoiceListSetting
           mutation={mutation}
           field="gmail.operations"
@@ -1946,6 +2517,14 @@ function GoogleAccountPanel({
         />
         <Facts>
           <Fact
+            label="Credentials file"
+            value={
+              gmail.configured || calendar.configured
+                ? 'Configured locally'
+                : 'Not configured'
+            }
+          />
+          <Fact
             label="Gmail configuration"
             value={configuredLabel(gmail.configured)}
           />
@@ -1955,8 +2534,11 @@ function GoogleAccountPanel({
           />
         </Facts>
         <p className="settings-help">
-          Authentication starts only through an explicit account action.
+          Credential locations stay local and are never returned to this page.
+          Choose a client file or start authentication on the local owner
+          device.
         </p>
+        {showActions && <ConnectedAccountAuthControls account="google" />}
       </div>
     </details>
   );
@@ -1964,9 +2546,11 @@ function GoogleAccountPanel({
 export function AccountsSnapshotPanel({
   snapshot,
   mutation,
+  showActions = false,
 }: {
   snapshot: SettingsSnapshot['accounts'];
   mutation: SettingsMutationIO;
+  showActions?: boolean;
 }) {
   if (snapshot.availability !== 'available')
     return (
@@ -1986,11 +2570,13 @@ export function AccountsSnapshotPanel({
         account={snapshot.github}
         mutation={mutation}
         prefix="github"
+        showActions={showActions}
       />
       <GoogleAccountPanel
         gmail={snapshot.gmail}
         calendar={snapshot.calendar}
         mutation={mutation}
+        showActions={showActions}
       />
       <AccountPanel
         label="X (Twitter)"
@@ -1998,6 +2584,7 @@ export function AccountsSnapshotPanel({
         account={snapshot.x}
         mutation={mutation}
         prefix="x"
+        showActions={showActions}
       />
     </div>
   );
@@ -2225,50 +2812,50 @@ export function DocumentEmbeddingSnapshot({
             rebuild either index.
           </p>
         </div>
-        <div
-          className="settings-document-maintenance"
-          role="group"
-          aria-label="Document index maintenance"
-        >
-          <Button
-            disabled
-            title="A reviewed document-vector rebuild owner is not available in this client."
+        <details className="settings-snapshot-disclosure">
+          <summary>Index &amp; model maintenance</summary>
+          <div
+            className="settings-document-maintenance"
+            role="group"
+            aria-label="Document index maintenance"
           >
-            <RefreshCw size={16} aria-hidden /> Rebuild document vectors
-          </Button>
-          <Button
-            disabled
-            title="A reviewed memory-index rebuild owner is not available in this client."
-          >
-            <Network size={16} aria-hidden /> Rebuild memory index
-          </Button>
-          {provider === 'local' && (
-            <>
-              <Button
-                disabled
-                title="A cache-only local model retry owner is not available in this client."
-              >
-                Retry local load
-              </Button>
-              <Button
-                disabled
-                title="Model downloads require an explicit reviewed installation owner."
-              >
-                Download model
-              </Button>
-              <Button
-                disabled
-                title="Model repair requires an explicit reviewed installation owner."
-              >
-                <Wrench size={16} aria-hidden /> Repair local model
-              </Button>
-            </>
-          )}
-        </div>
-        <p className="settings-help">
-          Rebuild, retry, download, and repair remain unavailable until their
-          explicit reviewed command owners are migrated.
-        </p>
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="vectors.rebuild"
+              label="rebuild document vectors"
+              description="Recreate document search vectors from the admitted local document vault."
+            />
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="memory_index.rebuild"
+              label="rebuild memory index"
+              description="Recreate the local memory vector index with the saved embedding configuration."
+            />
+            {provider === 'local' && (
+              <>
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="local_model.retry"
+                  label="retry local load"
+                  description="Retry loading the selected model from the existing on-device cache."
+                />
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="local_model.download"
+                  label="download local model"
+                  description="Download the selected embedding model. This requires network access."
+                />
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="local_model.repair"
+                  label="repair local model"
+                  description="Replace the selected model's cached files. This requires network access."
+                  variant="danger"
+                />
+              </>
+            )}
+          </div>
+        </details>
       </Section>
     </div>
   );
@@ -2281,20 +2868,61 @@ export function ToolConfigurationSnapshot({
   snapshot: SettingsSnapshot['tools'];
   mutation: SettingsMutationIO;
 }) {
-  const toolPresentation: Record<string, { label: string; order: number }> = {
-    arxiv: { label: 'arXiv', order: 0 },
-    duckduckgo: { label: 'DuckDuckGo', order: 1 },
-    web_search: { label: 'Web Search', order: 2 },
-    wikipedia: { label: 'Wikipedia', order: 3 },
-    wolfram_alpha: { label: 'Wolfram Alpha', order: 4 },
-    youtube: { label: 'YouTube', order: 5 },
+  const toolPresentation: Record<
+    string,
+    { label: string; order: number; description: string; setupUrl?: string }
+  > = {
+    arxiv: {
+      label: 'arXiv',
+      order: 0,
+      description: 'Search research papers and preprints.',
+    },
+    duckduckgo: {
+      label: 'DuckDuckGo',
+      order: 1,
+      description: 'Search the current web without an API key.',
+    },
+    web_search: {
+      label: 'Web Search',
+      order: 2,
+      description: 'Search the live web with Tavily.',
+      setupUrl: 'https://app.tavily.com/',
+    },
+    wikipedia: {
+      label: 'Wikipedia',
+      order: 3,
+      description: 'Look up encyclopedia articles and summaries.',
+    },
+    wolfram_alpha: {
+      label: 'Wolfram Alpha',
+      order: 4,
+      description: 'Run advanced computation and scientific queries.',
+      setupUrl: 'https://developer.wolframalpha.com/',
+    },
+    youtube: {
+      label: 'YouTube',
+      order: 5,
+      description: 'Search videos and retrieve available transcripts.',
+    },
   };
+  const [toolQuery, setToolQuery] = useState('');
+  const normalizedQuery = toolQuery.trim().toLocaleLowerCase();
   const tools = snapshot.items
-    .filter((tool) => tool.available)
     .map((tool) => ({
       ...tool,
       displayLabel: toolPresentation[tool.tool_id]?.label ?? tool.label,
+      description:
+        toolPresentation[tool.tool_id]?.description ??
+        'Saved research capability.',
+      setupUrl: toolPresentation[tool.tool_id]?.setupUrl,
     }))
+    .filter(
+      (tool) =>
+        !normalizedQuery ||
+        `${tool.displayLabel} ${tool.description}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery),
+    )
     .sort(
       (left, right) =>
         (toolPresentation[left.tool_id]?.order ?? Number.MAX_SAFE_INTEGER) -
@@ -2357,18 +2985,28 @@ export function ToolConfigurationSnapshot({
         description="Saved enablement and masked configuration for research tools."
         icon={BookOpen}
       >
+        <Field label="Search research tools">
+          <Input
+            type="search"
+            value={toolQuery}
+            onChange={(event) => setToolQuery(event.target.value)}
+            placeholder="Name or purpose"
+          />
+        </Field>
         <ul className="settings-toggle-list">
           {tools.map((tool) => (
             <li key={tool.tool_id}>
               <div>
                 <strong>{tool.displayLabel}</strong>
+                <small>{tool.description}</small>
                 <small>
+                  {tool.available ? 'Available' : 'Unavailable'}
                   {tool.configured_fields.length
-                    ? `${tool.configured_fields.length} configured fields`
-                    : 'No extra configuration'}
+                    ? ` · ${tool.configured_fields.length} configured fields`
+                    : ''}
                 </small>
               </div>
-              {tool.enabled != null ? (
+              {tool.available && tool.enabled != null ? (
                 <SwitchSetting
                   mutation={mutation}
                   field={`${tool.tool_id}.enabled`}
@@ -2378,36 +3016,54 @@ export function ToolConfigurationSnapshot({
               ) : (
                 <StateChip warning>Unavailable</StateChip>
               )}
-              {tool.credentials.map((credential) =>
-                tool.tool_id === 'web_search' ||
-                tool.tool_id === 'wolfram_alpha' ? (
-                  <SecretSetting
-                    key={credential.name}
-                    mutation={mutation}
-                    field={`${tool.tool_id}.credential`}
-                    label={credential.label}
-                    configured={credential.configured}
-                    source={credential.source}
-                  />
-                ) : (
-                  <div className="settings-summary-strip" key={credential.name}>
-                    <strong>{credential.label}</strong>
-                    <StateChip
-                      active={credential.configured}
-                      warning={!credential.configured}
-                    >
-                      {credential.configured
-                        ? 'Saved · masked'
-                        : 'Not configured'}
-                    </StateChip>
-                  </div>
-                ),
+              {(tool.credentials.length > 0 || tool.setupUrl) && (
+                <details className="settings-snapshot-disclosure settings-tool-detail">
+                  <summary>Credentials &amp; setup</summary>
+                  {tool.setupUrl && (
+                    <p className="settings-help">
+                      Create the provider credential at{' '}
+                      <a href={tool.setupUrl} target="_blank" rel="noreferrer">
+                        {new URL(tool.setupUrl).hostname}
+                      </a>
+                      , then save it below. Credentials remain write-only and
+                      masked.
+                    </p>
+                  )}
+                  {tool.credentials.map((credential) =>
+                    tool.tool_id === 'web_search' ||
+                    tool.tool_id === 'wolfram_alpha' ? (
+                      <SecretSetting
+                        key={credential.name}
+                        mutation={mutation}
+                        field={`${tool.tool_id}.credential`}
+                        label={credential.label}
+                        configured={credential.configured}
+                        source={credential.source}
+                      />
+                    ) : (
+                      <div
+                        className="settings-summary-strip"
+                        key={credential.name}
+                      >
+                        <strong>{credential.label}</strong>
+                        <StateChip
+                          active={credential.configured}
+                          warning={!credential.configured}
+                        >
+                          {credential.configured
+                            ? 'Saved · masked'
+                            : 'Not configured'}
+                        </StateChip>
+                      </div>
+                    ),
+                  )}
+                </details>
               )}
             </li>
           ))}
         </ul>
         {!tools.length && (
-          <p className="settings-help">No research tools are available.</p>
+          <p className="settings-help">No research tools match this search.</p>
         )}
       </Section>
     </div>
@@ -2417,9 +3073,11 @@ export function ToolConfigurationSnapshot({
 export function PreferencesSnapshotPanel({
   snapshot,
   mutation,
+  showUpdateControls = false,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
+  showUpdateControls?: boolean;
 }) {
   return (
     <div className="stack settings-snapshot-page">
@@ -2595,14 +3253,11 @@ export function PreferencesSnapshotPanel({
             />
           </Facts>
         </details>
-        <p className="settings-help">
-          Update status is cached. Checking or installing an update requires a
-          separate reviewed action.
-        </p>
+        {showUpdateControls && <ConnectedUpdateControls />}
       </Section>
       <Section
         title="Migration"
-        description="Import selected data only through the reviewed migration wizard."
+        description="Scan and select data from Hermes Agent or OpenClaw. Confirm before writing files."
         icon={Import}
       >
         <Facts>
@@ -2615,6 +3270,7 @@ export function PreferencesSnapshotPanel({
             value={snapshot.migration.sources.join(', ') || 'None detected'}
           />
         </Facts>
+        {showUpdateControls && <ConnectedMigrationControls />}
       </Section>
     </div>
   );

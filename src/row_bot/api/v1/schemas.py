@@ -89,6 +89,21 @@ class ConversationControls(WireModel):
     reasoning: ReasoningControl | None = None
 
 
+class ConversationSkillPayload(WireModel):
+    action: Literal["activate", "remove", "dismiss", "reset"]
+    composer_revision: str = Field(min_length=1, max_length=128)
+    skill_id: str = Field(default="", max_length=256)
+    draft: str = Field(default="", max_length=200000)
+
+    @model_validator(mode="after")
+    def valid_skill_action(self) -> ConversationSkillPayload:
+        if self.action in {"activate", "remove", "dismiss"} and not self.skill_id:
+            raise ValueError("A skill is required for this action")
+        if self.action == "reset" and self.skill_id:
+            raise ValueError("Reset does not accept a skill")
+        return self
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -313,6 +328,14 @@ class BrowserControlSnapshot(WireModel):
     availability: dict[str, BrowserAvailability] = Field(max_length=12)
 
 
+class BrowserPreview(WireModel):
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    revision: BrowserRevision
+    state: Literal["available", "waiting", "shielded", "inactive"]
+    image_base64: str | None = Field(default=None, max_length=2_000_000)
+
+
 class BrowserRevisionInput(WireModel):
     revision: BrowserRevision
 
@@ -423,6 +446,100 @@ class EntitySummaryPage(WireModel):
     total: int | None = Field(ge=0)
     next_cursor: str | None = Field(max_length=1024)
     availability: Literal["available", "missing", "unavailable"]
+
+
+class KnowledgeRelationPreview(WireModel):
+    relation_type: str = Field(max_length=64)
+    direction: Literal["incoming", "outgoing"]
+    peer_id: OpaqueId
+    peer_subject: str = Field(max_length=256)
+
+
+class KnowledgeEntityDetail(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable"]
+    id: str = Field(max_length=128)
+    revision: str = Field(max_length=64)
+    entity_type: str = Field(max_length=64)
+    subject: str = Field(max_length=256)
+    description: str = Field(max_length=32768)
+    status: Literal["active", "needs_review", "superseded", "archived"]
+    tier: Literal["core", "semantic", "episodic", "resource"]
+    source: str = Field(max_length=4096)
+    source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
+    confidence: float | None = Field(ge=0, le=1)
+    aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=12
+    )
+    alias_count: int = Field(ge=0, le=256)
+    tags: list[Annotated[str, StringConstraints(max_length=128)]] = Field(max_length=12)
+    tag_count: int = Field(ge=0, le=256)
+    created_at: str = Field(max_length=128)
+    updated_at: str = Field(max_length=128)
+    last_user_modified_at: str = Field(max_length=128)
+    last_evolved_at: str = Field(max_length=128)
+    last_recalled_at: str = Field(max_length=128)
+    recall_count: int | None = Field(ge=0, le=9007199254740991)
+    review_reason: str = Field(max_length=1024)
+    superseded_by: str = Field(max_length=128)
+    supersedes: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=4
+    )
+    source_context: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=10
+    )
+    evidence: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=3
+    )
+    evidence_count: int = Field(ge=0, le=9007199254740991)
+    relations: list[KnowledgeRelationPreview] = Field(max_length=5)
+    relation_count: int = Field(ge=0, le=9007199254740991)
+    can_archive: bool
+    can_restore: bool
+    can_resolve: bool
+
+
+class KnowledgeRecallCandidate(WireModel):
+    subject: str = Field(max_length=256)
+    score: float | None = Field(ge=0, le=1)
+
+
+class KnowledgeRecallDecision(WireModel):
+    timestamp: str = Field(max_length=128)
+    outcome: Literal["used", "skipped"]
+    reason: str = Field(max_length=512)
+    candidate_count: int = Field(ge=0, le=2147483647)
+    selected_count: int = Field(ge=0, le=2147483647)
+    context_characters: int = Field(ge=0, le=2147483647)
+    candidates: list[KnowledgeRecallCandidate] = Field(max_length=3)
+    rejection_reasons: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=3
+    )
+
+
+class KnowledgeRecallPage(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable", "corrupt"]
+    items: list[KnowledgeRecallDecision] = Field(max_length=10)
+
+
+class KnowledgeMemoryChange(WireModel):
+    timestamp: str = Field(max_length=128)
+    action: str = Field(max_length=128)
+    actor: str = Field(max_length=128)
+    old_status: str = Field(max_length=64)
+    new_status: str = Field(max_length=64)
+    subjects: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        max_length=3
+    )
+    additional_subjects: int = Field(ge=0, le=100)
+    reason: str = Field(max_length=512)
+
+
+class KnowledgeMemoryChangePage(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable", "corrupt"]
+    items: list[KnowledgeMemoryChange] = Field(max_length=20)
 
 
 class DocumentSummaryPage(WireModel):
@@ -548,7 +665,7 @@ class VoiceSettingsSnapshot(WireModel):
 
 
 class SettingsWorkspaceSnapshot(WireModel):
-    path: str = Field(max_length=4096)
+    label: str = Field(max_length=255)
     configured: bool
     exists: bool
 
@@ -563,12 +680,17 @@ class SettingsShellSnapshot(SettingsToggleSnapshot):
 
 
 class SettingsRuntimeToggleSnapshot(SettingsToggleSnapshot):
-    runtime_state: Literal["cached_unknown"]
+    runtime_state: str = Field(max_length=64)
 
 
 class SettingsComputerUseSnapshot(SettingsRuntimeToggleSnapshot):
+    local_owner_control_available: bool
+    platform: Literal["windows", "macos", "unsupported"]
     disclosure_acknowledged: bool
     system_binary_configured: bool
+    status_message: str = Field(max_length=256)
+    remediation: str = Field(max_length=256)
+    disclosure_text: str = Field(max_length=2400)
 
 
 class SettingsFileOperationsSnapshot(SettingsToggleSnapshot):
@@ -585,6 +707,9 @@ class SettingsTunnelSnapshot(WireModel):
     credential: SettingsCredentialState
     runtime_state: Literal["not_checked"]
     active_count: int | None = Field(ge=0)
+    main_app_enabled: bool
+    main_app_url: str | None = Field(max_length=512)
+    local_owner_control_available: bool
 
 
 class SettingsRemoteAccessSnapshot(WireModel):
@@ -604,7 +729,7 @@ class SettingsMobileAccessSnapshot(WireModel):
 
 class SettingsLoggingSnapshot(WireModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"]
-    directory: str = Field(max_length=4096)
+    directory_available: bool
 
 
 class SystemSettingsSnapshot(WireModel):
@@ -762,7 +887,6 @@ class AccountSettingsItem(WireModel):
         "expired",
         "unavailable",
     ]
-    credentials_path: str = Field(max_length=4096)
     credential: SettingsCredentialState | None
     operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=128
@@ -784,6 +908,180 @@ class AccountSettingsSnapshot(WireModel):
     gmail: AccountSettingsItem
     calendar: AccountSettingsItem
     x: AccountSettingsItem
+
+
+class GitHubAccessSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal[
+        "not_configured",
+        "configured_unchecked",
+        "connected",
+        "anonymous",
+        "invalid_token",
+        "rate_limited",
+        "secondary_limited",
+        "offline",
+    ]
+    credential_source: Literal["none", "environment", "keyring", "github_cli"]
+    connected: bool
+    anonymous_ok: bool
+    cli_installed: bool
+    cli_authenticated: bool
+    remaining: int | None = Field(default=None, ge=0)
+    retry_after_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+
+class GitHubAccessCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["check", "cli_login", "cli_refresh", "anonymous"]
+
+
+class SkillHubEntryView(WireModel):
+    id: str = Field(max_length=256)
+    name: str = Field(max_length=160)
+    description: str = Field(max_length=1000)
+    source: str = Field(max_length=80)
+    author: str = Field(max_length=160)
+    trust_level: str = Field(max_length=80)
+    tags: list[str] = Field(max_length=8)
+    installed: bool
+
+
+class SkillHubSourceStatus(WireModel):
+    source_id: str = Field(max_length=80)
+    status: str = Field(max_length=40)
+    message: str = Field(max_length=300)
+
+
+class SkillHubSearchRequest(WireModel):
+    query: str = Field(default="", max_length=2000)
+    source: Literal["all", "github", "skills_sh", "browse_sh", "clawhub", "lobehub"] = (
+        "all"
+    )
+    refresh: bool = False
+
+
+class SkillHubSearchResult(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    mode: str = Field(max_length=40)
+    query: str = Field(max_length=2000)
+    entries: list[SkillHubEntryView] = Field(max_length=24)
+    source_statuses: list[SkillHubSourceStatus] = Field(max_length=12)
+    error: str = Field(max_length=500)
+
+
+class SkillHubPreviewRequest(WireModel):
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    entry_id: str = Field(min_length=1, max_length=256)
+
+
+class SkillHubFinding(WireModel):
+    severity: Literal["block", "warn", "info"]
+    code: str = Field(max_length=80)
+    message: str = Field(max_length=500)
+    path: str = Field(max_length=256)
+
+
+class SkillHubScanView(WireModel):
+    blocked: bool
+    findings: list[SkillHubFinding] = Field(max_length=50)
+    token_estimate: int = Field(ge=0)
+
+
+class SkillHubPreview(WireModel):
+    schema_version: Literal[1]
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    entry: SkillHubEntryView
+    primary_text: str = Field(max_length=6000)
+    files: list[str] = Field(max_length=100)
+    scan: SkillHubScanView
+
+
+class SkillHubInstallCommand(WireModel):
+    command_id: UUID
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    make_available: bool = False
+
+
+class SkillHubInstallReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    success: bool
+    message: str = Field(max_length=500)
+    skill_name: str = Field(max_length=160)
+
+
+class SkillHubInstalledRecord(WireModel):
+    name: str = Field(max_length=160)
+    source: str = Field(max_length=80)
+    enabled: bool
+    installed_at: str = Field(max_length=64)
+    updated_at: str = Field(max_length=64)
+    file_count: int = Field(ge=0)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SkillHubInstalledPage(WireModel):
+    schema_version: Literal[1]
+    items: list[SkillHubInstalledRecord] = Field(max_length=200)
+
+
+class SkillHubMaintenanceCommand(WireModel):
+    command_id: UUID
+    name: str = Field(min_length=1, max_length=160)
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["check", "update", "uninstall"]
+    confirmed: bool = False
+
+
+class SkillHubMaintenanceReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    action: Literal["check", "update", "uninstall"]
+    success: bool
+    message: str = Field(max_length=300)
+    record: SkillHubInstalledRecord | None
+
+
+class GitHubAccessReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    action: Literal["check", "cli_login", "cli_refresh", "anonymous"]
+    phase: Literal["completed", "started"]
+    snapshot: GitHubAccessSnapshot
+
+
+class AccountAuthSnapshot(WireModel):
+    schema_version: Literal[1]
+    account: Literal["google", "x"]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    configured: bool
+    state: Literal["not_configured", "not_authenticated", "saved_unchecked", "partial"]
+    token_files: int = Field(ge=0, le=2)
+
+
+class AccountAuthCommand(WireModel):
+    command_id: UUID
+    account: Literal["google", "x"]
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["import_credentials", "check", "start", "disconnect"]
+    confirmed: bool = False
+    credentials_json: str = Field(default="", max_length=65536)
+
+
+class AccountAuthReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    account: Literal["google", "x"]
+    action: Literal["import_credentials", "check", "start", "disconnect"]
+    phase: Literal["running", "cancel_requested", "cancelled", "completed", "failed"]
+    message: str = Field(max_length=256)
+    snapshot: AccountAuthSnapshot
 
 
 class UtilitySettingsItem(WireModel):
@@ -878,6 +1176,7 @@ SettingsMutationPage = Literal[
     "voice",
     "system",
     "tracker",
+    "knowledge",
     "documents",
     "tools",
     "accounts",
@@ -918,12 +1217,19 @@ class SettingsMutationCommand(WireModel):
     payload: SettingsMutationPayload
 
 
+class SettingsActionResult(WireModel):
+    code: str = Field(max_length=64)
+    message: str = Field(max_length=256)
+    remediation: str = Field(max_length=256)
+
+
 class SettingsMutationReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "rejected", "partial"]
     code: str | None = Field(default=None, max_length=128)
     settings_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     snapshot: SettingsSnapshot | None = None
+    action_result: SettingsActionResult | None = None
 
 
 class TaskSummary(WireModel):
@@ -946,6 +1252,19 @@ class TaskSummaryPage(WireModel):
     items: list[TaskSummary] = Field(max_length=100)
     total: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=1024)
+
+
+class TaskDeliveryChannel(WireModel):
+    id: OpaqueId
+    label: str = Field(max_length=256)
+    selected: bool
+
+
+class TaskDeliverySnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    channels: list[TaskDeliveryChannel] = Field(max_length=32)
+    web_app_always_on: Literal[True]
 
 
 class ProviderStatusRow(WireModel):
@@ -989,7 +1308,9 @@ class ProviderEndpointSnapshot(WireModel):
     fields: ProviderEndpointFields
     probe_state: Literal["agent_ready", "chat_only", "unavailable", "unknown"]
     model_count: int | None = Field(ge=0)
-    probe_components: list[ProviderProbeComponent] = Field(default_factory=list, max_length=20)
+    probe_components: list[ProviderProbeComponent] = Field(
+        default_factory=list, max_length=20
+    )
     transport: str = Field(default="openai_chat", max_length=80)
     runtime_state: Literal["unknown"] = "unknown"
 
@@ -1372,6 +1693,38 @@ class SubscriptionOptionsReview(SubscriptionOptionsRequest):
     nonce: str = Field(min_length=1, max_length=128)
 
 
+class McpRequirementSummary(WireModel):
+    id: Literal["node", "uv", "playwright-chrome", "other"]
+    label: str = Field(max_length=96)
+    available: bool
+    managed: bool
+    installable: bool
+    source: Literal["system", "managed", "environment", "missing", "unknown"]
+
+
+class McpDirectorySearchRequest(WireModel):
+    query: str = Field(max_length=128)
+
+
+class McpDirectoryEntry(WireModel):
+    id: str = Field(max_length=128)
+    name: str = Field(max_length=128)
+    description: str = Field(max_length=800)
+    source: str = Field(max_length=32)
+    publisher: str = Field(max_length=128)
+    transport: str = Field(max_length=32)
+    risk_level: str = Field(max_length=32)
+    requires_auth: bool
+    recommended: bool
+    import_json: str = Field(max_length=8192)
+
+
+class McpDirectoryResult(WireModel):
+    schema_version: Literal[1]
+    mode: Literal["live", "cache", "curated"]
+    items: list[McpDirectoryEntry] = Field(max_length=24)
+
+
 class McpServerSummary(WireModel):
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     name: str = Field(max_length=128)
@@ -1383,6 +1736,9 @@ class McpServerSummary(WireModel):
     ] = Field(max_length=6)
     tool_count: int | None = Field(ge=0, le=10000)
     connection_present: bool | None
+    requirements: list[McpRequirementSummary] = Field(
+        default_factory=list, max_length=8
+    )
 
 
 class McpConfigurationPage(WireModel):
@@ -1424,7 +1780,7 @@ class McpConfigurationFields(WireModel):
 
 
 class McpConfigurationIntent(WireModel):
-    operation: Literal["add", "edit", "rename", "import"]
+    operation: Literal["add", "edit", "rename", "import", "delete"]
     server_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     fields: McpConfigurationFields | None = None
     import_json: str | None = Field(default=None, max_length=131072)
@@ -1441,7 +1797,7 @@ class McpConfigurationPayload(McpConfigurationReviewRequest):
 
 class McpConfigurationReview(WireModel):
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    operation: Literal["add", "edit", "rename", "import"]
+    operation: Literal["add", "edit", "rename", "import", "delete"]
     action_digest: str = Field(min_length=1, max_length=128)
     server_ids: list[Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]] = (
         Field(max_length=64)
@@ -1458,8 +1814,402 @@ class McpConfigurationOutcome(WireModel):
         Field(max_length=64)
     )
     saved_disabled: Literal[True] | None
-    runtime_cleanup: Literal["not_requested"]
-    code: Literal["mcp_configuration_unconfirmed"] | None
+    runtime_cleanup: Literal[
+        "not_requested", "not_running", "stopped", "cleanup_incomplete"
+    ]
+    code: Literal["mcp_configuration_unconfirmed", "mcp_cleanup_incomplete"] | None
+
+
+class KnowledgeGraphNode(WireModel):
+    id: OpaqueId
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    subject: str = Field(max_length=256)
+    description: str = Field(max_length=1024)
+    entity_type: str = Field(max_length=64)
+    source: Literal["manual", "extraction", "document", "wiki", "other"]
+    updated_at: str = Field(max_length=128)
+    relation_count: int = Field(ge=0, le=9007199254740991)
+    orphan: bool
+    is_user: bool
+
+
+class KnowledgeGraphEdge(WireModel):
+    id: OpaqueId
+    source_id: OpaqueId
+    target_id: OpaqueId
+    relation_type: str = Field(max_length=64)
+    updated_at: str = Field(max_length=128)
+
+
+class KnowledgeGraphSnapshot(WireModel):
+    schema_version: Literal[1]
+    availability: Literal["available", "missing", "unavailable", "corrupt"]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    nodes: list[KnowledgeGraphNode] = Field(max_length=250)
+    edges: list[KnowledgeGraphEdge] = Field(max_length=2000)
+    total_entities: int = Field(ge=0, le=9007199254740991)
+    total_relations: int = Field(ge=0, le=9007199254740991)
+    shown_entities: int = Field(ge=0, le=250)
+    shown_relations: int = Field(ge=0, le=2000)
+    truncated: bool
+    center_id: OpaqueId | None
+    entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        max_length=64
+    )
+    sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
+        max_length=5
+    )
+
+
+MonitorAvailability = Literal["available", "missing", "unavailable", "corrupt"]
+
+
+class MonitorExtractionStatus(WireModel):
+    availability: MonitorAvailability
+    last_run: str | None = Field(max_length=128)
+    interval_hours: int = Field(ge=1, le=168)
+    threads_scanned: int = Field(ge=0, le=2147483647)
+    entities_saved: int = Field(ge=0, le=2147483647)
+    islands_repaired: int = Field(ge=0, le=2147483647)
+
+
+class MonitorExtractionThread(WireModel):
+    label: str = Field(max_length=256)
+    extracted: int = Field(ge=0, le=2147483647)
+    saved: int = Field(ge=0, le=2147483647)
+
+
+class MonitorExtractionJournalEntry(WireModel):
+    timestamp: str = Field(max_length=128)
+    summary: str = Field(max_length=512)
+    contradictions_blocked: int = Field(ge=0, le=2147483647)
+    low_confidence_skipped: int = Field(ge=0, le=2147483647)
+    islands_repaired: int = Field(ge=0, le=2147483647)
+    threads: list[MonitorExtractionThread] = Field(max_length=50)
+    errors: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=20
+    )
+
+
+class MonitorDreamRecent(WireModel):
+    timestamp: str = Field(max_length=128)
+    summary: str = Field(max_length=512)
+
+
+class MonitorDreamStatus(WireModel):
+    availability: MonitorAvailability
+    enabled: bool
+    window: str = Field(max_length=64)
+    last_run: str | None = Field(max_length=128)
+    last_summary: str | None = Field(max_length=512)
+    recent: list[MonitorDreamRecent] = Field(max_length=3)
+
+
+class MonitorDreamMerge(WireModel):
+    duplicate_subject: str = Field(max_length=256)
+    survivor_subject: str = Field(max_length=256)
+    score: float | None = Field(ge=0, le=1)
+
+
+class MonitorDreamEnrichment(WireModel):
+    subject: str = Field(max_length=256)
+    old_length: int = Field(ge=0, le=1000000)
+    new_length: int = Field(ge=0, le=1000000)
+    new_description: str = Field(max_length=512)
+
+
+class MonitorDreamRelation(WireModel):
+    source_subject: str = Field(max_length=256)
+    target_subject: str = Field(max_length=256)
+    relation_type: str = Field(max_length=64)
+    confidence: float | None = Field(ge=0, le=1)
+    evidence: str = Field(max_length=512)
+
+
+class MonitorDreamJournalEntry(WireModel):
+    timestamp: str = Field(max_length=128)
+    summary: str = Field(max_length=512)
+    merges: list[MonitorDreamMerge] = Field(max_length=50)
+    enrichments: list[MonitorDreamEnrichment] = Field(max_length=50)
+    inferred_relations: list[MonitorDreamRelation] = Field(max_length=50)
+    errors: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=20
+    )
+
+
+class MonitorLogEntry(WireModel):
+    timestamp: str = Field(max_length=128)
+    level: str = Field(max_length=32)
+    logger: str = Field(max_length=128)
+    message: str = Field(max_length=512)
+    exception: str = Field(max_length=1024)
+
+
+class MonitorLogs(WireModel):
+    availability: MonitorAvailability
+    authorized: bool
+    entries: list[MonitorLogEntry] = Field(max_length=200)
+    full_available: bool
+
+
+class SystemDiagnosisCheck(WireModel):
+    name: str = Field(max_length=128)
+    status: Literal["ok", "warn", "error", "inactive"]
+    detail: str = Field(max_length=512)
+    checked_at: float
+    settings_tab: str = Field(max_length=64)
+
+
+class SystemDiagnosis(WireModel):
+    schema_version: Literal[1]
+    checks: list[SystemDiagnosisCheck] = Field(max_length=64)
+
+
+class UpdateRelease(WireModel):
+    version: str = Field(max_length=64)
+    channel: Literal["stable", "beta"]
+    published_at: str = Field(max_length=64)
+    notes: str = Field(max_length=16000)
+    html_url: str = Field(max_length=2048)
+    asset_size: int = Field(ge=0, le=1_000_000_000_000)
+    verified_manifest: bool
+
+
+class UpdateSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    channel: Literal["stable", "beta"]
+    current_version: str = Field(max_length=64)
+    last_check: str | None = Field(max_length=64)
+    last_success: str | None = Field(max_length=64)
+    skipped_versions: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        max_length=64
+    )
+    available: UpdateRelease | None
+    dev_install: bool
+
+
+class UpdateCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["check", "skip", "clear_skipped"]
+    version: str = Field(default="", max_length=64)
+
+
+class UpdateReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    status: Literal["completed", "failed"]
+    snapshot: UpdateSnapshot
+
+
+class UpdateInstallCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    version: str = Field(max_length=64)
+
+
+class UpdateInstallStatus(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    version: str = Field(max_length=64)
+    phase: Literal["downloading", "cancel_requested", "cancelled", "failed", "handoff"]
+    downloaded: int = Field(ge=0, le=1_000_000_000_000)
+    total: int = Field(ge=0, le=1_000_000_000_000)
+    message: str = Field(max_length=256)
+
+
+class MigrationScanRequest(WireModel):
+    provider: Literal["hermes", "openclaw"]
+    source: str = Field(min_length=1, max_length=2048)
+    target: str = Field(default="", max_length=2048)
+    include_secrets: bool = False
+
+
+class MigrationPreviewSummary(WireModel):
+    total: int = Field(ge=0, le=4096)
+    selected: int = Field(ge=0, le=4096)
+    ready: int = Field(ge=0, le=4096)
+    migrated: int = Field(ge=0, le=4096)
+    conflicts: int = Field(ge=0, le=4096)
+    sensitive: int = Field(ge=0, le=4096)
+    archive_only: int = Field(ge=0, le=4096)
+    skipped: int = Field(ge=0, le=4096)
+    blocked: int = Field(ge=0, le=4096)
+    errors: int = Field(ge=0, le=4096)
+
+
+class MigrationPreviewItem(WireModel):
+    id: str = Field(max_length=128)
+    category: str = Field(max_length=32)
+    action: str = Field(max_length=32)
+    status: str = Field(max_length=32)
+    label: str = Field(max_length=256)
+    reason: str = Field(max_length=512)
+    target: str = Field(max_length=256)
+    sensitivity: str = Field(max_length=32)
+    selected: bool
+    requires_confirmation: bool
+
+
+class MigrationPreview(WireModel):
+    schema_version: Literal[1]
+    plan_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    provider: Literal["hermes", "openclaw"]
+    source_found: bool
+    source_label: str = Field(max_length=128)
+    summary: MigrationPreviewSummary
+    warnings: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=64
+    )
+    items: list[MigrationPreviewItem] = Field(max_length=4096)
+
+
+class MigrationApplyReviewRequest(WireModel):
+    plan_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selected_ids: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
+        max_length=4096
+    )
+    overwrite: bool = False
+
+
+class MigrationApplyReview(WireModel):
+    schema_version: Literal[1]
+    plan_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selected: int = Field(ge=1, le=4096)
+    conflicts: int = Field(ge=0, le=4096)
+    sensitive: int = Field(ge=0, le=4096)
+    overwrite: bool
+    backup_required: bool
+
+
+class MigrationApplyCommand(MigrationApplyReviewRequest):
+    command_id: UUID
+    review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed: bool
+
+
+class MigrationFailedItem(WireModel):
+    id: str = Field(max_length=128)
+    status: str = Field(max_length=32)
+    reason: str = Field(max_length=512)
+
+
+class MigrationApplyReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    status: Literal["completed", "partial", "interrupted"]
+    summary: MigrationPreviewSummary
+    report: str = Field(max_length=256)
+    warnings: list[Annotated[str, StringConstraints(max_length=512)]] = Field(
+        max_length=64
+    )
+    failed_items: list[MigrationFailedItem] = Field(max_length=4096)
+
+
+class OnboardingStep(WireModel):
+    id: str = Field(max_length=32)
+    title: str = Field(max_length=64)
+    description: str = Field(max_length=256)
+
+
+class OnboardingIntent(WireModel):
+    id: str = Field(max_length=32)
+    label: str = Field(max_length=64)
+
+
+class OnboardingSnapshot(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    setup_complete: bool
+    starter_workflows_missing: int = Field(ge=0, le=32)
+    profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        max_length=7
+    )
+    completed_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        max_length=11
+    )
+    skipped_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        max_length=11
+    )
+    dismissed_home_card: bool
+    steps: list[OnboardingStep] = Field(max_length=11)
+    intents: list[OnboardingIntent] = Field(max_length=7)
+
+
+class OnboardingCommand(WireModel):
+    command_id: UUID
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal[
+        "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters"
+    ]
+    profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        default_factory=list, max_length=7
+    )
+    step: str = Field(default="", max_length=32)
+
+
+class OnboardingReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    status: Literal["completed"]
+    snapshot: OnboardingSnapshot
+
+
+class MonitorSnapshot(WireModel):
+    schema_version: Literal[1]
+    dream_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    extraction: MonitorExtractionStatus
+    extraction_journal: list[MonitorExtractionJournalEntry] = Field(max_length=20)
+    extraction_journal_availability: MonitorAvailability
+    dream: MonitorDreamStatus
+    dream_journal: list[MonitorDreamJournalEntry] = Field(max_length=20)
+    dream_journal_availability: MonitorAvailability
+    logs: MonitorLogs
+
+
+class DreamRunRequest(WireModel):
+    snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DreamRunReview(WireModel):
+    schema_version: Literal[1]
+    snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effects: list[
+        Literal["knowledge_entities", "knowledge_relations", "dream_journal"]
+    ] = Field(max_length=3)
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class DreamRunPayload(WireModel):
+    snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class DreamRunCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: Literal["dream.run"]
+    payload: DreamRunPayload
+
+
+class DreamRunReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "partial", "rejected"]
+    code: (
+        Literal["dream_outcome_uncertain", "dream_failed", "dream_disabled"] | None
+    ) = None
+    summary: str = Field(max_length=512)
+    merges: int = Field(ge=0, le=2147483647)
+    enrichments: int = Field(ge=0, le=2147483647)
+    inferred_relations: int = Field(ge=0, le=2147483647)
+    errors: int = Field(ge=0, le=2147483647)
 
 
 KnowledgeAction = Literal[
@@ -1548,6 +2298,85 @@ class KnowledgeReceipt(WireModel):
     saved_state: Literal["saved"] | None = None
     projection_state: Literal["pending", "unknown"] | None = None
     reused: bool | None = None
+
+
+KnowledgeMaintenanceAction = Literal[
+    "knowledge.delete", "knowledge.delete.bulk", "knowledge.delete_all"
+]
+
+
+class KnowledgeDeleteTarget(WireModel):
+    entity_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class KnowledgeMaintenanceRequest(WireModel):
+    action: KnowledgeMaintenanceAction
+    catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
+
+
+class KnowledgeMaintenanceReview(WireModel):
+    schema_version: Literal[1]
+    action: KnowledgeMaintenanceAction
+    catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
+    entity_count: int = Field(ge=0, le=9007199254740991)
+    side_effects: list[
+        Literal[
+            "entities",
+            "relations",
+            "lexical_index",
+            "vector_index",
+            "managed_wiki_files",
+        ]
+    ] = Field(max_length=5)
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class KnowledgeMaintenancePayload(WireModel):
+    catalog_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    targets: list[KnowledgeDeleteTarget] = Field(max_length=100)
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_id: str = Field(min_length=1, max_length=256)
+
+
+class KnowledgeMaintenanceCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: KnowledgeMaintenanceAction
+    payload: KnowledgeMaintenancePayload
+
+
+class KnowledgeCleanupResult(WireModel):
+    lexical_index: Literal["completed", "skipped", "failed"] | None = None
+    vector_index: Literal["completed", "skipped", "failed"] | None = None
+    wiki: Literal["completed", "skipped", "failed"] | None = None
+
+
+class KnowledgeMaintenanceReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "partial", "rejected"]
+    action: KnowledgeMaintenanceAction
+    deleted: list[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    ] = Field(max_length=100)
+    stale: list[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    ] = Field(max_length=100)
+    missing: list[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    ] = Field(max_length=100)
+    cleanup: KnowledgeCleanupResult
+    code: (
+        Literal[
+            "knowledge_changed",
+            "knowledge_cleanup_partial",
+            "knowledge_outcome_uncertain",
+        ]
+        | None
+    ) = None
 
 
 KnowledgeId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -1877,6 +2706,10 @@ class WikiReceipt(WireModel):
     code: Literal["wiki_conflict", "wiki_outcome_uncertain"] | None
 
 
+class WikiOpenFolderResult(WireModel):
+    status: Literal["opened", "unavailable", "not_found", "denied"]
+
+
 ChannelOperation = Literal["configure", "start", "stop", "pair", "revoke"]
 
 
@@ -1990,6 +2823,9 @@ class PluginCatalogItem(WireModel):
     permissions: list[str] = Field(max_length=64)
     provides: dict[str, int]
     manifest_revision: KnowledgeRevision | None
+    source_label: str = Field(default="", max_length=256)
+    checksum: str = Field(default="", max_length=128)
+    verified: bool = False
     capabilities: dict[str, PluginCapability]
 
 
@@ -2043,6 +2879,7 @@ PluginAction = Literal[
     "plugin.enable",
     "plugin.disable",
     "plugin.configure",
+    "plugin.test",
     "plugin.install",
     "plugin.update",
     "plugin.remove",
@@ -2091,6 +2928,39 @@ class PluginReceipt(WireModel):
     plugin: PluginReceiptItem | None = None
 
 
+class PluginLifecycleReviewRequest(WireModel):
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(default="", max_length=128)
+
+
+class PluginLifecycleReview(WireModel):
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=64)
+    source: str = Field(max_length=2048)
+    checksum: str = Field(max_length=128)
+    permissions: list[str] = Field(max_length=64)
+    disclosures: list[str] = Field(max_length=8)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginLifecycleCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(default="", max_length=128)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginLifecycleReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    action: Literal["install", "update", "remove", "refresh"]
+    plugin_id: str = Field(max_length=128)
+    message: str = Field(max_length=1024)
+
+
 SkillAction = Literal[
     "skill.preference",
     "skill.create",
@@ -2109,6 +2979,7 @@ class SkillSummary(WireModel):
     icon: str = Field(max_length=32)
     description: str = Field(max_length=1024)
     source: Literal["user", "bundled"]
+    public: bool = False
     version: str = Field(max_length=32)
     tags: list[str] = Field(max_length=32)
     activation: dict[str, list[str]]
@@ -2466,6 +3337,127 @@ class DeveloperRepositorySnapshot(WireModel):
     worktrees: list[DeveloperWorktreeState] = Field(max_length=32)
     sandbox: DeveloperSandboxState
     availability: dict[str, DeveloperRepositoryCapability] = Field(max_length=20)
+
+
+class CustomToolCommandView(WireModel):
+    name: str = Field(max_length=128)
+    description: str = Field(max_length=1024)
+    command: str = Field(max_length=4096)
+
+
+class CustomToolTestView(WireModel):
+    ran: bool
+    ok: bool
+    returncode: int | None
+    stdout: str = Field(max_length=4000)
+    stderr: str = Field(max_length=4000)
+    setup_hint: str = Field(max_length=1024)
+
+
+class CustomToolDraftView(WireModel):
+    id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    commands: list[CustomToolCommandView] = Field(max_length=32)
+    warnings: list[str] = Field(max_length=32)
+    test_results: dict[str, CustomToolTestView] = Field(max_length=32)
+    python_project: bool
+    setup_ok: bool
+    status: str = Field(max_length=64)
+    created_tool_id: str = Field(max_length=128)
+
+
+class CustomToolView(WireModel):
+    id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    enabled: bool
+    available_in_chat: bool
+    commands: list[CustomToolCommandView] = Field(max_length=32)
+
+
+class CustomToolSnapshot(WireModel):
+    schema_version: Literal[1]
+    resource_id: str = Field(max_length=128)
+    conversation_id: str = Field(max_length=256)
+    binding_id: str = Field(max_length=128)
+    workspace_name: str = Field(max_length=256)
+    source_is_repository: bool
+    drafts: list[CustomToolDraftView] = Field(max_length=32)
+    tools: list[CustomToolView] = Field(max_length=32)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CustomToolCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["inspect", "refine", "update", "create", "setup", "test", "enable", "promote", "remove"]
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=8)
+
+
+class CustomToolReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    summary: str = Field(max_length=1024)
+    snapshot: CustomToolSnapshot
+
+
+class InsightProposalView(WireModel):
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=256)
+    proposal_type: str = Field(max_length=64)
+    status: str = Field(max_length=64)
+    risk: str = Field(max_length=64)
+    rationale: str = Field(max_length=2048)
+    verification_plan: str = Field(max_length=2048)
+    preview: str = Field(max_length=4000)
+    open_thread_id: str = Field(max_length=256)
+    feedback_body: str = Field(max_length=4000)
+    support_url: str = Field(max_length=2048)
+
+
+class InsightView(WireModel):
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=256)
+    body: str = Field(max_length=4000)
+    suggestion: str = Field(max_length=2048)
+    category: str = Field(max_length=64)
+    severity: str = Field(max_length=32)
+    status: str = Field(max_length=32)
+    proposals: list[InsightProposalView] = Field(max_length=8)
+
+
+class CuratorReportView(WireModel):
+    created_at: str = Field(max_length=64)
+    manual_skill_count: int = Field(ge=0)
+    finding_count: int = Field(ge=0)
+    proposal_count: int = Field(ge=0)
+    findings: list[str] = Field(max_length=32)
+
+
+class InsightsSnapshot(WireModel):
+    schema_version: Literal[1]
+    items: list[InsightView] = Field(max_length=100)
+    curator_report: CuratorReportView | None
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class InsightCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["pin", "unpin", "dismiss", "generate", "review_skills", "apply", "reject"]
+    insight_id: str = Field(default="", max_length=128)
+    proposal_id: str = Field(default="", max_length=128)
+    reason: str = Field(default="", max_length=512)
+
+
+class InsightReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain"]
+    summary: str = Field(max_length=1024)
+    snapshot: InsightsSnapshot
 
 
 class DeveloperRepositoryRevisionInput(WireModel):
@@ -3193,6 +4185,10 @@ class EmptyWorkspaceSetupPayload(WireModel):
     folder_name: str = Field(min_length=1, max_length=120)
 
 
+class CloneWorkspaceSetupPayload(WireModel):
+    repo_url: str = Field(min_length=1, max_length=2048)
+
+
 class ResourceSetupPayload(WireModel):
     kind: Literal["artifact", "workspace"]
     intent: Literal["create", "open", "add", "repair", "new_conversation"]
@@ -3202,6 +4198,7 @@ class ResourceSetupPayload(WireModel):
     deck: DeckSetupPayload | None = None
     artifact: ArtifactSetupPayload | None = None
     empty_workspace: EmptyWorkspaceSetupPayload | None = None
+    clone_workspace: CloneWorkspaceSetupPayload | None = None
     folder_grant: OpaqueId | None = None
 
     @model_validator(mode="after")
@@ -3213,6 +4210,7 @@ class ResourceSetupPayload(WireModel):
             or self.folder_grant is not None
             or self.resource_id is not None
             or self.empty_workspace is not None
+            or self.clone_workspace is not None
         ):
             raise ValueError(
                 "Artifact creation has one typed setup and no existing resource."
@@ -3224,10 +4222,17 @@ class ResourceSetupPayload(WireModel):
             or self.resource_id is not None
             or self.deck is not None
             or self.artifact is not None
+            or self.clone_workspace is not None
         ):
             raise ValueError(
                 "Empty workspace creation requires an explicit parent grant and name."
             )
+        if self.clone_workspace is not None and (
+            self.kind != 'workspace' or self.intent != 'create'
+            or self.folder_grant is None or self.resource_id is not None
+            or any(value is not None for value in (self.deck, self.artifact, self.empty_workspace))
+        ):
+            raise ValueError('Repository clone requires an explicit parent grant.')
         return self
 
 
@@ -3419,7 +4424,7 @@ class DesignControlsState(WireModel):
     page_id: OpaqueId
     brand: DesignBrand
     element: DesignElement | None
-    section: Literal["elements", "assets", "fonts", "presets", "interactions"]
+    section: Literal["elements", "assets", "fonts", "presets", "interactions", "blocks"]
     items: list[DesignControlItem] = Field(max_length=50)
     item_count: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=2048)
@@ -3465,6 +4470,7 @@ class ArtifactDesignControlPayload(WireModel):
         "asset_insert",
         "asset_remove",
         "asset_forget",
+        "block_insert",
     ]
     parameters: dict[str, Any]
     page_id: OpaqueId | None = None
@@ -3477,6 +4483,43 @@ class ArtifactAssetUploadPayload(WireModel):
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=1, le=26214400)
+
+
+class ArtifactDocumentImportPayload(WireModel):
+    target: WriteTarget
+    upload_id: UUID
+    filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1, le=26214400)
+    replace: bool
+
+
+class ArtifactDocumentImportPreviewRequest(WireModel):
+    expected_revision: str = Field(min_length=1, max_length=128)
+    upload_id: UUID
+    filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1, le=26214400)
+
+
+class ArtifactDocumentImportPage(WireModel):
+    title: str = Field(max_length=200)
+    has_notes: bool
+
+
+class ArtifactDocumentImportPreview(WireModel):
+    resource_id: OpaqueId
+    resource_revision: str = Field(max_length=128)
+    filename: str = Field(max_length=240)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    page_count: int = Field(ge=1, le=100)
+    pages: list[ArtifactDocumentImportPage] = Field(max_length=100)
+    replacing_page_count: int = Field(ge=0)
+
+
+class ArtifactNotesGeneratePayload(WireModel):
+    target: WriteTarget
+    page_id: OpaqueId
 
 
 class ArtifactPresetIntent(WireModel):
@@ -3994,6 +5037,16 @@ class TaskUpdatePayload(TaskCreatePayload):
     task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class TaskDeletePayload(WireModel):
+    task_id: OpaqueId
+    task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TaskDeliveryUpdatePayload(WireModel):
+    delivery_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    channels: list[OpaqueId] = Field(max_length=32)
+
+
 class TaskRunPayload(WireModel):
     task_id: OpaqueId
     task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -4023,6 +5076,7 @@ class BuddyPreferences(WireModel):
         "quiet_guardian",
         "curious_scholar",
     ]
+    personality_description: str = Field(max_length=200)
     bubble_verbosity: Literal["quiet", "normal", "chatty"]
     animation_intensity: Literal["quiet", "normal", "expressive"]
     pack_id: str = Field(min_length=1, max_length=128)
@@ -4042,6 +5096,7 @@ class BuddyPreferenceChanges(WireModel):
         ]
         | None
     ) = None
+    personality_description: str | None = Field(default=None, max_length=200)
     bubble_verbosity: Literal["quiet", "normal", "chatty"] | None = None
     animation_intensity: Literal["quiet", "normal", "expressive"] | None = None
     pack_id: str | None = Field(default=None, min_length=1, max_length=128)
@@ -4072,6 +5127,19 @@ class BuddySnapshot(WireModel):
     status: BuddyStatus
     placement: Literal["docked"]
     native_placement_retained: bool
+    conversation_id: OpaqueId | None = None
+    activity: Literal[
+        "idle",
+        "thinking",
+        "streaming",
+        "tool",
+        "approval",
+        "stopping",
+        "completed",
+        "stopped",
+        "error",
+        "disconnected",
+    ] = "idle"
 
 
 class BuddyAsset(WireModel):
@@ -4180,6 +5248,7 @@ class Command(WireModel):
         "conversation.unbind",
         "approval.resolve",
         "conversation.controls",
+        "conversation.skills",
         "resource.setup",
         "resource.continue",
         "conversation.queue.edit",
@@ -4188,6 +5257,8 @@ class Command(WireModel):
         "artifact.edit",
         "task.create",
         "task.update",
+        "task.delete",
+        "task.delivery.update",
         "task.graph.update",
         "task.settings.update",
         "task.webhook.rotate",
@@ -4231,6 +5302,7 @@ class Command(WireModel):
         "plugin.enable",
         "plugin.disable",
         "plugin.configure",
+        "plugin.test",
         "skill.preference",
         "skill.create",
         "skill.import",
@@ -4292,6 +5364,8 @@ class Command(WireModel):
         "provider.model.unpin",
         "artifact.design.control",
         "artifact.asset.upload",
+        "artifact.document.import",
+        "artifact.notes.generate",
         "artifact.preset.mutate",
     ]
     expected_revision: Revision
@@ -4314,7 +5388,7 @@ class Command(WireModel):
         if self.type == "conversation.controls" and "reasoning" not in supplied:
             self.payload.pop("reasoning", None)
         if self.type == "resource.setup":
-            for field in ("artifact", "empty_workspace"):
+            for field in ("artifact", "empty_workspace", "clone_workspace"):
                 if field not in supplied:
                     self.payload.pop(field, None)
         if self.type == "resource.continue" and "folder_grant" not in supplied:
@@ -4343,6 +5417,7 @@ COMMAND_PAYLOADS = {
     "conversation.unbind": UnbindPayload,
     "approval.resolve": ApprovalPayload,
     "conversation.controls": ConversationControls,
+    "conversation.skills": ConversationSkillPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
     "conversation.queue.edit": QueueEditPayload,
@@ -4354,6 +5429,8 @@ COMMAND_PAYLOADS = {
     "task.graph.update": TaskGraphUpdatePayload,
     "task.create": TaskCreatePayload,
     "task.update": TaskUpdatePayload,
+    "task.delete": TaskDeletePayload,
+    "task.delivery.update": TaskDeliveryUpdatePayload,
     "task.settings.update": TaskSettingsUpdatePayload,
     "task.webhook.rotate": TaskWebhookRotatePayload,
     "task.run": TaskRunPayload,
@@ -4395,6 +5472,7 @@ COMMAND_PAYLOADS = {
     "plugin.enable": PluginTogglePayload,
     "plugin.disable": PluginTogglePayload,
     "plugin.configure": PluginConfigurePayload,
+    "plugin.test": PluginTogglePayload,
     "skill.preference": SkillPreferencePayload,
     "skill.create": SkillCreatePayload,
     "skill.import": SkillImportPayload,
@@ -4451,6 +5529,8 @@ COMMAND_PAYLOADS = {
     "provider.model.unpin": ProviderConfigurationPayload,
     "artifact.design.control": ArtifactDesignControlPayload,
     "artifact.asset.upload": ArtifactAssetUploadPayload,
+    "artifact.document.import": ArtifactDocumentImportPayload,
+    "artifact.notes.generate": ArtifactNotesGeneratePayload,
     "artifact.preset.mutate": ArtifactPresetPayload,
 }
 
@@ -4527,6 +5607,17 @@ class ToolActivity(WireModel):
     message_id: str = Field(default="", max_length=256)
     pass_id: OpaqueId | None = None
     segment_id: OpaqueId | None = None
+    item_id: str = Field(default="", max_length=256)
+    group_id: str = Field(default="", max_length=256)
+    group_name: str = Field(default="", max_length=180)
+    group_kind: Literal["generic", "browser", "computer"] = "generic"
+    status: Literal[
+        "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
+    ] = "pending"
+    safe_input: str = Field(default="", max_length=1024)
+    safe_summary: str = Field(default="", max_length=512)
+    summary_truncated: bool = False
+    content_ref: str = Field(default="", max_length=256)
 
 
 class GenerationActivity(WireModel):
@@ -4536,6 +5627,12 @@ class GenerationActivity(WireModel):
 class ApprovalRequired(WireModel):
     status: Literal["waiting_approval"]
     approval_id: OpaqueId | None = None
+    action_label: str = Field(default="Requested action", max_length=180)
+    reason: str = Field(default="", max_length=1024)
+    risk_class: Literal["low", "medium", "high", "critical", "unknown"] = "unknown"
+    scope: str = Field(default="", max_length=1024)
+    safe_argument_summary: str = Field(default="", max_length=1024)
+    requesting_trace_id: str = Field(default="", max_length=256)
 
 
 class GenerationError(WireModel):
@@ -4637,6 +5734,11 @@ class MediaAvailable(WireModel):
         "image/png",
         "image/jpeg",
         "video/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/flac",
+        "audio/aac",
         "application/pdf",
         "application/octet-stream",
     ]
@@ -4648,6 +5750,22 @@ class MediaError(WireModel):
     code: Literal["payload_too_large", "media_unavailable"]
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
+
+
+class ContextUpdated(WireModel):
+    conversation_id: OpaqueId
+    state: Literal["unknown", "saved", "live", "stale"]
+    freshness: Literal["unknown", "current", "stale"]
+    status: Literal["ready", "compacting", "failed", "unavailable"]
+    estimated_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    usable_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    compact_at_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    native_window_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    effective_limit_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    last_confirmed_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
+    model_ref: str | None = Field(default=None, max_length=256)
+    scope: Literal["agent", "chat_only", "unknown"] = "unknown"
+    capacity_state: str = Field(default="unavailable", max_length=64)
 
 
 EVENT_PAYLOADS = {
@@ -4663,6 +5781,7 @@ EVENT_PAYLOADS = {
     "agent.activity": AgentActivity,
     "queue.updated": QueueUpdated,
     "media.available": MediaAvailable,
+    "context.updated": ContextUpdated,
 }
 EVENT_PAYLOADS["projection.reset"] = ProjectionReset
 EVENT_PAYLOADS["media.error"] = MediaError
@@ -4696,6 +5815,7 @@ class Event(WireModel):
         "agent.activity",
         "queue.updated",
         "media.available",
+        "context.updated",
         "projection.reset",
         "media.error",
         "steering.queued",
@@ -4791,6 +5911,7 @@ class CommandReceipt(WireModel):
     task_id: OpaqueId | None = None
     task_saved: bool = False
     task_created: bool = False
+    task_deleted: bool = False
     task_run_id: OpaqueId | None = None
     task_run_reserved: bool = False
     task_stop_requested: bool = False
@@ -4811,6 +5932,8 @@ class CommandReceipt(WireModel):
         "rejected",
         "partial",
     ]
+    deletion_warnings: list[str] = Field(default_factory=list, max_length=16)
+    retained_developer_work: bool = False
     conversation_id: OpaqueId | None = None
     generation_id: OpaqueId | None = None
     execution_id: OpaqueId | None = None
@@ -4827,8 +5950,8 @@ class CommandReceipt(WireModel):
     resource_kind: Literal["artifact", "workspace"] | None = None
     resource_revision: str | None = Field(default=None, max_length=128)
     confirmed_stages: list[
-        Literal["created", "conversation", "associated", "bound"]
-    ] = Field(default_factory=list, max_length=4)
+        Literal["created", "cloned", "conversation", "associated", "bound"]
+    ] = Field(default_factory=list, max_length=5)
     setup_command_id: UUID | None = None
     setup_intent: (
         Literal["create", "open", "add", "repair", "new_conversation"] | None
@@ -4844,6 +5967,11 @@ class AttachmentView(WireModel):
         "image/png",
         "image/jpeg",
         "video/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/flac",
+        "audio/aac",
         "application/pdf",
         "application/octet-stream",
     ]
@@ -4864,6 +5992,7 @@ class ConversationView(WireModel):
     revision: Revision
     title: str = Field(max_length=256)
     pinned: bool
+    category: Literal["chat", "designer", "code", "workflow"] = "chat"
     generation_state: list[GenerationState] = Field(default_factory=list, max_length=32)
     resource_bindings: list[ResourceBinding] = Field(
         default_factory=list, max_length=200
@@ -4881,17 +6010,129 @@ class TextBlock(WireModel):
     text: str = Field(max_length=2097152)
 
 
+class MarkdownBlock(WireModel):
+    id: OpaqueId
+    type: Literal["markdown"]
+    text: str = Field(max_length=2097152)
+
+
+class MermaidBlock(WireModel):
+    id: OpaqueId
+    type: Literal["mermaid"]
+    source: str = Field(max_length=65536)
+    text: str = Field(max_length=65600)
+
+
+class ChartBlock(WireModel):
+    id: OpaqueId
+    type: Literal["chart"]
+    figure_json: str = Field(max_length=131072)
+    text: str = Field(max_length=4096)
+
+
+class YouTubeBlock(WireModel):
+    id: OpaqueId
+    type: Literal["youtube"]
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    url: str = Field(max_length=2048)
+    title: str = Field(max_length=240)
+
+
+class AttachmentBlock(WireModel):
+    id: OpaqueId
+    type: Literal["attachment"]
+    attachment_ref: Reference
+    name: Annotated[str, StringConstraints(min_length=1, max_length=240)]
+    mime_type: str = Field(min_length=1, max_length=128)
+    size_bytes: int = Field(ge=1, le=26214400)
+    revision: Revision
+
+
+TranscriptBlock = Annotated[
+    Union[
+        TextBlock,
+        MarkdownBlock,
+        MermaidBlock,
+        ChartBlock,
+        YouTubeBlock,
+        AttachmentBlock,
+    ],
+    Field(discriminator="type"),
+]
+
+
+class TraceAgentReference(WireModel):
+    run_id: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(max_length=256)
+    status: str = Field(max_length=64)
+
+
+class TraceMediaReference(WireModel):
+    media_ref: Reference
+    mime_type: str = Field(max_length=128)
+
+
+class TraceSpecialization(WireModel):
+    kind: Literal["skill_load", "delegated_agent", "media"]
+    skill_id: str = Field(default="", max_length=180)
+    display_name: str = Field(default="", max_length=180)
+    source: str = Field(default="", max_length=180)
+    newly_active: bool | None = None
+    evicted_skill_id: str = Field(default="", max_length=180)
+    agent_runs: list[TraceAgentReference] = Field(default_factory=list, max_length=16)
+    media_kind: str = Field(default="", max_length=64)
+    media: list[TraceMediaReference] = Field(default_factory=list, max_length=8)
+    error_code: str = Field(default="", max_length=80)
+
+
+class TranscriptTraceItem(WireModel):
+    item_id: str = Field(min_length=1, max_length=256)
+    group_id: str = Field(min_length=1, max_length=256)
+    call_id: str = Field(min_length=1, max_length=256)
+    result_message_id: str = Field(default="", max_length=256)
+    call_order: int = Field(ge=0, le=255)
+    group_order: int = Field(ge=0, le=255)
+    canonical_name: str = Field(min_length=1, max_length=180)
+    group_name: str = Field(min_length=1, max_length=180)
+    group_kind: Literal["generic", "browser", "computer"]
+    status: Literal[
+        "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
+    ]
+    safe_input: str = Field(default="", max_length=1024)
+    safe_summary: str = Field(max_length=512)
+    summary_truncated: bool
+    content_ref: str = Field(default="", max_length=256)
+    specialization: TraceSpecialization | None = None
+
+
+class TranscriptTraceGroup(WireModel):
+    group_id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=180)
+    kind: Literal["generic", "browser", "computer"]
+    group_order: int = Field(ge=0, le=255)
+    status: Literal[
+        "pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"
+    ]
+    items: list[TranscriptTraceItem] = Field(max_length=256)
+    counts: dict[
+        Literal["pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"],
+        int,
+    ]
+
+
 class TranscriptRow(WireModel):
     id: str = Field(min_length=1, max_length=1024)
     message_id: str | None = Field(default=None, max_length=256)
     role: Literal["user", "assistant", "tool"]
-    blocks: list[TextBlock] = Field(max_length=256)
+    blocks: list[TranscriptBlock] = Field(max_length=256)
     tool_call_ids: list[str] = Field(default_factory=list, max_length=256)
     tool_call_id: str = Field(default="", max_length=256)
     tool_calls_ref: str | None = Field(default=None, max_length=256)
     render_revision: Revision | None = None
     content_status: Literal["inline", "lazy", "oversized"] | None = None
     content_ref: str | None = Field(default=None, max_length=256)
+    traces: list[TranscriptTraceGroup] = Field(default_factory=list, max_length=256)
+    trace_parent_id: str | None = Field(default=None, max_length=1024)
 
 
 class Snapshot(WireModel):
@@ -4976,7 +6217,92 @@ class Choices(WireModel):
 
 
 class NativeAdapter(WireModel):
-    available: Literal[False] = False
+    available: bool = False
+    proof_required: Literal[True] = True
+    instance_id: OpaqueId | None = None
+    attestation: str | None = Field(default=None, min_length=32, max_length=256)
+
+
+class NativeAttestationRequest(WireModel):
+    attestation: str = Field(min_length=32, max_length=256)
+    instance_id: OpaqueId
+    window_id: OpaqueId
+    window_epoch: int = Field(ge=0, le=9223372036854775807)
+
+
+class NativeBootstrapView(WireModel):
+    instance_id: OpaqueId
+
+
+class NativeAttestationView(WireModel):
+    session_id: OpaqueId
+    policy_revision: Revision
+    authority_grant: str = Field(min_length=32, max_length=256)
+
+
+class NativeGrantRequest(WireModel):
+    session_id: OpaqueId
+    policy_revision: Revision
+    authority_grant: str = Field(min_length=32, max_length=256)
+    instance_id: OpaqueId
+    window_id: OpaqueId
+    window_epoch: int = Field(ge=0, le=9223372036854775807)
+
+
+class NativeSelectionCompleteRequest(NativeGrantRequest):
+    selection_kind: Literal["file", "folder"]
+    intent_id: OpaqueId
+    intent: OpaqueId
+    conversation_id: OpaqueId | None = None
+    destination: OpaqueId
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class NativeSelectionView(WireModel):
+    reference: Reference
+    kind: Literal["file", "folder"]
+
+
+class NativeTerminalOpenRequest(NativeGrantRequest):
+    conversation_id: OpaqueId | None = None
+
+
+class NativeTerminalView(WireModel):
+    terminal_id: OpaqueId
+
+
+class NativeTerminalInput(WireModel):
+    data: str = Field(min_length=1, max_length=16384)
+
+
+class NativeTerminalResize(WireModel):
+    cols: int = Field(ge=20, le=500)
+    rows: int = Field(ge=5, le=200)
+
+
+class NativeTerminalFrame(WireModel):
+    sequence: int = Field(ge=1)
+    data: str = Field(max_length=16384)
+
+
+class NativeTerminalOutput(WireModel):
+    cursor: int = Field(ge=0)
+    latest: int = Field(ge=0)
+    truncated: bool
+    frames: list[NativeTerminalFrame] = Field(max_length=16)
+    status: Literal["running", "stopped", "restarting"]
+
+
+class NativeTerminalClosed(WireModel):
+    disconnected: Literal[True] = True
+
+
+class NativeTerminalChanged(WireModel):
+    ok: Literal[True] = True
+
+
+class NativeRevocationView(WireModel):
+    revoked: bool
 
 
 class Limits(WireModel):
@@ -5003,6 +6329,13 @@ class HandshakeView(Choices):
     client_group_id: UUID
     csrf_token: str = Field(min_length=32, max_length=256)
     authentication_kind: Literal["local_owner", "session"]
+    client_compatibility: Literal["current", "newer", "unknown"] = "unknown"
+    application_capabilities: list[OpaqueId] = Field(
+        default_factory=list, max_length=64
+    )
+    presentation_capabilities: list[OpaqueId] = Field(
+        default_factory=list, max_length=32
+    )
     policy_revision: Revision
     session_ttl_seconds: int = Field(ge=0, le=43200)
     native_adapter: NativeAdapter
@@ -5015,6 +6348,12 @@ class ApprovalView(WireModel):
     revision: Revision
     expires_at: str | None = Field(default=None, max_length=80)
     summary: str | None = Field(default=None, max_length=4096)
+    action_label: str = Field(default="Requested action", max_length=180)
+    reason: str = Field(default="", max_length=1024)
+    risk_class: Literal["low", "medium", "high", "critical", "unknown"] = "unknown"
+    scope: str = Field(default="", max_length=1024)
+    safe_argument_summary: str = Field(default="", max_length=1024)
+    requesting_trace_id: str = Field(default="", max_length=256)
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -5041,14 +6380,93 @@ class ProfileChoice(WireModel):
     label: str = Field(max_length=256)
 
 
-class ContextUsageView(WireModel):
+class ContextUsageView(ContextUpdated):
+    pass
+
+
+class ComposerLibrary(WireModel):
+    availability: Literal["available", "unavailable"]
+    revision: str = Field(max_length=128)
+
+
+class ComposerSkill(WireModel):
+    id: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(max_length=256)
+    icon: str = Field(max_length=64)
+    description: str = Field(max_length=1024)
+    library_source: str = Field(max_length=256)
+    source: Literal["default", "pinned", "thread", "auto"]
+    removable: bool
+
+
+class ComposerSuggestion(WireModel):
+    id: str = Field(min_length=1, max_length=256)
+    skill_id: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(max_length=256)
+    icon: str = Field(max_length=64)
+    description: str = Field(max_length=1024)
+    reason: str = Field(max_length=512)
+
+
+class SlashCommandSpec(WireModel):
+    id: str = Field(min_length=1, max_length=180)
+    token: str = Field(min_length=1, max_length=180)
+    aliases: list[str] = Field(max_length=16)
+    label: str = Field(max_length=256)
+    description: str = Field(max_length=1024)
+    icon: str = Field(max_length=64)
+    category: str = Field(max_length=80)
+    argument_mode: Literal["none", "optional", "required", "prefix"]
+    argument_hint: str = Field(max_length=256)
+    handler_kind: Literal[
+        "open_skills",
+        "skill_reset",
+        "noskill",
+        "new_thread",
+        "stop_generation",
+        "reasoning",
+        "profiles",
+        "profile",
+        "agents",
+        "agent",
+        "goal",
+        "status",
+        "tools",
+        "export",
+        "help",
+        "activate_skill",
+    ]
+    skill_id: str | None = Field(default=None, max_length=256)
+
+
+class ConversationComposer(WireModel):
+    schema_version: Literal[1]
     conversation_id: OpaqueId
-    state: Literal["unknown", "saved", "stale"]
-    estimated_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    usable_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    native_window_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    last_confirmed_input_tokens: int | None = Field(default=None, ge=0, le=2147483647)
-    model_ref: str | None = Field(default=None, max_length=256)
+    conversation_revision: Revision
+    composer_revision: str = Field(min_length=1, max_length=128)
+    library: ComposerLibrary
+    smart_skills_off: bool
+    active_skills: list[ComposerSkill] = Field(max_length=64)
+    suggestions: list[ComposerSuggestion] = Field(max_length=12)
+    commands: list[SlashCommandSpec] = Field(max_length=256)
+    command_total: int = Field(ge=0, le=4096)
+    commands_truncated: bool
+
+
+class ConversationComposerQuery(WireModel):
+    draft: str = Field(default="", max_length=16000)
+    command_query: str = Field(default="", max_length=180)
+    command_limit: int = Field(default=50, ge=1, le=256)
+
+
+class SlashCommandRead(WireModel):
+    command_id: Literal["status", "tools", "profiles", "agents", "help"]
+
+
+class SlashCommandResult(WireModel):
+    command_id: Literal["status", "tools", "profiles", "agents", "help"]
+    title: str = Field(max_length=128)
+    text: str = Field(max_length=16384)
 
 
 class ConversationWorkspace(WireModel):
@@ -5060,6 +6478,7 @@ class ConversationWorkspace(WireModel):
     actions: list[ActionReadiness] = Field(max_length=6)
     context_usage: ContextUsageView | None = None
     reasoning: ReasoningView | None = None
+    composer: ConversationComposer | None = None
 
 
 class DelegatedRun(WireModel):
@@ -5200,6 +6619,22 @@ class ArtifactEditingState(WireModel):
     history: list[ArtifactHistoryItem] = Field(max_length=50)
     history_count: int = Field(ge=0)
     history_next_cursor: str | None = Field(default=None, max_length=2048)
+
+
+class DesignerPaletteItem(WireModel):
+    category: Literal["tool", "page", "asset"]
+    label: str = Field(max_length=256)
+    hint: str = Field(max_length=128)
+    identity: str = Field(max_length=128)
+    prefill: str = Field(max_length=256)
+
+
+class DesignerPalette(WireModel):
+    resource_id: OpaqueId
+    resource_revision: str = Field(max_length=128)
+    tools_available: bool
+    items: list[DesignerPaletteItem] = Field(max_length=60)
+    has_more_matches: bool
 
 
 class ArtifactLifecycleCapability(WireModel):
@@ -5391,6 +6826,10 @@ class DictationCapability(WireModel):
     browser_dictation_available: bool
     native_capture_available: Literal[False] = False
     reason: Literal["available", "host_unavailable"]
+    talk_available: bool = False
+    realtime_available: bool = False
+    talk_reason: str = Field(default="host_unavailable", max_length=128)
+    realtime_reason: str = Field(default="host_unavailable", max_length=128)
 
 
 class DictationStart(WireModel):

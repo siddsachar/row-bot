@@ -111,7 +111,7 @@ async function select(context: ReturnType<typeof setup>) {
   await context.session.select('second');
 }
 describe('retained knowledge relations', () => {
-  it('mounts passively and offers explicit target search, directed review and confirmation', async () => {
+  it('mounts passively and adds a directed relation in one click', async () => {
     const { session, transport } = setup();
     render(<KnowledgeRelations session={session} />);
     expect(transport.entity).not.toHaveBeenCalled();
@@ -125,14 +125,7 @@ describe('retained knowledge relations', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Relation type' }), {
       target: { value: 'works for' },
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Review new relation' }),
-    );
-    await screen.findByRole('button', { name: 'Confirm relation change' });
-    expect(transport.execute).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Confirm relation change' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add relation' }));
     await screen.findByText(/Knowledge change saved/);
     expect(transport.execute).toHaveBeenCalledTimes(1);
     expect(vi.mocked(transport.execute).mock.calls[0][0].payload).toMatchObject(
@@ -155,9 +148,7 @@ describe('retained knowledge relations', () => {
     const mounted = render(<KnowledgeRelations session={context.session} />);
     mounted.unmount();
     render(<KnowledgeRelations session={context.session} />);
-    expect(
-      screen.getByRole('button', { name: 'Review new relation' }),
-    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add relation' })).toBeDisabled();
     fireEvent.click(
       screen.getByRole('button', { name: 'Refresh original relation command' }),
     );
@@ -170,7 +161,9 @@ describe('retained knowledge relations', () => {
     await select(context);
     await context.session.reviewSupersede();
     render(<KnowledgeRelations session={context.session} />);
-    expect(screen.getByText(/Both entries are retained/)).toBeInTheDocument();
+    expect(context.session.getSnapshot().review?.action).toBe(
+      'knowledge.supersede',
+    );
     await act(() => context.session.confirm());
     expect(vi.mocked(context.transport.execute).mock.calls[0][0]).toEqual({
       command_id: id,

@@ -9,7 +9,7 @@ import sqlite3
 from langchain_core.messages import HumanMessage
 import pytest
 
-from row_bot.application.context_status import read_usage
+from row_bot.application.context_status import project_live_usage, read_usage
 from tests.contracts.client_platform.test_headless_lifecycle import platform as platform
 
 pytestmark = pytest.mark.subsystem
@@ -21,7 +21,9 @@ def saved_usage(**overrides):
     return {"schema_version": 2, "snapshot_kind": "settled", "mode": "agent",
             "model_ref": "model:fixture:synthetic", "estimated_input_tokens": 123,
             "usable_input_tokens": 1000, "native_window_tokens": 2048,
+            "compact_at_tokens": 750, "effective_limit_tokens": 1000,
             "last_confirmed_input_tokens": 117,
+            "capacity_state": "ready", "status": "ready",
             "checkpoint_revision": threads.get_latest_checkpoint_revision("conversation-a"),
             "checkpoint_message_digest": "a" * 64, "preparation_fingerprint": "PRIVATE PROMPT",
             "policy_fingerprint": "PRIVATE POLICY", **overrides}
@@ -44,9 +46,13 @@ def test_reads_saved_counts_without_checkpoint_expansion_or_private_fields(platf
     monkeypatch.setattr(threads, "load_context_usage", forbidden)
     monkeypatch.setattr(platform, "_metadata", forbidden)
     result = read_usage(platform, "conversation-a", CONTROLS)
-    assert result == {"conversation_id": "conversation-a", "state": "saved", "model_ref": "model:fixture:synthetic",
-                      "estimated_input_tokens": 123, "usable_input_tokens": 1000,
-                      "native_window_tokens": 2048, "last_confirmed_input_tokens": 117}
+    assert result == {"conversation_id": "conversation-a", "state": "saved",
+                      "freshness": "current", "status": "ready",
+                      "model_ref": "model:fixture:synthetic", "scope": "agent",
+                      "capacity_state": "ready", "estimated_input_tokens": 123,
+                      "usable_input_tokens": 1000, "compact_at_tokens": 750,
+                      "native_window_tokens": 2048, "effective_limit_tokens": 1000,
+                      "last_confirmed_input_tokens": 117}
     assert "PRIVATE" not in json.dumps(result)
 
 
@@ -101,6 +107,48 @@ def test_saved_zero_and_unknown_capacity_remain_distinct(platform):
     result = read_usage(platform, "conversation-a", CONTROLS)
     assert result["estimated_input_tokens"] == 0 and result["last_confirmed_input_tokens"] == 0
     assert result["usable_input_tokens"] is None and result["native_window_tokens"] is None
+
+
+def test_live_context_events_expose_only_bounded_meter_fields():
+    payload = saved_usage(
+        snapshot_kind="transient",
+        preparation_fingerprint="PRIVATE prompt",
+        policy_fingerprint="PRIVATE policy",
+    )
+    result = project_live_usage("conversation-a", payload, "compaction_started")
+    assert result["state"] == "live"
+    assert result["freshness"] == "current"
+    assert result["status"] == "compacting"
+    assert result["compact_at_tokens"] == 750
+    assert result["effective_limit_tokens"] == 1000
+    assert "PRIVATE" not in json.dumps(result)
+
+
+def test_invalid_live_context_event_fails_closed_to_unknown():
+    result = project_live_usage(
+        "conversation-a",
+        {"model_ref": "fixture/model", "estimated_input_tokens": -1},
+        "context_usage",
+    )
+    assert result["state"] == "unknown"
+    assert result["status"] == "unavailable"
+
+
+def test_client_platform_publishes_live_context_meter_event(platform):
+    handle = platform.registry.register("conversation-a")
+    try:
+        platform.observe_event(
+            "conversation-a",
+            ("context_usage", saved_usage(snapshot_kind="transient")),
+            handle,
+        )
+        event = platform.projection._states["conversation-a"].events[-1][0]
+        assert event["type"] == "context.updated"
+        assert event["payload"]["state"] == "live"
+        assert event["payload"]["compact_at_tokens"] == 750
+        assert "preparation_fingerprint" not in event["payload"]
+    finally:
+        platform.registry.finish(handle, status="interrupted")
 
 
 def test_oversized_snapshot_is_rejected_before_json_parsing(platform, monkeypatch):

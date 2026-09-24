@@ -10,16 +10,17 @@ from typing import Any
 from .models import SkillInstallRecord
 
 
-def hub_dir() -> Path:
+def hub_dir(*, create: bool = True) -> Path:
     import row_bot.skills as skills
 
     path = skills.USER_SKILLS_DIR / ".hub"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def lockfile_path() -> Path:
-    return hub_dir() / "lock.json"
+def lockfile_path(*, create: bool = True) -> Path:
+    return hub_dir(create=create) / "lock.json"
 
 
 def audit_log_path() -> Path:
@@ -37,7 +38,7 @@ def now_iso() -> str:
 
 
 def load_records() -> dict[str, SkillInstallRecord]:
-    path = lockfile_path()
+    path = lockfile_path(create=False)
     if not path.exists():
         return {}
     try:

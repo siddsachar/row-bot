@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "DreamRunPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "snapshot_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_revision",
+        "action_digest",
+        "review_id"
+      ],
+      "title": "DreamRunPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/DreamRunPayload"
+    },
+    "type": {
+      "const": "dream.run",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "type",
+    "payload"
+  ],
+  "title": "DreamRunCommand",
+  "type": "object"
+}

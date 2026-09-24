@@ -131,6 +131,11 @@ class HttpResult:
             raise SmokeError("Server returned invalid JSON during Docker smoke") from exc
 
 
+def assert_unauthenticated_root_connection_flow(response: HttpResult) -> None:
+    if response.status != 303 or response.header("Location") != "/connect?next=%2Fapp-v2%2F":
+        raise SmokeError("Unauthenticated root did not use the neutral connection flow")
+
+
 class HttpTransport(Protocol):
     def send(
         self,
@@ -549,11 +554,24 @@ else:
             origin,
             "/",
             stage="authenticated owner UI check",
+            headers={"Accept": "text/html"},
             retry_transient=True,
         )
-        if root.status != 200:
-            raise SmokeError("Authenticated owner UI did not return HTTP 200")
-        assert_secrets_absent(root.text, self._secrets)
+        if root.status != 307 or root.header("Location") != "/app-v2/":
+            raise SmokeError("Authenticated root did not redirect to the React client")
+        client = self._send_http(
+            "GET",
+            origin,
+            "/app-v2/",
+            stage="authenticated React client check",
+            headers={"Accept": "text/html"},
+            retry_transient=True,
+        )
+        if client.status != 200:
+            raise SmokeError(
+                f"Authenticated React client did not return HTTP 200 (status={client.status})"
+            )
+        assert_secrets_absent(client.text, self._secrets)
 
     def _stop_start(self, origin: str, session_id: str) -> str:
         self.runner.run(
@@ -753,8 +771,7 @@ print(json.dumps({'configured': bool(value), 'digest': hashlib.sha256(value.enco
                     stage="unauthenticated root check",
                     retry_transient=True,
                 )
-                if neutral.status != 303 or neutral.header("Location") != "/connect?next=%2F":
-                    raise SmokeError("Unauthenticated root did not use the neutral connection flow")
+                assert_unauthenticated_root_connection_flow(neutral)
 
                 doctor = self._exec_json(
                     "row-bot",

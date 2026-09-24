@@ -49,16 +49,20 @@ def build_plugins_tab(
 
     def _refresh_cards() -> None:
         cards_container.clear()
-        manifests = sorted(plugin_registry.get_loaded_manifests(), key=lambda m: m.name.lower())
+        manifests = sorted(
+            plugin_registry.get_loaded_manifests(), key=lambda m: m.name.lower()
+        )
 
         if not manifests:
             with cards_container:
                 with ui.column().classes("w-full items-center q-pa-lg"):
                     ui.icon("extension_off", size="64px").classes("text-grey-4")
-                    ui.label("No plugins installed").classes("text-grey-5 text-h6 q-mt-sm")
-                    ui.label("Browse the marketplace or link a local plugin to get started.").classes(
-                        "text-grey-5 text-sm"
+                    ui.label("No plugins installed").classes(
+                        "text-grey-5 text-h6 q-mt-sm"
                     )
+                    ui.label(
+                        "Browse the marketplace or link a local plugin to get started."
+                    ).classes("text-grey-5 text-sm")
                     if on_browse_marketplace:
                         ui.button(
                             "Browse Marketplace",
@@ -88,29 +92,42 @@ def build_plugins_tab(
 
         with ui.card().classes("w-full q-pa-md"):
             with ui.row().classes("w-full items-start no-wrap gap-3"):
-                ui.icon(getattr(manifest, "icon", "extension") or "extension").classes("text-primary q-mt-xs")
+                ui.icon(getattr(manifest, "icon", "extension") or "extension").classes(
+                    "text-primary q-mt-xs"
+                )
                 with ui.column().classes("gap-1").style("min-width: 0; flex: 1;"):
                     with ui.row().classes("w-full items-center gap-2 no-wrap"):
                         ui.label(manifest.name).classes("text-body1 text-weight-medium")
-                        ui.badge(f"v{manifest.version}", color="blue-grey").props("outline")
+                        ui.badge(f"v{manifest.version}", color="blue-grey").props(
+                            "outline"
+                        )
                         ui.badge(status_label, color=status_color).props("outline")
                     ui.label(manifest.description).classes("text-grey-6 text-sm")
                     ui.label(f"Source: {source_label}").classes("text-grey-6 text-xs")
 
                     with ui.row().classes("q-mt-xs gap-2 flex-wrap"):
-                        _summary_badge("tools", counts["native_tools"], "build", "blue-grey")
-                        _summary_badge("MCP servers", counts["mcp_servers"], "hub", "indigo")
+                        _summary_badge(
+                            "tools", counts["native_tools"], "build", "blue-grey"
+                        )
+                        _summary_badge(
+                            "MCP servers", counts["mcp_servers"], "hub", "indigo"
+                        )
                         _summary_badge("channels", counts["channels"], "forum", "teal")
-                        _summary_badge("skills", counts["skills"], "auto_fix_high", "green")
+                        _summary_badge(
+                            "skills", counts["skills"], "auto_fix_high", "green"
+                        )
 
                     if manifest.permissions:
                         with ui.row().classes("q-mt-xs gap-1 flex-wrap"):
                             for permission in manifest.permissions:
-                                ui.badge(_permission_label(permission), color="orange").props("outline dense")
+                                ui.badge(
+                                    _permission_label(permission), color="orange"
+                                ).props("outline dense")
 
                     if missing_settings or missing_secrets:
                         ui.label(
-                            "Setup needed: " + ", ".join(missing_settings + missing_secrets)
+                            "Setup needed: "
+                            + ", ".join(missing_settings + missing_secrets)
                         ).classes("text-warning text-xs q-mt-xs")
 
                 with ui.column().classes("items-end gap-2"):
@@ -128,19 +145,25 @@ def build_plugins_tab(
                         ui.button(
                             f"Update to v{update_entry.version}",
                             icon="update",
-                            on_click=lambda _, m=manifest, entry=update_entry: _update_plugin(
-                                m, entry, refresh_fn
+                            on_click=lambda _, m=manifest, entry=update_entry: (
+                                _update_plugin(m, entry, refresh_fn)
                             ),
                         ).props("flat dense no-caps color=warning")
                     ui.button(
                         "Disable Plugin" if enabled else "Enable Plugin",
                         icon="toggle_on" if enabled else "toggle_off",
-                        on_click=lambda _, m=manifest, value=not enabled: _toggle_plugin(
-                            m, value, refresh_fn
+                        on_click=lambda _, m=manifest, value=not enabled: (
+                            _toggle_plugin(m, value, refresh_fn)
                         ),
-                    ).props(("flat dense no-caps color=negative") if enabled else "flat dense no-caps color=primary")
+                    ).props(
+                        ("flat dense no-caps color=negative")
+                        if enabled
+                        else "flat dense no-caps color=primary"
+                    )
 
-    def _toggle_plugin(manifest: Any, enabled: bool, refresh_fn: Callable[[], None]) -> None:
+    def _toggle_plugin(
+        manifest: Any, enabled: bool, refresh_fn: Callable[[], None]
+    ) -> None:
         plugin_id = manifest.id
         if enabled:
             ok, reason = _can_enable_plugin(manifest)
@@ -149,10 +172,16 @@ def build_plugins_tab(
                 return
         plugin_state.set_plugin_enabled(plugin_id, enabled)
         try:
-            plugin_loader.refresh_plugin_runtime(f"plugin {'enable' if enabled else 'disable'}")
+            plugin_loader.refresh_plugin_runtime(
+                f"plugin {'enable' if enabled else 'disable'}"
+            )
         except Exception:
-            logger.debug("Could not refresh plugin runtime after plugin toggle", exc_info=True)
-        ui.notify(f"Plugin {plugin_id} {'enabled' if enabled else 'disabled'}", type="info")
+            logger.debug(
+                "Could not refresh plugin runtime after plugin toggle", exc_info=True
+            )
+        ui.notify(
+            f"Plugin {plugin_id} {'enabled' if enabled else 'disabled'}", type="info"
+        )
         refresh_fn()
 
     def _open_config(manifest: Any, refresh_fn: Callable[[], None]) -> None:
@@ -176,7 +205,9 @@ def build_plugins_tab(
             ui.notify(f"{manifest.name} passed local setup checks", type="positive")
         refresh_fn()
 
-    async def _update_plugin(manifest: Any, entry: Any, refresh_fn: Callable[[], None]) -> None:
+    async def _update_plugin(
+        manifest: Any, entry: Any, refresh_fn: Callable[[], None]
+    ) -> None:
         import asyncio
         from row_bot.plugins import installer
         from row_bot.plugins.ui_marketplace import _marketplace_install_kwargs
@@ -198,9 +229,9 @@ def build_plugins_tab(
 
         with ui.dialog() as confirm_dlg, ui.card():
             ui.label(f"Uninstall plugin '{plugin_id}'?").classes("text-body1")
-            ui.label("This removes plugin files, saved settings, and secret metadata.").classes(
-                "text-grey-6 text-sm"
-            )
+            ui.label(
+                "This removes plugin files, saved settings, and secret metadata."
+            ).classes("text-grey-6 text-sm")
             with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
                 ui.button("Cancel", on_click=confirm_dlg.close).props("flat no-caps")
 
@@ -210,7 +241,10 @@ def build_plugins_tab(
                         try:
                             plugin_loader.refresh_plugin_runtime("plugin uninstall")
                         except Exception:
-                            logger.debug("Could not refresh plugin runtime after uninstall", exc_info=True)
+                            logger.debug(
+                                "Could not refresh plugin runtime after uninstall",
+                                exc_info=True,
+                            )
                     ui.notify(
                         result.message,
                         type="positive" if result.success else "negative",
@@ -218,14 +252,22 @@ def build_plugins_tab(
                     confirm_dlg.close()
                     refresh_fn()
 
-                ui.button("Uninstall", on_click=_do_uninstall).props("color=negative no-caps")
+                ui.button("Uninstall", on_click=_do_uninstall).props(
+                    "color=negative no-caps"
+                )
         confirm_dlg.open()
 
     async def _reload_and_refresh() -> None:
         import asyncio
 
-        results = await asyncio.to_thread(plugin_loader.refresh_plugin_runtime, "plugin center reload")
-        loaded = sum(1 for result in results if result.success and not getattr(result, "stale", False))
+        results = await asyncio.to_thread(
+            plugin_loader.refresh_plugin_runtime, "plugin center reload"
+        )
+        loaded = sum(
+            1
+            for result in results
+            if result.success and not getattr(result, "stale", False)
+        )
         failed = sum(1 for result in results if not result.success)
         stale = sum(1 for result in results if getattr(result, "stale", False))
         ui.notify(
@@ -285,7 +327,11 @@ def _plugin_update_entry(manifest: Any) -> Any | None:
 
         return marketplace.get_update_entry(manifest)
     except Exception:
-        logger.debug("Plugin update lookup skipped for %s", getattr(manifest, "id", "?"), exc_info=True)
+        logger.debug(
+            "Plugin update lookup skipped for %s",
+            getattr(manifest, "id", "?"),
+            exc_info=True,
+        )
         return None
 
 
@@ -404,7 +450,9 @@ def _run_declared_health_check(
         servers = getattr(provides, "mcp_servers", []) or []
         return {
             "label": label,
-            "status": "ok" if _mcp_servers_have_launch_config(servers) else "missing_mcp_server",
+            "status": "ok"
+            if _mcp_servers_have_launch_config(servers)
+            else "missing_mcp_server",
         }
     if check_type in {"api_probe", "oauth_refresh", "dry_run_send"}:
         return {"label": label, "status": "manual_required"}
@@ -412,7 +460,13 @@ def _run_declared_health_check(
 
 
 def _health_check_label(check: dict[str, Any]) -> str:
-    label = check.get("label") or check.get("name") or check.get("id") or check.get("type") or "Health check"
+    label = (
+        check.get("label")
+        or check.get("name")
+        or check.get("id")
+        or check.get("type")
+        or "Health check"
+    )
     return str(label).replace("_", " ").title()
 
 
@@ -430,10 +484,13 @@ def _mcp_servers_have_launch_config(servers: list[Any]) -> bool:
     return True
 
 
-def _record_manifest_health(manifest: Any) -> list[dict[str, str]]:
+def _record_manifest_health(
+    manifest: Any, *, validate: Callable[[], None] = lambda: None
+) -> list[dict[str, str]]:
     from row_bot.plugins import state as plugin_state
 
     checks = _run_manifest_health(manifest)
+    validate()
     plugin_state.set_plugin_health_result(
         manifest.id,
         ok=_health_checks_ok(checks),

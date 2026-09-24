@@ -36,11 +36,20 @@ def execute_task_command(*, owner_id: str, key: str, command: dict,
         return previous
     payload = command["payload"]
     creating = command["type"] == "task.create"
+    deleting = command["type"] == "task.delete"
+    delivery = command["type"] == "task.delivery.update"
     graph = command["type"] == "task.graph.update"
     settings = command["type"] in {"task.settings.update", "task.webhook.rotate"}
-    task_id = (str(uuid.uuid5(uuid.UUID(command["command_id"]), "task")) if creating else payload["task_id"])
+    task_id = (
+        str(uuid.uuid5(uuid.UUID(command["command_id"]), "task"))
+        if creating
+        else "delivery-defaults"
+        if delivery
+        else payload["task_id"]
+    )
     progress = {"command_id": command["command_id"], "task_id": task_id,
-                "task_saved": True, "task_created": creating, "status": "admitting"}
+                "task_saved": True, "task_created": creating,
+                "task_deleted": deleting, "status": "admitting"}
 
     def record_commit(conn: sqlite3.Connection, saved_id: str) -> None:
         validate()
@@ -55,6 +64,62 @@ def execute_task_command(*, owner_id: str, key: str, command: dict,
 
     try:
         validate()
+        if delivery:
+            from row_bot.application.task_delivery_controls import (
+                read_task_delivery_defaults,
+                update_task_delivery_defaults,
+            )
+
+            current = read_task_delivery_defaults(validate=validate)
+            requested = set(payload["channels"])
+            selected = {
+                item["id"] for item in current["channels"] if item["selected"]
+            }
+            if previous and selected == requested:
+                result = {
+                    **progress,
+                    "status": "completed",
+                    "task_revision": current["revision"],
+                }
+                admissions.complete_command(owner_id, key, result)
+                return result
+            updated = update_task_delivery_defaults(
+                payload["channels"],
+                expected_revision=payload["delivery_revision"],
+                validate=validate,
+            )
+            result = {
+                **progress,
+                "status": "completed",
+                "task_revision": updated["revision"],
+            }
+            admissions.complete_command(owner_id, key, result)
+            return result
+        if deleting:
+            from row_bot.tasks import TaskMutationError, delete_task
+
+            try:
+                current = get_task_editor(task_id)
+            except TaskControlError as exc:
+                if previous and exc.code == "task_not_found":
+                    result = {**progress, "status": "completed", "task_revision": None}
+                    admissions.complete_command(owner_id, key, result)
+                    return result
+                raise
+            if current.revision != payload["task_revision"]:
+                raise TaskControlError("task_delete_revision_conflict")
+            try:
+                delete_task(
+                    task_id,
+                    expected_revision=payload["task_revision"],
+                    validate=validate,
+                    preserve_conversations=True,
+                )
+            except TaskMutationError as exc:
+                raise TaskControlError(exc.code) from exc
+            result = {**progress, "status": "completed", "task_revision": None}
+            admissions.complete_command(owner_id, key, result)
+            return result
         if previous and not graph and not settings:
             from row_bot.tasks import sync_task_schedule
             sync_task_schedule(task_id, validate=validate)

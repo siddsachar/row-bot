@@ -110,6 +110,13 @@ export function createControllerDesignSessions(controller: ClientController) {
         commandId,
         signal,
       ),
+    importPreview: (scope, body, signal) =>
+      controller.artifactDocumentImportPreview(
+        scope.conversation_id,
+        scope.binding_id,
+        body,
+        signal,
+      ),
     presetReview: (scope, options, signal) =>
       controller.reviewArtifactPreset(
         scope.conversation_id,

@@ -255,7 +255,8 @@
         "assets",
         "fonts",
         "presets",
-        "interactions"
+        "interactions",
+        "blocks"
       ],
       "title": "Section",
       "type": "string"

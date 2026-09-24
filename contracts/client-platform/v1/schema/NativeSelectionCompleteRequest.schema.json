@@ -1,0 +1,108 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "authority_grant": {
+      "maxLength": 256,
+      "minLength": 32,
+      "title": "Authority Grant",
+      "type": "string"
+    },
+    "conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conversation Id"
+    },
+    "destination": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Destination",
+      "type": "string"
+    },
+    "instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Instance Id",
+      "type": "string"
+    },
+    "intent": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Intent",
+      "type": "string"
+    },
+    "intent_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Intent Id",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "policy_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Policy Revision",
+      "type": "string"
+    },
+    "selection_kind": {
+      "enum": [
+        "file",
+        "folder"
+      ],
+      "title": "Selection Kind",
+      "type": "string"
+    },
+    "session_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "window_epoch": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Window Epoch",
+      "type": "integer"
+    },
+    "window_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Window Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "policy_revision",
+    "authority_grant",
+    "instance_id",
+    "window_id",
+    "window_epoch",
+    "selection_kind",
+    "intent_id",
+    "intent",
+    "destination",
+    "path"
+  ],
+  "title": "NativeSelectionCompleteRequest",
+  "type": "object"
+}

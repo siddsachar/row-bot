@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "check",
+        "skip",
+        "clear_skipped"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "expected_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "version": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "expected_revision",
+    "action"
+  ],
+  "title": "UpdateCommand",
+  "type": "object"
+}

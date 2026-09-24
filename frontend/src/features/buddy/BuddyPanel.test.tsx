@@ -20,9 +20,7 @@ it('retains unsent preference and Hatch drafts across panel remount and purges t
     session,
     scopeKey: 'same-conversation',
     settingsOpen: true,
-    currentRunId: null,
     onSettings: vi.fn(),
-    stop: vi.fn(async () => {}),
   };
   const first = render(<BuddyPanel {...props} />);
   await screen.findByRole('button', { name: 'Save Buddy preferences' });
@@ -57,6 +55,7 @@ const snapshot: BuddySnapshot = {
     collapsed: false,
     display_name: 'Buddy',
     personality: 'warm_mystical',
+    personality_description: 'Warm and luminous',
     bubble_verbosity: 'normal',
     animation_intensity: 'quiet',
     pack_id: 'glyph',
@@ -227,10 +226,8 @@ describe('controller-lifetime Buddy commands', () => {
       <BuddyPanel
         scopeKey="auth-one"
         session={session}
-        currentRunId={null}
         settingsOpen
         onSettings={() => {}}
-        stop={async () => {}}
       />,
     );
     await waitFor(() =>
@@ -241,7 +238,7 @@ describe('controller-lifetime Buddy commands', () => {
       ).toBeVisible(),
     );
     fireEvent.click(
-      screen.getByRole('button', { name: 'Reload Buddy settings' }),
+      screen.getByRole('button', { name: 'Retry Buddy settings' }),
     );
     await waitFor(() =>
       expect(session.getSnapshot().snapshot?.revision).toBe(snapshot.revision),
@@ -307,10 +304,8 @@ describe('controller-lifetime Buddy commands', () => {
     const props = {
       scopeKey: 'auth-one',
       session,
-      currentRunId: null,
       settingsOpen: true,
       onSettings: vi.fn(),
-      stop: vi.fn(async () => {}),
     };
     const first = render(<BuddyPanel {...props} />);
     expect(
@@ -422,28 +417,23 @@ describe('controller-lifetime Buddy commands', () => {
     expect(session.getSnapshot().result?.command_id).toBe('command-1');
     expect(session.getSnapshot().pending).toBe(true);
   });
-  it('uses the canonical avatar and current run callback without starting a new chat', async () => {
+  it('uses the canonical avatar without duplicating the composer Stop action', async () => {
     const api = transport();
     const session = createBuddyPanelSession(api, () => {});
     await session.load();
-    const stop = vi.fn(async () => {});
     render(
       <BuddyPanel
         scopeKey="auth-one"
         session={session}
-        currentRunId="run-one"
         settingsOpen={false}
         onSettings={() => {}}
-        stop={stop}
         renderAvatar={() => <span>Canonical avatar</span>}
       />,
     );
     expect(screen.getByText('Canonical avatar')).toBeVisible();
-    const button = screen.getByRole('button', { name: /stop/i });
-    await act(async () => {
-      fireEvent.click(button);
-    });
-    expect(stop).toHaveBeenCalledWith('run-one');
+    expect(
+      screen.queryByRole('button', { name: /stop current run/i }),
+    ).not.toBeInTheDocument();
     expect(api.execute).not.toHaveBeenCalled();
   });
 });

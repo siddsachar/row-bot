@@ -44,6 +44,14 @@ def _release(version: str, *, prerelease: bool = False, asset_name: str = "Row-B
     }
 
 
+def test_import_and_cached_read_do_not_create_a_fresh_profile(tmp_path, monkeypatch) -> None:
+    profile = tmp_path / "fresh-profile"
+    updater = _reload_updater(monkeypatch, profile)
+    assert not profile.exists()
+    assert updater.get_update_state().available is None
+    assert not profile.exists()
+
+
 def test_load_state_normalizes_invalid_fields_and_state_mutators_notify(tmp_path, monkeypatch) -> None:
     updater = _reload_updater(monkeypatch, tmp_path)
     updater._CONFIG_PATH.write_text(

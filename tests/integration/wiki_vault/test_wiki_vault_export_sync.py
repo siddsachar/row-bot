@@ -201,7 +201,7 @@ def test_wiki_cleanup_preserves_raw_and_conversations_and_ui_uses_knowledge_tab(
 
     settings_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     home_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "home.py").read_text(encoding="utf-8")
-    status_checks_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "status_checks.py").read_text(encoding="utf-8")
+    status_checks_source = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
     ast.parse(settings_source)
     ast.parse(home_source)
     ast.parse(status_checks_source)
@@ -377,7 +377,7 @@ def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str,
     prompts_src = (REPO_ROOT / "src" / "row_bot" / "prompts.py").read_text(encoding="utf-8")
     settings_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     graph_panel_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "graph_panel.py").read_text(encoding="utf-8")
-    status_checks_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "status_checks.py").read_text(encoding="utf-8")
+    status_checks_src = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
     entity_editor_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "entity_editor.py").read_text(encoding="utf-8")
     for source in (settings_src, graph_panel_src, status_checks_src, entity_editor_src):
         ast.parse(source)

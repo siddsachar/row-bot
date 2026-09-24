@@ -114,7 +114,7 @@ def test_explicit_json_post_claims_once_and_issues_a_session_cookie(tmp_path) ->
     payload = response.json()
     assert payload["authenticated"] is True
     assert "profile" not in payload["device"]
-    assert payload["next"] == "/settings"
+    assert payload["next"] == "/app-v2/"
     assert created.token not in response.text
     cookie = response.cookies.get(registration.cookies.names.http)
     assert cookie
@@ -146,7 +146,7 @@ def test_compact_invitation_changes_layout_only_and_keeps_lifetime(tmp_path) -> 
 
     assert response.status_code == 200
     assert "profile" not in response.json()["device"]
-    assert response.json()["next"] == "/?mobile=1"
+    assert response.json()["next"] == "/app-v2/"
     assert response.json()["session"]["lifetime"] == "temporary"
 
 
@@ -216,8 +216,45 @@ def test_form_claim_redirects_to_clean_safe_relative_path(tmp_path) -> None:
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert response.headers["location"] == "/app-v2/"
     assert created.token not in response.headers["location"]
+
+
+def test_pairing_page_and_claim_ignore_legacy_or_tampered_landing_paths(tmp_path) -> None:
+    _app, client, service, _registration = _application(tmp_path)
+    created = _invitation(service, next_path="/?mobile=1")
+
+    page = client.get(
+        "/connect",
+        params={"invitation": created.token, "next": "/settings"},
+    )
+    response = client.post(
+        "/api/access/invitations/claim",
+        data={"invitation": created.token, "next": "/"},
+        headers={"origin": "http://localhost:8080"},
+    )
+
+    assert 'name="next" type="hidden" value="/app-v2/"' in page.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app-v2/"
+
+
+def test_claim_rejects_oversized_body_before_token_processing(tmp_path) -> None:
+    _app, client, service, _registration = _application(tmp_path)
+    created = _invitation(service)
+
+    response = client.post(
+        "/api/access/invitations/claim",
+        content=b"x" * (32 * 1024 + 1),
+        headers={
+            "content-type": "application/json",
+            "origin": "http://localhost:8080",
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"] == "request_too_large"
+    assert service.inspect_invitation(created.token).status == "available"
 
 
 def test_terminal_invitation_states_render_recovery_without_claim_form(

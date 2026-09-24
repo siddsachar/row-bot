@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "UpdateRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_size": {
+          "maximum": 1000000000000,
+          "minimum": 0,
+          "title": "Asset Size",
+          "type": "integer"
+        },
+        "channel": {
+          "enum": [
+            "stable",
+            "beta"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "html_url": {
+          "maxLength": 2048,
+          "title": "Html Url",
+          "type": "string"
+        },
+        "notes": {
+          "maxLength": 16000,
+          "title": "Notes",
+          "type": "string"
+        },
+        "published_at": {
+          "maxLength": 64,
+          "title": "Published At",
+          "type": "string"
+        },
+        "verified_manifest": {
+          "title": "Verified Manifest",
+          "type": "boolean"
+        },
+        "version": {
+          "maxLength": 64,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "channel",
+        "published_at",
+        "notes",
+        "html_url",
+        "asset_size",
+        "verified_manifest"
+      ],
+      "title": "UpdateRelease",
+      "type": "object"
+    },
+    "UpdateSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpdateRelease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "channel": {
+          "enum": [
+            "stable",
+            "beta"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "current_version": {
+          "maxLength": 64,
+          "title": "Current Version",
+          "type": "string"
+        },
+        "dev_install": {
+          "title": "Dev Install",
+          "type": "boolean"
+        },
+        "last_check": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Check"
+        },
+        "last_success": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Success"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "skipped_versions": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Skipped Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "revision",
+        "channel",
+        "current_version",
+        "last_check",
+        "last_success",
+        "skipped_versions",
+        "available",
+        "dev_install"
+      ],
+      "title": "UpdateSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/UpdateSnapshot"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "status",
+    "snapshot"
+  ],
+  "title": "UpdateReceipt",
+  "type": "object"
+}

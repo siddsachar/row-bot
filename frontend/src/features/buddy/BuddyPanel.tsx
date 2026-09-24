@@ -14,6 +14,8 @@ import BuddyHatch, {
   type HatchRemoval,
 } from '../shell/BuddyHatch';
 import { Button, ErrorState } from '../../ui/primitives';
+import glyph from '../../assets/row_bot_glyph_256.png';
+import './BuddySurface.css';
 
 export type BuddyCommand = {
   command_id: string;
@@ -484,18 +486,51 @@ export type BuddyPanelSession = ReturnType<typeof createBuddyPanelSession>;
 export type BuddyPanelProps = Pick<
   BuddyControlsProps,
   | 'scopeKey'
-  | 'currentRunId'
   | 'renderAvatar'
   | 'renderPackPreview'
   | 'previewUrl'
   | 'companionVisible'
-  | 'stop'
 > & {
   session: BuddyPanelSession;
   settingsOpen: boolean;
   initialPrompt?: string;
   onSettings(): void;
 };
+
+const noBuddyGenerationStop = () => Promise.resolve();
+
+function BuddyPanelState({
+  state,
+  busy = false,
+  onRetry,
+}: {
+  state: 'loading' | 'error' | 'unavailable';
+  busy?: boolean;
+  onRetry?: () => void;
+}) {
+  const copy =
+    state === 'loading'
+      ? 'Buddy is loading…'
+      : state === 'error'
+        ? 'Buddy could not load its saved view.'
+        : 'Buddy session ended.';
+  return (
+    <aside
+      className="buddy-companion buddy-companion-state"
+      aria-label="Buddy companion"
+      aria-busy={state === 'loading' || busy}
+      data-state={state}
+    >
+      <img className="buddy-state-glyph" src={glyph} alt="" />
+      <p>{copy}</p>
+      {onRetry && (
+        <Button disabled={busy} onClick={onRetry}>
+          Retry Buddy
+        </Button>
+      )}
+    </aside>
+  );
+}
 
 export default function BuddyPanel(props: BuddyPanelProps) {
   const state = useSyncExternalStore(
@@ -509,34 +544,56 @@ export default function BuddyPanel(props: BuddyPanelProps) {
     )
       void props.session.load().catch(() => {});
   }, [props.session]);
-  if (state.revoked) return null;
+  if (state.revoked)
+    return props.settingsOpen ? (
+      <ErrorState title="Buddy session ended">
+        Reopen Buddy after authentication is restored.
+      </ErrorState>
+    ) : props.companionVisible === false ? null : (
+      <BuddyPanelState state="unavailable" />
+    );
+  const retry = () => void props.session.load().catch(() => {});
   return (
     <>
-      {!state.snapshot && (
-        <Button
-          disabled={state.busy}
-          onClick={() => void props.session.load().catch(() => {})}
-        >
-          Reload Buddy settings
-        </Button>
+      {!state.snapshot && props.companionVisible !== false && (
+        <BuddyPanelState
+          state={state.error ? 'error' : 'loading'}
+          busy={state.busy}
+          onRetry={state.error ? retry : undefined}
+        />
       )}
       <BuddyControls
         {...props}
+        currentRunId={null}
+        stop={noBuddyGenerationStop}
         editor={props.session.preferencesEditor}
         snapshot={state.snapshot}
         packs={state.packs}
         save={props.session.save}
         loadPacks={props.session.loadPacks}
+        reload={props.session.load}
       />
       {state.statusError && <p role="status">{state.statusError}</p>}
       {props.settingsOpen && (
         <section aria-label="Buddy appearance" aria-busy={state.busy}>
+          {!state.snapshot && !state.error && <p>Loading Buddy settings…</p>}
+          {!state.snapshot && state.error && (
+            <Button disabled={state.busy} onClick={retry}>
+              Retry Buddy settings
+            </Button>
+          )}
           <BuddyHatch
             editor={props.session.hatchEditor}
             scopeKey={props.scopeKey}
             configRevision={state.snapshot?.revision ?? null}
             initialPrompt={props.initialPrompt}
             selectedPack={state.selectedPack}
+            personality={
+              state.snapshot?.preferences.personality ?? 'warm_mystical'
+            }
+            styleNotes={
+              state.snapshot?.preferences.personality_description ?? ''
+            }
             result={state.result}
             review={props.session.review}
             confirm={props.session.confirm}

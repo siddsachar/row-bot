@@ -233,9 +233,7 @@ def build_update_section() -> None:
         )
 
         def _clear_skipped() -> None:
-            st3 = updater.get_update_state()
-            st3.skipped_versions.clear()
-            updater._save_state(st3)
+            updater.clear_skipped_versions()
             ui.notify("Cleared skipped versions — recheck to see again.", type="info")
 
         ui.button("Clear skipped", on_click=_clear_skipped).props("flat size=sm")

@@ -1,0 +1,322 @@
+{
+  "$defs": {
+    "ComposerLibrary": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 128,
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "revision"
+      ],
+      "title": "ComposerLibrary",
+      "type": "object"
+    },
+    "ComposerSkill": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "icon": {
+          "maxLength": 64,
+          "title": "Icon",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "library_source": {
+          "maxLength": 256,
+          "title": "Library Source",
+          "type": "string"
+        },
+        "removable": {
+          "title": "Removable",
+          "type": "boolean"
+        },
+        "source": {
+          "enum": [
+            "default",
+            "pinned",
+            "thread",
+            "auto"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_name",
+        "icon",
+        "description",
+        "library_source",
+        "source",
+        "removable"
+      ],
+      "title": "ComposerSkill",
+      "type": "object"
+    },
+    "ComposerSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "icon": {
+          "maxLength": 64,
+          "title": "Icon",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "title": "Reason",
+          "type": "string"
+        },
+        "skill_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Skill Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "skill_id",
+        "display_name",
+        "icon",
+        "description",
+        "reason"
+      ],
+      "title": "ComposerSuggestion",
+      "type": "object"
+    },
+    "SlashCommandSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Aliases",
+          "type": "array"
+        },
+        "argument_hint": {
+          "maxLength": 256,
+          "title": "Argument Hint",
+          "type": "string"
+        },
+        "argument_mode": {
+          "enum": [
+            "none",
+            "optional",
+            "required",
+            "prefix"
+          ],
+          "title": "Argument Mode",
+          "type": "string"
+        },
+        "category": {
+          "maxLength": 80,
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "handler_kind": {
+          "enum": [
+            "open_skills",
+            "skill_reset",
+            "noskill",
+            "new_thread",
+            "stop_generation",
+            "reasoning",
+            "profiles",
+            "profile",
+            "agents",
+            "agent",
+            "goal",
+            "status",
+            "tools",
+            "export",
+            "help",
+            "activate_skill"
+          ],
+          "title": "Handler Kind",
+          "type": "string"
+        },
+        "icon": {
+          "maxLength": 64,
+          "title": "Icon",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        },
+        "skill_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skill Id"
+        },
+        "token": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "token",
+        "aliases",
+        "label",
+        "description",
+        "icon",
+        "category",
+        "argument_mode",
+        "argument_hint",
+        "handler_kind"
+      ],
+      "title": "SlashCommandSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "active_skills": {
+      "items": {
+        "$ref": "#/$defs/ComposerSkill"
+      },
+      "maxItems": 64,
+      "title": "Active Skills",
+      "type": "array"
+    },
+    "command_total": {
+      "maximum": 4096,
+      "minimum": 0,
+      "title": "Command Total",
+      "type": "integer"
+    },
+    "commands": {
+      "items": {
+        "$ref": "#/$defs/SlashCommandSpec"
+      },
+      "maxItems": 256,
+      "title": "Commands",
+      "type": "array"
+    },
+    "commands_truncated": {
+      "title": "Commands Truncated",
+      "type": "boolean"
+    },
+    "composer_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Composer Revision",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "conversation_revision": {
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "title": "Conversation Revision",
+      "type": "string"
+    },
+    "library": {
+      "$ref": "#/$defs/ComposerLibrary"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "smart_skills_off": {
+      "title": "Smart Skills Off",
+      "type": "boolean"
+    },
+    "suggestions": {
+      "items": {
+        "$ref": "#/$defs/ComposerSuggestion"
+      },
+      "maxItems": 12,
+      "title": "Suggestions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "conversation_id",
+    "conversation_revision",
+    "composer_revision",
+    "library",
+    "smart_skills_off",
+    "active_skills",
+    "suggestions",
+    "commands",
+    "command_total",
+    "commands_truncated"
+  ],
+  "title": "ConversationComposer",
+  "type": "object"
+}

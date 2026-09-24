@@ -7,30 +7,96 @@
   "source": {
     "base_commit": "272a0add768f7badc2536fa21e30e538a08833de",
     "files": {
-      "src/row_bot/api/v1/__init__.py": "d14be0852486e10539fd8ed7cafe67c2753a7964679096fe9c1191497a1ba329",
-      "src/row_bot/api/v1/routes.py": "3f2a8bb5dc1ebdc3b414960f092e2ba278992de72fcca900606738a8561957ed",
-      "src/row_bot/api/v1/schemas.py": "eb2f11a7f81719cad25334d9ecee62eab704aaed1e61fe611563101c7346e8e3",
-      "src/row_bot/api/v1/security.py": "b810017771e61c4cbde241901f33d17d32fd02060805824f2dc60f230852a375",
-      "src/row_bot/application/__init__.py": "ddac8928976922c73246ae791f5cc0ff84837ef1a9890f5938ee56f58eb7d468",
-      "src/row_bot/application/attachment_context.py": "930e91b470edddb37e68a75996237d88db5f22e54442df9c825f5ad16ae45d1a",
-      "src/row_bot/application/attachments.py": "cca0ed909626291f72492322e1bddc42cc722e13fbfdc583742a48251d7f0361",
-      "src/row_bot/application/client_platform.py": "0f45a18b6dfdd72f10dceb76d712ad0983d941b5c2173f5c386555d9c7caf082",
-      "src/row_bot/application/generated_media.py": "2037b707b47b35a202eb23c34130809ec45315906a41ac32c791d9e9256376db",
-      "src/row_bot/application/lifecycle.py": "5d1826b2239c67b73c768a854f759189a319b83773797aa64e717cbf56ff97ff",
-      "src/row_bot/application/live_content.py": "a454a9646f1bda95ce597c4640b01d3cb8b409a8818d8717b36abb827279998d",
-      "src/row_bot/conversation_resources.py": "20daa4c2c0f7a50f0cae7f6d24d804950b9fb87035586624a01e5bb1b6c94768",
-      "src/row_bot/projection/__init__.py": "246b0f37fc792dc5787564e86fdd2d1153e380cbd362a9d3f2db70669131da00",
-      "src/row_bot/projection/canonical.py": "cd33b9b4d396464a6324d04194476c87854e40ec902d34201ebda432217102ed",
-      "src/row_bot/projection/conversation.py": "0c2322879ebd8a952f808a01549d8c7e785819fb033bfcc5542a0d88071fc66e",
-      "src/row_bot/runtime/__init__.py": "bec0d5569832ef34ca97d303981dc5484f68c77b8123f82fb63e3320a3634d0b",
-      "src/row_bot/runtime/admissions.py": "c9b4a489c2e4e39e5122214f6ef2035440e4d12c4a2ea1a0da78435c149d1008",
-      "src/row_bot/runtime/checkpoint_reader.py": "dba5a78e99585899d186084a0f494796e0f767c783539e796683938cd964d0f4",
-      "src/row_bot/runtime/executions.py": "93936596d57069e96e6fffdb7332ab5c36aed81868c44dc71c7651bb7dc35166",
-      "src/row_bot/tasks.py": "e8e34aa222c7737424d248360cf3438370fb2675fba81d685c7014e4f83e9b8b",
-      "src/row_bot/threads.py": "28db4fd9e103b0f250eb62877bf367ffbb9b5433f4ddede620517789fced0122",
-      "tests/helpers/client_platform_fakes.py": "3e5ebbac050c0afb409135c11f7d6afbf7df313c09bcd465f3c04980f6639717"
+      "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
+      "src/row_bot/api/v1/document_upload_stream.py": "9d7f480472630d5aa7298503af7b9451607b1856406caa115cb6578bbe700494",
+      "src/row_bot/api/v1/routes.py": "8093d2adaf7e5ce568789637e06690b2a09c9739d7292143aa31c372d469754b",
+      "src/row_bot/api/v1/schemas.py": "b7f322443320e9e0cf9edbc13f6f66c864ed1c3f95ec10f453d1a8f245109c6d",
+      "src/row_bot/api/v1/security.py": "7938783704b0e41aa51124ddf5432271aae020b3a880fa8109e0b83b6e7a19e8",
+      "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
+      "src/row_bot/application/artifact_controls.py": "25f0f623e0cd0571d4808a7f3dcecedecf932754993ba45b28b0f968d9b82dac",
+      "src/row_bot/application/artifact_design_commands.py": "01aac0ce3e487e14b3aaab24a0f6a72016f3740b91eeaed04076ad5d2da63026",
+      "src/row_bot/application/artifact_exports.py": "5dd968ecdae8781ce89a6da55ea992aa0a938dd85316bb96ec43845a8ca1e4bf",
+      "src/row_bot/application/artifact_lifecycle_commands.py": "694074d072e8dc604aef574852944d995f581f774f48f5967487118ff8b8994d",
+      "src/row_bot/application/artifact_sharing.py": "4d07f16d5c14f6619c1ee49487569b2506ceffdbe1f078b27c2a4414025ef32f",
+      "src/row_bot/application/attachment_context.py": "b8c463c9f8b599d203890b0bb9dabddc982333333f71d9262c4e453278c0f2ef",
+      "src/row_bot/application/attachments.py": "a2084b1bf1d5a09c7179e3a37848ac998fe68c091763f0811487afa6e29c7f91",
+      "src/row_bot/application/buddy_commands.py": "8a4fe09ee9926132cb20c148e8335dcb430b1b7afe79c0e8d4da23890944a0ac",
+      "src/row_bot/application/buddy_policy.py": "33cf424a5e1d7387e77635675ed01d5374f07de5ee78f72a3b2bfcb1fe105d4e",
+      "src/row_bot/application/capability_catalog_controls.py": "9e28bc7a9402e572138b2c53fd432e0e5fec7bfbec4ce644291973784df0d505",
+      "src/row_bot/application/capability_configuration_controls.py": "7a9fa2cc816abd333cde76d5c35848b3e017db80d6c042d462a3bc81021565a5",
+      "src/row_bot/application/capability_policy_controls.py": "5736161eddc01ccc50874c28d54e39a03c6ac3da42e7144653ced5c3218b85e3",
+      "src/row_bot/application/capability_runtime_controls.py": "44c01c4b86eeae85ec2e26a73b94f6e5d22e86aa188d069438b739be2d5329b0",
+      "src/row_bot/application/channel_controls.py": "90355e2d255f28ebb7ee6f5f6f04402e7feb468c485523611f9971ffa24fe5f9",
+      "src/row_bot/application/client_browser_controls.py": "8454ac0c312d2d4656909ef24013d972fe9ac436602c4cef8a9bee992442c431",
+      "src/row_bot/application/client_goal_profile_commands.py": "82c2913852f2dd1c1f55c7f5a9e83efd9498b7f6daade11a03f083dc3656b959",
+      "src/row_bot/application/client_models_settings.py": "749d2f2a2db9ddef3dba0428a42bebaba3a51aff0a8bbe7713ee8228ae493fa5",
+      "src/row_bot/application/client_monitor.py": "e68514ff4eb986ebb21e5f8c6b0959bf1fd131b22f086d21645767b35b6762e8",
+      "src/row_bot/application/client_platform.py": "7c9cd064db4e111b3e882845a5448011437510b54b538080de44948924dd55a6",
+      "src/row_bot/application/client_queue.py": "47e35e02a0782aea73cea6681bcc8bafe3191a4b758713ac26b3b104da5769b3",
+      "src/row_bot/application/client_voice.py": "8ffd69b8f00c7adeda2c468cdd1b10f8f1ba1c097b178771efba3d7b7bfa0e52",
+      "src/row_bot/application/context_status.py": "f9f01d3766b79efff84a691fc5178b2a125cc6b47d438774de7f82d8f729f0b4",
+      "src/row_bot/application/conversation_actions.py": "8bf65f5a55fd56e0932fbbe17db3b540a292128c2ee619d0ae4ce3a966fb5d80",
+      "src/row_bot/application/conversation_composer.py": "c2b02e16412ff1cbd4207814e3c36071836a28575b51d43fb8d114c01403d7cb",
+      "src/row_bot/application/conversation_drafts.py": "9d8454572bb02b8ea1cc1c83c949f8281afe3cf7e2c56e8711f9102f527529f7",
+      "src/row_bot/application/conversation_open.py": "8a0404b261cece7a71cb0e8b88eb84330885ea71ddcf6ae71de9ac951ee34910",
+      "src/row_bot/application/conversation_search.py": "bd23b29475bb2079779c1e3912965814dcb04f154bb92b1c41ae75abde5a55ec",
+      "src/row_bot/application/conversation_traces.py": "928fba36b0e25243226d06bcef364df0d2befce2eccb8878ceaad8e813df08ac",
+      "src/row_bot/application/delegated_activity.py": "6fc1433481abd449943941f3b69a033fe0e8dae4522c336064afc6c87db0004e",
+      "src/row_bot/application/developer_repository_commands.py": "b48e0e0e3e9033e650ee249977ac289a8af3ad32517539f56463d3d22d2f1197",
+      "src/row_bot/application/document_commands.py": "6047e599796ebfb1951a534b25f2c8d6ae9a0c6dac369cdb446ad8f8af07d984",
+      "src/row_bot/application/document_job_commands.py": "198970535973f514e39c6bdc16b43a0fab3a0a2f24b743b2a0fb94d54ec343e0",
+      "src/row_bot/application/document_processing.py": "aab0726a14517214355631179db991d1c56a5875995c7bdb2c43029fdc05363a",
+      "src/row_bot/application/document_upload_commands.py": "ea1d3319f33ef18492056e4281beffc6aec0c09c21510827c02513dcb71663bb",
+      "src/row_bot/application/folder_selections.py": "6ac3c2bf4f0fe8c384608788b2a298608c449bafbffcc0f0026907a1ef8fe471",
+      "src/row_bot/application/generated_media.py": "9f1168e932b4f11ad92e283c04358527e474252069b59c0fb3392d13108b6416",
+      "src/row_bot/application/knowledge_commands.py": "16b2156f4bfcf700acfcc3b21a407178a9324cf677d2d9af74f3e3a06f9c733f",
+      "src/row_bot/application/knowledge_relations.py": "bc39ea05577a1f2734e9f4736001573c4cebefe7bf4790b71f4e8a947abc3f87",
+      "src/row_bot/application/lifecycle.py": "b1146c887e1ff038d42f75b234d7b87d9bca27633be1172d9cd4dfa689dad088",
+      "src/row_bot/application/live_content.py": "dca7a8f564d3ea867f3e5b5b17a0fcbddaa193d959f167152941f3adcc89a0db",
+      "src/row_bot/application/mcp_runtime_installation.py": "939d6a0a150b3d225ec5d80993b46f97bc9123d3a5227d0aa837926a572850e6",
+      "src/row_bot/application/message_text.py": "5fea1c1fd8604557943ae8bffdd8ae3346f88f0e8d670355ce7e5192f72cbc26",
+      "src/row_bot/application/native_mcp_controls.py": "5f32841c3d72a6b8d94ed7635c6e7fc0c87939470505d8a908855daef8584d90",
+      "src/row_bot/application/plugin_commands.py": "d5cf6ed6cc059c52897434e3e37dff18c52f4a39cfce525b7de71a68b0ed9bca",
+      "src/row_bot/application/profile_controls.py": "79672aed6ebc722019782aac3293505261a51021896c5970814fdee762119e44",
+      "src/row_bot/application/provider_configuration_controls.py": "a2551644ccebbaff60f59f548da369e36fa6b086705c4356d7429e06a9c84309",
+      "src/row_bot/application/provider_custom_credentials.py": "f5608c9336eca015963d38fa603099377a55a3f8ef47a9d57e933caf4bfd8e8e",
+      "src/row_bot/application/provider_default_model.py": "11aeb20b0de472a2a6ac23bf31388a1a148d3a672d7e6f69c6a0b1dcc22f4059",
+      "src/row_bot/application/provider_settings_commands.py": "21ddc6d3194bc82f4c3b0e8f85dd8d77b1d38c9246181006b124624f271f5bd1",
+      "src/row_bot/application/provider_settings_controls.py": "73f9b6b7f65c76d3d17fbb067b3a2dfe049c2e42df3274844e430c2e05fc4355",
+      "src/row_bot/application/reasoning_controls.py": "3a9c5f172743df52a978bb444c4c18f11b96037ebdcc4ffc8d4e57bfd67f1b34",
+      "src/row_bot/application/settings_commands.py": "355eb1059b6975ee7c235acf8f8a36c5d67a85b70d5abd4d94cbb77c5cc5cf74",
+      "src/row_bot/application/settings_snapshot.py": "2935d4c7ed626da3a6281b8019fa3539684460123565d73a1c0840f29b0d8e3e",
+      "src/row_bot/application/skill_commands.py": "df6edc9aadefc54c643f60289040f590c8e902477d25f248d4b1347c3156b38a",
+      "src/row_bot/application/subscription_controls.py": "d6fc41d849c396135fd3f7617c43369358d4281fa1e7f6c331bcfbb469fb9c4e",
+      "src/row_bot/application/subscription_options.py": "b77a2b96ce9ceca38403348c454ec87b1afc5a7cd371970a659ba66c4020f63a",
+      "src/row_bot/application/subscription_probes.py": "791c59fee7f92aa7061863b4b4b1d4d3cf82adf1f7cf08ea79b3fcee994e9764",
+      "src/row_bot/application/task_commands.py": "c55aa556747aecf20c2ded9c4510ab962618b6003a0ccb876379d760c1aaba75",
+      "src/row_bot/application/task_controls.py": "37861de8b8e70cf4c04a1cf8949c7fd88758ff124c6e570b2f91670e5e9e3f22",
+      "src/row_bot/application/task_delivery_controls.py": "af00b52825f516367ed444a3fe802b84c623e12d747951dc234df09fddf1616e",
+      "src/row_bot/application/task_execution.py": "a9ddb5768259a105557c4f2036e9b2cf14210d20e4a2f9e60cc3b2c13d353099",
+      "src/row_bot/application/task_graph_controls.py": "4432afbc420e8c1af6b972796152b74ed160919efe21cd7c85f3a51cdf32d6b3",
+      "src/row_bot/application/task_run_commands.py": "7c5ae3bc287153bef451de6bd78a2bcf673a3f60506dc894ff725138e0e6d3f1",
+      "src/row_bot/application/task_settings_controls.py": "cce82e155def9770c04dfb29326a72a61925504a36f19d754a683d39ad427b51",
+      "src/row_bot/application/transcript_blocks.py": "0dbb1d9ebbe4abf6fd7edaf9258f12941047490b0bb42bdd839e623785e1a418",
+      "src/row_bot/application/wiki_commands.py": "20b6e933ec6f345a435804327b447d5083d7ae1fee83c51639af6b6e3c2f08fa",
+      "src/row_bot/application/workspace_edit_commands.py": "8610c1ba41dab554cfadb5e864b57895f25f395e92aa5da8083bcac8a0e4f536",
+      "src/row_bot/application/workspace_import_commands.py": "9629e80c491792ae737e011e4fea6ece484d628bc0dd8c15fb3fabbc6928668e",
+      "src/row_bot/application/workspace_process_commands.py": "0ac0605bfe258b6679dbae867df0f69e66fa857a9171a4ca6bb94a8353495d66",
+      "src/row_bot/application/workspace_setup.py": "8487dc5017c9a317458c9aeecb10b7b2d9594fd7131809ef209aea604a51124a",
+      "src/row_bot/application/workspace_undo_commands.py": "8a78a585cac7d0c784b6b68bde4a15162cbc0b2f3eca5faa3e7aef236ef0277b",
+      "src/row_bot/conversation_resources.py": "10fa0ce5e2e7a055014a7aa720af199adc135616dda7baf4d9a7b44243939bcd",
+      "src/row_bot/projection/__init__.py": "b13e25f65e14b5273db9d6de9da2149de0b0c62883b52e3379ec59c5a3ffb375",
+      "src/row_bot/projection/canonical.py": "14a05e08289ccc6b9f431b5799c0c9d545cff7e5395d3f2f52b4a7c78073c8db",
+      "src/row_bot/projection/conversation.py": "d403bfec5c9ce7a18e3ecd7d7a7df156195e7393f951e836301264fcb866c6cc",
+      "src/row_bot/runtime/__init__.py": "dc07d08406de7b69a49a74ba25964c5ed928f062d84f2d04dfed184a9b87e5cf",
+      "src/row_bot/runtime/admissions.py": "04a1d5ca21f23c6f84023d7736e2ce400d52d1276d642c096c76e76338495a59",
+      "src/row_bot/runtime/checkpoint_reader.py": "a1678bf8394e8d68e54ab4de3e60a4381307a634c96a61e07af7e53a02f77394",
+      "src/row_bot/runtime/executions.py": "3a8f3529394ac2c8f05b4f4942e997e73dea6794904b1b77d86f8f570075c609",
+      "src/row_bot/tasks.py": "bd8ee16ac38f42f23f5e173d56514fed85b778484dc4af47f33cb1e0c799e085",
+      "src/row_bot/threads.py": "467de9f24533520f170fee72acc142c044610d4cfb1fa1ab6629768b04589976",
+      "tests/helpers/client_platform_fakes.py": "6b83cdea2bc8171a1087ef22f3629220941418ab2445ae8057c218c0a9190287"
     },
-    "sha256": "06bee57a02733859b6b84e75d1971ba91406381b9e1832ab5a94d59ede8e4a72"
+    "sha256": "2cd5894c2becb7cf0233925c6d53b349079cb2b3633a3d0921691cfa5d0d809b"
   },
   "records": [
     {
@@ -98,21 +164,9 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "1",
               "source_sequence_end": "1",
-              "type": "generation.state",
+              "type": "transcript.checkpoint",
               "payload": {
-                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-                "conversation_id": "conversation-a",
-                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-                "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "status": "running",
-                "revision": "1",
-                "cancel_requested": false,
-                "quiesced": false,
-                "cleanup_complete": false,
-                "external_outcome": "known_not_sent",
-                "approval_id": null,
-                "can_stop": true
+                "checkpoint_revision": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1"
               }
             }
           },
@@ -130,20 +184,29 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "2",
               "source_sequence_end": "2",
-              "type": "queue.updated",
+              "type": "generation.state",
               "payload": {
-                "submission_ids": [
-                  "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
-                ],
-                "revision": "2"
+                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+                "conversation_id": "conversation-a",
+                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+                "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+                "status": "running",
+                "revision": "1",
+                "cancel_requested": false,
+                "quiesced": false,
+                "cleanup_complete": false,
+                "external_outcome": "known_not_sent",
+                "approval_id": null,
+                "can_stop": true
               }
             }
           },
           {
-            "cursor": "16a47465-b037-54dc-81df-2d36c09b22a7",
+            "cursor": "27833fe4-9048-56a1-83fc-696f7808314f",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "27833fe4-9048-56a1-83fc-696f7808314f",
+              "event_id": "6f07bd93-03e0-5b94-892a-a6ee583cd8ec",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -153,17 +216,20 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "3",
               "source_sequence_end": "3",
-              "type": "generation.activity",
+              "type": "queue.updated",
               "payload": {
-                "state": "thinking"
+                "submission_ids": [
+                  "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
+                ],
+                "revision": "3"
               }
             }
           },
           {
-            "cursor": "6f07bd93-03e0-5b94-892a-a6ee583cd8ec",
+            "cursor": "f445cb31-3d2f-5c28-bace-38bd947fa5af",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "f445cb31-3d2f-5c28-bace-38bd947fa5af",
+              "event_id": "527e7ff6-12fb-5fea-94a8-3b4b0dd60e60",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -173,21 +239,17 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "4",
               "source_sequence_end": "4",
-              "type": "transcript.delta",
+              "type": "generation.activity",
               "payload": {
-                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-                "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "render_revision": "4",
-                "public_text_delta": "Synthetic reordered-output"
+                "state": "thinking"
               }
             }
           },
           {
-            "cursor": "527e7ff6-12fb-5fea-94a8-3b4b0dd60e60",
+            "cursor": "bca7b0ff-6783-5e06-9e81-8de8f82e6205",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "bca7b0ff-6783-5e06-9e81-8de8f82e6205",
+              "event_id": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -197,9 +259,13 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "5",
               "source_sequence_end": "5",
-              "type": "transcript.checkpoint",
+              "type": "transcript.delta",
               "payload": {
-                "checkpoint_revision": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8"
+                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+                "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+                "render_revision": "5",
+                "public_text_delta": "Synthetic reordered-output"
               }
             }
           },
@@ -217,18 +283,17 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "6",
               "source_sequence_end": "6",
-              "type": "transcript.settled",
+              "type": "transcript.checkpoint",
               "payload": {
-                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "adoption": "exact"
+                "checkpoint_revision": "d2ea963a-a7f2-55bc-904d-7c2efc13dfea"
               }
             }
           },
           {
-            "cursor": "d2ea963a-a7f2-55bc-904d-7c2efc13dfea",
+            "cursor": "8957bf1d-7222-5e9a-968e-1383d1a43a78",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "8957bf1d-7222-5e9a-968e-1383d1a43a78",
+              "event_id": "065bd495-a35b-51b6-a912-d6dc22a91597",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -238,18 +303,18 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "7",
               "source_sequence_end": "7",
-              "type": "queue.updated",
+              "type": "transcript.settled",
               "payload": {
-                "submission_ids": [],
-                "revision": "7"
+                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+                "adoption": "exact"
               }
             }
           },
           {
-            "cursor": "065bd495-a35b-51b6-a912-d6dc22a91597",
+            "cursor": "2bacd776-25b0-5d67-a3b9-f7d4a7af6bdc",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "2bacd776-25b0-5d67-a3b9-f7d4a7af6bdc",
+              "event_id": "352bd939-47d9-5a95-9a60-64df309a014d",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -259,29 +324,18 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "8",
               "source_sequence_end": "8",
-              "type": "generation.state",
+              "type": "queue.updated",
               "payload": {
-                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-                "conversation_id": "conversation-a",
-                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-                "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "status": "completed",
-                "revision": "2",
-                "cancel_requested": false,
-                "quiesced": true,
-                "cleanup_complete": true,
-                "external_outcome": "known_not_sent",
-                "approval_id": null,
-                "can_stop": false
+                "submission_ids": [],
+                "revision": "8"
               }
             }
           },
           {
-            "cursor": "352bd939-47d9-5a95-9a60-64df309a014d",
+            "cursor": "6bd0bf2c-b022-54ae-9e55-bff1207d90f6",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "6bd0bf2c-b022-54ae-9e55-bff1207d90f6",
+              "event_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -291,11 +345,21 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "9",
               "source_sequence_end": "9",
-              "type": "agent.activity",
+              "type": "generation.state",
               "payload": {
-                "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-                "status": "queued",
-                "revision": "1"
+                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+                "conversation_id": "conversation-a",
+                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+                "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+                "status": "completed",
+                "revision": "2",
+                "cancel_requested": false,
+                "quiesced": true,
+                "cleanup_complete": true,
+                "external_outcome": "known_not_sent",
+                "approval_id": null,
+                "can_stop": false
               }
             }
           },
@@ -315,17 +379,17 @@
               "source_sequence_end": "10",
               "type": "agent.activity",
               "payload": {
-                "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-                "status": "running",
-                "revision": "2"
+                "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+                "status": "queued",
+                "revision": "1"
               }
             }
           },
           {
-            "cursor": "7611d03e-a00f-535a-912c-825c3148e9ce",
+            "cursor": "ad337328-a12c-5494-803d-f9160debbd5e",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "ad337328-a12c-5494-803d-f9160debbd5e",
+              "event_id": "bf04be77-fe2e-5803-9f09-409c1c8128ac",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -337,14 +401,36 @@
               "source_sequence_end": "11",
               "type": "agent.activity",
               "payload": {
-                "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
+                "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+                "status": "running",
+                "revision": "2"
+              }
+            }
+          },
+          {
+            "cursor": "c3afce21-24b6-5317-8246-b42b2011d415",
+            "event": {
+              "protocol_version": "1.0",
+              "event_id": "1b5c3919-7400-567c-9915-8b284b1a1fea",
+              "topic": "conversation.conversation-a",
+              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "conversation_id": "conversation-a",
+              "projection_revision": "12",
+              "source": "runtime",
+              "source_stream_id": "conversation-a",
+              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "source_sequence_start": "12",
+              "source_sequence_end": "12",
+              "type": "agent.activity",
+              "payload": {
+                "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
                 "status": "completed",
                 "revision": "3"
               }
             }
           }
         ],
-        "cursor": "7611d03e-a00f-535a-912c-825c3148e9ce"
+        "cursor": "c3afce21-24b6-5317-8246-b42b2011d415"
       }
     },
     {
@@ -361,21 +447,9 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "1",
         "source_sequence_end": "1",
-        "type": "generation.state",
+        "type": "transcript.checkpoint",
         "payload": {
-          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-          "conversation_id": "conversation-a",
-          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-          "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "status": "running",
-          "revision": "1",
-          "cancel_requested": false,
-          "quiesced": false,
-          "cleanup_complete": false,
-          "external_outcome": "known_not_sent",
-          "approval_id": null,
-          "can_stop": true
+          "checkpoint_revision": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1"
         }
       }
     },
@@ -393,12 +467,21 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "2",
         "source_sequence_end": "2",
-        "type": "queue.updated",
+        "type": "generation.state",
         "payload": {
-          "submission_ids": [
-            "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
-          ],
-          "revision": "2"
+          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+          "conversation_id": "conversation-a",
+          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+          "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+          "status": "running",
+          "revision": "1",
+          "cancel_requested": false,
+          "quiesced": false,
+          "cleanup_complete": false,
+          "external_outcome": "known_not_sent",
+          "approval_id": null,
+          "can_stop": true
         }
       }
     },
@@ -406,7 +489,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "27833fe4-9048-56a1-83fc-696f7808314f",
+        "event_id": "6f07bd93-03e0-5b94-892a-a6ee583cd8ec",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -416,6 +499,29 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "3",
         "source_sequence_end": "3",
+        "type": "queue.updated",
+        "payload": {
+          "submission_ids": [
+            "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
+          ],
+          "revision": "3"
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "527e7ff6-12fb-5fea-94a8-3b4b0dd60e60",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-a",
+        "projection_revision": "4",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "4",
+        "source_sequence_end": "4",
         "type": "generation.activity",
         "payload": {
           "state": "thinking"
@@ -426,31 +532,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "f445cb31-3d2f-5c28-bace-38bd947fa5af",
-        "topic": "conversation.conversation-a",
-        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "conversation_id": "conversation-a",
-        "projection_revision": "4",
-        "source": "runtime",
-        "source_stream_id": "conversation-a",
-        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "source_sequence_start": "4",
-        "source_sequence_end": "4",
-        "type": "transcript.delta",
-        "payload": {
-          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-          "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "render_revision": "4",
-          "public_text_delta": "Synthetic reordered-output"
-        }
-      }
-    },
-    {
-      "schema": "Event",
-      "value": {
-        "protocol_version": "1.0",
-        "event_id": "bca7b0ff-6783-5e06-9e81-8de8f82e6205",
+        "event_id": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -460,9 +542,13 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "5",
         "source_sequence_end": "5",
-        "type": "transcript.checkpoint",
+        "type": "transcript.delta",
         "payload": {
-          "checkpoint_revision": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8"
+          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+          "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+          "render_revision": "5",
+          "public_text_delta": "Synthetic reordered-output"
         }
       }
     },
@@ -480,10 +566,9 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "6",
         "source_sequence_end": "6",
-        "type": "transcript.settled",
+        "type": "transcript.checkpoint",
         "payload": {
-          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "adoption": "exact"
+          "checkpoint_revision": "d2ea963a-a7f2-55bc-904d-7c2efc13dfea"
         }
       }
     },
@@ -491,7 +576,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "8957bf1d-7222-5e9a-968e-1383d1a43a78",
+        "event_id": "065bd495-a35b-51b6-a912-d6dc22a91597",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -501,10 +586,10 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "7",
         "source_sequence_end": "7",
-        "type": "queue.updated",
+        "type": "transcript.settled",
         "payload": {
-          "submission_ids": [],
-          "revision": "7"
+          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+          "adoption": "exact"
         }
       }
     },
@@ -512,7 +597,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "2bacd776-25b0-5d67-a3b9-f7d4a7af6bdc",
+        "event_id": "352bd939-47d9-5a95-9a60-64df309a014d",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -522,21 +607,10 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "8",
         "source_sequence_end": "8",
-        "type": "generation.state",
+        "type": "queue.updated",
         "payload": {
-          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-          "conversation_id": "conversation-a",
-          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-          "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "status": "completed",
-          "revision": "2",
-          "cancel_requested": false,
-          "quiesced": true,
-          "cleanup_complete": true,
-          "external_outcome": "known_not_sent",
-          "approval_id": null,
-          "can_stop": false
+          "submission_ids": [],
+          "revision": "8"
         }
       }
     },
@@ -544,7 +618,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "6bd0bf2c-b022-54ae-9e55-bff1207d90f6",
+        "event_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -554,11 +628,21 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "9",
         "source_sequence_end": "9",
-        "type": "agent.activity",
+        "type": "generation.state",
         "payload": {
-          "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-          "status": "queued",
-          "revision": "1"
+          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+          "conversation_id": "conversation-a",
+          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+          "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+          "status": "completed",
+          "revision": "2",
+          "cancel_requested": false,
+          "quiesced": true,
+          "cleanup_complete": true,
+          "external_outcome": "known_not_sent",
+          "approval_id": null,
+          "can_stop": false
         }
       }
     },
@@ -578,9 +662,9 @@
         "source_sequence_end": "10",
         "type": "agent.activity",
         "payload": {
-          "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-          "status": "running",
-          "revision": "2"
+          "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+          "status": "queued",
+          "revision": "1"
         }
       }
     },
@@ -588,7 +672,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "ad337328-a12c-5494-803d-f9160debbd5e",
+        "event_id": "bf04be77-fe2e-5803-9f09-409c1c8128ac",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -600,7 +684,29 @@
         "source_sequence_end": "11",
         "type": "agent.activity",
         "payload": {
-          "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
+          "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+          "status": "running",
+          "revision": "2"
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "1b5c3919-7400-567c-9915-8b284b1a1fea",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-a",
+        "projection_revision": "12",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "12",
+        "source_sequence_end": "12",
+        "type": "agent.activity",
+        "payload": {
+          "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
           "status": "completed",
           "revision": "3"
         }
@@ -609,28 +715,28 @@
     {
       "schema": "SubscriptionView",
       "value": {
-        "subscription_id": "bf04be77-fe2e-5803-9f09-409c1c8128ac",
+        "subscription_id": "4fcedf84-7125-5d39-8e5a-3263dca5f2ca",
         "snapshot": {
           "conversation_id": "conversation-b",
           "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
           "projection_revision": "0",
-          "cursor": "c3afce21-24b6-5317-8246-b42b2011d415",
+          "cursor": "c70b14aa-516a-5bfe-a662-c42eaec02207",
           "checkpoint_revision": "",
           "rows": [],
           "generation": null
         },
-        "cursor": "c3afce21-24b6-5317-8246-b42b2011d415"
+        "cursor": "c70b14aa-516a-5bfe-a662-c42eaec02207"
       }
     },
     {
       "schema": "Command",
       "value": {
-        "command_id": "1b5c3919-7400-567c-9915-8b284b1a1fea",
+        "command_id": "4ba498e6-a183-5fd7-825d-62860c759483",
         "client_session_id": "665c5611-4e9d-5350-ac7e-44559c76534a",
         "type": "conversation.submit",
         "expected_revision": "0",
         "payload": {
-          "submission_id": "4fcedf84-7125-5d39-8e5a-3263dca5f2ca",
+          "submission_id": "2df21574-bce8-54eb-9f62-6a86afdd2260",
           "text": "Synthetic pressure",
           "attachment_refs": [],
           "model_selection": {
@@ -643,24 +749,24 @@
     {
       "schema": "CommandReceipt",
       "value": {
-        "command_id": "1b5c3919-7400-567c-9915-8b284b1a1fea",
+        "command_id": "4ba498e6-a183-5fd7-825d-62860c759483",
         "status": "accepted",
         "conversation_id": "conversation-b",
-        "generation_id": "c70b14aa-516a-5bfe-a662-c42eaec02207",
-        "execution_id": "4ba498e6-a183-5fd7-825d-62860c759483",
-        "pass_id": "2df21574-bce8-54eb-9f62-6a86afdd2260",
-        "submission_id": "4fcedf84-7125-5d39-8e5a-3263dca5f2ca"
+        "generation_id": "4e524577-3898-587c-afca-d7bce0fd7179",
+        "execution_id": "b6eacdaa-049a-5f26-8602-298c01f8e17f",
+        "pass_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
+        "submission_id": "2df21574-bce8-54eb-9f62-6a86afdd2260"
       }
     },
     {
       "schema": "Command",
       "value": {
-        "command_id": "4e524577-3898-587c-afca-d7bce0fd7179",
+        "command_id": "845fd40b-94e5-5da2-9456-cae1a6c7e644",
         "client_session_id": "665c5611-4e9d-5350-ac7e-44559c76534a",
         "type": "conversation.submit",
         "expected_revision": "0",
         "payload": {
-          "submission_id": "b6eacdaa-049a-5f26-8602-298c01f8e17f",
+          "submission_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
           "text": "Synthetic pressure",
           "attachment_refs": [],
           "model_selection": {
@@ -673,13 +779,13 @@
     {
       "schema": "CommandReceipt",
       "value": {
-        "command_id": "4e524577-3898-587c-afca-d7bce0fd7179",
+        "command_id": "845fd40b-94e5-5da2-9456-cae1a6c7e644",
         "status": "accepted",
         "conversation_id": "conversation-a",
-        "generation_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
-        "execution_id": "845fd40b-94e5-5da2-9456-cae1a6c7e644",
-        "pass_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
-        "submission_id": "b6eacdaa-049a-5f26-8602-298c01f8e17f"
+        "generation_id": "d44c9eb7-c169-511b-8982-1b3e3edf7833",
+        "execution_id": "4673fce9-ba95-588c-8ecd-b218e16be504",
+        "pass_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+        "submission_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338"
       }
     },
     {
@@ -688,10 +794,10 @@
         "snapshot_required": false,
         "events": [
           {
-            "cursor": "d44c9eb7-c169-511b-8982-1b3e3edf7833",
+            "cursor": "19b9765a-7b9b-5d93-8c25-3c2fc22d56c8",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "4673fce9-ba95-588c-8ecd-b218e16be504",
+              "event_id": "b6f798a4-2a9b-54ec-8fb5-c39fd88cda1e",
               "topic": "conversation.conversation-b",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-b",
@@ -701,13 +807,33 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "1",
               "source_sequence_end": "1",
+              "type": "transcript.checkpoint",
+              "payload": {
+                "checkpoint_revision": "a03793b8-a806-5ff7-b1e4-e9f35b02a459"
+              }
+            }
+          },
+          {
+            "cursor": "b3512b26-5de3-50b7-be26-8907a406ea0a",
+            "event": {
+              "protocol_version": "1.0",
+              "event_id": "b0ab350e-b99d-5ee3-bfe8-bffa8dc3fcc9",
+              "topic": "conversation.conversation-b",
+              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "conversation_id": "conversation-b",
+              "projection_revision": "2",
+              "source": "runtime",
+              "source_stream_id": "conversation-b",
+              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "source_sequence_start": "2",
+              "source_sequence_end": "2",
               "type": "generation.state",
               "payload": {
-                "execution_id": "4ba498e6-a183-5fd7-825d-62860c759483",
+                "execution_id": "b6eacdaa-049a-5f26-8602-298c01f8e17f",
                 "conversation_id": "conversation-b",
-                "generation_id": "c70b14aa-516a-5bfe-a662-c42eaec02207",
-                "pass_id": "2df21574-bce8-54eb-9f62-6a86afdd2260",
-                "segment_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+                "generation_id": "4e524577-3898-587c-afca-d7bce0fd7179",
+                "pass_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
+                "segment_id": "8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
                 "status": "running",
                 "revision": "1",
                 "cancel_requested": false,
@@ -720,33 +846,10 @@
             }
           },
           {
-            "cursor": "19b9765a-7b9b-5d93-8c25-3c2fc22d56c8",
+            "cursor": "23d65dc8-8e4b-555e-8cc3-fedb8294e321",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "b6f798a4-2a9b-54ec-8fb5-c39fd88cda1e",
-              "topic": "conversation.conversation-b",
-              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-              "conversation_id": "conversation-b",
-              "projection_revision": "2",
-              "source": "runtime",
-              "source_stream_id": "conversation-b",
-              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-              "source_sequence_start": "2",
-              "source_sequence_end": "2",
-              "type": "queue.updated",
-              "payload": {
-                "submission_ids": [
-                  "4fcedf84-7125-5d39-8e5a-3263dca5f2ca"
-                ],
-                "revision": "2"
-              }
-            }
-          },
-          {
-            "cursor": "a03793b8-a806-5ff7-b1e4-e9f35b02a459",
-            "event": {
-              "protocol_version": "1.0",
-              "event_id": "b3512b26-5de3-50b7-be26-8907a406ea0a",
+              "event_id": "33a89340-9369-5638-93be-cfbc7bee30b8",
               "topic": "conversation.conversation-b",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-b",
@@ -756,21 +859,20 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "3",
               "source_sequence_end": "3",
-              "type": "transcript.delta",
+              "type": "queue.updated",
               "payload": {
-                "pass_id": "2df21574-bce8-54eb-9f62-6a86afdd2260",
-                "segment_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
-                "row_id": "assistant:live:2df21574-bce8-54eb-9f62-6a86afdd2260:3c0cb00f-888e-5941-a623-2d3aec9c5a61",
-                "render_revision": "3",
-                "public_text_delta": "Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic "
+                "submission_ids": [
+                  "2df21574-bce8-54eb-9f62-6a86afdd2260"
+                ],
+                "revision": "3"
               }
             }
           },
           {
-            "cursor": "b0ab350e-b99d-5ee3-bfe8-bffa8dc3fcc9",
+            "cursor": "7ee3a5c1-adc0-53e9-b53f-c7b424319283",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
+              "event_id": "43bf595c-9616-5a29-b9e2-fcfc8d756d5d",
               "topic": "conversation.conversation-b",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-b",
@@ -780,6 +882,30 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "4",
               "source_sequence_end": "4",
+              "type": "transcript.delta",
+              "payload": {
+                "pass_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
+                "segment_id": "8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
+                "row_id": "assistant:live:b8205642-2810-5e12-b761-0615e0fdebe5:8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
+                "render_revision": "4",
+                "public_text_delta": "Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic "
+              }
+            }
+          },
+          {
+            "cursor": "92a43513-6e52-529b-a7d3-1ba785a82cf0",
+            "event": {
+              "protocol_version": "1.0",
+              "event_id": "b5f0ef34-3049-5e7a-84c3-2f158cc87aa1",
+              "topic": "conversation.conversation-b",
+              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "conversation_id": "conversation-b",
+              "projection_revision": "5",
+              "source": "runtime",
+              "source_stream_id": "conversation-b",
+              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "source_sequence_start": "5",
+              "source_sequence_end": "5",
               "type": "projection.reset",
               "payload": {
                 "reason": "content_evicted"
@@ -787,14 +913,14 @@
             }
           }
         ],
-        "cursor": "b0ab350e-b99d-5ee3-bfe8-bffa8dc3fcc9"
+        "cursor": "92a43513-6e52-529b-a7d3-1ba785a82cf0"
       }
     },
     {
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "4673fce9-ba95-588c-8ecd-b218e16be504",
+        "event_id": "b6f798a4-2a9b-54ec-8fb5-c39fd88cda1e",
         "topic": "conversation.conversation-b",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-b",
@@ -804,13 +930,33 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "1",
         "source_sequence_end": "1",
+        "type": "transcript.checkpoint",
+        "payload": {
+          "checkpoint_revision": "a03793b8-a806-5ff7-b1e4-e9f35b02a459"
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "b0ab350e-b99d-5ee3-bfe8-bffa8dc3fcc9",
+        "topic": "conversation.conversation-b",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-b",
+        "projection_revision": "2",
+        "source": "runtime",
+        "source_stream_id": "conversation-b",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "2",
+        "source_sequence_end": "2",
         "type": "generation.state",
         "payload": {
-          "execution_id": "4ba498e6-a183-5fd7-825d-62860c759483",
+          "execution_id": "b6eacdaa-049a-5f26-8602-298c01f8e17f",
           "conversation_id": "conversation-b",
-          "generation_id": "c70b14aa-516a-5bfe-a662-c42eaec02207",
-          "pass_id": "2df21574-bce8-54eb-9f62-6a86afdd2260",
-          "segment_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+          "generation_id": "4e524577-3898-587c-afca-d7bce0fd7179",
+          "pass_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
+          "segment_id": "8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
           "status": "running",
           "revision": "1",
           "cancel_requested": false,
@@ -826,30 +972,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "b6f798a4-2a9b-54ec-8fb5-c39fd88cda1e",
-        "topic": "conversation.conversation-b",
-        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "conversation_id": "conversation-b",
-        "projection_revision": "2",
-        "source": "runtime",
-        "source_stream_id": "conversation-b",
-        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "source_sequence_start": "2",
-        "source_sequence_end": "2",
-        "type": "queue.updated",
-        "payload": {
-          "submission_ids": [
-            "4fcedf84-7125-5d39-8e5a-3263dca5f2ca"
-          ],
-          "revision": "2"
-        }
-      }
-    },
-    {
-      "schema": "Event",
-      "value": {
-        "protocol_version": "1.0",
-        "event_id": "b3512b26-5de3-50b7-be26-8907a406ea0a",
+        "event_id": "33a89340-9369-5638-93be-cfbc7bee30b8",
         "topic": "conversation.conversation-b",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-b",
@@ -859,13 +982,12 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "3",
         "source_sequence_end": "3",
-        "type": "transcript.delta",
+        "type": "queue.updated",
         "payload": {
-          "pass_id": "2df21574-bce8-54eb-9f62-6a86afdd2260",
-          "segment_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
-          "row_id": "assistant:live:2df21574-bce8-54eb-9f62-6a86afdd2260:3c0cb00f-888e-5941-a623-2d3aec9c5a61",
-          "render_revision": "3",
-          "public_text_delta": "Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic "
+          "submission_ids": [
+            "2df21574-bce8-54eb-9f62-6a86afdd2260"
+          ],
+          "revision": "3"
         }
       }
     },
@@ -873,7 +995,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
+        "event_id": "43bf595c-9616-5a29-b9e2-fcfc8d756d5d",
         "topic": "conversation.conversation-b",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-b",
@@ -883,6 +1005,30 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "4",
         "source_sequence_end": "4",
+        "type": "transcript.delta",
+        "payload": {
+          "pass_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
+          "segment_id": "8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
+          "row_id": "assistant:live:b8205642-2810-5e12-b761-0615e0fdebe5:8b4bcffd-9221-54e1-b1ef-dd1a6516615f",
+          "render_revision": "4",
+          "public_text_delta": "Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic "
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "b5f0ef34-3049-5e7a-84c3-2f158cc87aa1",
+        "topic": "conversation.conversation-b",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-b",
+        "projection_revision": "5",
+        "source": "runtime",
+        "source_stream_id": "conversation-b",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "5",
+        "source_sequence_end": "5",
         "type": "projection.reset",
         "payload": {
           "reason": "content_evicted"
@@ -908,21 +1054,9 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "1",
               "source_sequence_end": "1",
-              "type": "generation.state",
+              "type": "transcript.checkpoint",
               "payload": {
-                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-                "conversation_id": "conversation-a",
-                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-                "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "status": "running",
-                "revision": "1",
-                "cancel_requested": false,
-                "quiesced": false,
-                "cleanup_complete": false,
-                "external_outcome": "known_not_sent",
-                "approval_id": null,
-                "can_stop": true
+                "checkpoint_revision": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1"
               }
             }
           },
@@ -940,20 +1074,29 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "2",
               "source_sequence_end": "2",
-              "type": "queue.updated",
+              "type": "generation.state",
               "payload": {
-                "submission_ids": [
-                  "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
-                ],
-                "revision": "2"
+                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+                "conversation_id": "conversation-a",
+                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+                "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+                "status": "running",
+                "revision": "1",
+                "cancel_requested": false,
+                "quiesced": false,
+                "cleanup_complete": false,
+                "external_outcome": "known_not_sent",
+                "approval_id": null,
+                "can_stop": true
               }
             }
           },
           {
-            "cursor": "16a47465-b037-54dc-81df-2d36c09b22a7",
+            "cursor": "27833fe4-9048-56a1-83fc-696f7808314f",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "27833fe4-9048-56a1-83fc-696f7808314f",
+              "event_id": "6f07bd93-03e0-5b94-892a-a6ee583cd8ec",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -963,17 +1106,20 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "3",
               "source_sequence_end": "3",
-              "type": "generation.activity",
+              "type": "queue.updated",
               "payload": {
-                "state": "thinking"
+                "submission_ids": [
+                  "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
+                ],
+                "revision": "3"
               }
             }
           },
           {
-            "cursor": "6f07bd93-03e0-5b94-892a-a6ee583cd8ec",
+            "cursor": "f445cb31-3d2f-5c28-bace-38bd947fa5af",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "f445cb31-3d2f-5c28-bace-38bd947fa5af",
+              "event_id": "527e7ff6-12fb-5fea-94a8-3b4b0dd60e60",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -983,21 +1129,17 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "4",
               "source_sequence_end": "4",
-              "type": "transcript.delta",
+              "type": "generation.activity",
               "payload": {
-                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-                "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "render_revision": "4",
-                "public_text_delta": "Synthetic reordered-output"
+                "state": "thinking"
               }
             }
           },
           {
-            "cursor": "527e7ff6-12fb-5fea-94a8-3b4b0dd60e60",
+            "cursor": "bca7b0ff-6783-5e06-9e81-8de8f82e6205",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "bca7b0ff-6783-5e06-9e81-8de8f82e6205",
+              "event_id": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -1007,9 +1149,13 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "5",
               "source_sequence_end": "5",
-              "type": "transcript.checkpoint",
+              "type": "transcript.delta",
               "payload": {
-                "checkpoint_revision": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8"
+                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+                "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+                "render_revision": "5",
+                "public_text_delta": "Synthetic reordered-output"
               }
             }
           },
@@ -1027,18 +1173,17 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "6",
               "source_sequence_end": "6",
-              "type": "transcript.settled",
+              "type": "transcript.checkpoint",
               "payload": {
-                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "adoption": "exact"
+                "checkpoint_revision": "d2ea963a-a7f2-55bc-904d-7c2efc13dfea"
               }
             }
           },
           {
-            "cursor": "d2ea963a-a7f2-55bc-904d-7c2efc13dfea",
+            "cursor": "8957bf1d-7222-5e9a-968e-1383d1a43a78",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "8957bf1d-7222-5e9a-968e-1383d1a43a78",
+              "event_id": "065bd495-a35b-51b6-a912-d6dc22a91597",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -1048,18 +1193,18 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "7",
               "source_sequence_end": "7",
-              "type": "queue.updated",
+              "type": "transcript.settled",
               "payload": {
-                "submission_ids": [],
-                "revision": "7"
+                "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+                "adoption": "exact"
               }
             }
           },
           {
-            "cursor": "065bd495-a35b-51b6-a912-d6dc22a91597",
+            "cursor": "2bacd776-25b0-5d67-a3b9-f7d4a7af6bdc",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "2bacd776-25b0-5d67-a3b9-f7d4a7af6bdc",
+              "event_id": "352bd939-47d9-5a95-9a60-64df309a014d",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -1069,29 +1214,18 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "8",
               "source_sequence_end": "8",
-              "type": "generation.state",
+              "type": "queue.updated",
               "payload": {
-                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-                "conversation_id": "conversation-a",
-                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-                "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-                "status": "completed",
-                "revision": "2",
-                "cancel_requested": false,
-                "quiesced": true,
-                "cleanup_complete": true,
-                "external_outcome": "known_not_sent",
-                "approval_id": null,
-                "can_stop": false
+                "submission_ids": [],
+                "revision": "8"
               }
             }
           },
           {
-            "cursor": "352bd939-47d9-5a95-9a60-64df309a014d",
+            "cursor": "6bd0bf2c-b022-54ae-9e55-bff1207d90f6",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "6bd0bf2c-b022-54ae-9e55-bff1207d90f6",
+              "event_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -1101,11 +1235,21 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "9",
               "source_sequence_end": "9",
-              "type": "agent.activity",
+              "type": "generation.state",
               "payload": {
-                "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-                "status": "queued",
-                "revision": "1"
+                "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+                "conversation_id": "conversation-a",
+                "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+                "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+                "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+                "status": "completed",
+                "revision": "2",
+                "cancel_requested": false,
+                "quiesced": true,
+                "cleanup_complete": true,
+                "external_outcome": "known_not_sent",
+                "approval_id": null,
+                "can_stop": false
               }
             }
           },
@@ -1125,17 +1269,17 @@
               "source_sequence_end": "10",
               "type": "agent.activity",
               "payload": {
-                "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-                "status": "running",
-                "revision": "2"
+                "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+                "status": "queued",
+                "revision": "1"
               }
             }
           },
           {
-            "cursor": "7611d03e-a00f-535a-912c-825c3148e9ce",
+            "cursor": "ad337328-a12c-5494-803d-f9160debbd5e",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "ad337328-a12c-5494-803d-f9160debbd5e",
+              "event_id": "bf04be77-fe2e-5803-9f09-409c1c8128ac",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -1147,17 +1291,17 @@
               "source_sequence_end": "11",
               "type": "agent.activity",
               "payload": {
-                "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-                "status": "completed",
-                "revision": "3"
+                "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+                "status": "running",
+                "revision": "2"
               }
             }
           },
           {
-            "cursor": "23d65dc8-8e4b-555e-8cc3-fedb8294e321",
+            "cursor": "c3afce21-24b6-5317-8246-b42b2011d415",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "33a89340-9369-5638-93be-cfbc7bee30b8",
+              "event_id": "1b5c3919-7400-567c-9915-8b284b1a1fea",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
@@ -1167,13 +1311,55 @@
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "source_sequence_start": "12",
               "source_sequence_end": "12",
+              "type": "agent.activity",
+              "payload": {
+                "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+                "status": "completed",
+                "revision": "3"
+              }
+            }
+          },
+          {
+            "cursor": "3a1b5ba4-84a3-5314-b9b4-3cfe314ff42d",
+            "event": {
+              "protocol_version": "1.0",
+              "event_id": "a8d32fb3-158a-595b-9c67-d8af662b688e",
+              "topic": "conversation.conversation-a",
+              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "conversation_id": "conversation-a",
+              "projection_revision": "13",
+              "source": "runtime",
+              "source_stream_id": "conversation-a",
+              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "source_sequence_start": "13",
+              "source_sequence_end": "13",
+              "type": "transcript.checkpoint",
+              "payload": {
+                "checkpoint_revision": "3cd0ec66-945c-5e5c-8206-3d0593ec9ac9"
+              }
+            }
+          },
+          {
+            "cursor": "9ca1a31e-1125-5b80-8b57-d3b349bbbb9f",
+            "event": {
+              "protocol_version": "1.0",
+              "event_id": "0b4b817d-bdf0-5d20-a31e-8dc33ba3628f",
+              "topic": "conversation.conversation-a",
+              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "conversation_id": "conversation-a",
+              "projection_revision": "14",
+              "source": "runtime",
+              "source_stream_id": "conversation-a",
+              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "source_sequence_start": "14",
+              "source_sequence_end": "14",
               "type": "generation.state",
               "payload": {
-                "execution_id": "845fd40b-94e5-5da2-9456-cae1a6c7e644",
+                "execution_id": "4673fce9-ba95-588c-8ecd-b218e16be504",
                 "conversation_id": "conversation-a",
-                "generation_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
-                "pass_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
-                "segment_id": "7ee3a5c1-adc0-53e9-b53f-c7b424319283",
+                "generation_id": "d44c9eb7-c169-511b-8982-1b3e3edf7833",
+                "pass_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+                "segment_id": "5591b559-39cd-59dd-a993-e7dd41440eca",
                 "status": "running",
                 "revision": "1",
                 "cancel_requested": false,
@@ -1186,54 +1372,74 @@
             }
           },
           {
-            "cursor": "43bf595c-9616-5a29-b9e2-fcfc8d756d5d",
+            "cursor": "0effb85e-73c5-5c35-83b2-727cb437fca8",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "92a43513-6e52-529b-a7d3-1ba785a82cf0",
+              "event_id": "593ce87e-318b-55ca-aef7-9a34f4c2618b",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
-              "projection_revision": "13",
+              "projection_revision": "15",
               "source": "runtime",
               "source_stream_id": "conversation-a",
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-              "source_sequence_start": "13",
-              "source_sequence_end": "13",
+              "source_sequence_start": "15",
+              "source_sequence_end": "15",
               "type": "queue.updated",
               "payload": {
                 "submission_ids": [
-                  "b6eacdaa-049a-5f26-8602-298c01f8e17f"
+                  "b99cb411-b68c-54ea-ab9b-49c1dabd4338"
                 ],
-                "revision": "13"
+                "revision": "15"
               }
             }
           },
           {
-            "cursor": "b5f0ef34-3049-5e7a-84c3-2f158cc87aa1",
+            "cursor": "092fb4e2-cbb3-5354-b861-cc0fd06d98ba",
             "event": {
               "protocol_version": "1.0",
-              "event_id": "3a1b5ba4-84a3-5314-b9b4-3cfe314ff42d",
+              "event_id": "8dc7ea6f-d945-5e2f-bb47-0c3e1f0232ff",
               "topic": "conversation.conversation-a",
               "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
               "conversation_id": "conversation-a",
-              "projection_revision": "14",
+              "projection_revision": "16",
               "source": "runtime",
               "source_stream_id": "conversation-a",
               "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-              "source_sequence_start": "14",
-              "source_sequence_end": "14",
+              "source_sequence_start": "16",
+              "source_sequence_end": "16",
               "type": "transcript.delta",
               "payload": {
-                "pass_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
-                "segment_id": "7ee3a5c1-adc0-53e9-b53f-c7b424319283",
-                "row_id": "assistant:live:b99cb411-b68c-54ea-ab9b-49c1dabd4338:7ee3a5c1-adc0-53e9-b53f-c7b424319283",
-                "render_revision": "14",
+                "pass_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+                "segment_id": "5591b559-39cd-59dd-a993-e7dd41440eca",
+                "row_id": "assistant:live:3c0cb00f-888e-5941-a623-2d3aec9c5a61:5591b559-39cd-59dd-a993-e7dd41440eca",
+                "render_revision": "16",
                 "public_text_delta": "Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic "
+              }
+            }
+          },
+          {
+            "cursor": "a6e7ca3a-1d5f-5503-a0cd-a51a0802e754",
+            "event": {
+              "protocol_version": "1.0",
+              "event_id": "157bed55-2c68-5ee8-993a-6abe2c002c9c",
+              "topic": "conversation.conversation-a",
+              "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "conversation_id": "conversation-a",
+              "projection_revision": "17",
+              "source": "runtime",
+              "source_stream_id": "conversation-a",
+              "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+              "source_sequence_start": "17",
+              "source_sequence_end": "17",
+              "type": "projection.reset",
+              "payload": {
+                "reason": "content_evicted"
               }
             }
           }
         ],
-        "cursor": "b5f0ef34-3049-5e7a-84c3-2f158cc87aa1"
+        "cursor": "a6e7ca3a-1d5f-5503-a0cd-a51a0802e754"
       }
     },
     {
@@ -1250,21 +1456,9 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "1",
         "source_sequence_end": "1",
-        "type": "generation.state",
+        "type": "transcript.checkpoint",
         "payload": {
-          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-          "conversation_id": "conversation-a",
-          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-          "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "status": "running",
-          "revision": "1",
-          "cancel_requested": false,
-          "quiesced": false,
-          "cleanup_complete": false,
-          "external_outcome": "known_not_sent",
-          "approval_id": null,
-          "can_stop": true
+          "checkpoint_revision": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1"
         }
       }
     },
@@ -1282,12 +1476,21 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "2",
         "source_sequence_end": "2",
-        "type": "queue.updated",
+        "type": "generation.state",
         "payload": {
-          "submission_ids": [
-            "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
-          ],
-          "revision": "2"
+          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+          "conversation_id": "conversation-a",
+          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+          "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+          "status": "running",
+          "revision": "1",
+          "cancel_requested": false,
+          "quiesced": false,
+          "cleanup_complete": false,
+          "external_outcome": "known_not_sent",
+          "approval_id": null,
+          "can_stop": true
         }
       }
     },
@@ -1295,7 +1498,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "27833fe4-9048-56a1-83fc-696f7808314f",
+        "event_id": "6f07bd93-03e0-5b94-892a-a6ee583cd8ec",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1305,6 +1508,29 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "3",
         "source_sequence_end": "3",
+        "type": "queue.updated",
+        "payload": {
+          "submission_ids": [
+            "6c3a416a-03db-57d2-8ad6-28be6d3626f2"
+          ],
+          "revision": "3"
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "527e7ff6-12fb-5fea-94a8-3b4b0dd60e60",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-a",
+        "projection_revision": "4",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "4",
+        "source_sequence_end": "4",
         "type": "generation.activity",
         "payload": {
           "state": "thinking"
@@ -1315,31 +1541,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "f445cb31-3d2f-5c28-bace-38bd947fa5af",
-        "topic": "conversation.conversation-a",
-        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "conversation_id": "conversation-a",
-        "projection_revision": "4",
-        "source": "runtime",
-        "source_stream_id": "conversation-a",
-        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "source_sequence_start": "4",
-        "source_sequence_end": "4",
-        "type": "transcript.delta",
-        "payload": {
-          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-          "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "render_revision": "4",
-          "public_text_delta": "Synthetic reordered-output"
-        }
-      }
-    },
-    {
-      "schema": "Event",
-      "value": {
-        "protocol_version": "1.0",
-        "event_id": "bca7b0ff-6783-5e06-9e81-8de8f82e6205",
+        "event_id": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1349,9 +1551,13 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "5",
         "source_sequence_end": "5",
-        "type": "transcript.checkpoint",
+        "type": "transcript.delta",
         "payload": {
-          "checkpoint_revision": "764f1b4b-a1b0-5e58-b66f-24428e4c9fc8"
+          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+          "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+          "render_revision": "5",
+          "public_text_delta": "Synthetic reordered-output"
         }
       }
     },
@@ -1369,10 +1575,9 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "6",
         "source_sequence_end": "6",
-        "type": "transcript.settled",
+        "type": "transcript.checkpoint",
         "payload": {
-          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "adoption": "exact"
+          "checkpoint_revision": "d2ea963a-a7f2-55bc-904d-7c2efc13dfea"
         }
       }
     },
@@ -1380,7 +1585,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "8957bf1d-7222-5e9a-968e-1383d1a43a78",
+        "event_id": "065bd495-a35b-51b6-a912-d6dc22a91597",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1390,10 +1595,10 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "7",
         "source_sequence_end": "7",
-        "type": "queue.updated",
+        "type": "transcript.settled",
         "payload": {
-          "submission_ids": [],
-          "revision": "7"
+          "row_id": "assistant:live:3fb70196-5ebc-5ade-ba6f-9788f0c97e49:16a47465-b037-54dc-81df-2d36c09b22a7",
+          "adoption": "exact"
         }
       }
     },
@@ -1401,7 +1606,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "2bacd776-25b0-5d67-a3b9-f7d4a7af6bdc",
+        "event_id": "352bd939-47d9-5a95-9a60-64df309a014d",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1411,21 +1616,10 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "8",
         "source_sequence_end": "8",
-        "type": "generation.state",
+        "type": "queue.updated",
         "payload": {
-          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
-          "conversation_id": "conversation-a",
-          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
-          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
-          "segment_id": "1daf6669-6031-5b21-9d85-3ba87d8ec9e1",
-          "status": "completed",
-          "revision": "2",
-          "cancel_requested": false,
-          "quiesced": true,
-          "cleanup_complete": true,
-          "external_outcome": "known_not_sent",
-          "approval_id": null,
-          "can_stop": false
+          "submission_ids": [],
+          "revision": "8"
         }
       }
     },
@@ -1433,7 +1627,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "6bd0bf2c-b022-54ae-9e55-bff1207d90f6",
+        "event_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1443,11 +1637,21 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "9",
         "source_sequence_end": "9",
-        "type": "agent.activity",
+        "type": "generation.state",
         "payload": {
-          "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-          "status": "queued",
-          "revision": "1"
+          "execution_id": "a1be0f29-d030-5d34-a510-ac3e1c5a95e9",
+          "conversation_id": "conversation-a",
+          "generation_id": "3fcc3d35-b9f0-5456-a378-4b505693bd22",
+          "pass_id": "3fb70196-5ebc-5ade-ba6f-9788f0c97e49",
+          "segment_id": "16a47465-b037-54dc-81df-2d36c09b22a7",
+          "status": "completed",
+          "revision": "2",
+          "cancel_requested": false,
+          "quiesced": true,
+          "cleanup_complete": true,
+          "external_outcome": "known_not_sent",
+          "approval_id": null,
+          "can_stop": false
         }
       }
     },
@@ -1467,9 +1671,9 @@
         "source_sequence_end": "10",
         "type": "agent.activity",
         "payload": {
-          "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-          "status": "running",
-          "revision": "2"
+          "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+          "status": "queued",
+          "revision": "1"
         }
       }
     },
@@ -1477,7 +1681,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "ad337328-a12c-5494-803d-f9160debbd5e",
+        "event_id": "bf04be77-fe2e-5803-9f09-409c1c8128ac",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1489,9 +1693,9 @@
         "source_sequence_end": "11",
         "type": "agent.activity",
         "payload": {
-          "run_id": "766c465e-6e95-5d06-afde-a1dfe0166b76",
-          "status": "completed",
-          "revision": "3"
+          "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+          "status": "running",
+          "revision": "2"
         }
       }
     },
@@ -1499,7 +1703,7 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "33a89340-9369-5638-93be-cfbc7bee30b8",
+        "event_id": "1b5c3919-7400-567c-9915-8b284b1a1fea",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
@@ -1509,13 +1713,55 @@
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "source_sequence_start": "12",
         "source_sequence_end": "12",
+        "type": "agent.activity",
+        "payload": {
+          "run_id": "7611d03e-a00f-535a-912c-825c3148e9ce",
+          "status": "completed",
+          "revision": "3"
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "a8d32fb3-158a-595b-9c67-d8af662b688e",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-a",
+        "projection_revision": "13",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "13",
+        "source_sequence_end": "13",
+        "type": "transcript.checkpoint",
+        "payload": {
+          "checkpoint_revision": "3cd0ec66-945c-5e5c-8206-3d0593ec9ac9"
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "0b4b817d-bdf0-5d20-a31e-8dc33ba3628f",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-a",
+        "projection_revision": "14",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "14",
+        "source_sequence_end": "14",
         "type": "generation.state",
         "payload": {
-          "execution_id": "845fd40b-94e5-5da2-9456-cae1a6c7e644",
+          "execution_id": "4673fce9-ba95-588c-8ecd-b218e16be504",
           "conversation_id": "conversation-a",
-          "generation_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
-          "pass_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
-          "segment_id": "7ee3a5c1-adc0-53e9-b53f-c7b424319283",
+          "generation_id": "d44c9eb7-c169-511b-8982-1b3e3edf7833",
+          "pass_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+          "segment_id": "5591b559-39cd-59dd-a993-e7dd41440eca",
           "status": "running",
           "revision": "1",
           "cancel_requested": false,
@@ -1531,22 +1777,22 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "92a43513-6e52-529b-a7d3-1ba785a82cf0",
+        "event_id": "593ce87e-318b-55ca-aef7-9a34f4c2618b",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
-        "projection_revision": "13",
+        "projection_revision": "15",
         "source": "runtime",
         "source_stream_id": "conversation-a",
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "source_sequence_start": "13",
-        "source_sequence_end": "13",
+        "source_sequence_start": "15",
+        "source_sequence_end": "15",
         "type": "queue.updated",
         "payload": {
           "submission_ids": [
-            "b6eacdaa-049a-5f26-8602-298c01f8e17f"
+            "b99cb411-b68c-54ea-ab9b-49c1dabd4338"
           ],
-          "revision": "13"
+          "revision": "15"
         }
       }
     },
@@ -1554,35 +1800,59 @@
       "schema": "Event",
       "value": {
         "protocol_version": "1.0",
-        "event_id": "3a1b5ba4-84a3-5314-b9b4-3cfe314ff42d",
+        "event_id": "8dc7ea6f-d945-5e2f-bb47-0c3e1f0232ff",
         "topic": "conversation.conversation-a",
         "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
         "conversation_id": "conversation-a",
-        "projection_revision": "14",
+        "projection_revision": "16",
         "source": "runtime",
         "source_stream_id": "conversation-a",
         "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-        "source_sequence_start": "14",
-        "source_sequence_end": "14",
+        "source_sequence_start": "16",
+        "source_sequence_end": "16",
         "type": "transcript.delta",
         "payload": {
-          "pass_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
-          "segment_id": "7ee3a5c1-adc0-53e9-b53f-c7b424319283",
-          "row_id": "assistant:live:b99cb411-b68c-54ea-ab9b-49c1dabd4338:7ee3a5c1-adc0-53e9-b53f-c7b424319283",
-          "render_revision": "14",
+          "pass_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
+          "segment_id": "5591b559-39cd-59dd-a993-e7dd41440eca",
+          "row_id": "assistant:live:3c0cb00f-888e-5941-a623-2d3aec9c5a61:5591b559-39cd-59dd-a993-e7dd41440eca",
+          "render_revision": "16",
           "public_text_delta": "Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic Synthetic "
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "157bed55-2c68-5ee8-993a-6abe2c002c9c",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "conversation_id": "conversation-a",
+        "projection_revision": "17",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
+        "source_sequence_start": "17",
+        "source_sequence_end": "17",
+        "type": "projection.reset",
+        "payload": {
+          "reason": "content_evicted"
         }
       }
     }
   ],
   "delivery_order": [
-    39,
-    38,
-    37,
+    44,
+    43,
+    42,
+    41,
+    40,
+    26,
+    25,
     24,
     23,
     22,
-    21,
+    15,
     14,
     13,
     12,
@@ -1605,13 +1875,17 @@
     12,
     13,
     14,
-    21,
+    15,
     22,
     23,
     24,
-    37,
-    38,
-    39
+    25,
+    26,
+    40,
+    41,
+    42,
+    43,
+    44
   ],
   "barriers": [
     "duplicated reversed delivery after producer quiescence"
@@ -1628,65 +1902,40 @@
   "expected_final_snapshot": {
     "conversation_id": "conversation-a",
     "server_epoch": "58d975e9-0602-5e9a-b80e-b18bdf3af9e9",
-    "projection_revision": "18",
-    "cursor": "a8d32fb3-158a-595b-9c67-d8af662b688e",
-    "checkpoint_revision": "3cd0ec66-945c-5e5c-8206-3d0593ec9ac9",
+    "projection_revision": "20",
+    "cursor": "06e043c0-75e7-575e-ae4b-2c1899be26ef",
+    "checkpoint_revision": "0f0227d1-6fdd-57d5-ba59-7c120f7d99bc",
     "rows": [
       {
-        "id": "user:submission:6c3a416a-03db-57d2-8ad6-28be6d3626f2",
-        "message_id": "6c3a416a-03db-57d2-8ad6-28be6d3626f2",
+        "id": "user:submission:b99cb411-b68c-54ea-ab9b-49c1dabd4338",
+        "message_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
         "role": "user",
         "tool_call_ids": [],
         "tool_call_id": "",
         "blocks": [
           {
-            "type": "text",
-            "text": "Synthetic prompt reordered-output"
-          }
-        ]
-      },
-      {
-        "id": "assistant:checkpoint:9ca1a31e-1125-5b80-8b57-d3b349bbbb9f",
-        "message_id": "9ca1a31e-1125-5b80-8b57-d3b349bbbb9f",
-        "role": "assistant",
-        "tool_call_ids": [],
-        "tool_call_id": "",
-        "blocks": [
-          {
-            "type": "text",
-            "text": "Synthetic reordered-output"
-          }
-        ]
-      },
-      {
-        "id": "user:submission:b6eacdaa-049a-5f26-8602-298c01f8e17f",
-        "message_id": "b6eacdaa-049a-5f26-8602-298c01f8e17f",
-        "role": "user",
-        "tool_call_ids": [],
-        "tool_call_id": "",
-        "blocks": [
-          {
-            "type": "text",
+            "id": "block:e2f8a56463968fbd2cb1f501",
+            "type": "markdown",
             "text": "Synthetic pressure"
           }
         ]
       },
       {
-        "id": "assistant:checkpoint:0b4b817d-bdf0-5d20-a31e-8dc33ba3628f",
-        "message_id": "0b4b817d-bdf0-5d20-a31e-8dc33ba3628f",
+        "id": "assistant:checkpoint:f8bcff32-ad5b-5e6f-892a-987bd06b7a4d",
+        "message_id": "f8bcff32-ad5b-5e6f-892a-987bd06b7a4d",
         "role": "assistant",
         "tool_call_ids": [],
         "tool_call_id": "",
         "blocks": [],
         "content_status": "lazy",
-        "content_ref": "0b4b817d-bdf0-5d20-a31e-8dc33ba3628f"
+        "content_ref": "f8bcff32-ad5b-5e6f-892a-987bd06b7a4d"
       }
     ],
     "generation": {
-      "execution_id": "845fd40b-94e5-5da2-9456-cae1a6c7e644",
+      "execution_id": "4673fce9-ba95-588c-8ecd-b218e16be504",
       "conversation_id": "conversation-a",
-      "generation_id": "b8205642-2810-5e12-b761-0615e0fdebe5",
-      "pass_id": "b99cb411-b68c-54ea-ab9b-49c1dabd4338",
+      "generation_id": "d44c9eb7-c169-511b-8982-1b3e3edf7833",
+      "pass_id": "3c0cb00f-888e-5941-a623-2d3aec9c5a61",
       "status": "completed",
       "revision": "2",
       "cancel_requested": false,
@@ -1695,7 +1944,7 @@
       "external_outcome": "known_not_sent",
       "approval_id": null,
       "can_stop": false,
-      "segment_id": "7ee3a5c1-adc0-53e9-b53f-c7b424319283"
+      "segment_id": "5591b559-39cd-59dd-a993-e7dd41440eca"
     }
   }
 }

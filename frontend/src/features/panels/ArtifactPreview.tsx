@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ArtifactPreview as Preview,
   ArtifactAuthoring,
+  DesignerPalette,
 } from '../../api/types';
 import { Button, ErrorState, Select, Skeleton } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 import ArtifactEditor, { type ArtifactEditorProps } from './ArtifactEditor';
 import { artifactBridgeMessage } from './artifact-bridge';
 import ArtifactExports, { type ArtifactExportsProps } from './ArtifactExports';
@@ -16,6 +18,7 @@ import ArtifactPresentationPanel, {
 import ArtifactDesignPanel, {
   type ArtifactDesignPanelProps,
 } from './ArtifactDesignPanel';
+import ArtifactDocumentImport from './ArtifactDocumentImport';
 import ArtifactLifecyclePanel, {
   type ArtifactLifecyclePanelProps,
 } from './ArtifactLifecyclePanel';
@@ -31,6 +34,12 @@ export type ArtifactPreviewProps = {
     authoring?: ArtifactAuthoring,
   ) => Promise<Preview>;
   loadEditing?: ArtifactEditorProps['load'];
+  loadPalette?: (
+    revision: string,
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<DesignerPalette>;
+  onDraftText?: (text: string) => void;
   edit?: ArtifactEditorProps['edit'];
   createExport?: ArtifactExportsProps['create'];
   downloadExport?: ArtifactExportsProps['download'];
@@ -71,6 +80,8 @@ export default function ArtifactPreview({
   visible,
   load,
   loadEditing,
+  loadPalette,
+  onDraftText,
   edit,
   createExport,
   downloadExport,
@@ -80,6 +91,11 @@ export default function ArtifactPreview({
   design,
 }: ArtifactPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [palette, setPalette] = useState<DesignerPalette | null>(null);
+  const [paletteError, setPaletteError] = useState('');
   const [selection, setSelection] = useState({
     resourceId,
     pageId: undefined as string | undefined,
@@ -188,6 +204,47 @@ export default function ArtifactPreview({
   ]);
 
   const current = preview?.resource_id === resourceId ? preview : null;
+  const paletteRevision = current?.resource_revision;
+  useEffect(() => {
+    if (
+      !visible ||
+      !paletteOpen ||
+      !loadPalette ||
+      !onDraftText ||
+      !paletteRevision
+    )
+      return;
+    const abort = new AbortController();
+    setPaletteError('');
+    setPalette(null);
+    void loadPalette(paletteRevision, paletteQuery, abort.signal)
+      .then((result) => {
+        if (abort.signal.aborted) return;
+        if (
+          result.resource_id !== resourceId ||
+          result.resource_revision !== paletteRevision
+        ) {
+          setPaletteError(
+            'The design changed. Refresh and open the picker again.',
+          );
+          setPalette(null);
+          return;
+        }
+        setPalette(result);
+      })
+      .catch((cause) => {
+        if (!abort.signal.aborted) setPaletteError(failureText(cause));
+      });
+    return () => abort.abort();
+  }, [
+    visible,
+    paletteOpen,
+    loadPalette,
+    onDraftText,
+    paletteRevision,
+    paletteQuery,
+    resourceId,
+  ]);
   const pageLabel = current?.mode === 'deck' || !current ? 'Slide' : 'Page';
   const interactive =
     current?.scripts_allowed === true &&
@@ -290,6 +347,25 @@ export default function ArtifactPreview({
     latest.current = null;
     setSelection({ resourceId, pageId: undefined });
     setRefresh((value) => value + 1);
+  }
+
+  function pickPaletteItem(item: DesignerPalette['items'][number]) {
+    if (!current || palette?.resource_revision !== current.resource_revision)
+      return;
+    try {
+      if (item.category === 'page') {
+        setSelectedElementId(undefined);
+        setSelection({ resourceId, pageId: item.identity });
+      } else {
+        if (!onDraftText) throw new Error('Designer tools are unavailable.');
+        onDraftText(item.prefill);
+      }
+      setPaletteOpen(false);
+      setPaletteQuery('');
+      setPalette(null);
+    } catch (cause) {
+      setPaletteError(failureText(cause));
+    }
   }
 
   if (!visible) return null;
@@ -459,6 +535,23 @@ export default function ArtifactPreview({
             Design controls
           </Button>
         )}
+        {loadPalette && onDraftText && current && (
+          <Button
+            disabled={loading}
+            aria-expanded={paletteOpen}
+            onClick={() => setPaletteOpen(true)}
+          >
+            Search design tools, pages &amp; assets
+          </Button>
+        )}
+        {design && current && ['deck', 'document'].includes(current.mode) && (
+          <Button
+            aria-expanded={importOpen}
+            onClick={() => setImportOpen(true)}
+          >
+            Import document
+          </Button>
+        )}
         <Select
           aria-label="Preview zoom"
           value={zoomMode}
@@ -472,6 +565,69 @@ export default function ArtifactPreview({
           <option value="actual">Actual size</option>
         </Select>
       </div>
+      <ModalTask
+        open={
+          paletteOpen && visible && Boolean(current) && Boolean(onDraftText)
+        }
+        onOpenChange={setPaletteOpen}
+        title="Design command palette"
+        description="Search this design's tools, pages, and assets. Selecting a tool or asset fills the conversation draft."
+      >
+        <input
+          className="input"
+          type="search"
+          aria-label="Search design tools, pages, assets"
+          autoFocus
+          maxLength={128}
+          value={paletteQuery}
+          onChange={(event) => setPaletteQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && palette?.items[0]) {
+              event.preventDefault();
+              pickPaletteItem(palette.items[0]);
+            }
+          }}
+        />
+        {paletteError && <p role="alert">{paletteError}</p>}
+        {!palette && !paletteError && <p role="status">Searching design…</p>}
+        {palette && (
+          <>
+            {!palette.tools_available && (
+              <p role="status">
+                Designer tools are unavailable; pages and assets remain
+                searchable.
+              </p>
+            )}
+            <div
+              className="stack"
+              role="list"
+              aria-label="Design command results"
+            >
+              {palette.items.map((item) => (
+                <div role="listitem" key={`${item.category}:${item.identity}`}>
+                  <Button onClick={() => pickPaletteItem(item)}>
+                    {item.label} <small>{item.category}</small>
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {!palette.items.length && <p>No matches.</p>}
+            {palette.has_more_matches && (
+              <p>Refine your search to see more results.</p>
+            )}
+          </>
+        )}
+      </ModalTask>
+      {design && current && ['deck', 'document'].includes(current.mode) && (
+        <ArtifactDocumentImport
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          session={design.session}
+          resourceId={resourceId}
+          resourceRevision={current.resource_revision}
+          onImported={() => setRefresh((value) => value + 1)}
+        />
+      )}
       {loading && current && (
         <p
           id="design-preview-refresh-status"
@@ -544,6 +700,7 @@ export default function ArtifactPreview({
             }}
             load={loadEditing}
             edit={edit}
+            generateNotes={design?.session.generateNotes}
             onEdited={() => setRefresh((value) => value + 1)}
           />
         </div>

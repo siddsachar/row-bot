@@ -18,7 +18,14 @@ import type {
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  Skeleton,
+  Toggle,
+} from '../../ui/primitives';
 import { setupSessions, type SetupDraft } from './setup-state';
 
 export type ResourceSetupEntry = {
@@ -45,7 +52,7 @@ export default function ResourceSetup({
   onPanel: (panel: PanelDescriptor) => void;
   initialEntry?: ResourceSetupEntry;
 }) {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
   const client = useClientState();
   const overlay = useOverlay();
   const navigate = useNavigate();
@@ -96,6 +103,7 @@ export default function ResourceSetup({
   const [folder, setFolder] = useState<{ grant: string; name: string } | null>(
     null,
   );
+  const [repoUrl, setRepoUrl] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -323,7 +331,12 @@ export default function ResourceSetup({
     const initiating = capturePresentation();
     setFolder(null);
     try {
-      const result = await controller.pickFolder();
+      const result = await platform.selectFolder(undefined, {
+        intentId: crypto.randomUUID(),
+        intent: 'resource_setup',
+        conversationId,
+        destination: `${kind}:${workspaceMode}`,
+      });
       if (
         !alive.current ||
         initiating.session !== presentationContext.current.session ||
@@ -332,12 +345,16 @@ export default function ResourceSetup({
         initiating.version !== controller.getSelectionVersion()
       )
         return;
-      if (result.status === 'selected' && result.grant_id)
+      if (
+        result.status === 'ok' &&
+        'reference' in result.value &&
+        result.value.kind === 'folder'
+      )
         setFolder({
-          grant: result.grant_id,
-          name: result.name ?? 'Selected folder',
+          grant: result.value.reference,
+          name: 'Authorized folder',
         });
-      else if (result.status === 'unavailable')
+      else if (result.status === 'unavailable' || result.status === 'ok')
         setError('Folder selection requires the local desktop window.');
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
@@ -388,35 +405,41 @@ export default function ResourceSetup({
   async function reviewGeneration() {
     if (!receipt?.conversation_id || !confirmed || operation.current) return;
     setBusy(true);
+    let ready: ConversationWorkspace | null = null;
     try {
       const value = await controller.workspaceFor(receipt.conversation_id);
-      if (alive.current && value.conversation_id === receipt.conversation_id)
+      if (alive.current && value.conversation_id === receipt.conversation_id) {
         setReview(value);
+        ready = value;
+      }
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
       if (alive.current) setBusy(false);
     }
+    if (ready) await firstDraft(ready);
   }
-  async function firstDraft() {
+  async function firstDraft(
+    selectedReview: ConversationWorkspace | null = review,
+  ) {
     const current = setupSessions.read(scope);
     if (
       operation.current ||
       current.generationId ||
-      !review ||
+      !selectedReview ||
       !receipt?.conversation_id ||
       !confirmed ||
       !brief.trim()
     )
       return;
-    const resource = review.resources.find(
+    const resource = selectedReview.resources.find(
       (item) => item.binding.binding_id === receipt.binding_id,
     );
     if (
       !resource ||
       !resource.available ||
-      !review.controls.model_selection ||
-      !review.actions.some(
+      !selectedReview.controls.model_selection ||
+      !selectedReview.actions.some(
         (action) => action.action === 'generate' && action.ready,
       )
     )
@@ -434,7 +457,7 @@ export default function ResourceSetup({
           submission_id: crypto.randomUUID(),
           text: brief,
           attachment_refs: [],
-          model_selection: review.controls.model_selection,
+          model_selection: selectedReview.controls.model_selection,
           write_targets: [
             {
               kind: 'artifact',
@@ -445,7 +468,7 @@ export default function ResourceSetup({
             },
           ],
         },
-        review.revision,
+        selectedReview.revision,
         identity,
       );
       setupSessions.confirm(scope, identity, result, true);
@@ -498,7 +521,9 @@ export default function ResourceSetup({
                     folder_grant: folder?.grant,
                     ...(workspaceMode === 'empty_folder'
                       ? { empty_workspace: { folder_name: name.trim() } }
-                      : {}),
+                      : workspaceMode === 'clone_repository'
+                        ? { clone_workspace: { repo_url: repoUrl.trim() } }
+                        : {}),
                   }),
             }
           : {
@@ -641,8 +666,9 @@ export default function ResourceSetup({
             receipt.folder_reselection_required && (
               <div className="stack">
                 <p>
-                  The folder was created. Select the same parent folder to
-                  verify it and continue registration.
+                  {receipt.code === 'workspace_clone_unconfirmed'
+                    ? 'The clone may be incomplete. Select the same parent folder to inspect the saved stage. Row-Bot will not repeat an uncertain clone.'
+                    : 'The folder was created. Select the same parent folder to verify it and continue registration.'}
                 </p>
                 <Button
                   disabled={busy || !confirmed}
@@ -669,7 +695,9 @@ export default function ResourceSetup({
               }
               onClick={() => void continueSetup()}
             >
-              Continue setup
+              {receipt.code === 'workspace_clone_unconfirmed'
+                ? 'Check clone status'
+                : 'Continue setup'}
             </Button>
           )}
           {receipt.conversation_id && (
@@ -690,7 +718,7 @@ export default function ResourceSetup({
                 setConfirmed(true);
               }}
             >
-              Review setup inputs again
+              Edit setup inputs
             </Button>
           )}
           {confirmed &&
@@ -700,15 +728,15 @@ export default function ResourceSetup({
             receipt.resource_kind === 'artifact' && (
               <section className="stack" aria-label="First draft generation">
                 <p>
-                  The design is saved. Review the current controls before
-                  submitting the first draft.
+                  The design is saved. Generate the first draft using the
+                  current model and profile settings.
                 </p>
                 {!generationId && (
                   <Button
                     disabled={busy}
                     onClick={() => void reviewGeneration()}
                   >
-                    Review generation controls
+                    Generate first draft
                   </Button>
                 )}
                 {review && !generationId && (
@@ -735,25 +763,6 @@ export default function ResourceSetup({
                       )?.title ?? 'Unavailable'}{' '}
                       · Binding {receipt.binding_id}
                     </p>
-                    <Button
-                      disabled={
-                        busy ||
-                        !review.controls.model_selection ||
-                        !review.resources.some(
-                          (resource) =>
-                            resource.binding.binding_id ===
-                              receipt.binding_id && resource.available,
-                        ) ||
-                        !review.actions.some(
-                          (action) =>
-                            action.action === 'generate' && action.ready,
-                        )
-                      }
-                      variant="primary"
-                      onClick={() => void firstDraft()}
-                    >
-                      Generate first draft
-                    </Button>
                     <Button
                       onClick={() => {
                         navigate('/settings');
@@ -784,7 +793,7 @@ export default function ResourceSetup({
                           setReview(null);
                         }}
                       >
-                        Review generation again
+                        Try generation again
                       </Button>
                     )}
                   </>
@@ -960,14 +969,14 @@ export default function ResourceSetup({
                 />
               </Field>
               <label className="checkbox-row">
-                <input
-                  type="checkbox"
+                <Toggle
+                  label="Generate first draft"
                   checked={generate}
                   disabled={busy || !brief.trim()}
                   onChange={(e) => setGenerate(e.target.checked)}
                 />
-                Review first draft generation after creation, using this design
-                as the write target
+                Generate a first draft after creation, using this design as the
+                write target
               </label>
             </>
           ) : (
@@ -990,6 +999,7 @@ export default function ResourceSetup({
                   <option value="empty_folder">
                     Create a new empty folder
                   </option>
+                  <option value="clone_repository">Clone a repository</option>
                 </Select>
               </Field>
               {workspaceMode === 'empty_folder' && (
@@ -1002,17 +1012,31 @@ export default function ResourceSetup({
                   />
                 </Field>
               )}
+              {workspaceMode === 'clone_repository' && (
+                <Field label="Repository URL">
+                  <Input
+                    value={repoUrl}
+                    maxLength={2048}
+                    disabled={busy}
+                    placeholder="https://example.com/team/repository.git"
+                    onChange={(event) => setRepoUrl(event.target.value)}
+                  />
+                </Field>
+              )}
               <p>
                 {workspaceMode === 'empty_folder'
                   ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
-                  : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
+                  : workspaceMode === 'clone_repository'
+                    ? 'Choose a parent folder on this computer. Cloning downloads the repository into a new named folder there. An interrupted clone is retained for inspection and is never run again automatically.'
+                    : 'Choose an existing folder on this computer. Registration saves its name and location. Source files and Git state remain unchanged.'}
               </p>
               <p className="muted">
                 Tools follow the conversation’s approval policy. The Inspector
                 is read-only.
               </p>
               <Button disabled={busy} onClick={() => void pickFolder()}>
-                {workspaceMode === 'empty_folder'
+                {workspaceMode === 'empty_folder' ||
+                workspaceMode === 'clone_repository'
                   ? 'Choose parent folder'
                   : 'Choose existing folder'}
               </Button>
@@ -1020,22 +1044,7 @@ export default function ResourceSetup({
             </div>
           )}
           {selected?.origin_status === 'repair_required' && !conversationId ? (
-            <Button
-              disabled={busy}
-              onClick={() =>
-                overlay.open({
-                  kind: 'alert',
-                  title: 'Repair original conversation?',
-                  description:
-                    'Create a new conversation for this resource and replace its missing origin association.',
-                  confirmLabel: 'Repair and open',
-                  onConfirm: () => {
-                    overlay.close();
-                    void perform('repair');
-                  },
-                })
-              }
-            >
+            <Button disabled={busy} onClick={() => void perform('repair')}>
               Repair missing origin
             </Button>
           ) : (
@@ -1048,7 +1057,8 @@ export default function ResourceSetup({
                   : kind === 'artifact'
                     ? !currentOptions
                     : !folder ||
-                      (workspaceMode === 'empty_folder' && !name.trim()))
+                      (workspaceMode === 'empty_folder' && !name.trim()) ||
+                      (workspaceMode === 'clone_repository' && !repoUrl.trim()))
               }
               className="setup-submit"
               onClick={() => void perform()}
@@ -1060,12 +1070,12 @@ export default function ResourceSetup({
                     ? 'Add to this conversation'
                     : 'Open resource'
                   : kind === 'artifact'
-                    ? generate
-                      ? 'Create and review first draft'
-                      : `Create ${artifactLabel}`
+                    ? `Create ${artifactLabel}`
                     : workspaceMode === 'empty_folder'
                       ? 'Create empty workspace'
-                      : 'Register folder'}
+                      : workspaceMode === 'clone_repository'
+                        ? 'Clone repository'
+                        : 'Register folder'}
             </Button>
           )}
           {!conversationId && kind === 'workspace' && mode === 'existing' && (

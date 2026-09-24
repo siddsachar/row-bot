@@ -1,0 +1,303 @@
+{
+  "$defs": {
+    "CustomToolCommandView": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "command"
+      ],
+      "title": "CustomToolCommandView",
+      "type": "object"
+    },
+    "CustomToolDraftView": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CustomToolCommandView"
+          },
+          "maxItems": 32,
+          "title": "Commands",
+          "type": "array"
+        },
+        "created_tool_id": {
+          "maxLength": 128,
+          "title": "Created Tool Id",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "python_project": {
+          "title": "Python Project",
+          "type": "boolean"
+        },
+        "setup_ok": {
+          "title": "Setup Ok",
+          "type": "boolean"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "test_results": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CustomToolTestView"
+          },
+          "maxProperties": 32,
+          "title": "Test Results",
+          "type": "object"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "commands",
+        "warnings",
+        "test_results",
+        "python_project",
+        "setup_ok",
+        "status",
+        "created_tool_id"
+      ],
+      "title": "CustomToolDraftView",
+      "type": "object"
+    },
+    "CustomToolSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 256,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "drafts": {
+          "items": {
+            "$ref": "#/$defs/CustomToolDraftView"
+          },
+          "maxItems": 32,
+          "title": "Drafts",
+          "type": "array"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source_is_repository": {
+          "title": "Source Is Repository",
+          "type": "boolean"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/CustomToolView"
+          },
+          "maxItems": 32,
+          "title": "Tools",
+          "type": "array"
+        },
+        "workspace_name": {
+          "maxLength": 256,
+          "title": "Workspace Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "resource_id",
+        "conversation_id",
+        "binding_id",
+        "workspace_name",
+        "source_is_repository",
+        "drafts",
+        "tools",
+        "revision"
+      ],
+      "title": "CustomToolSnapshot",
+      "type": "object"
+    },
+    "CustomToolTestView": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "ran": {
+          "title": "Ran",
+          "type": "boolean"
+        },
+        "returncode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Returncode"
+        },
+        "setup_hint": {
+          "maxLength": 1024,
+          "title": "Setup Hint",
+          "type": "string"
+        },
+        "stderr": {
+          "maxLength": 4000,
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "maxLength": 4000,
+          "title": "Stdout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ran",
+        "ok",
+        "returncode",
+        "stdout",
+        "stderr",
+        "setup_hint"
+      ],
+      "title": "CustomToolTestView",
+      "type": "object"
+    },
+    "CustomToolView": {
+      "additionalProperties": false,
+      "properties": {
+        "available_in_chat": {
+          "title": "Available In Chat",
+          "type": "boolean"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CustomToolCommandView"
+          },
+          "maxItems": 32,
+          "title": "Commands",
+          "type": "array"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "enabled",
+        "available_in_chat",
+        "commands"
+      ],
+      "title": "CustomToolView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/CustomToolSnapshot"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 1024,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "summary",
+    "snapshot"
+  ],
+  "title": "CustomToolReceipt",
+  "type": "object"
+}

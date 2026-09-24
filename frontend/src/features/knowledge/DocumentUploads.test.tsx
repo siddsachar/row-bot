@@ -53,17 +53,13 @@ describe('document upload retained staging', () => {
     expect(transport.review).not.toHaveBeenCalled();
     expect(transport.upload).not.toHaveBeenCalled();
     expect(
-      screen.getByRole('button', { name: 'Review upload' }),
+      screen.getByRole('button', { name: 'Upload selected' }),
     ).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Choose documents'), {
       target: { files: [source()] },
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Review upload' }));
-    });
-    expect(transport.upload).not.toHaveBeenCalled();
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm upload' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Upload selected' }));
     });
     expect(screen.getByRole('status')).toHaveTextContent('The batch is paused');
   });

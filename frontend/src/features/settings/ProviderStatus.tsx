@@ -19,6 +19,7 @@ import {
   ErrorState,
   Skeleton,
 } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import type { createProviderSettingsSessions } from './provider-settings-sessions';
 
@@ -439,13 +440,16 @@ export default function ProviderStatus({
         </>
       )}
       {selected && owner && (
-        <div className="settings-provider-dialog-backdrop">
-          <div
-            className="settings-provider-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Manage API key"
-          >
+        <ModalTask
+          open
+          title="Manage API key"
+          description="Update this provider credential without leaving Settings."
+          ariaLabel="Manage API key"
+          onOpenChange={(open) => {
+            if (!open) setSelected('');
+          }}
+        >
+          <div className="settings-provider-dialog-content">
             <ProviderSettingsPanel
               compact
               owner={owner}
@@ -461,7 +465,7 @@ export default function ProviderStatus({
               onCancel={() => setSelected('')}
             />
           </div>
-        </div>
+        </ModalTask>
       )}
     </section>
   );

@@ -1,5 +1,98 @@
 {
   "$defs": {
+    "AttachmentBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Attachment Ref",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "mime_type": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 26214400,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "type": {
+          "const": "attachment",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "attachment_ref",
+        "name",
+        "mime_type",
+        "size_bytes",
+        "revision"
+      ],
+      "title": "AttachmentBlock",
+      "type": "object"
+    },
+    "ChartBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "figure_json": {
+          "maxLength": 131072,
+          "title": "Figure Json",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "chart",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "figure_json",
+        "text"
+      ],
+      "title": "ChartBlock",
+      "type": "object"
+    },
     "GenerationState": {
       "additionalProperties": false,
       "properties": {
@@ -121,6 +214,70 @@
       "title": "GenerationState",
       "type": "object"
     },
+    "MarkdownBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2097152,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "markdown",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "text"
+      ],
+      "title": "MarkdownBlock",
+      "type": "object"
+    },
+    "MermaidBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 65536,
+          "title": "Source",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 65600,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "mermaid",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "text"
+      ],
+      "title": "MermaidBlock",
+      "type": "object"
+    },
     "Snapshot": {
       "additionalProperties": false,
       "properties": {
@@ -205,12 +362,176 @@
       "title": "TextBlock",
       "type": "object"
     },
+    "TraceAgentReference": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "display_name",
+        "status"
+      ],
+      "title": "TraceAgentReference",
+      "type": "object"
+    },
+    "TraceMediaReference": {
+      "additionalProperties": false,
+      "properties": {
+        "media_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Media Ref",
+          "type": "string"
+        },
+        "mime_type": {
+          "maxLength": 128,
+          "title": "Mime Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_ref",
+        "mime_type"
+      ],
+      "title": "TraceMediaReference",
+      "type": "object"
+    },
+    "TraceSpecialization": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_runs": {
+          "items": {
+            "$ref": "#/$defs/TraceAgentReference"
+          },
+          "maxItems": 16,
+          "title": "Agent Runs",
+          "type": "array"
+        },
+        "display_name": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "error_code": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Error Code",
+          "type": "string"
+        },
+        "evicted_skill_id": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Evicted Skill Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "skill_load",
+            "delegated_agent",
+            "media"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "media": {
+          "items": {
+            "$ref": "#/$defs/TraceMediaReference"
+          },
+          "maxItems": 8,
+          "title": "Media",
+          "type": "array"
+        },
+        "media_kind": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Media Kind",
+          "type": "string"
+        },
+        "newly_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Newly Active"
+        },
+        "skill_id": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "TraceSpecialization",
+      "type": "object"
+    },
     "TranscriptRow": {
       "additionalProperties": false,
       "properties": {
         "blocks": {
           "items": {
-            "$ref": "#/$defs/TextBlock"
+            "discriminator": {
+              "mapping": {
+                "attachment": "#/$defs/AttachmentBlock",
+                "chart": "#/$defs/ChartBlock",
+                "markdown": "#/$defs/MarkdownBlock",
+                "mermaid": "#/$defs/MermaidBlock",
+                "text": "#/$defs/TextBlock",
+                "youtube": "#/$defs/YouTubeBlock"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextBlock"
+              },
+              {
+                "$ref": "#/$defs/MarkdownBlock"
+              },
+              {
+                "$ref": "#/$defs/MermaidBlock"
+              },
+              {
+                "$ref": "#/$defs/ChartBlock"
+              },
+              {
+                "$ref": "#/$defs/YouTubeBlock"
+              },
+              {
+                "$ref": "#/$defs/AttachmentBlock"
+              }
+            ]
           },
           "maxItems": 256,
           "title": "Blocks",
@@ -313,6 +634,27 @@
           ],
           "default": null,
           "title": "Tool Calls Ref"
+        },
+        "trace_parent_id": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Parent Id"
+        },
+        "traces": {
+          "items": {
+            "$ref": "#/$defs/TranscriptTraceGroup"
+          },
+          "maxItems": 256,
+          "title": "Traces",
+          "type": "array"
         }
       },
       "required": [
@@ -321,6 +663,248 @@
         "blocks"
       ],
       "title": "TranscriptRow",
+      "type": "object"
+    },
+    "TranscriptTraceGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed",
+              "blocked",
+              "cancelled",
+              "uncertain"
+            ]
+          },
+          "title": "Counts",
+          "type": "object"
+        },
+        "group_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Group Id",
+          "type": "string"
+        },
+        "group_order": {
+          "maximum": 255,
+          "minimum": 0,
+          "title": "Group Order",
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/TranscriptTraceItem"
+          },
+          "maxItems": 256,
+          "title": "Items",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "generic",
+            "browser",
+            "computer"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "succeeded",
+            "failed",
+            "blocked",
+            "cancelled",
+            "uncertain"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "group_id",
+        "name",
+        "kind",
+        "group_order",
+        "status",
+        "items",
+        "counts"
+      ],
+      "title": "TranscriptTraceGroup",
+      "type": "object"
+    },
+    "TranscriptTraceItem": {
+      "additionalProperties": false,
+      "properties": {
+        "call_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Call Id",
+          "type": "string"
+        },
+        "call_order": {
+          "maximum": 255,
+          "minimum": 0,
+          "title": "Call Order",
+          "type": "integer"
+        },
+        "canonical_name": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Canonical Name",
+          "type": "string"
+        },
+        "content_ref": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Content Ref",
+          "type": "string"
+        },
+        "group_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Group Id",
+          "type": "string"
+        },
+        "group_kind": {
+          "enum": [
+            "generic",
+            "browser",
+            "computer"
+          ],
+          "title": "Group Kind",
+          "type": "string"
+        },
+        "group_name": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Group Name",
+          "type": "string"
+        },
+        "group_order": {
+          "maximum": 255,
+          "minimum": 0,
+          "title": "Group Order",
+          "type": "integer"
+        },
+        "item_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "result_message_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Result Message Id",
+          "type": "string"
+        },
+        "safe_input": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Safe Input",
+          "type": "string"
+        },
+        "safe_summary": {
+          "maxLength": 512,
+          "title": "Safe Summary",
+          "type": "string"
+        },
+        "specialization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceSpecialization"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "succeeded",
+            "failed",
+            "blocked",
+            "cancelled",
+            "uncertain"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary_truncated": {
+          "title": "Summary Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "group_id",
+        "call_id",
+        "call_order",
+        "group_order",
+        "canonical_name",
+        "group_name",
+        "group_kind",
+        "status",
+        "safe_summary",
+        "summary_truncated"
+      ],
+      "title": "TranscriptTraceItem",
+      "type": "object"
+    },
+    "YouTubeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "youtube",
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
+        },
+        "video_id": {
+          "pattern": "^[A-Za-z0-9_-]{11}$",
+          "title": "Video Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "video_id",
+        "url",
+        "title"
+      ],
+      "title": "YouTubeBlock",
       "type": "object"
     }
   },

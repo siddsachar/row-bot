@@ -1282,18 +1282,70 @@ def get_thread_skills_override(thread_id: str) -> list[str] | None:
         return None
 
 
+def get_thread_composer_context(thread_id: str) -> dict:
+    """Return the bounded thread fields needed by the conversation composer."""
+
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(skills_override, ''), COALESCE(agent_profile_id, ''), "
+            "COALESCE(agent_profile_slug, ''), client_revision "
+            "FROM thread_meta WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchone()
+    if row is None:
+        raise ValueError("conversation_missing")
+    override = None
+    if row[0]:
+        try:
+            value = json.loads(row[0])
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError
+            override = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            override = None
+    return {
+        "skills_override": override,
+        "agent_profile_id": str(row[1] or ""),
+        "agent_profile_slug": str(row[2] or ""),
+        "client_revision": int(row[3] or 0),
+    }
+
+
 def set_thread_skills_override(thread_id: str, skill_names: list[str] | None) -> None:
     """Set or clear the per-thread skills override. Pass None to revert to global."""
     _ensure_thread_db()
     import json
     value = json.dumps(skill_names) if skill_names is not None else ""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "UPDATE thread_meta SET skills_override = ? WHERE thread_id = ?",
-        (value, thread_id),
-    )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE thread_meta SET skills_override = ?, updated_at = ?, "
+            "client_revision = client_revision + 1 WHERE thread_id = ?",
+            (value, datetime.now().isoformat(), thread_id),
+        )
+        conn.commit()
+
+
+def bump_thread_client_revision(thread_id: str) -> int:
+    """Advance and return the client revision for an external thread-state write."""
+
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        result = conn.execute(
+            "UPDATE thread_meta SET updated_at = ?, client_revision = client_revision + 1 "
+            "WHERE thread_id = ?",
+            (datetime.now().isoformat(), thread_id),
+        )
+        if result.rowcount != 1:
+            raise ValueError("conversation_missing")
+        row = conn.execute(
+            "SELECT client_revision FROM thread_meta WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchone()
+        conn.commit()
+    return int(row[0])
 
 
 SUMMARY_STATE_SCHEMA_VERSION = 1

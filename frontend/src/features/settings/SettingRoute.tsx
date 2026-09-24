@@ -6,6 +6,7 @@ import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 import { resolveSetting } from './model';
 import Preferences from './Preferences';
 import ProviderStatus from './ProviderStatus';
@@ -21,11 +22,10 @@ import SubscriptionOptions from './SubscriptionOptions';
 import McpConnectionsPanel from './McpConnections';
 import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
-import KnowledgeEditors from '../knowledge/KnowledgeEditors';
+import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
 import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
-import WikiSettings from '../knowledge/WikiSettings';
 import ChannelSettings from './ChannelSettings';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
@@ -37,6 +37,9 @@ import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
 import SettingsShell from './SettingsShell';
+import AccessSessions from './AccessSessions';
+import AccessInvitations from './AccessInvitations';
+import AccessTailscale from './AccessTailscale';
 import {
   DocumentEmbeddingSnapshot,
   ToolConfigurationSnapshot,
@@ -51,6 +54,7 @@ export default function SettingRoute() {
   const leaf = resolveSetting(setting);
   const {
     controller,
+    platform,
     providerSettingsSessions,
     providerConfigurationOwner,
     defaultModelOwner,
@@ -103,6 +107,7 @@ export default function SettingRoute() {
   const [settingsSnapshotLoading, setSettingsSnapshotLoading] = useState(true);
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
+  const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
   const requestedConversationId = search.get('conversation');
   const settingsConversationId = resolveSettingsConversation(
     state.conversations,
@@ -170,6 +175,7 @@ export default function SettingRoute() {
     'accounts',
     'utilities',
     'preferences',
+    'knowledge',
   ];
   const snapshotPage = settingsPages.includes(leaf.id as SettingsPage)
     ? (leaf.id as SettingsPage)
@@ -179,9 +185,11 @@ export default function SettingRoute() {
       ? {
           revision: settingsSnapshot.revision,
           page: snapshotPage,
+          sessionId: session,
           review: controller.reviewSettingsMutation,
           execute: controller.executeSettingsMutation,
           receipt: controller.settingsMutationReceipt,
+          refreshSnapshot: () => controller.settingsSnapshot(),
           drafts: settingsDrafts.current.owner,
           onSnapshot: (snapshot) =>
             setLoadedSettingsSnapshot({ session, snapshot }),
@@ -240,6 +248,7 @@ export default function SettingRoute() {
             snapshot={settingsSnapshot?.preferences}
             mutation={mutation}
             snapshotState={snapshotState}
+            showUpdateControls
           />
         ) : leaf.id === 'providers' ? (
           <>
@@ -256,13 +265,16 @@ export default function SettingRoute() {
               onSubscriptionOption={setSelectedSubscriptionOption}
             />
             {selectedSubscription && subscriptionAccountsOwner?.get() && (
-              <div className="settings-provider-dialog-backdrop">
-                <div
-                  className="settings-provider-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Manage subscription account"
-                >
+              <ModalTask
+                open
+                title="Manage subscription account"
+                description="Connect, inspect or disconnect this provider account."
+                ariaLabel="Manage subscription account"
+                onOpenChange={(open) => {
+                  if (!open) setSelectedSubscription(null);
+                }}
+              >
+                <div className="settings-provider-dialog-content">
                   <SubscriptionAccounts
                     compact
                     initialProvider={
@@ -282,16 +294,19 @@ export default function SettingRoute() {
                     onSaved={() => setProviderReload((value) => value + 1)}
                   />
                 </div>
-              </div>
+              </ModalTask>
             )}
             {selectedSubscriptionOption && subscriptionOptionsOwner?.get() && (
-              <div className="settings-provider-dialog-backdrop">
-                <div
-                  className="settings-provider-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Account options"
-                >
+              <ModalTask
+                open
+                title="Account options"
+                description="Review the account-specific model and runtime options."
+                ariaLabel="Account options"
+                onOpenChange={(open) => {
+                  if (!open) setSelectedSubscriptionOption('');
+                }}
+              >
+                <div className="settings-provider-dialog-content">
                   <SubscriptionOptions
                     compact
                     initialProvider={
@@ -307,7 +322,7 @@ export default function SettingRoute() {
                     onSaved={() => setProviderReload((value) => value + 1)}
                   />
                 </div>
-              </div>
+              </ModalTask>
             )}
             {providerConfigurationOwner?.get() && (
               <ProviderConfiguration
@@ -352,13 +367,16 @@ export default function SettingRoute() {
               />
             )}
             {selectedCustomCredential && providerSettingsSessions && (
-              <div className="settings-provider-dialog-backdrop">
-                <div
-                  className="settings-provider-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Custom endpoint API key"
-                >
+              <ModalTask
+                open
+                title="Custom endpoint API key"
+                description="Update the credential for this custom endpoint."
+                ariaLabel="Custom endpoint API key"
+                onOpenChange={(open) => {
+                  if (!open) setSelectedCustomCredential('');
+                }}
+              >
+                <div className="settings-provider-dialog-content">
                   <ProviderSettingsPanel
                     compact
                     owner={providerSettingsSessions}
@@ -377,7 +395,7 @@ export default function SettingRoute() {
                     onCancel={() => setSelectedCustomCredential('')}
                   />
                 </div>
-              </div>
+              </ModalTask>
             )}
           </>
         ) : leaf.id === 'models' && defaultModelOwner?.get() ? (
@@ -395,6 +413,7 @@ export default function SettingRoute() {
               }
               review={controller.reviewMcpConfiguration}
               execute={controller.executeMcpConfiguration}
+              searchDirectory={controller.searchMcpDirectory}
               onConnection={(id, name) =>
                 mcpConnectionsOwner?.get()?.select(id, name)
               }
@@ -435,19 +454,87 @@ export default function SettingRoute() {
           <>
             <KnowledgeCatalog
               key={session}
-              load={controller.savedEntities}
+              loadFiltered={(filters, cursor, signal) =>
+                controller.knowledgeEntities(
+                  filters.query,
+                  filters.entityType || undefined,
+                  filters.status || undefined,
+                  filters.source || undefined,
+                  filters.tier || undefined,
+                  cursor,
+                  signal,
+                )
+              }
+              loadDetail={controller.knowledgeEntityDetail}
+              loadRecalls={controller.knowledgeRecalls}
+              loadChangeLog={controller.knowledgeChangeLog}
+              maintenance={{
+                review: (action, catalogRevision, targets, signal) =>
+                  controller.reviewKnowledgeMaintenance(
+                    {
+                      action,
+                      catalog_revision: catalogRevision,
+                      targets,
+                    },
+                    signal,
+                  ),
+                execute: (review, commandId) =>
+                  controller.executeKnowledgeMaintenance({
+                    command_id: commandId,
+                    type: review.action,
+                    payload: {
+                      catalog_revision: review.catalog_revision,
+                      targets: review.targets,
+                      action_digest: review.action_digest,
+                      review_id: review.review_id,
+                    },
+                  }),
+                receipt: controller.knowledgeMaintenanceReceipt,
+              }}
+              settingsMutation={mutation}
+              wikiSession={wikiOwner?.get()}
+              wikiSnapshot={settingsSnapshot?.wiki}
               onOpen={(id) => knowledgeOwner?.get()?.open(id)}
+              onLifecycle={async (id, revision, action) => {
+                const review = await controller.reviewKnowledge(action, {
+                  entity_id: id,
+                  revision,
+                });
+                const receipt = await controller.executeKnowledge({
+                  command_id: crypto.randomUUID(),
+                  type: action,
+                  payload: {
+                    entity_id: id,
+                    revision: review.revision,
+                    review_id: review.review_id,
+                  },
+                });
+                if (receipt.status !== 'completed')
+                  throw { code: receipt.code ?? 'knowledge_outcome_uncertain' };
+                setKnowledgeRefresh((value) => value + 1);
+                setSettingsSnapshotReload((value) => value + 1);
+                void wikiOwner?.get()?.load();
+              }}
+              onMutation={() => {
+                knowledgeOwner?.get()?.close();
+                setKnowledgeRefresh((value) => value + 1);
+                setSettingsSnapshotReload((value) => value + 1);
+                void wikiOwner?.get()?.load();
+              }}
               snapshot={settingsSnapshot?.knowledge}
+              refreshToken={knowledgeRefresh}
             />
             {knowledgeOwner?.get() && (
-              <KnowledgeEditors owner={knowledgeOwner.get()!} />
+              <KnowledgeEditorDialog
+                owner={knowledgeOwner.get()!}
+                onMutation={() => {
+                  setKnowledgeRefresh((value) => value + 1);
+                  setSettingsSnapshotReload((value) => value + 1);
+                  void wikiOwner?.get()?.load();
+                }}
+              />
             )}
           </>
-        ) : leaf.id === 'wiki' && wikiOwner?.get() ? (
-          <WikiSettings
-            session={wikiOwner.get()!}
-            snapshot={settingsSnapshot?.wiki}
-          />
         ) : leaf.id === 'channels' && channelOwner?.get() ? (
           <ChannelSettings
             session={channelOwner.get()!}
@@ -481,10 +568,29 @@ export default function SettingRoute() {
                 payload: { ...command.payload, review_id: review.review_id },
               })
             }
+            lifecycle={{
+              review: (action, pluginId) =>
+                controller.reviewPluginLifecycle(action, pluginId),
+              execute: (command) => controller.executePluginLifecycle(command),
+              receipt: (commandId) =>
+                controller.pluginLifecycleReceipt(commandId),
+            }}
           />
         ) : leaf.id === 'skills' && skillsOwner?.get() ? (
           <SkillsSettings
             session={skillsOwner.get()!}
+            ownerKey={session}
+            hub={{
+              search: controller.searchSkillHub,
+              preview: controller.previewSkillHub,
+              install: controller.installSkillHub,
+              receipt: controller.skillHubInstallReceipt,
+            }}
+            hubMaintenance={{
+              installed: controller.skillHubInstalled,
+              action: controller.skillHubMaintenance,
+              receipt: controller.skillHubMaintenanceReceipt,
+            }}
             io={{
               list: controller.skills,
               detail: controller.skill,
@@ -642,12 +748,26 @@ export default function SettingRoute() {
             leaf.id,
           ) ? (
           settingsSnapshot && mutation ? (
-            <Phase4RetainedSettings
-              setting={leaf.id as Phase4RetainedSetting}
-              snapshot={settingsSnapshot}
-              mutation={mutation}
-              selectedConversationId={state.selectedConversationId}
-            />
+            <>
+              <Phase4RetainedSettings
+                setting={leaf.id as Phase4RetainedSetting}
+                snapshot={settingsSnapshot}
+                mutation={mutation}
+                selectedConversationId={state.selectedConversationId}
+                pickFolder={controller.pickFolder}
+                showAccountActions
+                writeClipboard={platform.writeClipboard}
+              />
+              {leaf.id === 'system' ? (
+                <>
+                  <AccessInvitations writeClipboard={platform.writeClipboard} />
+                  <AccessTailscale />
+                  <AccessSessions
+                    currentSessionId={state.handshake?.client_session_id}
+                  />
+                </>
+              ) : null}
+            </>
           ) : (
             snapshotState
           )

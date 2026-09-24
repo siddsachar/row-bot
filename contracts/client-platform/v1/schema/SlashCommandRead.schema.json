@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "enum": [
+        "status",
+        "tools",
+        "profiles",
+        "agents",
+        "help"
+      ],
+      "title": "Command Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id"
+  ],
+  "title": "SlashCommandRead",
+  "type": "object"
+}

@@ -5,6 +5,7 @@ installer has no recoverable client-command worker for install, update, or
 removal, so those capabilities are reported as unavailable.  Enablement and
 configuration continue through the canonical plugin state and loader owners.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -15,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import stat
+from urllib.parse import urlsplit
 from typing import Any
 from uuid import UUID
 
@@ -26,11 +28,12 @@ _ACTIONS = {
     "plugin.enable",
     "plugin.disable",
     "plugin.configure",
+    "plugin.test",
     "plugin.install",
     "plugin.update",
     "plugin.remove",
 }
-_EXECUTABLE = {"plugin.enable", "plugin.disable", "plugin.configure"}
+_EXECUTABLE = {"plugin.enable", "plugin.disable", "plugin.configure", "plugin.test"}
 _MAX_JSON = 16 * 1024 * 1024
 _MAX_MANIFEST = 512 * 1024
 _MAX_PLUGINS = 512
@@ -142,8 +145,16 @@ def _field_specs(value: object) -> dict[str, dict[str, Any]]:
             "options": [str(item)[:256] for item in spec.get("options", [])[:128]]
             if type(spec.get("options", [])) is list
             else [],
-            **({"minimum": spec.get("min")} if type(spec.get("min")) in {int, float} else {}),
-            **({"maximum": spec.get("max")} if type(spec.get("max")) in {int, float} else {}),
+            **(
+                {"minimum": spec.get("min")}
+                if type(spec.get("min")) in {int, float}
+                else {}
+            ),
+            **(
+                {"maximum": spec.get("max")}
+                if type(spec.get("max")) in {int, float}
+                else {}
+            ),
         }
     return result
 
@@ -159,7 +170,9 @@ def _manifest(path: Path) -> tuple[object, dict[str, Any], str]:
     except Exception:
         raise _error("plugin_catalog_unavailable") from None
     revision = hashlib.sha256(
-        json.dumps(raw, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+        json.dumps(
+            raw, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode()
     ).hexdigest()
     return manifest, raw, revision
 
@@ -202,6 +215,13 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
         if _ID.fullmatch(plugin_id) is None or plugin_id in result:
             continue
         provides = entry.get("provides", {})
+        try:
+            archive_host = urlsplit(str(entry.get("archive_url") or "")).hostname
+        except ValueError:
+            archive_host = None
+        source_label = archive_host or (
+            "local directory" if entry.get("path") else "configured marketplace repository"
+        )
         result[plugin_id] = {
             "id": plugin_id,
             "name": str(entry.get("name") or plugin_id)[:256],
@@ -211,11 +231,22 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
             if type(entry.get("tags", [])) is list
             else [],
             "verified": entry.get("verified") is True,
-            "permissions": [str(item)[:64] for item in entry.get("permissions", [])[:64]]
+            "source_label": source_label[:256],
+            "checksum": str(entry.get("checksum") or "")[:128],
+            "permissions": [
+                str(item)[:64] for item in entry.get("permissions", [])[:64]
+            ]
             if type(entry.get("permissions", [])) is list
             else [],
             "provides": {
-                key: max(0, value if type(value) is int else len(value) if type(value) is list else 0)
+                key: max(
+                    0,
+                    value
+                    if type(value) is int
+                    else len(value)
+                    if type(value) is list
+                    else 0,
+                )
                 for key, value in (provides.items() if type(provides) is dict else [])
                 if key in {"native_tools", "mcp_servers", "channels", "skills"}
             },
@@ -225,7 +256,13 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
 
 def _revision(value: object) -> str:
     return hashlib.sha256(
-        json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str).encode()
+        json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        ).encode()
     ).hexdigest()
 
 
@@ -250,28 +287,55 @@ def _health(record: dict[str, Any]) -> dict[str, Any]:
     if type(checks) is list:
         for check in checks[:64]:
             if type(check) is dict:
-                public.append({
-                    "label": str(check.get("label") or "Check")[:128],
-                    "status": str(check.get("status") or "unknown")[:64],
-                })
-    return {"status": "passed" if value.get("ok") is True else "failed", "checks": public}
-
-
-def _capabilities(*, installed: bool, enabled: bool, setup: bool, healthy: bool) -> dict[str, dict[str, Any]]:
-    unavailable = {"available": False, "code": "plugin_lifecycle_worker_unavailable"}
+                public.append(
+                    {
+                        "label": str(check.get("label") or "Check")[:128],
+                        "status": str(check.get("status") or "unknown")[:64],
+                    }
+                )
     return {
-        "install": dict(unavailable),
-        "update": dict(unavailable),
-        "remove": dict(unavailable),
+        "status": "passed" if value.get("ok") is True else "failed",
+        "checks": public,
+    }
+
+
+def _capabilities(
+    *, installed: bool, enabled: bool, setup: bool, healthy: bool,
+    market_available: bool = False, update_available: bool = False,
+) -> dict[str, dict[str, Any]]:
+    return {
+        "test": {
+            "available": installed,
+            "code": None if installed else "plugin_not_installed",
+        },
+        "install": {
+            "available": not installed and market_available,
+            "code": None if not installed and market_available else "plugin_source_unavailable",
+        },
+        "update": {
+            "available": installed and update_available,
+            "code": None if installed and update_available else "plugin_update_unavailable",
+        },
+        "remove": {
+            "available": installed,
+            "code": None if installed else "plugin_not_installed",
+        },
         "configure": {
             "available": installed and not enabled,
-            "code": None if installed and not enabled else "disable_plugin_to_configure",
+            "code": None
+            if installed and not enabled
+            else "disable_plugin_to_configure",
         },
         "enable": {
             "available": installed and not enabled and setup and healthy,
-            "code": None if installed and not enabled and setup and healthy else "plugin_setup_or_test_required",
+            "code": None
+            if installed and not enabled and setup and healthy
+            else "plugin_setup_or_test_required",
         },
-        "disable": {"available": installed and enabled, "code": None if installed and enabled else "plugin_already_disabled"},
+        "disable": {
+            "available": installed and enabled,
+            "code": None if installed and enabled else "plugin_already_disabled",
+        },
     }
 
 
@@ -304,8 +368,14 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
         if type(config) is not dict:
             raise _error("plugin_catalog_unavailable")
         configured_secrets = _secret_status(secrets, manifest.id)
-        setup = all(not spec["required"] or config.get(name) not in (None, "", []) for name, spec in settings.items())
-        setup = setup and all(not spec["required"] or configured_secrets.get(name, False) for name, spec in secret_specs.items())
+        setup = all(
+            not spec["required"] or config.get(name) not in (None, "", [])
+            for name, spec in settings.items()
+        )
+        setup = setup and all(
+            not spec["required"] or configured_secrets.get(name, False)
+            for name, spec in secret_specs.items()
+        )
         health = _health(record)
         enabled = record.get("enabled") is True
         market = cached.get(manifest.id)
@@ -319,7 +389,9 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
             "enabled": enabled,
             "setup_complete": setup,
             "health": health["status"],
-            "update_version": market["version"] if market and _newer(market["version"], manifest.version) else None,
+            "update_version": market["version"]
+            if market and _newer(market["version"], manifest.version)
+            else None,
             "permissions": [str(value)[:64] for value in manifest.permissions[:64]],
             "provides": {
                 "native_tools": manifest.native_tool_count,
@@ -328,41 +400,86 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
                 "skills": manifest.skill_count,
             },
             "manifest_revision": manifest_revision,
-            "capabilities": _capabilities(installed=True, enabled=enabled, setup=setup, healthy=health["status"] == "passed"),
+            "source_label": market["source_label"] if market else "installed local plugin",
+            "checksum": market["checksum"] if market else "",
+            "verified": bool(market and market["verified"]),
+            "capabilities": _capabilities(
+                installed=True,
+                enabled=enabled,
+                setup=setup,
+                healthy=health["status"] == "passed",
+                market_available=market is not None,
+                update_available=bool(market and _newer(market["version"], manifest.version)),
+            ),
         }
         items.append(item)
     for plugin_id, market in cached.items():
         if plugin_id in seen:
             continue
-        items.append({
-            "plugin_id": plugin_id,
-            **{key: deepcopy(market[key]) for key in ("name", "version", "description", "permissions", "provides")},
-            "source": "marketplace",
-            "installed": False,
-            "enabled": False,
-            "setup_complete": False,
-            "health": "unknown",
-            "update_version": None,
-            "manifest_revision": None,
-            "capabilities": _capabilities(installed=False, enabled=False, setup=False, healthy=False),
-        })
+        items.append(
+            {
+                "plugin_id": plugin_id,
+                **{
+                    key: deepcopy(market[key])
+                    for key in (
+                        "name",
+                        "version",
+                        "description",
+                        "permissions",
+                        "provides",
+                        "source_label",
+                        "checksum",
+                        "verified",
+                    )
+                },
+                "source": "marketplace",
+                "installed": False,
+                "enabled": False,
+                "setup_complete": False,
+                "health": "unknown",
+                "update_version": None,
+                "manifest_revision": None,
+                "capabilities": _capabilities(
+                    installed=False, enabled=False, setup=False, healthy=False,
+                    market_available=True,
+                ),
+            }
+        )
     items.sort(key=lambda item: (str(item["name"]).casefold(), item["plugin_id"]))
     catalog_revision = _revision(items)
     validate()
     return items, catalog_revision
 
 
-def read_plugin_catalog(*, query: str = "", source: str = "all", cursor: str | None = None,
-                        limit: int = 50, validate: Callable[[], None]) -> dict[str, Any]:
+def read_plugin_catalog(
+    *,
+    query: str = "",
+    source: str = "all",
+    cursor: str | None = None,
+    limit: int = 50,
+    validate: Callable[[], None],
+) -> dict[str, Any]:
     """Read installed and cached marketplace metadata without importing plugins."""
-    if type(query) is not str or len(query) > 256 or source not in {"all", "installed", "marketplace"}:
+    if (
+        type(query) is not str
+        or len(query) > 256
+        or source not in {"all", "installed", "marketplace"}
+    ):
         raise _error("invalid_plugin_query")
     if type(limit) is not int or not 1 <= limit <= 50:
         raise _error("invalid_plugin_query")
     items, revision = _catalog(validate)
     needle = query.strip().casefold()
-    values = [item for item in items if (source == "all" or item["source"] == source)
-              and (not needle or needle in f"{item['name']} {item['plugin_id']} {item['description']}".casefold())]
+    values = [
+        item
+        for item in items
+        if (source == "all" or item["source"] == source)
+        and (
+            not needle
+            or needle
+            in f"{item['name']} {item['plugin_id']} {item['description']}".casefold()
+        )
+    ]
     offset = 0
     if cursor:
         try:
@@ -372,13 +489,23 @@ def read_plugin_catalog(*, query: str = "", source: str = "all", cursor: str | N
                 raise ValueError
         except (AttributeError, ValueError):
             raise _error("cursor_expired") from None
-    page = values[offset:offset + limit]
+    page = values[offset : offset + limit]
     validate()
-    return {"schema_version": 1, "revision": revision, "availability": "available", "items": page,
-            "total": len(values), "next_cursor": f"{revision}:{offset + limit}" if offset + limit < len(values) else None}
+    return {
+        "schema_version": 1,
+        "revision": revision,
+        "availability": "available",
+        "items": page,
+        "total": len(values),
+        "next_cursor": f"{revision}:{offset + limit}"
+        if offset + limit < len(values)
+        else None,
+    }
 
 
-def read_plugin_detail(plugin_id: str, *, validate: Callable[[], None]) -> dict[str, Any]:
+def read_plugin_detail(
+    plugin_id: str, *, validate: Callable[[], None]
+) -> dict[str, Any]:
     plugin_id = _plugin_id(plugin_id)
     validate()
     root = _root()
@@ -417,16 +544,32 @@ def read_plugin_detail(plugin_id: str, *, validate: Callable[[], None]) -> dict[
         # local paths, account identifiers, or plugin-specific credentials even
         # when a manifest labels the field as ordinary text.
         fields.append({"name": name, **spec, "configured": present, "value": None})
-    secret_fields = [{"name": name, **spec, "value": None,
-                      "configured": configured_secrets.get(name, False)} for name, spec in secret_specs.items()]
+    secret_fields = [
+        {
+            "name": name,
+            **spec,
+            "value": None,
+            "configured": configured_secrets.get(name, False),
+        }
+        for name, spec in secret_specs.items()
+    ]
     health = _health(record)
     enabled = record.get("enabled") is True
-    setup = all(not field["required"] or field["configured"] for field in fields + secret_fields)
+    setup = all(
+        not field["required"] or field["configured"] for field in fields + secret_fields
+    )
     detail = {
         "schema_version": 1,
         "plugin_id": plugin_id,
-        "revision": _revision({"manifest": manifest_revision, "enabled": enabled, "config": config,
-                               "secrets": configured_secrets, "health": health}),
+        "revision": _revision(
+            {
+                "manifest": manifest_revision,
+                "enabled": enabled,
+                "config": config,
+                "secrets": configured_secrets,
+                "health": health,
+            }
+        ),
         "name": str(manifest.name)[:256],
         "version": str(manifest.version)[:64],
         "description": str(manifest.description)[:2048],
@@ -435,7 +578,12 @@ def read_plugin_detail(plugin_id: str, *, validate: Callable[[], None]) -> dict[
         "secrets": secret_fields,
         "health": health,
         "permissions": [str(value)[:64] for value in manifest.permissions[:64]],
-        "capabilities": _capabilities(installed=True, enabled=enabled, setup=setup, healthy=health["status"] == "passed"),
+        "capabilities": _capabilities(
+            installed=True,
+            enabled=enabled,
+            setup=setup,
+            healthy=health["status"] == "passed",
+        ),
     }
     validate()
     return detail
@@ -447,27 +595,46 @@ def _validate_value(spec: dict[str, Any], value: object) -> object:
         raise _error("invalid_plugin_command")
     if kind == "number" and type(value) not in {int, float}:
         raise _error("invalid_plugin_command")
-    if kind == "multi-select" and (type(value) is not list or len(value) > 128 or any(type(item) is not str for item in value)):
+    if kind == "multi-select" and (
+        type(value) is not list
+        or len(value) > 128
+        or any(type(item) is not str for item in value)
+    ):
         raise _error("invalid_plugin_command")
     if kind not in {"checkbox", "number", "multi-select"} and type(value) is not str:
         raise _error("invalid_plugin_command")
     try:
-        if len(json.dumps(value, allow_nan=False, ensure_ascii=False).encode()) > 64 * 1024:
+        if (
+            len(json.dumps(value, allow_nan=False, ensure_ascii=False).encode())
+            > 64 * 1024
+        ):
             raise ValueError
     except (TypeError, ValueError, RecursionError):
         raise _error("invalid_plugin_command") from None
-    if spec.get("options") and value not in spec["options"] and not (kind == "multi-select" and all(item in spec["options"] for item in value)):
+    if (
+        spec.get("options")
+        and value not in spec["options"]
+        and not (
+            kind == "multi-select" and all(item in spec["options"] for item in value)
+        )
+    ):
         raise _error("invalid_plugin_command")
     return deepcopy(value)
 
 
-def review_plugin_command(action: str, payload: dict[str, Any], *, validate: Callable[[], None]) -> dict[str, Any]:
+def review_plugin_command(
+    action: str, payload: dict[str, Any], *, validate: Callable[[], None]
+) -> dict[str, Any]:
     validate()
     if action not in _ACTIONS or type(payload) is not dict:
         raise _error("invalid_plugin_command")
     if action not in _EXECUTABLE:
         raise _error("plugin_lifecycle_worker_unavailable")
-    expected = {"plugin_id", "revision", "settings", "secrets"} if action == "plugin.configure" else {"plugin_id", "revision"}
+    expected = (
+        {"plugin_id", "revision", "settings", "secrets"}
+        if action == "plugin.configure"
+        else {"plugin_id", "revision"}
+    )
     if payload.keys() != expected or type(payload.get("revision")) is not str:
         raise _error("invalid_plugin_command")
     detail = read_plugin_detail(payload["plugin_id"], validate=validate)
@@ -476,34 +643,71 @@ def review_plugin_command(action: str, payload: dict[str, Any], *, validate: Cal
     capability = action.removeprefix("plugin.")
     if not detail["capabilities"][capability]["available"]:
         raise _error(str(detail["capabilities"][capability]["code"]))
-    intent: dict[str, Any] = {"plugin_id": detail["plugin_id"], "revision": detail["revision"], "action": action}
+    intent: dict[str, Any] = {
+        "plugin_id": detail["plugin_id"],
+        "revision": detail["revision"],
+        "action": action,
+    }
     changes: dict[str, Any] = {}
     if action == "plugin.configure":
         settings, secrets = payload["settings"], payload["secrets"]
-        if type(settings) is not dict or type(secrets) is not dict or len(settings) + len(secrets) > _MAX_FIELDS:
+        if (
+            type(settings) is not dict
+            or type(secrets) is not dict
+            or len(settings) + len(secrets) > _MAX_FIELDS
+        ):
             raise _error("invalid_plugin_command")
         setting_specs = {field["name"]: field for field in detail["settings"]}
         secret_specs = {field["name"]: field for field in detail["secrets"]}
-        if not settings.keys() <= setting_specs.keys() or not secrets.keys() <= secret_specs.keys():
+        if (
+            not settings.keys() <= setting_specs.keys()
+            or not secrets.keys() <= secret_specs.keys()
+        ):
             raise _error("invalid_plugin_command")
-        checked_settings = {name: _validate_value(setting_specs[name], value) for name, value in settings.items()}
+        checked_settings = {
+            name: _validate_value(setting_specs[name], value)
+            for name, value in settings.items()
+        }
         checked_secrets = {}
         for name, value in secrets.items():
-            if value is not None and (type(value) is not str or not value or len(value.encode()) > 16 * 1024):
+            if value is not None and (
+                type(value) is not str or not value or len(value.encode()) > 16 * 1024
+            ):
                 raise _error("invalid_plugin_command")
             checked_secrets[name] = value
         intent.update(settings=checked_settings, secrets=checked_secrets)
-        changes = {"settings": sorted(checked_settings),
-                   "secrets": {name: "clear" if value is None else "replace" for name, value in sorted(checked_secrets.items())}}
+        changes = {
+            "settings": sorted(checked_settings),
+            "secrets": {
+                name: "clear" if value is None else "replace"
+                for name, value in sorted(checked_secrets.items())
+            },
+        }
     digest = admissions.keyed_digest(intent)
     validate()
-    return {"schema_version": 1, "plugin_id": detail["plugin_id"], "action": action,
-            "revision": detail["revision"], "action_digest": digest, "changes": changes,
-            "disclosures": (["The plugin remains disabled while its saved configuration changes."]
-                            if action == "plugin.configure" else
-                            ["Enabling loads the reviewed plugin through the existing sandbox and registration gates."]
-                            if action == "plugin.enable" else
-                            ["Disabling revokes tools, channels, webhooks, and in-flight registration."])}
+    return {
+        "schema_version": 1,
+        "plugin_id": detail["plugin_id"],
+        "action": action,
+        "revision": detail["revision"],
+        "action_digest": digest,
+        "changes": changes,
+        "disclosures": (
+            ["The plugin remains disabled while its saved configuration changes."]
+            if action == "plugin.configure"
+            else [
+                "Enabling loads the reviewed plugin through the existing sandbox and registration gates."
+            ]
+            if action == "plugin.enable"
+            else [
+                "Run local manifest and setup checks without contacting a provider or external service."
+            ]
+            if action == "plugin.test"
+            else [
+                "Disabling revokes tools, channels, webhooks, and in-flight registration."
+            ]
+        ),
+    }
 
 
 def _uuid(value: object) -> str:
@@ -516,30 +720,48 @@ def _uuid(value: object) -> str:
 
 
 def _public_receipt(value: dict[str, Any]) -> dict[str, Any]:
-    return {key: deepcopy(value[key]) for key in ("command_id", "status", "code", "plugin") if key in value}
+    return {
+        key: deepcopy(value[key])
+        for key in ("command_id", "status", "code", "plugin")
+        if key in value
+    }
 
 
-def read_plugin_receipt(plugin_id: str, command_id: str, *, owner_id: str,
-                        validate: Callable[[], None]) -> dict[str, Any] | None:
+def read_plugin_receipt(
+    plugin_id: str, command_id: str, *, owner_id: str, validate: Callable[[], None]
+) -> dict[str, Any] | None:
     validate()
     plugin_id, command_id = _plugin_id(plugin_id), _uuid(command_id)
     metadata = admissions.read_command_metadata(owner_id, command_id)
     if metadata is None:
         validate()
         return None
-    if metadata["target"] != "settings:plugin:" + plugin_id or metadata["type"] not in _EXECUTABLE:
+    if (
+        metadata["target"] != "settings:plugin:" + plugin_id
+        or metadata["type"] not in _EXECUTABLE
+    ):
         return None
     value = admissions.read_command_receipt(owner_id, command_id)
     if value is None:
         return None
     if metadata["status"] not in {"completed", "rejected"}:
-        value = {"command_id": command_id, "status": "partial", "code": "plugin_operation_unconfirmed"}
+        value = {
+            "command_id": command_id,
+            "status": "partial",
+            "code": "plugin_operation_unconfirmed",
+        }
     validate()
     return _public_receipt(value)
 
 
-def execute_plugin_command(*, owner_id: str, key: str, command: dict[str, Any], validate: Callable[[], None],
-                           validate_review: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+def execute_plugin_command(
+    *,
+    owner_id: str,
+    key: str,
+    command: dict[str, Any],
+    validate: Callable[[], None],
+    validate_review: Callable[[dict[str, Any]], None],
+) -> dict[str, Any]:
     validate()
     if type(command) is not dict:
         raise _error("invalid_plugin_command")
@@ -547,38 +769,75 @@ def execute_plugin_command(*, owner_id: str, key: str, command: dict[str, Any], 
     action, payload = command.get("type"), command.get("payload")
     if key != command_id or action not in _EXECUTABLE or type(payload) is not dict:
         raise _error("invalid_plugin_command")
-    expected = {"plugin_id", "revision", "settings", "secrets", "action_digest"} if action == "plugin.configure" else {"plugin_id", "revision", "action_digest"}
+    expected = (
+        {"plugin_id", "revision", "settings", "secrets", "action_digest"}
+        if action == "plugin.configure"
+        else {"plugin_id", "revision", "action_digest"}
+    )
     if payload.keys() != expected or type(payload.get("action_digest")) is not str:
         raise _error("invalid_plugin_command")
     plugin_id = _plugin_id(payload.get("plugin_id"))
     previous = admissions.read_command_metadata(owner_id, command_id)
     if previous is not None:
         try:
-            saved = admissions.claim_command(owner_id, key, command, "settings:plugin:" + plugin_id)
+            saved = admissions.claim_command(
+                owner_id, key, command, "settings:plugin:" + plugin_id
+            )
             if saved:
                 return _public_receipt(saved)
         except admissions.AdmissionError as exc:
             if str(exc) != "operation_uncertain":
                 raise
-        saved_receipt = read_plugin_receipt(plugin_id, command_id, owner_id=owner_id, validate=validate)
+        saved_receipt = read_plugin_receipt(
+            plugin_id, command_id, owner_id=owner_id, validate=validate
+        )
         if saved_receipt is None:
             raise _error("plugin_operation_unconfirmed")
         return saved_receipt
-    review_payload = {name: deepcopy(value) for name, value in payload.items() if name != "action_digest"}
+    review_payload = {
+        name: deepcopy(value)
+        for name, value in payload.items()
+        if name != "action_digest"
+    }
     review = review_plugin_command(action, review_payload, validate=validate)
     if review["action_digest"] != payload["action_digest"]:
         raise _error("plugin_review_changed")
     validate_review(review)
     target = "settings:plugin:" + plugin_id
-    admissions.claim_command(owner_id, key, command, target, exclusive_target=True,
-                             initial_result={"command_id": command_id, "status": "accepted",
-                                             "plugin": {"plugin_id": plugin_id, "action": action}})
+    admissions.claim_command(
+        owner_id,
+        key,
+        command,
+        target,
+        exclusive_target=True,
+        initial_result={
+            "command_id": command_id,
+            "status": "accepted",
+            "plugin": {"plugin_id": plugin_id, "action": action},
+        },
+    )
     result: dict[str, Any]
     try:
         validate()
         from row_bot.plugins import state as plugin_state
 
-        if action == "plugin.configure":
+        if action == "plugin.test":
+            from row_bot.plugins.ui_settings import _record_manifest_health
+
+            manifest = next(
+                (
+                    item
+                    for item, _raw, _revision in _installed(_root())
+                    if item.id == plugin_id
+                ),
+                None,
+            )
+            if manifest is None:
+                raise _error("plugin_not_found")
+            validate()
+            _record_manifest_health(manifest, validate=validate)
+            enabled = plugin_state.is_plugin_enabled(plugin_id)
+        elif action == "plugin.configure":
             for name, value in review_payload["settings"].items():
                 validate()
                 plugin_state.set_plugin_config(plugin_id, name, value)
@@ -605,16 +864,30 @@ def execute_plugin_command(*, owner_id: str, key: str, command: dict[str, Any], 
             from row_bot.plugins import loader
 
             loaded = loader.refresh_plugin_runtime("reviewed plugin enablement")
-            if enabled and not any(item.plugin_id == plugin_id and item.success for item in loaded):
+            if enabled and not any(
+                item.plugin_id == plugin_id and item.success for item in loaded
+            ):
                 raise _error("plugin_runtime_unavailable")
         validate()
         detail = read_plugin_detail(plugin_id, validate=validate)
-        result = {"command_id": command_id, "status": "completed", "plugin": {
-            "plugin_id": plugin_id, "action": action, "enabled": detail["enabled"], "revision": detail["revision"]}}
+        result = {
+            "command_id": command_id,
+            "status": "completed",
+            "plugin": {
+                "plugin_id": plugin_id,
+                "action": action,
+                "enabled": detail["enabled"],
+                "revision": detail["revision"],
+            },
+        }
     except Exception:
         # Once admitted, never infer rollback or replay.  The original receipt
         # remains the sole recovery handle and contains no setting/secret value.
-        result = {"command_id": command_id, "status": "partial", "code": "plugin_operation_unconfirmed",
-                  "plugin": {"plugin_id": plugin_id, "action": action}}
+        result = {
+            "command_id": command_id,
+            "status": "partial",
+            "code": "plugin_operation_unconfirmed",
+            "plugin": {"plugin_id": plugin_id, "action": action},
+        }
     admissions.complete_command(owner_id, key, result)
     return _public_receipt(result)

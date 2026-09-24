@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "KnowledgeCleanupResult": {
+      "additionalProperties": false,
+      "properties": {
+        "lexical_index": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "skipped",
+                "failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lexical Index"
+        },
+        "vector_index": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "skipped",
+                "failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vector Index"
+        },
+        "wiki": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "skipped",
+                "failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wiki"
+        }
+      },
+      "title": "KnowledgeCleanupResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "knowledge.delete",
+        "knowledge.delete.bulk",
+        "knowledge.delete_all"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "cleanup": {
+      "$ref": "#/$defs/KnowledgeCleanupResult"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "knowledge_changed",
+            "knowledge_cleanup_partial",
+            "knowledge_outcome_uncertain"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "deleted": {
+      "items": {
+        "pattern": "^[A-Za-z0-9_-]{1,128}$",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Deleted",
+      "type": "array"
+    },
+    "missing": {
+      "items": {
+        "pattern": "^[A-Za-z0-9_-]{1,128}$",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Missing",
+      "type": "array"
+    },
+    "stale": {
+      "items": {
+        "pattern": "^[A-Za-z0-9_-]{1,128}$",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Stale",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "status",
+    "action",
+    "deleted",
+    "stale",
+    "missing",
+    "cleanup"
+  ],
+  "title": "KnowledgeMaintenanceReceipt",
+  "type": "object"
+}

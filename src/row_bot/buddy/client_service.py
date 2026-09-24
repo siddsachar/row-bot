@@ -18,7 +18,8 @@ from . import assets, config
 PERSONALITIES = ("warm_mystical", "calm_focus", "playful_helper", "quiet_guardian", "curious_scholar")
 BUBBLES = ("quiet", "normal", "chatty")
 INTENSITIES = ("quiet", "normal", "expressive")
-_FIELDS = {"visible", "collapsed", "display_name", "personality", "bubble_verbosity", "animation_intensity", "pack_id"}
+_FIELDS = {"visible", "collapsed", "display_name", "personality", "personality_description",
+           "bubble_verbosity", "animation_intensity", "pack_id"}
 
 
 class BuddyClientError(ValueError):
@@ -33,6 +34,7 @@ class BuddyPreferences:
     collapsed: bool
     display_name: str
     personality: str
+    personality_description: str
     bubble_verbosity: str
     animation_intensity: str
     pack_id: str
@@ -91,11 +93,14 @@ def _preferences(saved: dict) -> BuddyPreferences:
         value = saved.get(key)
         return value if value in choices else choices[0]
     name = saved.get("display_name", "Buddy")
+    description = saved.get("personality_description", "")
     pack = saved.get("pack_id", "glyph")
-    if not isinstance(name, str) or len(name) > 128 or not isinstance(pack, str) or len(pack) > 128:
+    if (not isinstance(name, str) or len(name) > 128
+            or not isinstance(description, str) or len(description) > 200
+            or not isinstance(pack, str) or len(pack) > 128):
         raise BuddyClientError("buddy_config_unavailable")
     return BuddyPreferences(bool(saved.get("visible", True)), bool(saved.get("collapsed", False)), name,
-        option("personality", PERSONALITIES), option("bubble_verbosity", BUBBLES),
+        option("personality", PERSONALITIES), description, option("bubble_verbosity", BUBBLES),
         option("animation_intensity", INTENSITIES), pack)
 
 
@@ -126,6 +131,11 @@ def update_buddy(changes: dict[str, Any], *, expected_revision: str, command_id:
             valid = type(value) is bool
         elif key == "display_name":
             valid = isinstance(value, str) and 1 <= len(value.strip()) <= 128 and "\0" not in value
+        elif key == "personality_description":
+            from row_bot.identity import sanitize_personality
+
+            valid = (isinstance(value, str) and len(value) <= 200 and "\0" not in value
+                     and sanitize_personality(value) == value)
         elif key == "pack_id":
             valid = isinstance(value, str) and 1 <= len(value) <= 128
         else:

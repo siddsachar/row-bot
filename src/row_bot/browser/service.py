@@ -15,6 +15,7 @@ import threading
 import time
 from typing import Any
 from urllib.parse import urlparse
+import uuid
 
 from row_bot.automation.contracts import (
     ActionReceipt,
@@ -27,6 +28,8 @@ from row_bot.browser.observation import (
     StaleBrowserObservation,
     target_fingerprint,
 )
+from row_bot.browser.network_security import BrowserNetworkSecurity, LocalDevelopmentGrant
+from row_bot.browser.network_proxy import PinnedNetworkProxy
 from row_bot.browser.policy import history_url
 from row_bot.browser.runtime import (
     check_managed_browser_runtime,
@@ -115,7 +118,11 @@ class ManagedBrowserService:
 
     _BLANK_URLS = frozenset({"", "about:blank", "chrome://newtab/", "edge://newtab/"})
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        network_security: BrowserNetworkSecurity | None = None,
+    ) -> None:
         self._pw = None
         self._context = None
         self._launched = False
@@ -144,6 +151,28 @@ class ManagedBrowserService:
         self._pending_approval_proofs: dict[str, dict[str, Any]] = {}
         self.browser_tool_calls = 0
         self._preview_capture_count = 0
+        self._network_security = network_security or BrowserNetworkSecurity()
+        self._browser_security_session_id = uuid.uuid4().hex
+        self._network_proxy: PinnedNetworkProxy | None = None
+
+    def grant_local_development_origin(
+        self,
+        origin: str,
+        *,
+        intended_use: str,
+        ttl_seconds: float,
+    ) -> LocalDevelopmentGrant:
+        """Grant one exact local-development origin for this browser session."""
+
+        return self._network_security.grant_local_development(
+            browser_session_id=self._browser_security_session_id,
+            origin=origin,
+            intended_use=intended_use,
+            ttl_seconds=ttl_seconds,
+        )
+
+    def revoke_local_development_grant(self, grant_id: str) -> bool:
+        return self._network_security.revoke_grant(grant_id)
 
     def performance_snapshot(self) -> dict[str, int]:
         return {
@@ -393,6 +422,18 @@ class ManagedBrowserService:
         with self._activity_lock:
             return self._preview_by_thread.get(str(thread_id or "default"))
 
+    def ephemeral_preview(self, thread_id: str) -> tuple[dict[str, Any], bytes | None]:
+        """Read one in-memory frame with its shield state under the same lock."""
+        thread_id = str(thread_id or "default")
+        with self._activity_lock:
+            status = dict(self._activity_by_thread.get(thread_id) or {})
+            shielded = (
+                thread_id in self._preview_shielded
+                or status.get("state") in {"waiting_user", "waiting_approval"}
+            )
+            frame = self._preview_by_thread.get(thread_id) if status.get("active") and not shielded else None
+            return status, bytes(frame) if frame else None
+
     def _set_preview_frame(self, thread_id: str, image: bytes | None, *, shielded: bool) -> None:
         thread_id = str(thread_id or "default")
         with self._activity_lock:
@@ -463,12 +504,27 @@ class ManagedBrowserService:
         from playwright.sync_api import sync_playwright
 
         ensure_profile_engine(PROFILE_DIR)
+        proxy = PinnedNetworkProxy(
+            self._network_security,
+            browser_session_id=self._browser_security_session_id,
+        )
+        proxy.start()
+        self._network_proxy = proxy
         self._pw = sync_playwright().start()
         headless = browser_runs_headless()
         launch_args = [
             "--disable-blink-features=AutomationControlled",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--disable-sync",
+            "--metrics-recording-only",
             "--no-first-run",
             "--no-default-browser-check",
+            "--no-pings",
+            # Chromium bypasses proxies for loopback by default. The managed
+            # Browser must send loopback through the pinned policy boundary too.
+            "--proxy-bypass-list=<-loopback>",
         ]
         if not headless:
             launch_args.extend(
@@ -478,6 +534,11 @@ class ManagedBrowserService:
             "user_data_dir": str(PROFILE_DIR),
             "headless": headless,
             "args": launch_args,
+            # Playwright routing cannot observe network requests already
+            # intercepted by a service worker. Disable them so every actual
+            # request crosses BrowserNetworkSecurity's engine hook.
+            "service_workers": "block",
+            "proxy": proxy.playwright_config,
         }
         if headless:
             common["viewport"] = VIEWPORT
@@ -503,6 +564,11 @@ class ManagedBrowserService:
                 last = exc
         if self._context is None:
             raise RuntimeError("No reviewed browser runtime could be launched.") from last
+        self._network_security.install_context(
+            self._context,
+            browser_session_id=self._browser_security_session_id,
+            on_allowed=proxy.approve_request,
+        )
         self._context_generation += 1
         self._launched = True
         self._register_context_handlers()
@@ -562,6 +628,9 @@ class ManagedBrowserService:
                 pass
             self._pw = None
             self._context = None
+            if self._network_proxy is not None:
+                self._network_proxy.close()
+                self._network_proxy = None
             return
         while True:
             item = self._work_q.get()
@@ -588,6 +657,9 @@ class ManagedBrowserService:
             pass
         self._context = None
         self._pw = None
+        if self._network_proxy is not None:
+            self._network_proxy.close()
+            self._network_proxy = None
         self._launched = False
 
     def _start(self) -> None:
@@ -723,6 +795,7 @@ class ManagedBrowserService:
     def close(self) -> None:
         self._invalidate_all()
         self._closed = True
+        self._network_security.revoke_session(self._browser_security_session_id)
         with self._activity_lock:
             self._pending_approval_proofs.clear()
         for task in list(self._activity_by_thread):
@@ -1076,6 +1149,11 @@ class BrowserSessionManager:
         with self._lock:
             session = self._shared_session
         return session.ephemeral_screenshot(thread_id) if session else None
+
+    def ephemeral_preview(self, thread_id: str) -> tuple[dict[str, Any], bytes | None]:
+        with self._lock:
+            session = self._shared_session
+        return session.ephemeral_preview(thread_id) if session else ({}, None)
 
     def evict_idle(self, ttl_seconds: float = 600.0) -> int:
         """Delegate scheduled cleanup to the shared managed session."""

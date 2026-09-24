@@ -1,4 +1,5 @@
 import type { SettingsSnapshot } from '../../api/types';
+import type { ClientPlatform } from '../../platform';
 import {
   AccountsSnapshotPanel,
   SystemSnapshotPanel,
@@ -6,6 +7,7 @@ import {
   UtilitiesSnapshotPanel,
   VoiceSnapshotPanel,
   type SettingsMutationIO,
+  type SettingsFolderPicker,
 } from './SettingsSnapshotPanels';
 
 export type Phase4RetainedSetting =
@@ -16,11 +18,17 @@ export default function Phase4RetainedSettings({
   snapshot,
   mutation,
   selectedConversationId,
+  pickFolder,
+  showAccountActions = false,
+  writeClipboard,
 }: {
   setting: Phase4RetainedSetting;
   snapshot: SettingsSnapshot;
   mutation: SettingsMutationIO;
   selectedConversationId: string | null;
+  pickFolder?: SettingsFolderPicker;
+  showAccountActions?: boolean;
+  writeClipboard?: ClientPlatform['writeClipboard'];
 }) {
   if (setting === 'voice')
     return (
@@ -32,7 +40,11 @@ export default function Phase4RetainedSettings({
     );
   if (setting === 'accounts')
     return (
-      <AccountsSnapshotPanel snapshot={snapshot.accounts} mutation={mutation} />
+      <AccountsSnapshotPanel
+        snapshot={snapshot.accounts}
+        mutation={mutation}
+        showActions={showAccountActions}
+      />
     );
   if (setting === 'tracker')
     return (
@@ -45,5 +57,12 @@ export default function Phase4RetainedSettings({
         mutation={mutation}
       />
     );
-  return <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />;
+  return (
+    <SystemSnapshotPanel
+      snapshot={snapshot.system}
+      mutation={mutation}
+      pickFolder={pickFolder}
+      writeClipboard={writeClipboard}
+    />
+  );
 }

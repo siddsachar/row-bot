@@ -193,12 +193,8 @@ def test_migrated_mobile_cookie_survives_same_managed_ngrok_host(
         headers=_proxy_headers(MANAGED_ORIGIN, cookie=LEGACY_TOKEN),
     )
 
-    assert admitted.status_code == 200
-    assert admitted.json() == {
-        "authentication_kind": "session",
-        "device_id": LEGACY_DEVICE_ID,
-        "origin": MANAGED_ORIGIN,
-    }
+    assert admitted.status_code == 307
+    assert admitted.headers["location"] == "/app-v2/"
     assert service.list_devices()[0].legacy_source_id == LEGACY_DEVICE_ID
     assert service.list_invitations() == []
 

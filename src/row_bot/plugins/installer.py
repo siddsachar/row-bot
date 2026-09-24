@@ -451,11 +451,13 @@ def update_plugin(
             message=f"Plugin '{plugin_id}' is not installed",
         )
 
-    backup = dest.with_suffix(".bak")
+    # Never remove a pre-existing backup from another interrupted update.
+    # A unique sibling lets an interrupted operation be inspected and restored.
+    from uuid import uuid4
+
+    backup = dest.with_name(f"{plugin_id}.bak-{uuid4().hex}")
     try:
         # Backup current version
-        if backup.exists():
-            shutil.rmtree(backup)
         shutil.move(str(dest), str(backup))
 
         # Install new version
@@ -597,6 +599,8 @@ def _download_plugin_archive(plugin_id: str, dest: pathlib.Path, archive_url: st
 def _download_to_file(ref: str, dest: pathlib.Path) -> None:
     local_path = _local_path_from_ref(ref)
     if local_path is not None:
+        if local_path.stat().st_size > 64 * 1024 * 1024:
+            raise ValueError("Plugin archive exceeds the download limit")
         shutil.copyfile(local_path, dest)
         return
 
@@ -605,20 +609,31 @@ def _download_to_file(ref: str, dest: pathlib.Path) -> None:
     req = urllib.request.Request(
         ref, headers={"User-Agent": "Row-Bot-Plugin-Installer"}
     )
+    maximum = 64 * 1024 * 1024
     with urllib.request.urlopen(req, timeout=60) as resp:
         with open(dest, "wb") as f:
-            f.write(resp.read())
+            total = 0
+            while chunk := resp.read(1024 * 1024):
+                total += len(chunk)
+                if total > maximum:
+                    raise ValueError("Plugin archive exceeds the download limit")
+                f.write(chunk)
 
 
 def _safe_extract_zip(zf: zipfile.ZipFile, dest: pathlib.Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     dest_resolved = dest.resolve()
-    for member in zf.infolist():
+    members = zf.infolist()
+    if len(members) > 2048 or sum(member.file_size for member in members) > 128 * 1024 * 1024:
+        raise ValueError("Plugin archive exceeds the extraction limit")
+    for member in members:
         target = (dest / member.filename).resolve()
         try:
             target.relative_to(dest_resolved)
         except ValueError:
             raise ValueError(f"Unsafe zip member path: {member.filename}")
+        if member.create_system == 3 and (member.external_attr >> 16) & 0o170000 == 0o120000:
+            raise ValueError(f"Plugin archive contains a symbolic link: {member.filename}")
         zf.extract(member, dest)
 
 

@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "maxLength": 16384,
+      "title": "Data",
+      "type": "string"
+    },
+    "sequence": {
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sequence",
+    "data"
+  ],
+  "title": "NativeTerminalFrame",
+  "type": "object"
+}

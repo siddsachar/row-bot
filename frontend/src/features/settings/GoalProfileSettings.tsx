@@ -1,5 +1,12 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Select, Tabs } from '../../ui/primitives';
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  Tabs,
+  Toggle,
+} from '../../ui/primitives';
 
 export type GoalStatus =
   | 'active'
@@ -439,7 +446,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   const requestGoalReview = async (operation: GoalOperation) => {
     const current = session.getSnapshot();
     const page = current.goalPage;
-    if (!page || locked) return;
+    if (!page || locked || current.busy || current.pending) return;
     const maxTurns = Number(current.maxTurns);
     if (
       operation === 'start' &&
@@ -474,25 +481,23 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         review.operation !== payload.operation
       )
         throw Error('goal review mismatch');
-      session.update({
-        busy: '',
-        reviewed: {
-          kind: 'goal',
-          command: {
-            command_id: crypto.randomUUID(),
-            type: 'goal.control',
-            payload,
-          },
-          review,
+      const attempt: GoalAttempt = {
+        kind: 'goal',
+        command: {
+          command_id: crypto.randomUUID(),
+          type: 'goal.control',
+          payload,
         },
-        message: 'Review complete. Apply this exact goal change to continue.',
-      });
+        review,
+      };
+      session.update({ busy: '', reviewed: attempt, message: '' });
+      if (operation !== 'clear') void apply(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The goal change could not be reviewed. Refresh and try again.',
+            'The goal change could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -551,7 +556,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
 
   const requestProfileReview = async (operation: ProfileOperation) => {
     const current = session.getSnapshot();
-    if (locked) return;
+    if (locked || current.busy || current.pending) return;
     const selected = current.selectedProfile;
     let fields: ProfileFields | null = null;
     let targetSlug: string | null = null;
@@ -584,7 +589,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
       target_name: targetName,
     };
     if (new TextEncoder().encode(JSON.stringify(payload)).length > 64 * 1024) {
-      session.update({ message: 'The profile draft is too large to review.' });
+      session.update({ message: 'The profile draft is too large to save.' });
       return;
     }
     const abort = session.beginRead();
@@ -598,26 +603,23 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         review.operation !== payload.operation
       )
         throw Error('profile review mismatch');
-      session.update({
-        busy: '',
-        reviewed: {
-          kind: 'profile',
-          command: {
-            command_id: crypto.randomUUID(),
-            type: 'profile.mutate',
-            payload,
-          },
-          review,
+      const attempt: ProfileAttempt = {
+        kind: 'profile',
+        command: {
+          command_id: crypto.randomUUID(),
+          type: 'profile.mutate',
+          payload,
         },
-        message:
-          'Review complete. Apply this exact profile change to continue.',
-      });
+        review,
+      };
+      session.update({ busy: '', reviewed: attempt, message: '' });
+      if (operation !== 'delete') void apply(attempt);
     } catch {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
           message:
-            'The profile change could not be reviewed. Refresh and try again.',
+            'The profile change could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -762,7 +764,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           />
         </Field>
         <Button onClick={() => void requestGoalReview('start')}>
-          Review start goal
+          Start goal
         </Button>
       </fieldset>
       <Field label="Reason for goal status change">
@@ -798,7 +800,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                     disabled={locked}
                     onClick={() => void requestGoalReview('pause')}
                   >
-                    Review pause
+                    Pause
                   </Button>
                 )}
                 {['paused', 'blocked', 'waiting_approval'].includes(
@@ -808,7 +810,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                     disabled={locked}
                     onClick={() => void requestGoalReview('resume')}
                   >
-                    Review resume
+                    Resume
                   </Button>
                 )}
                 {['active', 'paused', 'blocked', 'waiting_approval'].includes(
@@ -818,7 +820,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                     disabled={locked}
                     onClick={() => void requestGoalReview('complete')}
                   >
-                    Review complete
+                    Complete
                   </Button>
                 )}
                 {goal.status !== 'cleared' && (
@@ -827,7 +829,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                     disabled={locked}
                     onClick={() => void requestGoalReview('clear')}
                   >
-                    Review clear
+                    Clear goal
                   </Button>
                 )}
               </div>
@@ -868,7 +870,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             />
           </Field>
           <Button onClick={() => void requestProfileReview('duplicate')}>
-            Review duplicate profile
+            Duplicate profile
           </Button>
         </>
       ) : (
@@ -911,8 +913,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           </Field>
           {state.profileMode === 'edit' && (
             <label>
-              <Input
-                type="checkbox"
+              <Toggle
+                label="Replace instructions"
                 checked={state.profileDraft.replace_instructions}
                 onChange={(event) =>
                   session.updateProfileDraft({
@@ -1027,8 +1029,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             </Select>
           </Field>
           <label>
-            <Input
-              type="checkbox"
+            <Toggle
+              label="Profile enabled"
               checked={state.profileDraft.enabled}
               onChange={(event) =>
                 session.updateProfileDraft({ enabled: event.target.checked })
@@ -1043,7 +1045,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               )
             }
           >
-            Review {state.profileMode} profile
+            {state.profileMode === 'create' ? 'Create' : 'Save'} profile
           </Button>
         </>
       )}
@@ -1148,7 +1150,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                       );
                     }}
                   >
-                    Review {profile.enabled ? 'disable' : 'enable'}{' '}
+                    {profile.enabled ? 'Disable' : 'Enable'}{' '}
                     {profile.display_name}
                   </Button>
                   <Button
@@ -1159,7 +1161,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                       void requestProfileReview('delete');
                     }}
                   >
-                    Review delete {profile.display_name}
+                    Delete {profile.display_name}
                   </Button>
                 </>
               )}
@@ -1193,7 +1195,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
       />
       {state.reviewed && (
         <section aria-label="Goal or profile change review" className="surface">
-          <h3>Review change</h3>
+          <h3>Confirm removal</h3>
           <p>
             {state.reviewed.kind === 'goal'
               ? `Goal action: ${state.reviewed.review.operation}.`
@@ -1203,7 +1205,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             <p key={item}>{item}</p>
           ))}
           <Button disabled={locked} onClick={() => void apply(state.reviewed)}>
-            Apply reviewed change
+            Confirm removal
           </Button>
         </section>
       )}

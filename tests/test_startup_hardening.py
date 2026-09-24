@@ -938,6 +938,7 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
     events = []
     started = []
     opened = []
+    terminated = []
 
     class FakeServer:
         def __init__(self, port, host=None):
@@ -950,6 +951,10 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
 
         def stop(self):
             pass
+
+        @staticmethod
+        def _terminate_process(proc, *, label, timeout, kill_tree):
+            terminated.append((proc.pid, label, timeout, kill_tree))
 
         @property
         def is_alive(self):
@@ -973,8 +978,8 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
         lambda server, owns_server, **_kwargs: None,
     )
 
-    def fake_open_window(port, control_port=None):
-        opened.append((port, control_port))
+    def fake_open_window(port, control_port=None, *, client_v2=True):
+        opened.append((port, control_port, client_v2))
         return SimpleNamespace(pid=2222)
 
     monkeypatch.setattr(launcher, "_open_window", fake_open_window)
@@ -991,17 +996,89 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
     launcher._run_direct(args)
 
     assert started == [(8092, "127.0.0.1")]
-    assert opened == [(8092, 18092)]
+    assert opened == [(8092, 18092, True)]
+    assert terminated == [(2222, "Row-Bot window", 3, True)]
     state = json.loads((tmp_path / "launcher_state.json").read_text(encoding="utf-8"))
     assert state["port"] == 8092
     assert state["mode"] == "native"
     assert state["window_control_port"] == 18092
     assert state["window_pid"] == 2222
+    assert state["requested_mode"] == "native"
+    assert state["selected_mode"] == "native"
+    assert state["opened_mode"] == "native"
+    assert state["window_authorized"] is True
+    assert state["fallback_reason"] is None
     assert any(event == "native_window_requested" for event, _fields in events)
     assert any(
         event == "server_spawned" and fields["host"] == "127.0.0.1"
         for event, fields in events
     )
+
+
+def test_direct_mode_honours_saved_native_preference(tmp_path, monkeypatch):
+    events = []
+    opened = []
+    terminated = []
+
+    class FakeServer:
+        def __init__(self, port, host=None):
+            self.port = port
+            self.host = host
+            self._proc = SimpleNamespace(pid=1111)
+
+        def start(self, port=None, host=None):
+            pass
+
+        def stop(self):
+            pass
+
+        @staticmethod
+        def _terminate_process(proc, *, label, timeout, kill_tree):
+            terminated.append((proc.pid, label, timeout, kill_tree))
+
+        @property
+        def is_alive(self):
+            return True
+
+    (tmp_path / "app_config.json").write_text(
+        json.dumps({"window_mode": "native"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
+    monkeypatch.setattr(launcher, "_maybe_start_ollama", lambda **_kwargs: None)
+    monkeypatch.setattr(launcher, "_select_app_port", lambda preferred: (8093, False))
+    monkeypatch.setattr(launcher, "_claim_early_splash", lambda: None)
+    monkeypatch.setattr(launcher, "_stop_launcher_helper", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(launcher, "_wait_for_server", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(launcher, "_find_free_port", lambda start, max_tries=50: 18093)
+    monkeypatch.setattr(launcher, "_RowBotProcess", FakeServer)
+    monkeypatch.setattr(launcher, "_block_until_interrupted", lambda *_args, **_kwargs: None)
+
+    def fake_open_window(port, control_port=None, *, client_v2=True):
+        opened.append((port, control_port, client_v2))
+        return SimpleNamespace(pid=2223)
+
+    monkeypatch.setattr(launcher, "_open_window", fake_open_window)
+    args = SimpleNamespace(
+        port=8093,
+        host=None,
+        no_ollama=True,
+        no_splash=True,
+        server=False,
+        no_open=False,
+        native=False,
+        browser=False,
+    )
+
+    launcher._run_direct(args)
+
+    assert opened == [(8093, 18093, True)]
+    assert terminated == [(2223, "Row-Bot window", 3, True)]
+    state = json.loads((tmp_path / "launcher_state.json").read_text(encoding="utf-8"))
+    assert state["requested_mode"] == "saved"
+    assert state["selected_mode"] == "native"
+    assert state["opened_mode"] == "native"
 
 
 def test_direct_monitor_tolerates_launcher_controlled_restart(monkeypatch):
