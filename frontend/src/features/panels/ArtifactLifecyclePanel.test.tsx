@@ -97,6 +97,13 @@ it('loads readiness passively and mounts an owner only after its explicit view a
 
 it('shows check-on-use and unavailable states without claiming success', async () => {
   render(<ArtifactLifecyclePanel {...props()} />);
+  await screen.findByText('Saved version · 3 pages');
+  const details = screen
+    .getByText('Capabilities and review requirements')
+    .closest('details');
+  expect(details).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByText('Capabilities and review requirements'));
+  expect(details).toHaveAttribute('open');
   await screen.findByText(/PDF export:/);
   expect(screen.getByText(/PDF export:/).parentElement).toHaveTextContent(
     'Checked when used.',
@@ -104,6 +111,9 @@ it('shows check-on-use and unavailable states without claiming success', async (
   expect(screen.getByText(/Channel delivery:/).parentElement).toHaveTextContent(
     'Unavailable.',
   );
+  expect(
+    screen.getByText(/Local published link:/).parentElement,
+  ).toHaveTextContent('Review required.');
 });
 
 it('refreshes readiness explicitly when local runtimes or destinations change', async () => {

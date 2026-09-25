@@ -61,6 +61,27 @@ it('reads properties without submitting a mutation or enabling authoring', async
   ).toHaveAttribute('aria-pressed', 'false');
 });
 
+it('opens the requested history tab from the preview toolbar without mutating the design', async () => {
+  const current = props({ requestedTab: 'history', requestedTabKey: 1 });
+  const rendered = render(<ArtifactEditor {...current} />);
+  await screen.findByRole('tab', { name: 'History' });
+  expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  rendered.rerender(<ArtifactEditor {...current} requestedTab="properties" />);
+  expect(screen.getByRole('tab', { name: 'Properties' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  rendered.rerender(<ArtifactEditor {...current} requestedTabKey={2} />);
+  expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(current.edit).not.toHaveBeenCalled();
+});
+
 it('generates speaker notes only on click and protects unsaved edits', async () => {
   const generateNotes = vi.fn(async () => ({ resource_revision: 'r2' }));
   const current = props({ generateNotes });

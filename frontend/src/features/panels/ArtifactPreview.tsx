@@ -1,10 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  History,
+  MoreHorizontal,
+  Palette,
+  RefreshCw,
+  Search,
+  Settings2,
+} from 'lucide-react';
 import type {
   ArtifactPreview as Preview,
   ArtifactAuthoring,
   DesignerPalette,
 } from '../../api/types';
-import { Button, ErrorState, Select, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  CompactAction,
+  ErrorState,
+  Menu,
+  Select,
+  Skeleton,
+} from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import ArtifactEditor, { type ArtifactEditorProps } from './ArtifactEditor';
 import { artifactBridgeMessage } from './artifact-bridge';
@@ -106,6 +123,10 @@ export default function ArtifactPreview({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editorTab, setEditorTab] = useState<'properties' | 'history'>(
+    'properties',
+  );
+  const [editorTabRequest, setEditorTabRequest] = useState(0);
   const [exportsOpen, setExportsOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [presentationOpen, setPresentationOpen] = useState(false);
@@ -368,6 +389,24 @@ export default function ArtifactPreview({
     }
   }
 
+  function showPanel(panel: 'design' | 'export' | 'sharing' | 'presentation') {
+    setEditorOpen(false);
+    setDesignOpen(panel === 'design' ? !designOpen : false);
+    setExportsOpen(panel === 'export' ? !exportsOpen : false);
+    setSharingOpen(panel === 'sharing' ? !sharingOpen : false);
+    setPresentationOpen(panel === 'presentation' ? !presentationOpen : false);
+  }
+
+  function openEditor(tab: 'properties' | 'history') {
+    setEditorTab(tab);
+    setEditorTabRequest((value) => value + 1);
+    setEditorOpen(true);
+    setDesignOpen(false);
+    setExportsOpen(false);
+    setSharingOpen(false);
+    setPresentationOpen(false);
+  }
+
   if (!visible) return null;
   const scale = current
     ? zoomMode === 'actual'
@@ -384,181 +423,199 @@ export default function ArtifactPreview({
       aria-label="Design preview"
       aria-busy={loading}
       className="preview-surface"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        height: '100%',
-        minHeight: 0,
-        padding: 8,
-        boxSizing: 'border-box',
-      }}
     >
       <div
         className="toolbar panel-toolbar preview-toolbar"
-        role="group"
-        aria-label={`${pageLabel} navigation`}
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: 4,
-          flexShrink: 0,
-        }}
+        role="toolbar"
+        aria-label="Design preview controls"
       >
-        <Button
-          disabled={!current || loading || current.page_index === 0}
-          onClick={() =>
-            setSelection({
-              resourceId,
-              pageId: current?.pages[current.page_index - 1]?.id,
-            })
-          }
+        <div
+          className="preview-toolbar-pages"
+          role="group"
+          aria-label={`${pageLabel} navigation`}
         >
-          Previous {pageLabel.toLowerCase()}
-        </Button>
-        <Select
-          aria-label={pageLabel}
-          value={current?.page_id ?? ''}
-          disabled={!current || loading}
-          style={{
-            width: 'auto',
-            flex: '1 1 120px',
-            minWidth: 100,
-            maxWidth: '100%',
-          }}
-          onChange={(event) =>
-            setSelection({ resourceId, pageId: event.target.value })
-          }
-        >
-          {!current && <option value="">No page loaded</option>}
-          {current?.pages.map((page) => (
-            <option key={page.id} value={page.id}>
-              {page.index + 1}. {page.title}
-            </option>
-          ))}
-        </Select>
-        <Button
-          disabled={
-            !current || loading || current.page_index >= current.page_count - 1
-          }
-          onClick={() =>
-            setSelection({
-              resourceId,
-              pageId: current?.pages[current.page_index + 1]?.id,
-            })
-          }
-        >
-          Next {pageLabel.toLowerCase()}
-        </Button>
-        <Button
-          disabled={loading}
-          aria-describedby={
-            loading && current ? 'design-preview-refresh-status' : undefined
-          }
-          onClick={() => setRefresh((value) => value + 1)}
-        >
-          Refresh preview
-        </Button>
-        {loadEditing && edit && (
-          <Button
-            aria-expanded={editorOpen}
-            onClick={() => {
-              setEditorOpen((value) => !value);
-              setExportsOpen(false);
-              setSharingOpen(false);
-              setPresentationOpen(false);
-              setDesignOpen(false);
-            }}
-          >
-            Design properties
-          </Button>
-        )}
-        {!lifecycle && createExport && downloadExport && (
-          <Button
-            aria-expanded={exportsOpen}
-            onClick={() => {
-              setExportsOpen((value) => !value);
-              setEditorOpen(false);
-              setSharingOpen(false);
-              setPresentationOpen(false);
-              setDesignOpen(false);
-            }}
-          >
-            Export design
-          </Button>
-        )}
-        {!lifecycle && sharing && (
-          <Button
-            aria-expanded={sharingOpen}
-            onClick={() => {
-              setSharingOpen((value) => !value);
-              setEditorOpen(false);
-              setExportsOpen(false);
-              setPresentationOpen(false);
-              setDesignOpen(false);
-            }}
-          >
-            Share design
-          </Button>
-        )}
-        {!lifecycle && presentation && (
-          <Button
-            disabled={
-              loading ||
-              !current ||
-              current.resource_revision !== resourceRevision
+          <CompactAction
+            label={`Previous ${pageLabel.toLowerCase()}`}
+            disabled={!current || loading || current.page_index === 0}
+            onClick={() =>
+              setSelection({
+                resourceId,
+                pageId: current?.pages[current.page_index - 1]?.id,
+              })
             }
-            aria-expanded={presentationOpen}
-            onClick={() => {
-              setPresentationOpen((value) => !value);
-              setDesignOpen(false);
-              setEditorOpen(false);
-              setExportsOpen(false);
-              setSharingOpen(false);
-            }}
           >
-            Present design
-          </Button>
-        )}
-        {design && (
-          <Button
-            aria-expanded={designOpen}
-            onClick={() => {
-              setDesignOpen((value) => !value);
-              setEditorOpen(false);
-              setExportsOpen(false);
-              setSharingOpen(false);
-              setPresentationOpen(false);
-            }}
+            <ChevronLeft size={16} aria-hidden />
+          </CompactAction>
+          <Select
+            aria-label={pageLabel}
+            value={current?.page_id ?? ''}
+            disabled={!current || loading}
+            onChange={(event) =>
+              setSelection({ resourceId, pageId: event.target.value })
+            }
           >
-            Design controls
-          </Button>
-        )}
-        {loadPalette && onDraftText && current && (
-          <Button
+            {!current && <option value="">No page loaded</option>}
+            {current?.pages.map((page) => (
+              <option key={page.id} value={page.id}>
+                {page.index + 1}. {page.title}
+              </option>
+            ))}
+          </Select>
+          <CompactAction
+            label={`Next ${pageLabel.toLowerCase()}`}
+            disabled={
+              !current ||
+              loading ||
+              current.page_index >= current.page_count - 1
+            }
+            onClick={() =>
+              setSelection({
+                resourceId,
+                pageId: current?.pages[current.page_index + 1]?.id,
+              })
+            }
+          >
+            <ChevronRight size={16} aria-hidden />
+          </CompactAction>
+        </div>
+        <div
+          className="preview-toolbar-actions"
+          role="group"
+          aria-label="Design actions"
+        >
+          {loadEditing && edit && (
+            <div className="preview-mode" role="group" aria-label="Design mode">
+              <Button
+                variant="ghost"
+                aria-pressed={!authoring}
+                onClick={() => setAuthoring(false)}
+              >
+                Preview
+              </Button>
+              <Button
+                variant="ghost"
+                aria-pressed={authoring}
+                onClick={() => {
+                  setAuthoring(true);
+                  openEditor('properties');
+                }}
+              >
+                Edit
+              </Button>
+            </div>
+          )}
+          {loadPalette && onDraftText && current && (
+            <CompactAction
+              label="Search design tools, pages & assets"
+              disabled={loading}
+              aria-expanded={paletteOpen}
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Search size={16} aria-hidden />
+            </CompactAction>
+          )}
+          {loadEditing && edit && (
+            <>
+              <CompactAction
+                label="Design properties"
+                aria-expanded={editorOpen}
+                onClick={() => {
+                  if (editorOpen && editorTab === 'properties')
+                    setEditorOpen(false);
+                  else openEditor('properties');
+                }}
+              >
+                <Settings2 size={16} aria-hidden />
+              </CompactAction>
+              <CompactAction
+                label="Design history"
+                onClick={() => openEditor('history')}
+              >
+                <History size={16} aria-hidden />
+              </CompactAction>
+            </>
+          )}
+          {design && (
+            <CompactAction
+              label="Design controls"
+              aria-expanded={designOpen}
+              onClick={() => showPanel('design')}
+            >
+              <Palette size={16} aria-hidden />
+            </CompactAction>
+          )}
+          <CompactAction
+            label="Refresh preview"
             disabled={loading}
-            aria-expanded={paletteOpen}
-            onClick={() => setPaletteOpen(true)}
+            aria-describedby={
+              loading && current ? 'design-preview-refresh-status' : undefined
+            }
+            onClick={() => setRefresh((value) => value + 1)}
           >
-            Search design tools, pages &amp; assets
-          </Button>
-        )}
-        {design && current && ['deck', 'document'].includes(current.mode) && (
-          <Button
-            aria-expanded={importOpen}
-            onClick={() => setImportOpen(true)}
-          >
-            Import document
-          </Button>
-        )}
+            <RefreshCw size={16} aria-hidden />
+          </CompactAction>
+          {!lifecycle && sharing && (
+            <Button
+              className="preview-key-action"
+              onClick={() => showPanel('sharing')}
+              aria-expanded={sharingOpen}
+            >
+              Share
+            </Button>
+          )}
+          {!lifecycle && createExport && downloadExport && (
+            <Button
+              className="preview-key-action"
+              variant="primary"
+              onClick={() => showPanel('export')}
+              aria-expanded={exportsOpen}
+            >
+              Export
+            </Button>
+          )}
+          {((!lifecycle && presentation) ||
+            (design &&
+              current &&
+              ['deck', 'document'].includes(current.mode))) && (
+            <Menu
+              label="More design actions"
+              iconOnly
+              actions={[
+                ...(!lifecycle && presentation
+                  ? [
+                      {
+                        label: 'Present design',
+                        disabled:
+                          loading ||
+                          !current ||
+                          current.resource_revision !== resourceRevision,
+                        onSelect: () => showPanel('presentation'),
+                      },
+                    ]
+                  : []),
+                ...(design &&
+                current &&
+                ['deck', 'document'].includes(current.mode)
+                  ? [
+                      {
+                        label: 'Import document',
+                        onSelect: () => setImportOpen(true),
+                      },
+                    ]
+                  : []),
+              ]}
+            >
+              <MoreHorizontal size={16} aria-hidden />
+            </Menu>
+          )}
+        </div>
         <Select
           aria-label="Preview zoom"
           value={zoomMode}
           onChange={(event) =>
             setZoom({ resourceId, value: event.target.value })
           }
-          style={{ width: 'auto' }}
+          className="preview-zoom"
         >
           <option value="fit">Fit page</option>
           <option value="width">Fit width</option>
@@ -693,6 +750,8 @@ export default function ArtifactPreview({
             pageId={current?.page_id}
             selectedElementId={selectedElementId}
             authoring={authoring}
+            requestedTab={editorTab}
+            requestedTabKey={editorTabRequest}
             onAuthoringChange={setAuthoring}
             onPageChange={(next) => {
               setSelectedElementId(undefined);
@@ -717,55 +776,6 @@ export default function ArtifactPreview({
         </ErrorState>
       )}
       {loading && !current && <Skeleton label="Loading design preview" />}
-      {current?.html && (
-        <>
-          <p aria-live="polite" style={{ margin: 0, flexShrink: 0 }}>
-            {pageLabel} {current.page_index + 1} of {current.page_count}:{' '}
-            {current.page_title}
-          </p>
-          <div
-            ref={frameHost}
-            style={{
-              width: '100%',
-              flex: '1 0 96px',
-              minHeight: 96,
-              position: 'relative',
-              overflow: zoomMode === 'fit' ? 'clip' : 'auto',
-            }}
-          >
-            <div
-              style={{
-                width: current.canvas_width * scale,
-                height: current.canvas_height * scale,
-              }}
-            >
-              <iframe
-                ref={frame}
-                title={`${pageLabel} preview: ${current.page_title}`}
-                sandbox={interactive ? 'allow-scripts' : ''}
-                referrerPolicy="no-referrer"
-                srcDoc={current.html}
-                style={{
-                  width: current.canvas_width,
-                  height: current.canvas_height,
-                  position: 'absolute',
-                  left: Math.max(
-                    0,
-                    (viewport.width - current.canvas_width * scale) / 2,
-                  ),
-                  top: Math.max(
-                    0,
-                    (viewport.height - current.canvas_height * scale) / 2,
-                  ),
-                  border: 0,
-                  transform: `scale(${scale})`,
-                  transformOrigin: 'top left',
-                }}
-              />
-            </div>
-          </div>
-        </>
-      )}
       {lifecycle &&
         !editorOpen &&
         !designOpen &&
@@ -809,10 +819,55 @@ export default function ArtifactPreview({
             )}
           />
         )}
-      <p className="muted" style={{ margin: 0, flexShrink: 0, fontSize: 12 }}>
-        Preview of the saved design. Advanced design controls remain available
-        in Designer Studio.
-      </p>
+      {current?.html && (
+        <>
+          <p aria-live="polite" style={{ margin: 0, flexShrink: 0 }}>
+            {pageLabel} {current.page_index + 1} of {current.page_count}:{' '}
+            {current.page_title}
+          </p>
+          <div
+            ref={frameHost}
+            style={{
+              width: '100%',
+              flex: '1 1 auto',
+              minHeight: 180,
+              position: 'relative',
+              overflow: zoomMode === 'fit' ? 'clip' : 'auto',
+            }}
+          >
+            <div
+              style={{
+                width: current.canvas_width * scale,
+                height: current.canvas_height * scale,
+              }}
+            >
+              <iframe
+                ref={frame}
+                title={`${pageLabel} preview: ${current.page_title}`}
+                sandbox={interactive ? 'allow-scripts' : ''}
+                referrerPolicy="no-referrer"
+                srcDoc={current.html}
+                style={{
+                  width: current.canvas_width,
+                  height: current.canvas_height,
+                  position: 'absolute',
+                  left: Math.max(
+                    0,
+                    (viewport.width - current.canvas_width * scale) / 2,
+                  ),
+                  top: Math.max(
+                    0,
+                    (viewport.height - current.canvas_height * scale) / 2,
+                  ),
+                  border: 0,
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </section>
   );
 }

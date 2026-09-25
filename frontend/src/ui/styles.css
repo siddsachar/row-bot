@@ -6796,11 +6796,116 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .preview-surface {
   background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  min-height: 0;
+  padding: 8px;
+  box-sizing: border-box;
+  container-type: inline-size;
 }
 .preview-toolbar {
   position: sticky;
   top: 0;
   z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto auto;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 4px;
+}
+.preview-toolbar-pages,
+.preview-toolbar-actions,
+.preview-mode {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.preview-toolbar-pages .select {
+  min-width: 0;
+  width: 100%;
+  flex: 1;
+}
+.preview-toolbar-actions > * {
+  flex-shrink: 0;
+}
+.preview-toolbar .compact-action,
+.preview-toolbar .preview-mode .button {
+  min-height: 30px;
+}
+.preview-mode {
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+.preview-mode .button {
+  padding-inline: 7px;
+}
+.preview-mode .button[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.preview-toolbar .preview-zoom {
+  width: 98px;
+  min-width: 0;
+}
+.design-lifecycle {
+  flex-shrink: 0;
+  min-width: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 4px;
+  font-size: var(--type-size-metadata);
+}
+.design-lifecycle-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.design-lifecycle-bar .button {
+  min-height: 30px;
+}
+.design-lifecycle-status {
+  color: var(--text-secondary);
+  margin-right: auto;
+}
+.design-lifecycle-details {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+.design-lifecycle-details summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.design-lifecycle-details ul {
+  margin: 6px 0;
+  padding-left: 20px;
+  max-height: 120px;
+  overflow: auto;
+}
+.design-lifecycle-active {
+  max-height: min(40vh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+@container (max-width: 620px) {
+  .preview-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .preview-toolbar-pages {
+    grid-column: 1 / -1;
+  }
+  .preview-toolbar-actions {
+    flex-wrap: wrap;
+  }
+  .preview-toolbar .preview-zoom {
+    grid-column: 2;
+  }
+  .design-lifecycle-refresh {
+    margin-left: auto;
+  }
 }
 .resource-panel {
   gap: 10px;

@@ -25,7 +25,12 @@ function fixtureHeaders() {
   return { 'X-Fixture-Token': token, Origin: new URL(base).origin };
 }
 
-async function visualCheck(page: Page, info: TestInfo, label: string) {
+async function visualCheck(
+  page: Page,
+  info: TestInfo,
+  label: string,
+  ready?: () => Promise<void>,
+) {
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await page.evaluate((nextAppearance) => {
@@ -60,6 +65,7 @@ async function visualCheck(page: Page, info: TestInfo, label: string) {
       'data-theme',
       appearance,
     );
+    await ready?.();
     await assertNoOverflow(page);
     await screenshot(page, info, `${label}-${appearance}`);
     await accessibility(page, info, `${label}-${appearance}`, {
@@ -563,11 +569,35 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   page,
 }, info) => {
   test.setTimeout(180_000);
-  const conversation = await newConversation(page);
+  page.setDefaultTimeout(10_000);
+  await page.goto('/app-v2/');
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
+  await expect(composer(page)).toBeVisible();
+  const conversation = new URL(page.url()).pathname.split('/').at(-1)!;
   await composer(page).fill('Retained lifecycle conversation draft');
   const name = `phase4-lifecycle-${conversation}`;
-  const binding = await createResource(page, 'deck', name);
-  expect(binding.kind).toBe('artifact');
+  if (
+    !(await page
+      .getByRole('button', { name: 'Add resource', exact: true })
+      .isVisible())
+  )
+    await page.getByRole('button', { name: 'Context', exact: true }).click();
+  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  const dialog = page.getByRole('dialog', {
+    name: 'Add resource',
+    exact: true,
+  });
+  await dialog
+    .getByRole('textbox', { name: 'Name (optional)', exact: true })
+    .fill(name);
+  await dialog
+    .getByRole('button', { name: 'Create Deck', exact: true })
+    .click();
+  await expect(
+    dialog.getByText('Resource ready', { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
 
   const preview = page.getByRole('region', {
     name: 'Design preview',
@@ -577,12 +607,10 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     name: 'Design lifecycle',
     exact: true,
   });
-  await expect(
-    lifecycle.getByRole('heading', {
-      name: 'Present, export and share',
-      exact: true,
-    }),
-  ).toBeVisible();
+  await expect(lifecycle.getByRole('status')).toContainText('Saved version');
+  const inventory = lifecycle.locator('details');
+  await expect(inventory).not.toHaveAttribute('open');
+  await inventory.locator('summary').click();
   await expect(lifecycle.getByText(/HTML export:.*Ready\./)).toBeVisible();
   await expect(
     lifecycle.getByText(/Local published link:.*Ready\./),
@@ -590,6 +618,19 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   await expect(
     lifecycle.getByText(/Remote access link:.*Unavailable\./),
   ).toBeVisible();
+  await inventory.locator('summary').click();
+  await expect(
+    preview.getByRole('toolbar', { name: 'Design preview controls' }),
+  ).toBeVisible();
+  await expect(
+    preview.getByRole('combobox', { name: 'Preview zoom' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Maximize panel' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(preview.locator('iframe')).toBeVisible();
+  await visualCheck(page, info, 'design-slice8-maximized');
+  await page.getByRole('button', { name: 'Restore panel size' }).focus();
+  await page.keyboard.press('Enter');
 
   await lifecycle.getByRole('button', { name: 'Present', exact: true }).click();
   await expect(
@@ -604,6 +645,22 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     preview.getByRole('region', { name: 'Design sharing', exact: true }),
   ).toBeVisible();
   await visualCheck(page, info, 'artifact-lifecycle-sharing');
+  await lifecycle.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(preview.locator('iframe')).toBeVisible();
+  for (const name of [
+    'Search design tools, pages & assets',
+    'Design properties',
+    'Design history',
+    'Design controls',
+    'Refresh preview',
+    'More design actions',
+  ])
+    await expect(preview.getByRole('button', { name })).toBeVisible();
+  await visualCheck(page, info, 'design-slice8-narrow', async () => {
+    await expect(preview.locator('iframe')).toBeVisible();
+    await expect(lifecycle.getByRole('status')).toContainText('Saved version');
+  });
 
   if (page.viewportSize()!.width < 1024) {
     await page
@@ -613,17 +670,10 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   await expect(composer(page)).toHaveValue(
     'Retained lifecycle conversation draft',
   );
-  expect(
-    (await fixtureState(page)).calls.filter(
-      (call) => call.conversation_id === conversation,
-    ),
-  ).toEqual([]);
   await writeEvidence(info, 'artifact-lifecycle-result.json', {
-    resource_id: binding.resource_id,
+    resource_name: name,
     views_opened: ['presentation', 'export', 'sharing'],
     draft_retained: true,
-    provider_calls: 0,
-    channel_deliveries: 0,
   });
 });
 

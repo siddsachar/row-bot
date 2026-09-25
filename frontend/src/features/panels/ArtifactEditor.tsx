@@ -29,6 +29,8 @@ export type ArtifactEditorProps = {
   pageId?: string;
   selectedElementId?: string;
   authoring?: boolean;
+  requestedTab?: 'properties' | 'history';
+  requestedTabKey?: number;
   onPageChange: (pageId: string) => void;
   onAuthoringChange?: (enabled: boolean) => void;
   load: (
@@ -117,6 +119,9 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
   const [state, setState] = useState<ArtifactEditingState | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [tab, setTab] = useState('properties');
+  useEffect(() => {
+    if (visible && props.requestedTab) setTab(props.requestedTab);
+  }, [visible, props.requestedTab, props.requestedTabKey]);
   const [selection, setSelection] = useState({
     resourceId,
     pageId: '',

@@ -107,16 +107,7 @@ export default function ArtifactLifecyclePanel(
 
   if (!visible) return null;
   return (
-    <section className="studio-section stack" aria-label="Design lifecycle">
-      <header className="capability-header">
-        <div>
-          <h3>Present, export and share</h3>
-          <p>
-            Work from this exact saved version. Publishing and delivery always
-            require a separate review.
-          </p>
-        </div>
-      </header>
+    <section className="design-lifecycle" aria-label="Design lifecycle">
       {!state && !error && <Skeleton label="Loading design lifecycle" />}
       {error && (
         <ErrorState
@@ -133,10 +124,14 @@ export default function ArtifactLifecyclePanel(
       {state && (
         <>
           <div
-            className="panel-toolbar action-cluster"
+            className="design-lifecycle-bar"
             role="toolbar"
             aria-label="Design lifecycle views"
           >
+            <span className="design-lifecycle-status" role="status">
+              Saved version · {state.page_count}{' '}
+              {state.page_count === 1 ? 'page' : 'pages'}
+            </span>
             {(
               [
                 ['presentation', 'Present'],
@@ -146,6 +141,7 @@ export default function ArtifactLifecyclePanel(
             ).map(([view, label]) => (
               <Button
                 key={view}
+                variant={view === 'export' ? 'primary' : 'secondary'}
                 disabled={!availability.get(view)}
                 aria-pressed={active === view}
                 onClick={() =>
@@ -155,29 +151,38 @@ export default function ArtifactLifecyclePanel(
                 {label}
               </Button>
             ))}
-            <Button onClick={() => setReload((value) => value + 1)}>
+            <Button
+              className="design-lifecycle-refresh"
+              onClick={() => setReload((value) => value + 1)}
+            >
               Refresh options
             </Button>
           </div>
-          <ul
-            className="capability-summary"
-            aria-label="Lifecycle availability"
-          >
-            {state.capabilities.map((item) => (
-              <li key={item.id}>
-                <strong>{item.label}:</strong>{' '}
-                {item.state === 'ready'
-                  ? 'Ready.'
-                  : item.state === 'check_on_use'
-                    ? 'Checked when used.'
-                    : 'Unavailable.'}{' '}
-                {item.detail}
-              </li>
-            ))}
-          </ul>
-          {active === 'presentation' && props.renderPresentation(state)}
-          {active === 'export' && props.renderExport(state)}
-          {active === 'sharing' && props.renderSharing(state)}
+          <details className="design-lifecycle-details">
+            <summary>Capabilities and review requirements</summary>
+            <p>Publishing and delivery require a separate review.</p>
+            <ul aria-label="Lifecycle availability">
+              {state.capabilities.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.label}:</strong>{' '}
+                  {item.state === 'ready'
+                    ? 'Ready.'
+                    : item.state === 'check_on_use'
+                      ? 'Checked when used.'
+                      : 'Unavailable.'}{' '}
+                  {item.detail}
+                  {item.review_required && ' Review required.'}
+                </li>
+              ))}
+            </ul>
+          </details>
+          {active && (
+            <div className="design-lifecycle-active">
+              {active === 'presentation' && props.renderPresentation(state)}
+              {active === 'export' && props.renderExport(state)}
+              {active === 'sharing' && props.renderSharing(state)}
+            </div>
+          )}
         </>
       )}
     </section>

@@ -6,8 +6,12 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { Profiler } from 'react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ArtifactPreview as Preview } from '../../api/types';
+import type {
+  ArtifactEditingState,
+  ArtifactPreview as Preview,
+} from '../../api/types';
 import ArtifactPreview from './ArtifactPreview';
 
 afterEach(() => {
@@ -57,6 +61,63 @@ function snapshot(resource = 'deck-a', index = 0): Preview {
     unchanged: false,
   };
 }
+
+it('keeps the preview toolbar compact while exposing mode, page, search, history, properties and zoom', async () => {
+  const load = vi.fn(async () => snapshot());
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      visible
+      load={load}
+      loadEditing={vi.fn(() => new Promise<ArtifactEditingState>(() => {}))}
+      edit={vi.fn()}
+      loadPalette={vi.fn()}
+      onDraftText={vi.fn()}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  const toolbar = screen.getByRole('toolbar', {
+    name: 'Design preview controls',
+  });
+  expect(toolbar).toHaveClass('preview-toolbar');
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  for (const name of [
+    'Previous slide',
+    'Next slide',
+    'Search design tools, pages & assets',
+    'Design history',
+    'Design properties',
+    'Refresh preview',
+  ])
+    expect(screen.getByRole('button', { name })).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue(
+    'fit',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await waitFor(() =>
+    expect(load).toHaveBeenCalledWith(
+      undefined,
+      expect.any(String),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        previewId: expect.any(String),
+        capability: expect.any(String),
+      }),
+    ),
+  );
+  expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
 
 it('opens the bound Designer palette on click and picks a page or draft', async () => {
   const load = vi.fn(async (pageId?: string) =>
@@ -393,15 +454,12 @@ it('fits the native isolated canvas to both viewport dimensions without refetchi
     (756 - (1920 * 96) / 1080) / 2,
   );
   expect(frame.style.top).toBe('0px');
-  expect(host.style.minHeight).toBe('96px');
+  expect(host.style.minHeight).toBe('180px');
   expect(host.style.overflow).toBe('clip');
-  expect(screen.getByRole('group', { name: 'Slide navigation' })).toHaveStyle({
-    display: 'flex',
-    flexWrap: 'wrap',
-  });
-  expect(screen.getByRole('combobox', { name: 'Slide' })).toHaveStyle({
-    width: 'auto',
-  });
+  expect(screen.getByRole('group', { name: 'Slide navigation' })).toHaveClass(
+    'preview-toolbar-pages',
+  );
+  expect(screen.getByRole('combobox', { name: 'Slide' })).toBeEnabled();
   const count = commits.mock.calls.length;
   await act(async () => {
     for (let index = 0; index < 100; index++) observers[0].notify();
@@ -535,6 +593,7 @@ it('removes cached private preview after binding revocation and offers an explic
 });
 
 it('waits for the newly saved preview revision before allowing presentation', async () => {
+  const user = userEvent.setup();
   let finish!: (value: Preview) => void;
   const load = vi
     .fn()
@@ -555,9 +614,12 @@ it('waits for the newly saved preview revision before allowing presentation', as
       presentation={presentation}
     />,
   );
-  const button = await screen.findByRole('button', { name: 'Present design' });
   await act(async () => {});
-  expect(button).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  expect(
+    screen.getByRole('menuitem', { name: 'Present design' }),
+  ).toBeEnabled();
+  await user.keyboard('{Escape}');
   view.rerender(
     <ArtifactPreview
       resourceId="deck-a"
@@ -567,11 +629,18 @@ it('waits for the newly saved preview revision before allowing presentation', as
       presentation={presentation}
     />,
   );
-  expect(button).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  expect(
+    screen.getByRole('menuitem', { name: 'Present design' }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await user.keyboard('{Escape}');
   await act(async () =>
     finish({ ...snapshot(), resource_revision: 'resource-2' }),
   );
-  expect(button).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  expect(
+    screen.getByRole('menuitem', { name: 'Present design' }),
+  ).toBeEnabled();
   expect(presentation.load).not.toHaveBeenCalled();
 });
 
@@ -623,7 +692,7 @@ it('does not remount lifecycle controls against a stale preview revision', async
     name: 'Design lifecycle',
   });
   expect(
-    frame.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    lifecycle.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   view.rerender(
     <ArtifactPreview
