@@ -4069,6 +4069,11 @@ details[open] > summary .settings-disclosure-chevron {
   margin-top: 1px;
   color: var(--accent-solid);
 }
+/* Headings without a leading icon span both tracks instead of collapsing
+   into the 22px icon column (B2). */
+.settings-snapshot-heading > :first-child:not(svg) {
+  grid-column: 1 / -1;
+}
 .settings-snapshot-heading h3,
 .settings-snapshot-heading p {
   margin: 0;
