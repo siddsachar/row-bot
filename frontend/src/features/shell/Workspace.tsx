@@ -20,11 +20,9 @@ import {
   Minimize2,
   PanelLeft,
   Search,
-  Settings,
   X,
 } from 'lucide-react';
 import {
-  Brand,
   Button,
   EmptyState,
   ErrorState,
@@ -56,7 +54,6 @@ import {
 import { PanelSubscriptions } from '../panels/subscriptions';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import Commands from './Commands';
-import BuddySurface from '../buddy/BuddySurface';
 import Navigation from './Navigation';
 import Home from './Home';
 import useNewChat from './useNewChat';
@@ -924,9 +921,86 @@ export default function Workspace() {
       </DockTabs.Root>
     );
   }
+  const workspaceControls = (
+    <div
+      className="workspace-controls"
+      role="group"
+      aria-label="Workspace controls"
+    >
+      <Hint label="Workspace commands">
+        <Button
+          iconOnly
+          aria-label="Workspace commands"
+          variant="ghost"
+          onClick={openCommands}
+        >
+          <Search size={20} aria-hidden />
+        </Button>
+      </Hint>
+      <Hint
+        label={
+          desktop && layout.navigation.collapsed
+            ? 'Expand navigation'
+            : 'Toggle navigation'
+        }
+      >
+        <Button
+          iconOnly
+          aria-label={
+            desktop && layout.navigation.collapsed
+              ? 'Expand navigation'
+              : 'Toggle navigation'
+          }
+          variant="ghost"
+          onClick={() =>
+            desktop
+              ? update((previous) => toggleRegion(previous, 'navigation'))
+              : overlay.open({
+                  kind: 'drawer',
+                  title: 'Conversations',
+                  description: 'Choose a conversation',
+                  content: navigation,
+                })
+          }
+        >
+          <PanelLeft size={20} aria-hidden />
+        </Button>
+      </Hint>
+      <Menu
+        label="Open panel"
+        triggerRef={openPanelRef}
+        iconOnly
+        variant="ghost"
+        actions={[
+          ...(state.workspace?.resources ?? []).map((resource) => ({
+            panel_kind:
+              resource.binding.kind === 'artifact'
+                ? 'artifact.preview'
+                : 'workspace.inspector',
+            title: resource.title.slice(0, 160),
+            resource_ref: resource.resource_ref,
+            resource_kind: resource.binding.kind,
+            resource_revision: resource.resource_revision,
+          })),
+          ...(state.handshake?.application_capabilities?.includes(
+            'native:terminal',
+          )
+            ? [{ panel_kind: 'native.terminal', title: 'Interactive terminal' }]
+            : []),
+          ...(import.meta.env.VITE_ENABLE_FIXTURES === '1' ? samplePanels : []),
+        ].map((panel) => ({
+          label: panel.title,
+          onSelect: (opener) => showPanel(panel, opener),
+        }))}
+      >
+        <Columns3 size={18} aria-hidden />
+      </Menu>
+    </div>
+  );
   const navigation = (
     <Navigation
-      showBuddy={desktop && !layout.navigation.collapsed}
+      showBuddy={!layout.navigation.collapsed}
+      workspaceControls={desktop ? workspaceControls : undefined}
       onNewChat={() => void creation.newChat()}
       creatingChat={creation.creatingChat}
       onOpenConversation={() =>
@@ -946,93 +1020,7 @@ export default function Workspace() {
       <a className="skip-link" href="#conversation">
         Skip to conversation
       </a>
-      <header className="app-header">
-        <Brand compact />
-        {(!desktop || layout.navigation.collapsed) && (
-          <div className="shell-buddy-presence">
-            <BuddySurface />
-          </div>
-        )}
-        <div className="header-actions">
-          <Button
-            className="command-trigger"
-            aria-label="Workspace commands"
-            onClick={openCommands}
-          >
-            <Search className="compact-command-icon" size={20} aria-hidden />
-            <span className="wide-label">Commands</span>
-            <span className="shortcut-label" aria-hidden>
-              ⌘/Ctrl K
-            </span>
-          </Button>
-          <Hint label="Toggle navigation">
-            <Button
-              iconOnly
-              aria-label="Toggle navigation"
-              variant="ghost"
-              onClick={() =>
-                desktop
-                  ? update((previous) => toggleRegion(previous, 'navigation'))
-                  : overlay.open({
-                      kind: 'drawer',
-                      title: 'Conversations',
-                      description: 'Choose a conversation',
-                      content: navigation,
-                    })
-              }
-            >
-              <PanelLeft size={20} aria-hidden />
-            </Button>
-          </Hint>
-          <Menu
-            label="Open panel"
-            triggerRef={openPanelRef}
-            actions={[
-              ...(state.workspace?.resources ?? []).map((resource) => ({
-                panel_kind:
-                  resource.binding.kind === 'artifact'
-                    ? 'artifact.preview'
-                    : 'workspace.inspector',
-                title: resource.title.slice(0, 160),
-                resource_ref: resource.resource_ref,
-                resource_kind: resource.binding.kind,
-                resource_revision: resource.resource_revision,
-              })),
-              ...(state.handshake?.application_capabilities?.includes(
-                'native:terminal',
-              )
-                ? [
-                    {
-                      panel_kind: 'native.terminal',
-                      title: 'Interactive terminal',
-                    },
-                  ]
-                : []),
-              ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
-                ? samplePanels
-                : []),
-            ].map((panel) => ({
-              label: panel.title,
-              onSelect: (opener) => showPanel(panel, opener),
-            }))}
-          >
-            <Columns3 size={18} aria-hidden />
-            <span className="wide-label">Open panel</span>
-          </Menu>
-          {!desktop && (
-            <Hint label="Settings">
-              <Button
-                iconOnly
-                aria-label="Settings"
-                variant="ghost"
-                onClick={() => navigate('/settings/providers')}
-              >
-                <Settings size={20} aria-hidden />
-              </Button>
-            </Hint>
-          )}
-        </div>
-      </header>
+      {!desktop && <div className="compact-controls">{workspaceControls}</div>}
       {creation.error && (
         <aside className="shell-recovery" role="alert">
           <span>{creation.error}</span>
@@ -1108,15 +1096,9 @@ export default function Workspace() {
         >
           {desktop &&
             (layout.navigation.collapsed ? (
-              <Button
-                iconOnly
-                aria-label="Expand navigation"
-                onClick={() =>
-                  update((previous) => toggleRegion(previous, 'navigation'))
-                }
-              >
-                <PanelLeft size={18} aria-hidden />
-              </Button>
+              <div className="collapsed-workspace-controls">
+                {workspaceControls}
+              </div>
             ) : (
               navigation
             ))}
@@ -1214,12 +1196,7 @@ export default function Workspace() {
                     compactContext={!desktop}
                   />
                 </section>
-                {homeOpen && (
-                  <Home
-                    onExamplePrompt={(prompt) => void creation.newChat(prompt)}
-                    exampleBusy={creation.creatingChat || !!creation.pending}
-                  />
-                )}
+                {homeOpen && <Home />}
                 {compact && !routeOpen && (
                   <section className="compact-tab" aria-label="Compact panel">
                     <Button

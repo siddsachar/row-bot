@@ -1715,62 +1715,6 @@ progress {
   font-size: var(--type-size-metadata);
   color: var(--text-muted);
 }
-.home-start {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 18px;
-  padding: clamp(20px, 3vw, 36px) 4px 24px;
-}
-.home-start h2 {
-  margin: 6px 0;
-  font-size: clamp(24px, 2.5vw, 34px);
-  line-height: 1.18;
-}
-.home-start p {
-  max-width: 58ch;
-  margin: 0;
-  color: var(--text-secondary);
-}
-.home-recent {
-  padding: 4px 4px 12px;
-}
-.home-recent h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
-}
-.home-recent-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.home-recent-list .button {
-  max-width: min(100%, 280px);
-  justify-content: flex-start;
-}
-.home-recent-list .button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.home-examples {
-  padding: 4px 4px 20px;
-}
-.home-examples h2 {
-  font-size: 16px;
-  margin: 0 0 8px;
-}
-.home-examples > details > summary {
-  min-height: 40px;
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-.home-examples .actions .button {
-  max-width: 300px;
-  white-space: normal;
-  text-align: left;
-}
 .home-setup-reminder {
   display: flex;
   flex-wrap: wrap;
@@ -4724,8 +4668,30 @@ details[open] > summary > .settings-disclosure-chevron {
   justify-content: flex-start;
   text-align: start;
 }
-.nav-conversation-filter {
-  width: 100%;
+.navigation .workspace-controls {
+  display: flex;
+  justify-content: space-between;
+  padding-inline: 4px;
+}
+.workspace-controls > .button {
+  min-width: var(--control-size);
+  min-height: var(--control-size);
+}
+.compact-controls {
+  display: flex;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  padding: calc(2px + env(safe-area-inset-top)) 8px 2px;
+  background: var(--canvas);
+}
+.compact-controls .workspace-controls {
+  display: flex;
+  gap: 4px;
+}
+.collapsed-workspace-controls,
+.collapsed-workspace-controls .workspace-controls {
+  display: grid;
+  justify-items: center;
 }
 .nav-pagination,
 .nav-preferences,

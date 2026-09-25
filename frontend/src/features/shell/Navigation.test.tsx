@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ClientController } from '../../api/controller';
@@ -23,7 +30,11 @@ function CurrentRoute() {
   );
 }
 
-async function setup(count = 55, route = '/') {
+async function setup(
+  count = 55,
+  route = '/',
+  group?: 'pinned' | 'artifact' | 'workspace',
+) {
   const onOpenConversation = vi.fn();
   const onOpenHome = vi.fn();
   const onNewChat = vi.fn();
@@ -32,6 +43,7 @@ async function setup(count = 55, route = '/') {
   const controller = new ClientController(transport, () => 1);
   clients.push(controller);
   await controller.start();
+  if (group) await controller.setConversationGroup(group);
   render(
     <MemoryRouter initialEntries={[route]}>
       <CurrentRoute />
@@ -154,6 +166,22 @@ it('starts with five ordered rows and expands without fetching or losing cursor 
   expect(rows()).toHaveLength(55);
   expect(list).toHaveBeenCalledTimes(2);
   expect(transport.counters.commands).toBe(0);
+});
+
+it('removes the group selector and restores the unified list from an earlier group', async () => {
+  const { controller, list } = await setup(2, '/', 'pinned');
+  await waitFor(() =>
+    expect(controller.getSnapshot().conversationGroup).toBe('all'),
+  );
+  expect(
+    screen.queryByRole('combobox', { name: 'Conversation group' }),
+  ).toBeNull();
+  expect(rows()).toHaveLength(2);
+  expect(list).toHaveBeenLastCalledWith(
+    undefined,
+    expect.any(AbortSignal),
+    'all',
+  );
 });
 
 it('retains the selected older row through Show less and section collapse', async () => {

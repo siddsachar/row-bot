@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  Activity,
-  Brain,
-  GitBranch,
-  Lightbulb,
-  MessageSquare,
-  X,
-} from 'lucide-react';
+import { Activity, Brain, GitBranch, Lightbulb, X } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type {
   KnowledgeGraphSnapshot,
@@ -16,24 +9,17 @@ import type {
   OnboardingSnapshot,
 } from '../../api/types';
 import { useClientState, useRuntime } from '../../runtime';
-import { Button, CompactAction, Tabs } from '../../ui/primitives';
+import { CompactAction, Tabs } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import TaskLibrary from '../tasks/TaskLibrary';
 import KnowledgeHome, { type KnowledgeDreamState } from '../home/KnowledgeHome';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
-import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
 
 const homeTabs = ['workflows', 'knowledge', 'monitor', 'insights'];
 
-export default function Home({
-  onExamplePrompt,
-  exampleBusy = false,
-}: {
-  onExamplePrompt?: (prompt: string) => void;
-  exampleBusy?: boolean;
-}) {
+export default function Home() {
   const state = useClientState();
   const { controller, knowledgeOwner, platform } = useRuntime();
   const overlay = useOverlay();
@@ -238,55 +224,12 @@ export default function Home({
   return (
     <div className="home-view">
       <h1 className="visually-hidden">Home</h1>
-      {identity ? (
-        <p role="status" className="home-connection-status">
-          Connected · local workspace
-        </p>
-      ) : (
+      {!identity && (
         <p role="status" className="home-connection-status">
           {state.status === 'loading' || state.status === 'reconnecting'
             ? 'Connecting to your workspace…'
             : 'Connect to open your workflows.'}
         </p>
-      )}
-      {identity && onExamplePrompt && (
-        <section className="home-start" aria-label="Start working">
-          <div>
-            <span className="eyebrow">Your workspace</span>
-            <h2>What would you like to work on?</h2>
-            <p>
-              Start with a message. You can add a code folder or design when you
-              need one.
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            disabled={exampleBusy}
-            onClick={() => onExamplePrompt('')}
-          >
-            Start a chat
-          </Button>
-        </section>
-      )}
-      {identity && state.conversations.length > 0 && (
-        <section className="home-recent" aria-label="Recent conversations">
-          <h2>Pick up where you left off</h2>
-          <div className="home-recent-list">
-            {state.conversations.slice(0, 3).map((conversation) => (
-              <Button
-                key={conversation.id}
-                variant="ghost"
-                onClick={() => {
-                  void controller.selectConversation(conversation.id);
-                  navigate(`/conversations/${conversation.id}`);
-                }}
-              >
-                <MessageSquare size={16} aria-hidden />
-                <span>{conversation.title || 'Untitled conversation'}</span>
-              </Button>
-            ))}
-          </div>
-        </section>
       )}
       {setup &&
         (!setup.setup_complete ||
@@ -323,36 +266,6 @@ export default function Home({
             </Link>
           </section>
         ))}
-      {identity && setup?.setup_complete && onExamplePrompt && (
-        <section className="home-examples" aria-label="Start with an example">
-          <h2>Try an example</h2>
-          <div className="actions">
-            {EXAMPLE_PROMPTS.slice(0, 3).map((prompt, index) => (
-              <Button
-                key={prompt}
-                disabled={exampleBusy}
-                onClick={() => onExamplePrompt(prompt)}
-              >
-                {EXAMPLE_LABELS[index]}
-              </Button>
-            ))}
-          </div>
-          <details>
-            <summary>More ideas</summary>
-            <div className="actions">
-              {EXAMPLE_PROMPTS.slice(3).map((prompt, index) => (
-                <Button
-                  key={prompt}
-                  disabled={exampleBusy}
-                  onClick={() => onExamplePrompt(prompt)}
-                >
-                  {EXAMPLE_LABELS[index + 3]}
-                </Button>
-              ))}
-            </div>
-          </details>
-        </section>
-      )}
       <Tabs
         label="Home capabilities"
         value={tab}

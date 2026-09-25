@@ -1,5 +1,5 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Brand, Button, Hint, Skeleton, Select } from '../../ui/primitives';
+import { Brand, Button, Hint, Skeleton } from '../../ui/primitives';
 import SearchConversations from './SearchConversations';
 import ConversationLibrary from './ConversationLibrary';
 
@@ -25,12 +25,14 @@ export default function Navigation({
   onNewChat,
   creatingChat = false,
   showBuddy = true,
+  workspaceControls,
 }: {
   onOpenConversation?: () => void;
   onOpenHome?: () => void;
   onNewChat?: () => void;
   creatingChat?: boolean;
   showBuddy?: boolean;
+  workspaceControls?: ReactNode;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -42,14 +44,23 @@ export default function Navigation({
   const [page, setPage] = useState(0);
   const sectionId = useId();
   const sectionHeadingId = `${sectionId}-heading`;
+  useEffect(() => {
+    if (state.conversationGroup !== 'all') {
+      setPage(0);
+      void controller.setConversationGroup('all');
+    }
+  }, [controller, state.conversationGroup]);
   const selected =
     state.conversations.find(({ id }) => id === state.selectedConversationId) ??
     (state.conversation?.id === state.selectedConversationId
       ? state.conversation
       : null);
-  const visible = expanded
-    ? state.conversations.slice(page * 100, page * 100 + 100)
-    : state.conversations.slice(0, PREVIEW_COUNT);
+  const visible =
+    state.conversationGroup !== 'all'
+      ? []
+      : expanded
+        ? state.conversations.slice(page * 100, page * 100 + 100)
+        : state.conversations.slice(0, PREVIEW_COUNT);
   const rows =
     selected && !visible.some(({ id }) => id === selected.id)
       ? [...visible, selected]
@@ -92,6 +103,7 @@ export default function Navigation({
     <nav className="navigation" aria-label="Workspace navigation">
       <Brand />
       {showBuddy && <BuddySurface />}
+      {workspaceControls}
       <div
         className="nav-primary-actions"
         role="group"
@@ -101,7 +113,17 @@ export default function Navigation({
           className="button ghost nav-home"
           to="/"
           aria-current={location.pathname === '/' ? 'page' : undefined}
-          onClick={() => {
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            event.preventDefault();
+            navigate('/');
             onOpenHome?.();
             overlay.close();
           }}
@@ -173,22 +195,6 @@ export default function Navigation({
       >
         {sectionOpen && (
           <>
-            <Select
-              className="nav-conversation-filter"
-              aria-label="Conversation group"
-              value={state.conversationGroup}
-              onChange={(event) => {
-                setPage(0);
-                void controller.setConversationGroup(
-                  event.target.value as typeof state.conversationGroup,
-                );
-              }}
-            >
-              <option value="all">All conversations</option>
-              <option value="pinned">Pinned</option>
-              <option value="artifact">With design resources</option>
-              <option value="workspace">With coding workspaces</option>
-            </Select>
             {state.conversationListError && (
               <div role="alert" className="nav-conversation-error">
                 <p>{state.conversationListError.message}</p>

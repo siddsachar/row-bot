@@ -122,29 +122,24 @@ beforeEach(() => {
   mock.state.conversations = [];
 });
 
-it('offers recent work and opens the selected conversation', () => {
+it('keeps capability content without the welcome, recent, and examples sections', () => {
   mock.state.conversations = [{ id: 'chat-a', title: 'Design review' }];
   show();
-  fireEvent.click(screen.getByRole('button', { name: 'Design review' }));
-  expect(mock.controller.selectConversation).toHaveBeenCalledWith('chat-a');
-});
-
-it('shows first-run examples passively and delegates one click to the shared chat creator', async () => {
-  const onExamplePrompt = vi.fn();
-  render(
-    <MemoryRouter>
-      <Home onExamplePrompt={onExamplePrompt} />
-    </MemoryRouter>,
-  );
-  const example = await screen.findByRole('button', {
-    name: 'Design a landing page',
-  });
-  expect(onExamplePrompt).not.toHaveBeenCalled();
-  fireEvent.click(example);
-  expect(onExamplePrompt).toHaveBeenCalledOnce();
-  expect(onExamplePrompt).toHaveBeenCalledWith(
-    'Draft a landing page in Designer Studio for a new product',
-  );
+  expect(
+    screen.getByRole('tablist', { name: 'Home capabilities' }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('region', { name: 'Workflow library' }),
+  ).toBeVisible();
+  expect(screen.queryByRole('region', { name: 'Start working' })).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'Recent conversations' }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'Start with an example' }),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Design review' })).toBeNull();
+  expect(screen.queryByText('Connected · local workspace')).toBeNull();
 });
 
 it('checks Dream Cycle from one click and opens the irreversible-change confirmation', async () => {
@@ -212,10 +207,11 @@ it('keeps Knowledge and Monitor as passive, truthful boundaries', () => {
   expect(screen.getByRole('region', { name: 'System Monitor' })).toBeVisible();
 });
 
-it('reports connection state without exposing client identity', () => {
+it('reports reconnecting state without exposing client identity', () => {
+  mock.state.status = 'reconnecting';
   show();
   expect(screen.getByRole('status')).toHaveTextContent(
-    'Connected · local workspace',
+    'Connecting to your workspace…',
   );
   expect(document.body.textContent).not.toContain('server-a');
   expect(document.body.textContent).not.toContain('session-a');

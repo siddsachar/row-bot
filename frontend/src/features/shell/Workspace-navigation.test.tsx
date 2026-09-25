@@ -56,7 +56,7 @@ it.each([1440, 900, 390])(
     clients.push(controller);
     await controller.start();
     await controller.selectConversation('conversation-a');
-    render(
+    const rendered = render(
       <MemoryRouter initialEntries={['/conversations/conversation-a']}>
         <HistoryControls />
         <RuntimeContext.Provider
@@ -68,6 +68,14 @@ it.each([1440, 900, 390])(
         </RuntimeContext.Provider>
       </MemoryRouter>,
     );
+    expect(rendered.container.querySelector('.app-header')).toBeNull();
+    expect(Boolean(rendered.container.querySelector('.compact-controls'))).toBe(
+      width < 1024,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Workspace commands' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open panel' })).toBeVisible();
     const composer = screen.getByRole('textbox', {
       name: 'Message',
     });
@@ -83,6 +91,7 @@ it.each([1440, 900, 390])(
       fireEvent.click(
         screen.getByRole('button', { name: 'Toggle navigation' }),
       );
+    expect(screen.getByRole('button', { name: 'New chat' })).toBeVisible();
     await act(async () =>
       fireEvent.click(screen.getByRole('link', { name: 'Home' })),
     );

@@ -128,9 +128,7 @@ test('Home is workflow-focused and New chat creates exactly once without setup',
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
-  await expect(page.locator('.home-connection-status')).toContainText(
-    'Connected · local workspace',
-  );
+  await expect(page.locator('.home-connection-status')).toHaveCount(0);
   await expect(
     page.getByRole('tab', { name: 'Workflows', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
@@ -139,7 +137,7 @@ test('Home is workflow-focused and New chat creates exactly once without setup',
   ).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Recent conversations', exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
