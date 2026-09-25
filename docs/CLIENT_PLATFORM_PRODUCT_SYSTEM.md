@@ -2,9 +2,8 @@
 
 The default React client uses a single semantic product system. Domain features consume
 `frontend/src/ui`; they do not introduce separate palettes, overlay stacks or
-resizer implementations. The read-only conversation placeholder stays mounted
-under route, layout and appearance changes. Chat rendering and real Developer or
-Designer panels are later contributions.
+resizer implementations. The conversation stays mounted under route, layout and
+appearance changes.
 
 ## Theme contract
 
@@ -39,8 +38,11 @@ verify composited results too.
 Non-palette tokens live in `src/ui/styles/tokens.css`. The stylesheet entry
 `src/ui/styles/index.css` fixes the cascade: bundled fonts, tokens, the legacy
 surface rules in `styles.css` (split into per-surface files as surfaces are
-reworked), then shared primitives. Geist and Geist Mono are bundled locally
-(`--font-sans`, `--font-mono`) with a system fallback stack.
+reworked), then shared primitives, then reworked surfaces (`chat.css`). Geist
+and Geist Mono are bundled locally (`--font-sans`, `--font-mono`) with a system
+fallback stack. Syntax colours are `--syntax-keyword`, `--syntax-string`,
+`--syntax-number`, `--syntax-function` and `--code-comment` on
+`--code-background`; `chat.css` maps Shiki's CSS-variable theme onto them.
 
 The type scale is 12 / 13 / 14 / 15 / 17 / 20 / 26 (`--text-*` with paired
 `--leading-*`), weights 400/500/600, and tabular numbers for data. Dense chrome
@@ -144,6 +146,40 @@ Group resize completion also reconciles the library's 48px navigation or 0px
 side/bottom drag-collapse sizes into the versioned model, preserving the last
 expanded restore size. Test pointer collapse across refresh and restore; a
 visually collapsed pane alone does not prove persisted state is correct.
+
+### Conversation surface
+
+The conversation is airy; tools inside it stay dense. The transcript and the
+composer share one centred column (`--chat-column`, 760px, with a 24px gutter;
+12px under 768px) and prose is capped at `--prose-width` (72ch) on the 15/24
+reading type. The header is one 48px row: the title (rename in place), a
+read-only model chip and icon actions (Find, Share or export, Context on
+compact layouts). Older rows load above the live window when the reader reaches
+the top ("Earlier messages" also works as a button) with the first visible row
+held in place; a floating "Latest messages" pill (`↓ N new`) returns to the live
+end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
+
+- User turns are right-aligned bubbles (`--surface-raised`, at most 78% of the
+  column). Assistant turns are unlabeled prose; consecutive assistant rows sit
+  8px apart and read as one turn. Actions appear once per turn: beside the user
+  bubble, and under the last row of an assistant turn (always visible on the
+  newest reply), copying the whole turn. Read aloud uses only on-device voices.
+- Tool calls are one activity row per turn ("Used 3 tools · 1 failed") with tool
+  glyphs; it expands into a step timeline with human verbs and the key
+  argument, and step details load their paged result on demand. Live work shows
+  one activity row with shimmer text; an approval card anchors to it and is
+  never hidden. Runtime errors and interrupted runs are callouts with the cause
+  and a next step (Resume, Retry, Switch model, Open providers, New chat).
+- Each generated result renders once, inline with its turn; Context outputs link
+  to it. Embeds use `.rich-block` cards with a header toolbar of 28px icon
+  actions; charts take their colours from `--chart-series-*`.
+- The composer is one field (`.composer-field`, radius `--radius-composer`)
+  that grows from a single 24px line to 240px. Chips appear inside it only when
+  present. Left: `+` menu, model pill, approval shield; right: context ring,
+  dictation with a Talk chevron, send/stop (32px round). Status lines are
+  announced, not printed, except a failed or conflicting draft. Floating
+  composer menus (slash commands, model picker, Skills) open above the field
+  and stay inside the viewport.
 
 `features/settings/model.ts` is the one navigation/search/label/deep-link map.
 It preserves 16 existing leaves in five categories and their legacy aliases.
