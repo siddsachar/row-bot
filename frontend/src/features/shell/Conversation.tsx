@@ -52,7 +52,7 @@ import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import { ComposerSkillChips } from './ComposerSkills';
-import { EXAMPLE_PROMPTS } from './welcome-prompts';
+import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 
@@ -635,6 +635,8 @@ export default function Conversation({
   const visibleRows = rows.filter(
     (row) => row.role !== 'tool' || !row.trace_parent_id,
   );
+  const hasLiveTranscript =
+    visibleRows.length > 0 || Boolean(pending) || Boolean(running);
   const settledTraceCalls = new Set(
     rows.flatMap((row) =>
       (row.traces ?? []).flatMap((group) =>
@@ -915,9 +917,16 @@ export default function Conversation({
     }
     scrollOwner.current = id;
     wasHistory.current = Boolean(state.history);
-    if (!state.history && !state.loadingConversation && followingLatest.current)
+    if (!hasLiveTranscript) {
+      if (transcriptRef.current) transcriptRef.current.scrollTop = 0;
+      if (chatContentRef.current) chatContentRef.current.scrollTop = 0;
+    } else if (
+      !state.history &&
+      !state.loadingConversation &&
+      followingLatest.current
+    )
       scrollToLatest();
-  }, [id, rows, state.history, state.loadingConversation, pending]);
+  }, [id, rows, hasLiveTranscript, state.history, state.loadingConversation]);
   useLayoutEffect(() => {
     const transcript = transcriptRef.current;
     const content = transcriptContentRef.current;
@@ -931,6 +940,7 @@ export default function Conversation({
         active &&
         !state.history &&
         !state.loadingConversation &&
+        hasLiveTranscript &&
         followingLatest.current
       )
         scrollToLatest();
@@ -941,7 +951,7 @@ export default function Conversation({
       active = false;
       observer.disconnect();
     };
-  }, [id, state.history, state.loadingConversation]);
+  }, [id, state.history, state.loadingConversation, hasLiveTranscript]);
   useEffect(() => {
     if (
       focusConversationId &&
@@ -1671,6 +1681,7 @@ export default function Conversation({
       ].map((output) => [output.reference, output]),
     ).values(),
   ];
+  const contextReady = state.status === 'ready' && historyReady;
   const contextRail = id ? (
     <ConversationContextRail
       conversationId={id}
@@ -1679,9 +1690,10 @@ export default function Conversation({
       suggestions={(state.suggestions ?? []).filter(
         (suggestion) => suggestion.conversation_id === id,
       )}
-      ready={state.status === 'ready' && !state.loadingConversation}
+      ready={contextReady}
       connectionStatus={state.status}
       terminalAvailable={terminalAvailable}
+      compactHeading={compactContext}
       agents={delegatedActivity}
       outputs={outputs}
       completedDesignId={completedDesignId}
@@ -1745,13 +1757,13 @@ export default function Conversation({
               )}
             {id && compactContext && (
               <Button
+                disabled={!contextReady}
                 onClick={() =>
                   overlay.open({
                     kind: 'sheet',
                     key: 'conversation-context',
                     title: 'Conversation context',
-                    description:
-                      'Resources, agents, and conversation utilities.',
+                    description: '',
                     content: contextRail,
                   })
                 }
@@ -1858,7 +1870,7 @@ export default function Conversation({
                 action={
                   id && (
                     <div className="stack" aria-label="Example prompts">
-                      {EXAMPLE_PROMPTS.map((prompt) => (
+                      {EXAMPLE_PROMPTS.slice(0, 3).map((prompt, index) => (
                         <Button
                           key={prompt}
                           disabled={
@@ -1870,16 +1882,41 @@ export default function Conversation({
                           }
                           onClick={() => send(prompt)}
                         >
-                          {prompt}
+                          {EXAMPLE_LABELS[index]}
                         </Button>
                       ))}
+                      <details>
+                        <summary>More ideas</summary>
+                        <div className="stack">
+                          {EXAMPLE_PROMPTS.slice(3).map((prompt, index) => (
+                            <Button
+                              key={prompt}
+                              disabled={
+                                !sendActionReady ||
+                                busy ||
+                                !!pendingSubmit ||
+                                !!pendingResume ||
+                                !!pendingSteering
+                              }
+                              onClick={() => send(prompt)}
+                            >
+                              {EXAMPLE_LABELS[index + 3]}
+                            </Button>
+                          ))}
+                        </div>
+                      </details>
                     </div>
                   )
                 }
               >
-                Chat, reason, browse, use tools, and work with your local
-                knowledge, workflows, and designs. Settings can be finished
-                anytime.
+                <span className="desktop-empty-hint">
+                  Chat, reason, browse, use tools, and work with your local
+                  knowledge, workflows, and designs. Settings can be finished
+                  anytime.
+                </span>
+                <span className="mobile-empty-hint">
+                  Start with a message. Add a code folder or design anytime.
+                </span>
               </EmptyState>
             )}
             {thinkingActive && (

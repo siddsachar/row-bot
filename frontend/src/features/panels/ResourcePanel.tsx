@@ -92,7 +92,7 @@ function ResourcePanel({
   } = useRuntime();
   const [processesOpen, setProcessesOpen] = useState(false);
   const [importsOpen, setImportsOpen] = useState(false);
-  const [repositoryOpen, setRepositoryOpen] = useState(true);
+  const [repositoryOpen, setRepositoryOpen] = useState(false);
   const [customToolsOpen, setCustomToolsOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [undoSelection, setUndoSelection] = useState<{
@@ -342,101 +342,6 @@ function ResourcePanel({
     />
   ) : (
     <div className="stack resource-panel">
-      {typeof controller.developerRepository === 'function' && (
-        <>
-          <Button
-            aria-expanded={repositoryOpen}
-            onClick={() => setRepositoryOpen((value) => !value)}
-          >
-            {repositoryOpen
-              ? 'Hide repository controls'
-              : 'Repository controls'}
-          </Button>
-          <div hidden={!repositoryOpen}>
-            <RepositorySurface
-              controller={controller}
-              conversation={conversation}
-              binding={binding}
-              resourceId={resource.binding.resource_id}
-              bindingRevision={resource.binding.revision}
-              visible={visible && repositoryOpen}
-            />
-          </div>
-        </>
-      )}
-      {typeof controller.customTools === 'function' && (
-        <>
-          <Button
-            aria-expanded={customToolsOpen}
-            onClick={() => setCustomToolsOpen((value) => !value)}
-          >
-            {customToolsOpen
-              ? 'Hide Custom Tool Builder'
-              : 'Custom Tool Builder'}
-          </Button>
-          {customToolsOpen && (
-            <CustomToolBuilder
-              controller={controller}
-              conversation={conversation}
-              binding={binding}
-              visible={visible}
-            />
-          )}
-        </>
-      )}
-      <Button
-        aria-expanded={importsOpen}
-        onClick={() => setImportsOpen((value) => !value)}
-      >
-        {importsOpen ? 'Hide sandbox changes' : 'Sandbox changes'}
-      </Button>
-      {importsOpen && !importSession && (
-        <p role="status">
-          Finish retained imports before opening another workspace.
-        </p>
-      )}
-      {importsOpen && importSession && (
-        <WorkspaceImports
-          {...importSession.api}
-          session={importSession.session}
-          onImported={() => setImportRevision((value) => value + 1)}
-        />
-      )}
-      <Button
-        aria-expanded={processesOpen}
-        onClick={() => setProcessesOpen((value) => !value)}
-      >
-        {processesOpen ? 'Hide processes' : 'Processes'}
-      </Button>
-      {processesOpen && !processSession && (
-        <p role="status">
-          Process sessions are unavailable or full. Finish retained sessions
-          before opening another workspace.
-        </p>
-      )}
-      {processSession && (
-        <div hidden={!processesOpen}>
-          <WorkspaceProcesses
-            {...processSession.api}
-            scope={processSession.scope}
-            session={processSession.session}
-            resourceRevision={resource.resource_revision}
-            visible={visible && processesOpen}
-          />
-        </div>
-      )}
-      {undoSession && (
-        <WorkspaceUndo
-          {...undoSession.api}
-          session={undoSession.session}
-          onUndone={() => setImportRevision((value) => value + 1)}
-        />
-      )}
-      {undoSelection?.binding === binding && !undoSession && (
-        <p role="status">
-          Finish retained Undo reviews before opening another change set.
-        </p>
-      )}
       <Inspector
         onUndo={
           workspaceUndoSessions
@@ -458,6 +363,104 @@ function ResourcePanel({
         changeSets={api.changeSets}
         changeSetFiles={api.changeSetFiles}
       />
+      <details className="resource-advanced">
+        <summary>Workspace tools and settings</summary>
+        {typeof controller.developerRepository === 'function' && (
+          <>
+            <Button
+              aria-expanded={repositoryOpen}
+              onClick={() => setRepositoryOpen((value) => !value)}
+            >
+              {repositoryOpen
+                ? 'Hide repository controls'
+                : 'Repository controls'}
+            </Button>
+            <div hidden={!repositoryOpen}>
+              <RepositorySurface
+                controller={controller}
+                conversation={conversation}
+                binding={binding}
+                resourceId={resource.binding.resource_id}
+                bindingRevision={resource.binding.revision}
+                visible={visible && repositoryOpen}
+              />
+            </div>
+          </>
+        )}
+        {typeof controller.customTools === 'function' && (
+          <>
+            <Button
+              aria-expanded={customToolsOpen}
+              onClick={() => setCustomToolsOpen((value) => !value)}
+            >
+              {customToolsOpen
+                ? 'Hide Custom Tool Builder'
+                : 'Custom Tool Builder'}
+            </Button>
+            {customToolsOpen && (
+              <CustomToolBuilder
+                controller={controller}
+                conversation={conversation}
+                binding={binding}
+                visible={visible}
+              />
+            )}
+          </>
+        )}
+        <Button
+          aria-expanded={importsOpen}
+          onClick={() => setImportsOpen((value) => !value)}
+        >
+          {importsOpen ? 'Hide sandbox changes' : 'Sandbox changes'}
+        </Button>
+        {importsOpen && !importSession && (
+          <p role="status">
+            Finish retained imports before opening another workspace.
+          </p>
+        )}
+        {importsOpen && importSession && (
+          <WorkspaceImports
+            {...importSession.api}
+            session={importSession.session}
+            onImported={() => setImportRevision((value) => value + 1)}
+          />
+        )}
+        <Button
+          aria-expanded={processesOpen}
+          onClick={() => setProcessesOpen((value) => !value)}
+        >
+          {processesOpen ? 'Hide processes' : 'Processes'}
+        </Button>
+        {processesOpen && !processSession && (
+          <p role="status">
+            Process sessions are unavailable or full. Finish retained sessions
+            before opening another workspace.
+          </p>
+        )}
+        {processSession && (
+          <div hidden={!processesOpen}>
+            <WorkspaceProcesses
+              {...processSession.api}
+              scope={processSession.scope}
+              session={processSession.session}
+              resourceRevision={resource.resource_revision}
+              visible={visible && processesOpen}
+            />
+          </div>
+        )}
+      </details>
+      {undoSession && (
+        <WorkspaceUndo
+          {...undoSession.api}
+          session={undoSession.session}
+          onUndone={() => setImportRevision((value) => value + 1)}
+        />
+      )}
+      {undoSelection?.binding === binding && !undoSession && (
+        <p role="status">
+          Finish retained Undo reviews before opening another change set.
+        </p>
+      )}
     </div>
   );
 }

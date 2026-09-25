@@ -752,6 +752,23 @@ def _p4_workspace_folder(name: str) -> Path:
     return scoped_workspace_path(parent, name)
 
 
+def _p4_registered_folder(resource_id: str, workspace) -> Path:
+    """Resolve only disposable fixture workspaces, including local drafts."""
+    from row_bot.developer import storage
+    from row_bot.developer.review import scoped_workspace_path
+    folder = Path(workspace.path).absolute()
+    name = folder.name
+    if name.startswith("Draft-") and name[6:].replace("-", "").isalnum():
+        drafts = scoped_workspace_path(predecessor.DATA / "attachment-workspace" / "Drafts")
+        expected = scoped_workspace_path(drafts, name)
+    else:
+        expected = _p4_workspace_folder(name)
+    if (folder != expected.absolute()
+            or storage._workspace_id_for_path(expected) != resource_id):
+        raise HTTPException(status_code=404, detail="Unknown synthetic workspace")
+    return expected
+
+
 @app.post("/__p4_fixture/workspace-save-failure/{folder_name}")
 def p4_workspace_save_failure(folder_name: str, x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)
@@ -792,10 +809,11 @@ def p4_workspace_state(resource_id: str, x_fixture_token: str = Header(default="
     with _p4_workspace_lock:
         name = _p4_workspace_names.get(resource_id)
     if workspace is not None:
-        name = Path(workspace.path).name
+        folder = _p4_registered_folder(resource_id, workspace)
+        name = folder.name
     if not name:
         raise HTTPException(status_code=404, detail="Unknown synthetic workspace")
-    folder = _p4_workspace_folder(name)
+    folder = _p4_registered_folder(resource_id, workspace) if workspace is not None else _p4_workspace_folder(name)
     if (storage._workspace_id_for_path(folder) != resource_id
             or workspace is not None and Path(workspace.path).absolute() != folder.absolute()):
         raise HTTPException(status_code=404, detail="Unknown synthetic workspace")
@@ -819,7 +837,7 @@ def p4_seed_repository(resource_id: str, x_fixture_token: str = Header(default="
     workspace = storage.get_workspace(resource_id)
     if workspace is None or workspace.origin_conversation_id is None:
         raise HTTPException(status_code=404, detail="Unknown synthetic workspace")
-    folder = _p4_workspace_folder(Path(workspace.path).name)
+    folder = _p4_registered_folder(resource_id, workspace)
     marker = folder / "repository-fixture.txt"
     if not (folder / ".git").exists():
         marker.write_text("Synthetic repository fixture\n", encoding="utf-8")

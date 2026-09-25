@@ -1,4 +1,4 @@
-/** Search metadata only. Settings navigation follows the NiceGUI owner order. */
+/** Settings navigation categories; leaf routes retain their existing identities. */
 export const settingsGroups = [
   {
     id: 'models',

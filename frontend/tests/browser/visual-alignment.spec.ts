@@ -139,7 +139,7 @@ test('Home is workflow-focused and New chat creates exactly once without setup',
   ).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Recent conversations', exact: true }),
-  ).toHaveCount(0);
+  ).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
@@ -148,7 +148,7 @@ test('Home is workflow-focused and New chat creates exactly once without setup',
   ).toBeVisible();
   await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
   await expect(
-    page.getByRole('region', { name: 'Monitor', exact: true }),
+    page.getByRole('region', { name: 'System Monitor', exact: true }),
   ).toBeVisible();
   await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
   expect(creates).toEqual([]);
@@ -229,6 +229,7 @@ test('Home and Back preserve the same running producer, mounted composer and uns
 test('explicit Deck opens automatically, persists close through revisit/reload, and reopens the same binding', async ({
   page,
 }, info) => {
+  page.setDefaultTimeout(10_000);
   const id = await newConversation(page);
   await composer(page).fill('Draft with a Deck');
   await markWorkspaceIdentity(page);
@@ -258,8 +259,11 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
   await page
-    .locator('.resource-chips')
-    .getByRole('button', { name: 'Automatic presentation Deck', exact: true })
+    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('button', {
+      name: 'Automatic presentation Deck Design',
+      exact: true,
+    })
     .click();
   await expect(
     page.getByRole('region', { name: 'Design preview', exact: true }),

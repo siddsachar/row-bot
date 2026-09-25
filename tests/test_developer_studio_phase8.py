@@ -5,7 +5,7 @@ import sys
 from types import SimpleNamespace
 
 
-def _fresh_modules(tmp_path, monkeypatch):
+def _fresh_modules(tmp_path, monkeypatch, *, offline_fallback=True):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     for name in [
         "plugins.registry",
@@ -20,7 +20,14 @@ def _fresh_modules(tmp_path, monkeypatch):
     import row_bot.developer.tool_capsules as capsules
 
     importlib.reload(storage)
-    return importlib.reload(capsules)
+    capsules = importlib.reload(capsules)
+    if offline_fallback:
+        # Builder paths request AI by default; exercise their offline fallback.
+        def unavailable_proposal(*_args, **_kwargs):
+            raise RuntimeError("No live model in deterministic Custom Tool tests")
+
+        monkeypatch.setattr(capsules, "generate_custom_tool_proposal_with_llm", unavailable_proposal)
+    return capsules
 
 
 def test_tool_capsules_register_public_sources_without_hidden_gate(tmp_path, monkeypatch):
@@ -180,7 +187,7 @@ def test_custom_tool_generator_infers_tldr_repo_commands(tmp_path, monkeypatch):
 
 
 def test_custom_tool_ai_generator_uses_repo_brief_and_validates_commands(tmp_path, monkeypatch):
-    capsules = _fresh_modules(tmp_path, monkeypatch)
+    capsules = _fresh_modules(tmp_path, monkeypatch, offline_fallback=False)
     install_path = tmp_path / "public-apis"
     install_path.mkdir()
     (install_path / "README.md").write_text(

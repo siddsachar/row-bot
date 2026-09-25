@@ -135,7 +135,10 @@ export function BuddyAvatar({
     }
     return () => {
       abort.abort();
-      urls.forEach((url) => URL.revokeObjectURL(url));
+      // The old image/video may still reference these URLs until React commits
+      // the fallback source. Release them after that paint.
+      const revoke = URL.revokeObjectURL.bind(URL);
+      requestAnimationFrame(() => urls.forEach((url) => revoke(url)));
     };
   }, [
     loadMedia,

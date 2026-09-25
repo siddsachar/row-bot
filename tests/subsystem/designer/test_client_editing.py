@@ -320,9 +320,10 @@ process.stdout.write(JSON.stringify({messages, text: el.textContent}));
 dom.window.close();
 '''
     replacement = 'é' * 10000 if oversized else '<b>New &amp; complete text</b>'
+    # The full Windows matrix can delay Node startup; validate the output, not startup speed.
     result = subprocess.run([node, '-e', script], input=json.dumps({'html': preview.html, 'replacement': replacement}),
                             cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True,
-                            encoding='utf-8', timeout=15, check=False)
+                            encoding='utf-8', timeout=60, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     actual = json.loads(result.stdout)
     messages = actual['messages']

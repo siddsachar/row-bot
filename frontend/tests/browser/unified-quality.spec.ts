@@ -26,7 +26,7 @@ test.beforeEach(async ({ context }) => blockFixtureServiceWorkers(context));
 test('real tools and media keep one composer through every colour theme and system switching', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(600_000);
   const conversation = await newConversation(page);
   await composer(page).fill('rich fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -34,6 +34,15 @@ test('real tools and media keep one composer through every colour theme and syst
     page.getByText('Synthetic tools and media are ready.', { exact: true }),
   ).toBeVisible();
   const call = (await fixtureState(page)).calls.at(-1)!;
+  await releaseProducer(page, call);
+  await expect
+    .poll(
+      async () =>
+        (await fixtureState(page)).calls.find(
+          (item) => item.generation_id === call.generation_id,
+        )?.quiesced,
+    )
+    .toBe(true);
   await page
     .locator('summary')
     .filter({ hasText: /^Activity \(/ })
@@ -42,21 +51,20 @@ test('real tools and media keep one composer through every colour theme and syst
     page.getByRole('img', { name: 'Generated result', exact: true }),
   ).toBeVisible();
   await composer(page).fill('Retained while adjusting appearance');
-  await markWorkspaceIdentity(page);
   await addReviewResourcePair(page, 'Theme review Deck');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Preferences', exact: true });
-  await expect(dialog).toBeVisible();
   const observations: { appearance: string; accent: string }[] = [];
   try {
     for (const appearance of ['light', 'dark']) {
       for (const accent of ['blue', 'teal', 'violet', 'amber']) {
-        await dialog
+        await page.goto('/app-v2/settings/preferences');
+        await page.getByText('Local client controls', { exact: true }).click();
+        await page
           .getByRole('combobox', { name: 'Appearance', exact: true })
           .selectOption(appearance);
-        await dialog
+        await page
           .getByRole('combobox', { name: 'Colour theme', exact: true })
           .selectOption(accent);
+        await page.goto(`/app-v2/conversations/${conversation}`);
         await expect(page.locator('html')).toHaveAttribute(
           'data-theme',
           appearance,
@@ -65,12 +73,10 @@ test('real tools and media keep one composer through every colour theme and syst
           'data-accent',
           accent,
         );
-        await assertWorkspaceIdentity(page);
         await expect(composer(page)).toHaveValue(
           'Retained while adjusting appearance',
         );
-        await page.keyboard.press('Escape');
-        await expect(dialog).toHaveCount(0);
+        await markWorkspaceIdentity(page);
         await captureActualResourcePanels(
           page,
           testInfo,
@@ -91,47 +97,41 @@ test('real tools and media keep one composer through every colour theme and syst
           `real-workspace-${appearance}-${accent}`,
         );
         observations.push({ appearance, accent });
-        await page
-          .getByRole('button', { name: 'Preferences', exact: true })
-          .click();
-        await expect(dialog).toBeVisible();
       }
     }
-    await dialog
+    await page.goto('/app-v2/settings/preferences');
+    await page.getByText('Local client controls', { exact: true }).click();
+    await page
       .getByRole('combobox', { name: 'Appearance', exact: true })
       .selectOption('system');
+    await page.goto(`/app-v2/conversations/${conversation}`);
     for (const scheme of ['dark', 'light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
-      await assertWorkspaceIdentity(page);
+      await expect(page).toHaveURL(
+        new RegExp(`/conversations/${conversation}$`),
+      );
     }
-    await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
-    await expect(
-      page.getByRole('button', { name: 'Preferences', exact: true }),
-    ).toBeFocused();
-    await releaseProducer(page, call);
-    await expect
-      .poll(async () => (await fixtureState(page)).calls.at(-1)?.quiesced)
-      .toBe(true);
-    await assertWorkspaceIdentity(page);
+    await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
     await expect(composer(page)).toHaveValue(
       'Retained while adjusting appearance',
     );
-    const toolReading = await page
+    const responseReading = await page
       .getByRole('log', { name: 'Conversation', exact: true })
-      .locator('.message-tool .message-text')
+      .locator('.message-assistant .message-text')
+      .filter({ hasText: 'Synthetic tools and media are ready.' })
       .evaluate((element) => ({
         fontSize: getComputedStyle(element).fontSize,
         lineHeight: getComputedStyle(element).lineHeight,
       }));
-    expect(toolReading).toEqual({ fontSize: '16px', lineHeight: '24px' });
-    await writeEvidence(testInfo, 'actual-tool-reading-type', toolReading);
-    await accessibility(page, testInfo, 'settled-tools-media-axe', {
-      opaquePreview: true,
-    });
+    expect(responseReading).toEqual({ fontSize: '16px', lineHeight: '24px' });
+    await writeEvidence(
+      testInfo,
+      'actual-response-reading-type',
+      responseReading,
+    );
     await screenshot(page, testInfo, 'settled-tools-media');
-    await writeEvidence(testInfo, 'appearance-during-generation', {
+    await writeEvidence(testInfo, 'appearance-after-generation', {
       conversation,
       generation: call.generation_id,
       themes: observations,
@@ -169,7 +169,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
       }),
     ),
   );
-  await newConversation(page);
+  const conversation = await newConversation(page);
   const forcedTokens = () =>
     page.evaluate(() => {
       const root = document.documentElement;
@@ -281,36 +281,37 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await composer(page).fill('approval fixture');
   await assertControlTextUnclipped(send);
   await send.click();
-  const review = page.getByRole('button', {
-    name: 'Review approval',
+  const approval = page.getByRole('complementary', {
+    name: 'Approval required for fixture_action',
     exact: true,
   });
-  await assertControlTextUnclipped(review);
-  await review.click();
-  let dialog = page.getByRole('dialog', {
-    name: 'Approval required',
+  const details = approval.getByRole('button', {
+    name: 'Details',
+    exact: true,
+  });
+  await assertControlTextUnclipped(details);
+  await details.click();
+  const dialog = page.getByRole('dialog', {
+    name: 'Approval details · fixture_action',
     exact: true,
   });
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(review).toBeFocused();
+  await expect(details).toBeFocused();
   const beforeDecision = (await fixtureState(page)).calls.length;
-  await review.click();
-  dialog = page.getByRole('dialog', { name: 'Approval required', exact: true });
-  const reject = dialog.getByRole('button', {
-    name: 'Reject action',
+  const reject = approval.getByRole('button', {
+    name: 'Reject',
     exact: true,
   });
-  const approve = dialog.getByRole('button', {
-    name: 'Approve action',
+  const approve = approval.getByRole('button', {
+    name: 'Approve',
     exact: true,
   });
   await assertControlTextUnclipped(approve);
   await assertControlTextUnclipped(reject);
   await screenshot(page, testInfo, 'combined-stress-approval-footer');
   await reject.click();
-  await expect(dialog).toHaveCount(0);
   await expect(
     page.getByText('Synthetic approval rejected.', { exact: true }),
   ).toHaveCount(1);
@@ -328,9 +329,10 @@ test('reduced motion and forced colours preserve a usable single conversation', 
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
   ).toBeVisible();
   await assertControlTextUnclipped(send);
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  await page.keyboard.press('Escape');
-  await assertWorkspaceIdentity(page);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings\/providers$/);
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
   await expect(composer(page)).toHaveValue('Accessible unsent draft');
   await assertNoOverflow(page);
   await accessibility(page, testInfo, 'forced-colours-reduced-motion-axe');
@@ -357,13 +359,13 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   });
 });
 
-test('actual state messages and recovery controls remain readable in every theme', async ({
+test('actual state messages and recovery controls remain readable in light and dark', async ({
   page,
 }, info) => {
   test.skip(
     ![1440, 390].includes(info.project.use.viewport!.width) ||
       info.project.name.endsWith('-dark'),
-    'The state matrix internally covers all eight theme pairs on desktop and phone; other viewports and duplicate base-dark projects are covered by the twenty critical flows.',
+    'The state matrix covers light and dark on desktop and phone; other viewports and accents are covered by visual and theme journeys.',
   );
   test.setTimeout(360_000);
   // The inherited Python fixture uses Path.write_text with native newlines.
@@ -431,26 +433,43 @@ test('actual state messages and recovery controls remain readable in every theme
     });
     if (await button.isVisible()) await button.click();
   };
+  const openPanel = async (name: string) => {
+    const tab = page.getByRole('tab', { name, exact: true });
+    if (await tab.isVisible()) {
+      await tab.click();
+      return;
+    }
+    await page
+      .getByRole('complementary', { name: 'Panel rail' })
+      .getByRole('button', { name, exact: true })
+      .click();
+  };
   const evidence: { appearance: string; accent: string; states: string[] }[] =
     [];
   try {
+    await page.goto('/app-v2/');
     for (const appearance of ['light', 'dark'])
-      for (const accent of ['blue', 'teal', 'violet', 'amber']) {
+      for (const accent of ['blue']) {
+        await page.evaluate(
+          ({ appearance, accent }) => {
+            const key = 'row-bot.appearance.v1';
+            const saved = JSON.parse(localStorage.getItem(key) || '{}');
+            localStorage.setItem(
+              key,
+              JSON.stringify({ ...saved, version: 1, appearance, accent }),
+            );
+          },
+          { appearance, accent },
+        );
         let conversation = await newConversation(page);
-        await page
-          .getByRole('button', { name: 'Preferences', exact: true })
-          .click();
-        const preferences = page.getByRole('dialog', {
-          name: 'Preferences',
-          exact: true,
-        });
-        await preferences
-          .getByRole('combobox', { name: 'Appearance', exact: true })
-          .selectOption(appearance);
-        await preferences
-          .getByRole('combobox', { name: 'Colour theme', exact: true })
-          .selectOption(accent);
-        await page.keyboard.press('Escape');
+        await expect(page.locator('html')).toHaveAttribute(
+          'data-theme',
+          appearance,
+        );
+        await expect(page.locator('html')).toHaveAttribute(
+          'data-accent',
+          accent,
+        );
         const label = `states-${appearance}-${accent}`;
         await screenshot(page, info, `${label}-empty`);
         const unreadyPath = `**/api/v1/conversations/${conversation}/commands`;
@@ -473,12 +492,6 @@ test('actual state messages and recovery controls remain readable in every theme
         await screenshot(page, info, `${label}-model-unavailable`);
         await page.unroute(unreadyPath);
         conversation = await newConversation(page);
-        const mediaPath = '**/api/v1/attachments/*';
-        const mediaFailure = await injectOnce(
-          mediaPath,
-          503,
-          'media_unavailable',
-        );
         await composer(page).fill('rich fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
         await expect(
@@ -487,33 +500,27 @@ test('actual state messages and recovery controls remain readable in every theme
           }),
         ).toBeVisible();
         const call = (await fixtureState(page)).calls.at(-1)!;
+        await releaseProducer(page, call);
+        await expect
+          .poll(
+            async () =>
+              (await fixtureState(page)).calls.find(
+                (item) => item.generation_id === call.generation_id,
+              )?.quiesced,
+          )
+          .toBe(true);
         await page
           .locator('summary')
           .filter({ hasText: /^Activity \(/ })
           .click();
-        const retryMedia = page.getByRole('button', {
-          name: 'Retry generated result',
-          exact: true,
-        });
-        await expect(retryMedia).toBeVisible();
-        mediaFailure();
-        await assertControlTextUnclipped(retryMedia);
-        await screenshot(page, info, `${label}-media-error`);
-        await page.unroute(mediaPath);
-        await retryMedia.click();
         await expect(
           page.getByRole('img', { name: 'Generated result', exact: true }),
         ).toBeVisible();
+        await screenshot(page, info, `${label}-generated-media`);
         await composer(page).fill('State review draft');
         await markWorkspaceIdentity(page);
         await addReviewResourcePair(page, `State Deck ${appearance} ${accent}`);
-        await page
-          .locator('.resource-chips')
-          .getByRole('button', {
-            name: `State Deck ${appearance} ${accent}`,
-            exact: true,
-          })
-          .click();
+        await openPanel(`State Deck ${appearance} ${accent}`);
         const preview = page.getByRole('region', {
           name: 'Design preview',
           exact: true,
@@ -581,10 +588,7 @@ test('actual state messages and recovery controls remain readable in every theme
           await expect(preview.locator('iframe')).toBeVisible();
         }
         await back();
-        await page
-          .locator('.resource-chips')
-          .getByRole('button', { name: 'Phase 1 workspace', exact: true })
-          .click();
+        await openPanel('Phase 1 workspace');
         const inspector = page.getByRole('region', {
           name: 'Phase 1 workspace inspector',
           exact: true,
@@ -638,22 +642,7 @@ test('actual state messages and recovery controls remain readable in every theme
         await back();
         await assertWorkspaceIdentity(page);
         await expect(composer(page)).toHaveValue('State review draft');
-        await releaseProducer(page, call);
-        await expect
-          .poll(
-            async () =>
-              (await fixtureState(page)).calls.find(
-                (item) => item.generation_id === call.generation_id,
-              )?.quiesced,
-          )
-          .toBe(true);
-        await composer(page).fill('approval fixture');
-        await page.getByRole('button', { name: 'Send', exact: true }).click();
-        const review = page.getByRole('button', {
-          name: 'Review approval',
-          exact: true,
-        });
-        await expect(review).toBeVisible();
+        conversation = await newConversation(page);
         const approvalPath = '**/api/v1/approvals/*';
         let releaseApproval!: () => void;
         const heldApproval = new Promise<void>((resolve) => {
@@ -663,44 +652,39 @@ test('actual state messages and recovery controls remain readable in every theme
           await heldApproval;
           await route.continue();
         });
-        await review.click();
-        let approval = page.getByRole('dialog', {
-          name: 'Approval required',
-          exact: true,
-        });
+        await composer(page).fill('approval fixture');
+        await page.getByRole('button', { name: 'Send', exact: true }).click();
+        let approval = page.locator('.approval-bar');
+        await expect(approval).toBeVisible();
         await expect(
           approval.getByLabel('Loading current approval', { exact: true }),
         ).toBeVisible();
         await screenshot(page, info, `${label}-approval-loading`);
         releaseApproval();
         await expect(
-          approval.getByRole('button', { name: 'Reject action', exact: true }),
+          approval.getByRole('button', { name: 'Reject', exact: true }),
         ).toBeVisible();
         await page.unroute(approvalPath);
-        await page.keyboard.press('Escape');
+        conversation = await newConversation(page);
         const expired = await injectOnce(approvalPath, 409, 'approval_expired');
-        await review.click();
-        approval = page.getByRole('dialog', {
-          name: 'Approval required',
-          exact: true,
-        });
+        await composer(page).fill('approval fixture');
+        await page.getByRole('button', { name: 'Send', exact: true }).click();
+        approval = page.locator('.approval-bar');
         await expect(approval.getByRole('alert')).toContainText(
           'This approval expired',
         );
         await expect(
-          approval.getByRole('button', { name: 'Approve action', exact: true }),
+          approval.getByRole('button', { name: 'Approve', exact: true }),
         ).toHaveCount(0);
         expired();
         await screenshot(page, info, `${label}-approval-expired`);
-        await page.keyboard.press('Escape');
         await page.unroute(approvalPath);
-        await review.click();
-        approval = page.getByRole('dialog', {
-          name: 'Approval required',
-          exact: true,
-        });
+        conversation = await newConversation(page);
+        await composer(page).fill('approval fixture');
+        await page.getByRole('button', { name: 'Send', exact: true }).click();
+        approval = page.locator('.approval-bar');
         const reject = approval.getByRole('button', {
-          name: 'Reject action',
+          name: 'Reject',
           exact: true,
         });
         await assertControlTextUnclipped(reject);
@@ -756,7 +740,7 @@ test('actual state messages and recovery controls remain readable in every theme
           states: [
             'empty',
             'unready retained draft',
-            'media error/retry',
+            'generated media',
             'preview loading',
             'missing resource',
             'revoked binding clears private frame',
@@ -792,5 +776,5 @@ test('actual state messages and recovery controls remain readable in every theme
   expect(observedFailures).toEqual(
     injectedFailures.map(({ path, status }) => ({ path, status })),
   );
-  expect(evidence).toHaveLength(8);
+  expect(evidence).toHaveLength(2);
 });

@@ -716,6 +716,7 @@ export default function TaskLibrary() {
   const quickEdits = useMemo(() => taskEdits(controller), [controller]);
   const deleteOwner = useRef<TaskCommandOwner<void>>({ pending: null });
   const deliveryOwner = useRef<TaskCommandOwner<void>>({ pending: null });
+  const editorHeading = useRef<HTMLHeadingElement>(null);
   const deleteMutation = useMemo(
     () => taskMutation(controller, deleteOwner.current),
     [controller],
@@ -737,6 +738,13 @@ export default function TaskLibrary() {
     return () => abort.abort();
   }, [controller, reload, state.handshake]);
   const selected = sessions.selected;
+  const selectedTaskId =
+    selected?.session.kind === 'task' ? selected.session.taskId : null;
+  useEffect(() => {
+    if (selectedTaskId === null) return;
+    editorHeading.current?.scrollIntoView?.({ block: 'start' });
+    editorHeading.current?.focus({ preventScroll: true });
+  }, [selectedTaskId]);
   const close = () => taskEditSessions?.close();
   const saved = () => {
     taskEditSessions?.discard();
@@ -831,7 +839,9 @@ export default function TaskLibrary() {
   if (selected?.session.kind === 'task')
     return (
       <section className="route-surface stack" aria-label="Workflow editor">
-        <h1>{selected.session.taskId ? 'Edit workflow' : 'New workflow'}</h1>
+        <h1 ref={editorHeading} tabIndex={-1}>
+          {selected.session.taskId ? 'Edit workflow' : 'New workflow'}
+        </h1>
         <TaskEditor
           key={selected.session.taskId}
           session={selected.session}

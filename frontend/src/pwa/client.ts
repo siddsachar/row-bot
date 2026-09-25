@@ -291,3 +291,6 @@ export class PwaClient {
     this.activationRequested = false;
   }
 }
+
+/** One browser presentation owner shared by the notice and System status. */
+export const appPwaClient = new PwaClient();

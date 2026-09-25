@@ -16,7 +16,7 @@ import { Brand, Button, Hint, Skeleton, Select } from '../../ui/primitives';
 import SearchConversations from './SearchConversations';
 import ConversationLibrary from './ConversationLibrary';
 
-const PREVIEW_COUNT = 10;
+const PREVIEW_COUNT = 5;
 
 /** Live store subscription also updates the compact modal's mounted content. */
 export default function Navigation({
@@ -128,28 +128,22 @@ export default function Navigation({
         variant="ghost"
         onClick={() =>
           overlay.open({
-            title: 'Search conversations',
-            description: 'Search titles and the complete saved public history.',
-            content: <SearchConversations />,
+            title: 'Browse conversations',
+            description: 'Search history or manage saved conversations.',
+            content: (
+              <div className="conversation-browser">
+                <SearchConversations />
+                <details>
+                  <summary>Manage saved conversations</summary>
+                  <ConversationLibrary controller={controller} />
+                </details>
+              </div>
+            ),
           })
         }
       >
         <Search size={16} aria-hidden />
-        Search conversations
-      </Button>
-      <Button
-        className="nav-library"
-        variant="ghost"
-        onClick={() =>
-          overlay.open({
-            title: 'All Conversations',
-            description:
-              'Filter, select and review saved conversations before deletion.',
-            content: <ConversationLibrary controller={controller} />,
-          })
-        }
-      >
-        Manage conversations
+        Browse conversations
       </Button>
       <Button
         id={sectionHeadingId}
@@ -301,11 +295,8 @@ export default function Navigation({
             Settings
           </Link>
         </div>
-        <div
-          className="nav-secondary-destinations"
-          role="group"
-          aria-label="Additional destinations"
-        >
+        <details className="nav-secondary-destinations">
+          <summary>About and developer utilities</summary>
           <a href="/" className="button ghost">
             Current application
           </a>
@@ -316,7 +307,7 @@ export default function Navigation({
           >
             Component gallery
           </Link>
-        </div>
+        </details>
       </footer>
     </nav>
   );

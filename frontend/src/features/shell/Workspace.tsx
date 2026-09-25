@@ -63,6 +63,7 @@ import useNewChat from './useNewChat';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import { canAutoOpenDesign } from './design-auto-open';
+import type { ResourceView } from '../../api/types';
 import ResourcePanel from '../panels/ResourcePanel';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
 import NativeTerminal from '../panels/NativeTerminal';
@@ -253,7 +254,10 @@ export default function Workspace() {
   } | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
   const autoOpenDesign = useEffectEvent(
-    (panel: (typeof samplePanels)[number]) => showPanel(panel),
+    (
+      panel: (typeof samplePanels)[number],
+      resources: readonly ResourceView[],
+    ) => showPanel(panel, undefined, resources),
   );
   const presentationScope = useRef({
     conversationId,
@@ -439,7 +443,10 @@ export default function Workspace() {
     void controller
       .workspaceFor(conversationId)
       .then((fresh) => {
-        if (controller.getSnapshot().selectedConversationId !== conversationId)
+        if (
+          fresh.conversation_id !== conversationId ||
+          controller.getSnapshot().selectedConversationId !== conversationId
+        )
           return;
         const currentDesign = fresh.resources.find(
           (item) => item.binding.kind === 'artifact',
@@ -480,14 +487,16 @@ export default function Workspace() {
             controller.getDraft(conversationId).text,
           )
         ) {
-          autoOpenDesign({
-            panel_kind: 'artifact.preview',
-            title: updated.title,
-            resource_ref: updated.resource_ref,
-            resource_kind: 'artifact',
-            resource_revision:
-              design?.resource_revision ?? updated.resource_revision,
-          });
+          autoOpenDesign(
+            {
+              panel_kind: 'artifact.preview',
+              title: updated.title,
+              resource_ref: updated.resource_ref,
+              resource_kind: 'artifact',
+              resource_revision: updated.resource_revision,
+            },
+            fresh.resources,
+          );
         } else {
           setCompletedDesign({
             conversation: conversationId,
@@ -532,8 +541,8 @@ export default function Workspace() {
               label: 'Home',
               keywords: 'start library',
               run: () => {
+                navigate('/', { replace: true });
                 overlay.close();
-                navigate('/');
               },
             },
             {
@@ -548,24 +557,24 @@ export default function Workspace() {
               label: 'Workflows',
               keywords: 'tasks reminders schedules',
               run: () => {
+                navigate('/?tab=workflows', { replace: true });
                 overlay.close();
-                navigate('/?tab=workflows');
               },
             },
             {
               label: 'Settings',
               keywords: 'configuration providers models',
               run: () => {
+                navigate('/settings/providers', { replace: true });
                 overlay.close();
-                navigate('/settings/providers');
               },
             },
             ...settingsLeaves.map((leaf) => ({
               label: `Open ${leaf.label} settings`,
               keywords: leaf.category,
               run: () => {
+                navigate(leaf.href, { replace: true });
                 overlay.close();
-                navigate(leaf.href);
               },
             })),
             ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
@@ -654,6 +663,7 @@ export default function Workspace() {
   function showPanel(
     panel: (typeof samplePanels)[number],
     opener?: HTMLElement | null,
+    resourceSnapshot?: readonly ResourceView[],
   ) {
     // Command contents stay mounted while the workspace can change breakpoint.
     // Read the current layout when the action runs, not when it was opened.
@@ -681,7 +691,7 @@ export default function Workspace() {
       ? reconcilePanelPresentation(currentLayout.current, {
           conversationId: target,
           activeConversationId: snapshot.selectedConversationId,
-          resources: snapshot.workspace?.resources ?? [],
+          resources: resourceSnapshot ?? snapshot.workspace?.resources ?? [],
           source: 'explicit',
           descriptor: panel,
         }).layout

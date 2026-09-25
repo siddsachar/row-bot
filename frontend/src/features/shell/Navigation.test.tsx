@@ -122,11 +122,11 @@ it('preserves the history entry when selecting the current canonical conversatio
   expect(onOpenConversation).toHaveBeenCalledTimes(2);
 });
 
-it('starts with ten ordered rows and expands without fetching or losing cursor access', async () => {
+it('starts with five ordered rows and expands without fetching or losing cursor access', async () => {
   const { list, transport } = await setup();
-  expect(rows()).toHaveLength(10);
+  expect(rows()).toHaveLength(5);
   expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(
-    transport.conversations.slice(0, 10).map(({ title }) => title),
+    transport.conversations.slice(0, 5).map(({ title }) => title),
   );
   expect(
     screen.queryByRole('button', { name: 'Load more conversations' }),
@@ -149,7 +149,7 @@ it('starts with ten ordered rows and expands without fetching or losing cursor a
     screen.queryByRole('button', { name: 'Load more conversations' }),
   ).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Show less' }));
-  expect(rows()).toHaveLength(10);
+  expect(rows()).toHaveLength(5);
   fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
   expect(rows()).toHaveLength(55);
   expect(list).toHaveBeenCalledTimes(2);
@@ -168,7 +168,7 @@ it('retains the selected older row through Show less and section collapse', asyn
     'conversation-13',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Show less' }));
-  expect(rows()).toHaveLength(11);
+  expect(rows()).toHaveLength(6);
   expect(rows().at(-1)).toHaveAttribute('aria-current', 'page');
   const heading = screen.getByRole('button', {
     name: 'Conversations',
@@ -185,7 +185,7 @@ it('retains the selected older row through Show less and section collapse', asyn
   expect(selected).toHaveLength(1);
   expect(selected[0]).toHaveAccessibleName('Sample conversation 13');
   fireEvent.click(heading);
-  expect(rows()).toHaveLength(11);
+  expect(rows()).toHaveLength(6);
   expect(controller.getSnapshot().selectedConversationId).toBe(
     'conversation-13',
   );
@@ -244,9 +244,15 @@ it('groups primary actions, conversations and secondary destinations for compact
     screen.getByRole('group', { name: 'Primary workspace actions' }),
   ).toBeVisible();
   expect(screen.getByRole('region', { name: 'Conversations' })).toBeVisible();
+  expect(screen.getByText('About and developer utilities')).toBeVisible();
   expect(
-    screen.getByRole('group', { name: 'Additional destinations' }),
-  ).toBeVisible();
+    screen.getByText('About and developer utilities').closest('details'),
+  ).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByText('About and developer utilities'));
+  expect(
+    screen.getByText('About and developer utilities').closest('details'),
+  ).toHaveAttribute('open');
+  expect(screen.getByRole('link', { name: 'Component gallery' })).toBeVisible();
 });
 
 it('supports an empty collapsible section without introducing commands or controls for nonexistent pages', async () => {

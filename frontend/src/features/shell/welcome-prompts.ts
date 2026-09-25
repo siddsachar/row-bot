@@ -7,3 +7,12 @@ export const EXAMPLE_PROMPTS = [
   'Research the latest AI agent trends and cite sources',
   'Check my upcoming calendar and prepare a daily plan',
 ] as const;
+
+export const EXAMPLE_LABELS = [
+  'Summarize documents',
+  'Plan a weekly brief',
+  'Design a landing page',
+  'Recall my projects',
+  'Research a topic',
+  'Prepare for today',
+] as const;

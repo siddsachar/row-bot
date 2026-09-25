@@ -229,26 +229,28 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                 {confirmation && (
                   <div className="dialog-body">{confirmation.content}</div>
                 )}
-                <footer className="dialog-footer">
-                  {confirmation ? (
-                    <>
-                      <Button ref={cancelRef} onClick={() => close()}>
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="danger"
-                        onClick={() => {
-                          confirmation.onConfirm?.();
-                          close();
-                        }}
-                      >
-                        {confirmation.confirmLabel ?? 'Confirm'}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button onClick={() => close()}>Close</Button>
-                  )}
-                </footer>
+                {(confirmation || task?.kind !== 'sheet') && (
+                  <footer className="dialog-footer">
+                    {confirmation ? (
+                      <>
+                        <Button ref={cancelRef} onClick={() => close()}>
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => {
+                            confirmation.onConfirm?.();
+                            close();
+                          }}
+                        >
+                          {confirmation.confirmLabel ?? 'Confirm'}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button onClick={() => close()}>Close</Button>
+                    )}
+                  </footer>
+                )}
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>

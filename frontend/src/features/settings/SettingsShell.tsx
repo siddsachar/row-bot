@@ -1,4 +1,10 @@
-import { useEffect, useRef, type ComponentType, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -21,8 +27,8 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { Field, Select } from '../../ui/primitives';
-import { settingsLeaves } from './model';
+import { Field, Input, Select } from '../../ui/primitives';
+import { searchSettings, settingsGroups, settingsLeaves } from './model';
 
 type SettingsLeaf = (typeof settingsLeaves)[number];
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
@@ -91,9 +97,15 @@ export default function SettingsShell({
   const navigate = useNavigate();
   const location = useLocation();
   const heading = useRef<HTMLHeadingElement>(null);
+  const [category, setCategory] = useState(leaf.category);
+  const [query, setQuery] = useState('');
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [location.pathname]);
+  useEffect(() => setCategory(leaf.category), [leaf.category]);
+  const visibleLeaves = query.trim()
+    ? searchSettings(query)
+    : settingsLeaves.filter((item) => item.category === category);
   return (
     <section className="settings-shell" aria-label="Settings">
       <header className="settings-shell-header">
@@ -124,8 +136,37 @@ export default function SettingsShell({
           className="settings-side-navigation"
           aria-label="Settings sections"
         >
-          <ul>
-            {settingsLeaves.map((item) => (
+          <label className="settings-navigation-search">
+            <span className="visually-hidden">Find a setting</span>
+            <Input
+              type="search"
+              placeholder="Find a setting"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <div
+            className="settings-category-list"
+            role="group"
+            aria-label="Settings categories"
+          >
+            {settingsGroups.map((group) => (
+              <button
+                className="settings-category"
+                type="button"
+                key={group.id}
+                aria-pressed={category === group.label && !query.trim()}
+                onClick={() => {
+                  setQuery('');
+                  setCategory(group.label);
+                }}
+              >
+                {group.label}
+              </button>
+            ))}
+          </div>
+          <ul aria-label={query.trim() ? 'Matching settings' : category}>
+            {visibleLeaves.map((item) => (
               <li key={item.id}>
                 <Link
                   to={item.href}
@@ -137,6 +178,9 @@ export default function SettingsShell({
               </li>
             ))}
           </ul>
+          {visibleLeaves.length === 0 && (
+            <p className="muted settings-no-results">No settings found.</p>
+          )}
         </nav>
         <div className="settings-page-content">
           <header className="settings-pane-header">

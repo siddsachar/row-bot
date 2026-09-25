@@ -82,6 +82,17 @@ it('exposes workflow prompts as a named accessible group', async () => {
   ).toBeVisible();
 });
 
+it('keeps optional scheduling choices behind a summary on a new workflow', () => {
+  render(<TaskEditor {...props()} />);
+  const summary = screen.getByText('Schedule and delivery');
+  const section = summary.closest('details');
+  expect(section).not.toHaveAttribute('open');
+  expect(summary).toHaveTextContent('No schedule · Workflow defaults · Off');
+  fireEvent.click(summary);
+  expect(section).toHaveAttribute('open');
+  expect(screen.getByLabelText('Schedule')).toBeVisible();
+});
+
 it('retains a new draft and settles create after an actual unmount without creating again', async () => {
   const session = new TaskEditSession('task');
   const response = deferred<TaskSaveResult>();

@@ -1,4 +1,10 @@
-import { useEffect, useRef, useSyncExternalStore, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from 'react';
 import {
   useTaskEditSession,
   useTaskEditValue,
@@ -83,6 +89,7 @@ export default function TaskEditor({
     'delivery',
     'inherit',
   );
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(taskId));
   const epoch = useRef(0);
   const pending = useRef(false);
 
@@ -402,120 +409,148 @@ export default function TaskEditor({
             )}
           </div>
         )}
-        <div className="field-row">
-          <Field label="Schedule">
-            <Select
-              value={scheduleKind}
-              onChange={(event) =>
-                setFields((current) => ({
-                  ...current,
-                  schedule:
-                    event.target.value === 'recurring' ? 'daily:09:00' : null,
-                  at: event.target.value === 'once' ? '' : null,
-                }))
+        <details
+          className="task-advanced"
+          open={advancedOpen}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary>
+            Schedule and delivery
+            <small>
+              {scheduleKind === 'manual'
+                ? 'No schedule'
+                : fields.schedule || fields.at || 'Scheduled'}
+              {' · '}
+              {delivery === 'inherit'
+                ? 'Workflow defaults'
+                : delivery === 'app'
+                  ? 'In app only'
+                  : 'Selected channels'}
+              {' · '}
+              {fields.enabled ? 'Enabled' : 'Off'}
+            </small>
+          </summary>
+          <div className="stack task-advanced-fields">
+            <div className="field-row">
+              <Field label="Schedule">
+                <Select
+                  value={scheduleKind}
+                  onChange={(event) =>
+                    setFields((current) => ({
+                      ...current,
+                      schedule:
+                        event.target.value === 'recurring'
+                          ? 'daily:09:00'
+                          : null,
+                      at: event.target.value === 'once' ? '' : null,
+                    }))
+                  }
+                >
+                  <option value="manual">No schedule</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="once">Once</option>
+                </Select>
+              </Field>
+              {scheduleKind === 'recurring' && (
+                <Field
+                  label="Recurring schedule"
+                  hint="Examples: daily:09:00, weekly:mon:09:00, interval:2, interval_minutes:30, cron:0 9 * * mon"
+                >
+                  <Input
+                    required
+                    maxLength={256}
+                    value={fields.schedule ?? ''}
+                    onChange={(event) => change('schedule', event.target.value)}
+                  />
+                </Field>
+              )}
+              {scheduleKind === 'once' && (
+                <Field
+                  label="Date and time"
+                  hint="Local time. A past date that has not run is scheduled immediately when enabled."
+                >
+                  <Input
+                    type="datetime-local"
+                    required
+                    value={fields.at ?? ''}
+                    onChange={(event) => change('at', event.target.value)}
+                  />
+                </Field>
+              )}
+            </div>
+            <Field
+              label="Delivery"
+              hint={
+                legacyDelivery
+                  ? 'This task retains a destination from the existing app. It is preserved when you save.'
+                  : 'Channel choices use their configured destinations and approval settings.'
               }
             >
-              <option value="manual">No schedule</option>
-              <option value="recurring">Recurring</option>
-              <option value="once">Once</option>
-            </Select>
-          </Field>
-          {scheduleKind === 'recurring' && (
-            <Field
-              label="Recurring schedule"
-              hint="Examples: daily:09:00, weekly:mon:09:00, interval:2, interval_minutes:30, cron:0 9 * * mon"
-            >
-              <Input
-                required
-                maxLength={256}
-                value={fields.schedule ?? ''}
-                onChange={(event) => change('schedule', event.target.value)}
-              />
+              <Select
+                disabled={legacyDelivery}
+                value={delivery}
+                onChange={(event) => {
+                  setDelivery(event.target.value);
+                  if (event.target.value === 'selected') {
+                    change(
+                      'channels',
+                      channelText
+                        .split(',')
+                        .map((value) => value.trim())
+                        .filter(Boolean),
+                    );
+                  } else
+                    change(
+                      'channels',
+                      event.target.value === 'inherit' ? null : [],
+                    );
+                }}
+              >
+                <option value="inherit">
+                  {legacyDelivery
+                    ? 'Saved destination'
+                    : 'Use workflow defaults'}
+                </option>
+                <option value="app">In app only</option>
+                <option value="selected">Selected channels</option>
+              </Select>
             </Field>
-          )}
-          {scheduleKind === 'once' && (
-            <Field
-              label="Date and time"
-              hint="Local time. A past date that has not run is scheduled immediately when enabled."
-            >
-              <Input
-                type="datetime-local"
-                required
-                value={fields.at ?? ''}
-                onChange={(event) => change('at', event.target.value)}
+            {delivery === 'selected' && (
+              <Field
+                label="Channel names"
+                hint="Comma-separated registered channel IDs, for example telegram, slack. Availability is checked when delivery runs."
+              >
+                <Input
+                  disabled={legacyDelivery}
+                  value={channelText}
+                  maxLength={2048}
+                  onChange={(event) => {
+                    setChannelText(event.target.value);
+                    change(
+                      'channels',
+                      event.target.value
+                        .split(',')
+                        .map((value) => value.trim())
+                        .filter(Boolean),
+                    );
+                  }}
+                />
+              </Field>
+            )}
+            <div className="field">
+              <span>Enabled</span>
+              <Toggle
+                label="Enabled"
+                checked={fields.enabled}
+                onChange={(event) => change('enabled', event.target.checked)}
               />
-            </Field>
-          )}
-        </div>
-        <Field
-          label="Delivery"
-          hint={
-            legacyDelivery
-              ? 'This task retains a destination from the existing app. It is preserved when you save.'
-              : 'Channel choices use their configured destinations and approval settings.'
-          }
-        >
-          <Select
-            disabled={legacyDelivery}
-            value={delivery}
-            onChange={(event) => {
-              setDelivery(event.target.value);
-              if (event.target.value === 'selected') {
-                change(
-                  'channels',
-                  channelText
-                    .split(',')
-                    .map((value) => value.trim())
-                    .filter(Boolean),
-                );
-              } else
-                change(
-                  'channels',
-                  event.target.value === 'inherit' ? null : [],
-                );
-            }}
-          >
-            <option value="inherit">
-              {legacyDelivery ? 'Saved destination' : 'Use workflow defaults'}
-            </option>
-            <option value="app">In app only</option>
-            <option value="selected">Selected channels</option>
-          </Select>
-        </Field>
-        {delivery === 'selected' && (
-          <Field
-            label="Channel names"
-            hint="Comma-separated registered channel IDs, for example telegram, slack. Availability is checked when delivery runs."
-          >
-            <Input
-              disabled={legacyDelivery}
-              value={channelText}
-              maxLength={2048}
-              onChange={(event) => {
-                setChannelText(event.target.value);
-                change(
-                  'channels',
-                  event.target.value
-                    .split(',')
-                    .map((value) => value.trim())
-                    .filter(Boolean),
-                );
-              }}
-            />
-          </Field>
-        )}
-        <div className="field">
-          <span>Enabled</span>
-          <Toggle
-            label="Enabled"
-            checked={fields.enabled}
-            onChange={(event) => change('enabled', event.target.checked)}
-          />
-          <small>
-            Enabled scheduled tasks use the existing scheduler. Saving does not
-            manually run a workflow.
-          </small>
-        </div>
+              <small>
+                Enabled scheduled tasks use the existing scheduler. Saving does
+                not manually run a workflow.
+              </small>
+            </div>
+          </div>
+        </details>
         {snapshot && (
           <p className="muted">
             Agent profile: {snapshot.agent_profile_id || 'Unspecified'}.

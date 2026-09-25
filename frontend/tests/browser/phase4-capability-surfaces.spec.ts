@@ -98,6 +98,12 @@ async function createResource(
   kind: 'deck' | 'workspace',
   name: string,
 ) {
+  if (
+    !(await page
+      .getByRole('button', { name: 'Add resource', exact: true })
+      .isVisible())
+  )
+    await page.getByRole('button', { name: 'Context', exact: true }).click();
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const dialog = page.getByRole('dialog', {
     name: 'Add resource',
@@ -109,15 +115,9 @@ async function createResource(
       .selectOption('workspace');
     await dialog
       .getByRole('combobox', { name: 'Folder setup', exact: true })
-      .selectOption('empty_folder');
+      .selectOption('draft_folder');
     await dialog
-      .getByRole('textbox', { name: 'New folder name', exact: true })
-      .fill(name);
-    await dialog
-      .getByRole('button', { name: 'Choose parent folder', exact: true })
-      .click();
-    await dialog
-      .getByRole('button', { name: 'Create empty workspace', exact: true })
+      .getByRole('button', { name: 'Create draft code folder', exact: true })
       .click();
   } else {
     await dialog
@@ -167,30 +167,14 @@ test('Goals and Agent Profiles use reviewed mutations and survive a reload', asy
     .getByLabel('Goal objective', { exact: true })
     .fill('Verify the isolated Phase 4 capability surfaces');
   await goals.getByLabel('Maximum turns', { exact: true }).fill('12');
-  await goals
-    .getByRole('button', { name: 'Review start goal', exact: true })
-    .click();
-  const review = owner.getByRole('region', {
-    name: 'Goal or profile change review',
-    exact: true,
-  });
-  await expect(review).toContainText('Goal action: start.');
-  await visualCheck(page, info, 'goal-start-review');
-  await review
-    .getByRole('button', { name: 'Apply reviewed change', exact: true })
-    .click();
+  await goals.getByRole('button', { name: 'Start goal', exact: true }).click();
   await expect(goals.getByText(/active · 0 of 12 turns/)).toBeVisible();
+  await visualCheck(page, info, 'goal-started');
 
   await goals
     .getByLabel('Reason for goal status change', { exact: true })
     .fill('Pause after the verified browser checkpoint.');
-  await goals
-    .getByRole('button', { name: 'Review pause', exact: true })
-    .click();
-  await expect(review).toContainText('Goal action: pause.');
-  await review
-    .getByRole('button', { name: 'Apply reviewed change', exact: true })
-    .click();
+  await goals.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect(goals.getByText(/paused · 0 of 12 turns/)).toBeVisible();
 
   const avatar = page.locator('.navigation .buddy-avatar').first();
@@ -245,14 +229,11 @@ test('Goals and Agent Profiles use reviewed mutations and survive a reload', asy
       'Use deterministic fixture data and do not contact external services.',
     );
   await owner
-    .getByRole('button', { name: 'Review create profile', exact: true })
-    .click();
-  await expect(review).toContainText('Profile action: create.');
-  await visualCheck(page, info, 'profile-create-review');
-  await review
-    .getByRole('button', { name: 'Apply reviewed change', exact: true })
+    .getByRole('group', { name: 'Create profile', exact: true })
+    .getByRole('button', { name: 'Create profile', exact: true })
     .click();
   await expect(profiles.getByText(displayName, { exact: true })).toBeVisible();
+  await visualCheck(page, info, 'profile-created');
 
   expect(
     (await fixtureState(page)).calls.filter(
@@ -283,7 +264,7 @@ test('retained settings expose real capability state without leaving the unified
     path: '/app-v2/settings/voice',
   });
   await expect(
-    page.getByText(/Opening this page never starts a microphone/),
+    page.getByRole('region', { name: 'Talk', exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText('This setting is available in the current application.'),
@@ -293,7 +274,7 @@ test('retained settings expose real capability state without leaving the unified
     label: 'Accounts',
     path: '/app-v2/settings/accounts',
   });
-  await expect(page.getByText(/reviewed sign-in controls/)).toBeVisible();
+  await expect(page.getByText('GitHub', { exact: true })).toBeVisible();
   await visualCheck(page, info, 'retained-accounts-settings');
 
   await openSettingThroughCommands(page, {
@@ -301,10 +282,7 @@ test('retained settings expose real capability state without leaving the unified
     path: '/app-v2/settings/tracker',
   });
   await expect(
-    page.getByRole('heading', {
-      name: 'Tracker tool in conversations',
-      exact: true,
-    }),
+    page.getByRole('heading', { name: 'Tracker Tool', exact: true }),
   ).toBeVisible();
 
   await openSettingThroughCommands(page, {
@@ -312,14 +290,16 @@ test('retained settings expose real capability state without leaving the unified
     path: '/app-v2/settings/utilities',
   });
   await expect(
-    page.getByRole('link', { name: 'Browse utility tools', exact: true }),
+    page.getByRole('heading', { name: 'Utility Tools', exact: true }),
   ).toBeVisible();
 
   await openSettingThroughCommands(page, {
     label: 'System',
     path: '/app-v2/settings/system',
   });
-  await expect(page.getByText(/does not broaden filesystem/)).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Workspace Folder' }),
+  ).toBeVisible();
   await visualCheck(page, info, 'retained-system-settings');
   await page.reload();
   await expect(
@@ -347,6 +327,7 @@ test('retained settings expose real capability state without leaving the unified
 
 test('managed browser uses one reviewed live-control panel with sanitized recovery state', async ({
   page,
+  evidence,
 }, info) => {
   test.setTimeout(180_000);
   const conversation = await newConversation(page);
@@ -373,17 +354,10 @@ test('managed browser uses one reviewed live-control panel with sanitized recove
     .getByLabel('Address', { exact: true })
     .fill('https://example.test/start?token=browser-fixture-secret');
   await browser
-    .getByRole('button', { name: 'Review address', exact: true })
-    .click();
-  const review = browser.getByText('Review browser action', { exact: true });
-  await expect(review).toBeVisible();
-  await expect(browser).toContainText('https://example.test/start');
-  await expect(browser).not.toContainText('browser-fixture-secret');
-  await visualCheck(page, info, 'managed-browser-review');
-  await browser
-    .getByRole('button', { name: 'Open reviewed address', exact: true })
+    .getByRole('button', { name: 'Open address', exact: true })
     .click();
   await expect(browser.getByText('Open address completed.')).toBeVisible();
+  await visualCheck(page, info, 'managed-browser-opened');
   await expect(browser.getByText(/Site:/)).toBeVisible();
   await expect(browser).toContainText('https://example.test/start');
   await expect(browser).not.toContainText('browser-fixture-secret');
@@ -416,12 +390,33 @@ test('managed browser uses one reviewed live-control panel with sanitized recove
     draft_retained: true,
     provider_calls: 0,
   });
+  expect(
+    evidence.network.filter(
+      (entry) =>
+        entry.event === 'response' &&
+        entry.path.endsWith('/browser/preview') &&
+        entry.status === 503,
+    ),
+  ).toHaveLength(2);
+  if (info.project.use.browserName === 'chromium')
+    info.annotations.push({
+      type: 'expected-console-error',
+      description: JSON.stringify({
+        signature:
+          'Failed to load resource: the server responded with a status of 503 (Service Unavailable)',
+        count: 2,
+        owner: 'Phase 4 managed browser fixture',
+        fixture:
+          'Browser preview returns 503 before and after reload; the panel shows a recoverable Picture unavailable state.',
+      }),
+    });
 });
 
 test('Developer repository, worktree, and sandbox changes use the bound workspace owner', async ({
   page,
 }, info) => {
   test.setTimeout(240_000);
+  page.setDefaultTimeout(10_000);
   const conversation = await newConversation(page);
   await composer(page).fill('Retained Developer repository draft');
   const name = `phase4-repository-${conversation}`;
@@ -432,11 +427,25 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     { headers: fixtureHeaders() },
   );
   expect(seeded.ok()).toBe(true);
+  await screenshot(page, info, 'developer-before-opening-detail');
+
+  const inspector = page.getByRole('region', { name: / inspector$/ });
+  await expect(inspector).toBeVisible();
+  const advanced = page.locator('summary').filter({
+    hasText: 'Workspace tools and settings',
+  });
+  await expect(advanced).toBeVisible();
+  await advanced.click();
+  await page
+    .getByRole('button', { name: 'Repository controls', exact: true })
+    .click();
 
   const repository = page.getByRole('region', {
     name: 'Developer repository controls',
     exact: true,
   });
+  await expect(repository).toBeVisible();
+  await screenshot(page, info, 'developer-repository-controls');
   await repository
     .getByRole('button', { name: 'Refresh', exact: true })
     .click();
@@ -444,33 +453,13 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     repository.getByText('main · Clean', { exact: true }),
   ).toBeVisible();
   await expect(
-    repository.getByRole('button', { name: 'Review push', exact: true }),
+    repository.getByRole('button', { name: 'Push branch', exact: true }),
   ).toBeDisabled();
 
   const branch = `phase4-${conversation.slice(0, 8)}`;
   await repository.getByLabel('Branch name', { exact: true }).fill(branch);
   await repository
-    .getByRole('button', { name: 'Review new branch', exact: true })
-    .click();
-  const review = repository.getByRole('article', {
-    name: 'Reviewed repository change',
-    exact: true,
-  });
-  await expect(review).toContainText('developer.repository.branch.create');
-  await review
-    .getByRole('button', { name: 'Cancel review', exact: true })
-    .click();
-  await expect(
-    repository.getByText('main · Clean', { exact: true }),
-  ).toBeVisible();
-  await repository
-    .getByRole('button', { name: 'Review new branch', exact: true })
-    .click();
-  await review
-    .getByRole('button', {
-      name: 'Apply reviewed repository change',
-      exact: true,
-    })
+    .getByRole('button', { name: 'Create branch', exact: true })
     .click();
   await expect(
     repository.getByText(`${branch} · Clean`, { exact: true }),
@@ -480,30 +469,16 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     .getByLabel('Worktree objective', { exact: true })
     .fill('Isolated browser worktree');
   await repository
-    .getByRole('button', { name: 'Review managed worktree', exact: true })
-    .click();
-  await expect(review).toContainText('developer.repository.worktree.create');
-  await visualCheck(page, info, 'developer-worktree-review');
-  await review
-    .getByRole('button', {
-      name: 'Apply reviewed repository change',
-      exact: true,
-    })
+    .getByRole('button', { name: 'Create managed worktree', exact: true })
     .click();
   await expect(repository.getByText(/active · preserve/)).toBeVisible();
+  await visualCheck(page, info, 'developer-worktree-created');
   await repository
     .getByLabel('Preservation reason', { exact: true })
     .fill('Keep the disposable verification result.');
   await repository
     .getByRole('button', {
-      name: 'Review worktree preservation',
-      exact: true,
-    })
-    .click();
-  await expect(review).toContainText('developer.repository.worktree.preserve');
-  await review
-    .getByRole('button', {
-      name: 'Apply reviewed repository change',
+      name: 'Preserve worktree',
       exact: true,
     })
     .click();
@@ -519,23 +494,28 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     .getByLabel('Sandbox image', { exact: true })
     .fill('row-bot-fixture:local');
   await repository
-    .getByRole('button', { name: 'Review sandbox settings', exact: true })
-    .click();
-  await expect(review).toContainText('developer.repository.sandbox.configure');
-  await review
-    .getByRole('button', {
-      name: 'Apply reviewed repository change',
-      exact: true,
-    })
+    .getByRole('button', { name: 'Save sandbox settings', exact: true })
     .click();
   await expect(
+    repository.getByRole('combobox', { name: 'Execution mode' }),
+  ).toHaveValue('docker');
+  await expect(
     repository.getByRole('button', {
-      name: 'Review sandbox rebuild',
+      name: 'Rebuild sandbox',
       exact: true,
     }),
   ).toBeEnabled();
 
   await page.reload();
+  await page
+    .locator('summary')
+    .filter({
+      hasText: 'Workspace tools and settings',
+    })
+    .click();
+  await page
+    .getByRole('button', { name: 'Repository controls', exact: true })
+    .click();
   await expect(
     repository.getByText(`${branch} · Clean`, { exact: true }),
   ).toBeVisible();
@@ -651,8 +631,15 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   page,
 }, info) => {
   test.setTimeout(180_000);
+  page.setDefaultTimeout(10_000);
   const conversation = await newConversation(page);
   await composer(page).fill('Retained conversation actions draft');
+  if (
+    !(await page
+      .getByRole('button', { name: 'Conversation actions', exact: true })
+      .isVisible())
+  )
+    await page.getByRole('button', { name: 'Context', exact: true }).click();
   await page
     .getByRole('button', { name: 'Conversation actions', exact: true })
     .click();
@@ -673,31 +660,14 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   ).toBeVisible();
   const renamed = `Phase 4 actions ${conversation.slice(0, 8)}`;
   await actions.getByLabel('Conversation name', { exact: true }).fill(renamed);
-  await actions
-    .getByRole('button', { name: 'Review rename', exact: true })
-    .click();
-  const review = actions.getByRole('region', {
-    name: 'Conversation action review',
-    exact: true,
-  });
-  await expect(review).toContainText('Rename this conversation');
-  await visualCheck(page, info, 'conversation-rename-review');
-  await review
-    .getByRole('button', { name: 'Apply reviewed action', exact: true })
-    .click();
+  await actions.getByRole('button', { name: 'Rename', exact: true }).click();
   await expect(
     actions.getByText('Conversation action completed.'),
   ).toBeVisible();
 
-  await actions
-    .getByRole('button', { name: 'Review pin', exact: true })
-    .click();
-  await expect(review).toContainText('Pin this conversation.');
-  await review
-    .getByRole('button', { name: 'Apply reviewed action', exact: true })
-    .click();
+  await actions.getByRole('button', { name: 'Pin', exact: true }).click();
   await expect(
-    actions.getByRole('button', { name: 'Review unpin', exact: true }),
+    actions.getByRole('button', { name: 'Unpin', exact: true }),
   ).toBeVisible();
   await expect(actions.getByText(/Archive is unavailable/)).toBeVisible();
   await visualCheck(page, info, 'conversation-actions-pinned');
@@ -715,6 +685,12 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   await expect(
     page.getByRole('heading', { name: renamed, exact: true }),
   ).toBeVisible();
+  if (
+    !(await page
+      .getByRole('button', { name: 'Conversation actions', exact: true })
+      .isVisible())
+  )
+    await page.getByRole('button', { name: 'Context', exact: true }).click();
   await page
     .getByRole('button', { name: 'Conversation actions', exact: true })
     .click();
@@ -733,16 +709,10 @@ test('Conversation actions rename, pin, and export through one recoverable overl
     actions.getByLabel('Conversation name', { exact: true }),
   ).toHaveValue(renamed);
   await expect(
-    actions.getByRole('button', { name: 'Review unpin', exact: true }),
+    actions.getByRole('button', { name: 'Unpin', exact: true }),
   ).toBeVisible();
 
-  await actions
-    .getByRole('button', { name: 'Review export', exact: true })
-    .click();
-  await expect(review).toContainText('local Markdown copy');
-  await review
-    .getByRole('button', { name: 'Apply reviewed action', exact: true })
-    .click();
+  await actions.getByRole('button', { name: 'Export', exact: true }).click();
   const downloadButton = actions.getByRole('button', {
     name: 'Download conversation export',
     exact: true,

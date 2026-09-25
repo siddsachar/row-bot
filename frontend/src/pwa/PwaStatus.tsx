@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Button } from '../ui/primitives';
-import { PwaClient } from './client';
+import { appPwaClient, PwaClient } from './client';
 
 export default function PwaStatus({ client }: { client?: PwaClient }) {
-  const owned = useMemo(() => client ?? new PwaClient(), [client]);
+  const owned = client ?? appPwaClient;
   const state = useSyncExternalStore(
     owned.subscribe,
     owned.getSnapshot,
@@ -16,7 +16,6 @@ export default function PwaStatus({ client }: { client?: PwaClient }) {
   }, [owned]);
   const visible =
     state.phase === 'offline' ||
-    state.phase === 'error' ||
     state.updateAvailable ||
     state.installAvailable ||
     Boolean(actionError);
@@ -32,8 +31,6 @@ export default function PwaStatus({ client }: { client?: PwaClient }) {
       <span role="status" aria-live="polite">
         {state.phase === 'offline' &&
           'Row-Bot is offline. Your unsent draft stays on this device.'}
-        {state.phase === 'error' &&
-          'Install and offline support are unavailable in this browser.'}
         {actionError}
       </span>
       {state.installAvailable && (

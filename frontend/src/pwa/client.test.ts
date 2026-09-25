@@ -93,6 +93,18 @@ it('keeps registration denial nonfatal and observable', async () => {
   client.dispose();
 });
 
+it('keeps a noncritical registration failure out of the way while warning when offline', async () => {
+  const value = fixture();
+  value.workers.register.mockRejectedValueOnce(new DOMException('Denied'));
+  const client = new PwaClient(value.environment);
+  render(createElement(PwaStatus, { client }));
+  await waitFor(() => expect(client.getSnapshot().phase).toBe('error'));
+  expect(screen.getByTestId('pwa-status')).not.toBeVisible();
+  value.setOnline(false);
+  value.event('offline');
+  expect(await screen.findByText(/unsent draft stays/i)).toBeVisible();
+});
+
 it('ignores a late registration result after its presentation owner is gone', async () => {
   const value = fixture();
   let resolve!: (registration: FakeRegistration) => void;

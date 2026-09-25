@@ -397,18 +397,6 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         </p>
       )}
       <p>
-        Read-only inspection ·{' '}
-        {current.policy.execution_mode === 'docker'
-          ? 'Docker execution'
-          : 'Local execution'}{' '}
-        · Approval: {current.policy.approval_mode} · Sandbox network:{' '}
-        {current.policy.sandbox_network}
-      </p>
-      <p className="muted">
-        Setup registers a folder. It does not install dependencies, start
-        processes, allocate a worktree or change source files.
-      </p>
-      <p>
         {current.is_git
           ? `Branch ${current.branch || 'unavailable'} · ${current.dirty ? 'Changes present' : 'Working tree clean'}`
           : 'Folder is not a Git repository'}
@@ -419,9 +407,98 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
           workspace remain separate.
         </p>
       )}
+      <details className="workspace-inspector-policy">
+        <summary>Workspace policy and setup</summary>
+        <p>
+          Read-only inspection ·{' '}
+          {current.policy.execution_mode === 'docker'
+            ? 'Docker execution'
+            : 'Local execution'}{' '}
+          · Approval: {current.policy.approval_mode} · Sandbox network:{' '}
+          {current.policy.sandbox_network}
+        </p>
+        <p className="muted">
+          Setup registers a folder. It does not install dependencies, start
+          processes, allocate a worktree or change source files.
+        </p>
+      </details>
 
       <section
         className="stack capability-section"
+        aria-label="Workspace files"
+      >
+        <h3>Files</h3>
+        <nav aria-label="Workspace folder location">
+          <Button variant="ghost" onClick={() => void loadDirectory('')}>
+            Workspace root
+          </Button>
+          {path && (
+            <>
+              <span> / {path}</span>
+              <Button
+                onClick={() =>
+                  void loadDirectory(path.split('/').slice(0, -1).join('/'))
+                }
+              >
+                Parent folder
+              </Button>
+            </>
+          )}
+        </nav>
+        {errors.directory && (
+          <ErrorState
+            title="Folder unavailable"
+            action={
+              <Button onClick={() => void loadDirectory(path)}>
+                Retry folder
+              </Button>
+            }
+          >
+            The folder may have changed or access may have been removed.
+          </ErrorState>
+        )}
+        {busy.directory && <Skeleton label="Loading folder" />}
+        <ul>
+          {listing?.items.map((item) => (
+            <li key={item.relative_path}>
+              <Button
+                variant="ghost"
+                aria-label={`${item.kind === 'directory' ? 'Open folder' : 'Preview file'} ${item.name}`}
+                onClick={() =>
+                  item.kind === 'directory'
+                    ? void loadDirectory(item.relative_path)
+                    : void loadFile(item.relative_path)
+                }
+              >
+                {item.kind === 'directory' ? `${item.name}/` : item.name}
+              </Button>
+            </li>
+          ))}
+        </ul>
+        {listing?.items.length === 0 && (
+          <p>This folder has no available entries.</p>
+        )}
+        {listing?.next_cursor && (
+          <Button
+            disabled={busy.directory}
+            onClick={() =>
+              void loadDirectory(
+                path,
+                listing.next_cursor ?? undefined,
+                listing.directory_revision,
+              )
+            }
+          >
+            More files in this folder
+          </Button>
+        )}
+        {listing && (
+          <p className="muted">Excluded: {listing.excluded.join(', ')}.</p>
+        )}
+      </section>
+
+      <section
+        className={`stack capability-section${current.changed_total === 0 ? ' workspace-changes-empty' : ''}`}
         aria-label="Workspace changes"
       >
         <h3>Changes ({current.changed_total})</h3>
@@ -484,7 +561,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
             More changed files
           </Button>
         )}
-        {changed && (
+        {changed && changed.items.length > 0 && (
           <Button
             variant="ghost"
             disabled={busy.changes}
@@ -575,11 +652,11 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         </section>
       )}
 
-      <section
-        className="stack capability-section"
+      <details
+        className="workspace-agent-changes"
         aria-label="Agent change sets"
       >
-        <h3>Agent changes</h3>
+        <summary>Agent changes</summary>
         <Button
           disabled={busy.summary || busy.ledger}
           onClick={() => void loadLedger(current.snapshot_revision)}
@@ -695,263 +772,197 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
             )}
           </section>
         )}
-      </section>
+      </details>
 
-      <section
-        className="stack capability-section"
-        aria-label="Workspace files"
-      >
-        <h3>Files</h3>
-        <nav aria-label="Workspace folder location">
-          <Button variant="ghost" onClick={() => void loadDirectory('')}>
-            Workspace root
-          </Button>
-          {path && (
-            <>
-              <span> / {path}</span>
-              <Button
-                onClick={() =>
-                  void loadDirectory(path.split('/').slice(0, -1).join('/'))
-                }
-              >
-                Parent folder
-              </Button>
-            </>
-          )}
-        </nav>
-        {errors.directory && (
-          <ErrorState
-            title="Folder unavailable"
-            action={
-              <Button onClick={() => void loadDirectory(path)}>
-                Retry folder
-              </Button>
-            }
-          >
-            The folder may have changed or access may have been removed.
-          </ErrorState>
-        )}
-        {busy.directory && <Skeleton label="Loading folder" />}
-        <ul>
-          {listing?.items.map((item) => (
-            <li key={item.relative_path}>
-              <Button
-                variant="ghost"
-                aria-label={`${item.kind === 'directory' ? 'Open folder' : 'Preview file'} ${item.name}`}
-                onClick={() =>
-                  item.kind === 'directory'
-                    ? void loadDirectory(item.relative_path)
-                    : void loadFile(item.relative_path)
-                }
-              >
-                {item.kind === 'directory' ? `${item.name}/` : item.name}
-              </Button>
-            </li>
-          ))}
-        </ul>
-        {listing?.items.length === 0 && (
-          <p>This folder has no available entries.</p>
-        )}
-        {listing?.next_cursor && (
-          <Button
-            disabled={busy.directory}
-            onClick={() =>
-              void loadDirectory(
-                path,
-                listing.next_cursor ?? undefined,
-                listing.directory_revision,
-              )
-            }
-          >
-            More files in this folder
-          </Button>
-        )}
-        {listing && (
-          <p className="muted">Excluded: {listing.excluded.join(', ')}.</p>
-        )}
-      </section>
-
-      <section
-        className="stack capability-section"
-        aria-label="Read-only file preview"
-      >
-        <h3>File preview{filePath ? `: ${filePath}` : ''}</h3>
-        {scopedEdit.capacity && (
-          <p role="alert">
-            The retained editor limit is full. Save or explicitly discard an
-            available draft before opening another file. Uncertain saves are
-            retained until resolved.
-          </p>
-        )}
-        {props.editableFile &&
-          props.saveFile &&
-          (filePath || selectedEditPath) && (
-            <Button
-              onClick={() => {
-                if (props.editSessions)
-                  props.editSessions.open(selectedEditPath || filePath);
-                else {
-                  if (!editPath) setEditPath(filePath);
-                  setEditorOpen(true);
-                }
-              }}
-            >
-              {selectedEditPath
-                ? `Resume edit: ${selectedEditPath}`
-                : 'Edit file'}
-            </Button>
-          )}
-        {props.editSessions &&
-          filePath &&
-          selectedEditPath &&
-          filePath !== selectedEditPath && (
-            <Button onClick={() => props.editSessions!.open(filePath)}>
-              Edit file: {filePath}
-            </Button>
-          )}
-        {props.editSessions &&
-          scopedEdit.paths
-            .filter((name) => name !== selectedEditPath)
-            .map((name) => (
-              <Button key={name} onClick={() => props.editSessions!.open(name)}>
-                Resume edit: {name}
-              </Button>
-            ))}
-        {selectedEditPath &&
-          editSession &&
-          props.editableFile &&
-          props.saveFile && (
-            <WorkspaceFileEditor
-              key={`${props.resourceId}:${selectedEditPath}`}
-              path={selectedEditPath}
-              session={editSession}
-              visible={props.visible && editOpen}
-              load={props.editableFile}
-              save={props.saveFile}
-              close={() =>
-                props.editSessions
-                  ? props.editSessions.close()
-                  : setEditorOpen(false)
-              }
-              discard={() => {
-                if (props.editSessions) {
-                  props.editSessions.discard();
-                  return;
-                }
-                setEditorOpen(false);
-                setEditPath('');
-              }}
-            />
-          )}
-        {errors.file && (
-          <ErrorState
-            title="File unavailable"
-            action={
-              <Button onClick={() => void loadFile(filePath)}>
-                Retry file
-              </Button>
-            }
-          >
-            The file could not be read. Select it again to check its current
-            revision.
-          </ErrorState>
-        )}
-        {busy.file && <Skeleton label="Loading file preview" />}
-        {!preview && !busy.file && <p>Select a file to read it here.</p>}
-        {preview && preview.status !== 'text' && (
-          <EmptyState
-            title={`File ${preview.status}`}
-            action={
-              <Button onClick={() => void loadFile(filePath)}>
-                Retry file
-              </Button>
-            }
-          >
-            A text preview is unavailable for this file.
-          </EmptyState>
-        )}
-        {preview?.status === 'text' && (
-          <>
-            <p>
-              {preview.size_bytes} bytes · Section at byte {fileOffset}
+      {(filePath || selectedEditPath || scopedEdit.capacity) && (
+        <section
+          className="stack capability-section"
+          aria-label="Read-only file preview"
+        >
+          <h3>File preview{filePath ? `: ${filePath}` : ''}</h3>
+          {scopedEdit.capacity && (
+            <p role="alert">
+              The retained editor limit is full. Save or explicitly discard an
+              available draft before opening another file. Uncertain saves are
+              retained until resolved.
             </p>
-            <pre
-              role="region"
-              className="code-sample"
-              style={{ minWidth: 0, maxWidth: '100%', overflow: 'auto' }}
-              tabIndex={0}
-              aria-label="File text"
-            >
-              {preview.text}
-            </pre>
-            {fileOffsets.length > 0 && (
+          )}
+          {props.editableFile &&
+            props.saveFile &&
+            (filePath || selectedEditPath) && (
               <Button
-                disabled={busy.file}
                 onClick={() => {
-                  const previous = fileOffsets[fileOffsets.length - 1];
-                  void loadFile(filePath, previous, preview.revision, true);
+                  if (props.editSessions)
+                    props.editSessions.open(selectedEditPath || filePath);
+                  else {
+                    if (!editPath) setEditPath(filePath);
+                    setEditorOpen(true);
+                  }
                 }}
               >
-                Previous file section
+                {selectedEditPath
+                  ? `Resume edit: ${selectedEditPath}`
+                  : 'Edit file'}
               </Button>
             )}
-            {fileOffset > 0 && (
-              <Button
-                disabled={busy.file}
-                onClick={() => void loadFile(filePath, 0, preview.revision)}
-              >
-                First file section
+          {props.editSessions &&
+            filePath &&
+            selectedEditPath &&
+            filePath !== selectedEditPath && (
+              <Button onClick={() => props.editSessions!.open(filePath)}>
+                Edit file: {filePath}
               </Button>
             )}
-            {preview.next_offset !== null && (
-              <Button
-                disabled={busy.file}
-                onClick={() =>
-                  void loadFile(
-                    filePath,
-                    preview.next_offset ?? undefined,
-                    preview.revision,
-                  )
+          {props.editSessions &&
+            scopedEdit.paths
+              .filter((name) => name !== selectedEditPath)
+              .map((name) => (
+                <Button
+                  key={name}
+                  onClick={() => props.editSessions!.open(name)}
+                >
+                  Resume edit: {name}
+                </Button>
+              ))}
+          {selectedEditPath &&
+            editSession &&
+            props.editableFile &&
+            props.saveFile && (
+              <WorkspaceFileEditor
+                key={`${props.resourceId}:${selectedEditPath}`}
+                path={selectedEditPath}
+                session={editSession}
+                visible={props.visible && editOpen}
+                load={props.editableFile}
+                save={props.saveFile}
+                close={() =>
+                  props.editSessions
+                    ? props.editSessions.close()
+                    : setEditorOpen(false)
                 }
-              >
-                Next file section
-              </Button>
+                discard={() => {
+                  if (props.editSessions) {
+                    props.editSessions.discard();
+                    return;
+                  }
+                  setEditorOpen(false);
+                  setEditPath('');
+                }}
+              />
             )}
-          </>
-        )}
-      </section>
+          {errors.file && (
+            <ErrorState
+              title="File unavailable"
+              action={
+                <Button onClick={() => void loadFile(filePath)}>
+                  Retry file
+                </Button>
+              }
+            >
+              The file could not be read. Select it again to check its current
+              revision.
+            </ErrorState>
+          )}
+          {busy.file && <Skeleton label="Loading file preview" />}
+          {!preview && !busy.file && <p>Select a file to read it here.</p>}
+          {preview && preview.status !== 'text' && (
+            <EmptyState
+              title={`File ${preview.status}`}
+              action={
+                <Button onClick={() => void loadFile(filePath)}>
+                  Retry file
+                </Button>
+              }
+            >
+              A text preview is unavailable for this file.
+            </EmptyState>
+          )}
+          {preview?.status === 'text' && (
+            <>
+              <p>
+                {preview.size_bytes} bytes · Section at byte {fileOffset}
+              </p>
+              <pre
+                role="region"
+                className="code-sample"
+                style={{ minWidth: 0, maxWidth: '100%', overflow: 'auto' }}
+                tabIndex={0}
+                aria-label="File text"
+              >
+                {preview.text}
+              </pre>
+              {fileOffsets.length > 0 && (
+                <Button
+                  disabled={busy.file}
+                  onClick={() => {
+                    const previous = fileOffsets[fileOffsets.length - 1];
+                    void loadFile(filePath, previous, preview.revision, true);
+                  }}
+                >
+                  Previous file section
+                </Button>
+              )}
+              {fileOffset > 0 && (
+                <Button
+                  disabled={busy.file}
+                  onClick={() => void loadFile(filePath, 0, preview.revision)}
+                >
+                  First file section
+                </Button>
+              )}
+              {preview.next_offset !== null && (
+                <Button
+                  disabled={busy.file}
+                  onClick={() =>
+                    void loadFile(
+                      filePath,
+                      preview.next_offset ?? undefined,
+                      preview.revision,
+                    )
+                  }
+                >
+                  Next file section
+                </Button>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
-      <section aria-label="Workspace test status">
-        <h3>Detected checks</h3>
-        {current.commands.length ? (
-          <ul>
-            {current.commands.map((command) => (
-              <li key={`${command.kind}:${command.label}`}>
-                {command.label} · Not run
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No checks detected.</p>
-        )}
-        <p className="muted">
-          Running checks is unavailable in this read-only inspector.
-        </p>
-      </section>
-      <section aria-label="Workspace process status">
-        <h3>Managed processes</h3>
-        {current.processes.length ? (
-          <ul>
-            {current.processes.map((process) => (
-              <li key={process.pid}>
-                PID {process.pid} · {process.status}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No managed processes reported.</p>
-        )}
-      </section>
+      <details className="workspace-inspector-diagnostics">
+        <summary>Checks and processes</summary>
+        <section aria-label="Workspace test status">
+          <h3>Detected checks</h3>
+          {current.commands.length ? (
+            <ul>
+              {current.commands.map((command) => (
+                <li key={`${command.kind}:${command.label}`}>
+                  {command.label} · Not run
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No checks detected.</p>
+          )}
+          <p className="muted">
+            Running checks is unavailable in this read-only inspector.
+          </p>
+        </section>
+        <section aria-label="Workspace process status">
+          <h3>Managed processes</h3>
+          {current.processes.length ? (
+            <ul>
+              {current.processes.map((process) => (
+                <li key={process.pid}>
+                  PID {process.pid} · {process.status}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No managed processes reported.</p>
+          )}
+        </section>
+      </details>
       {current.todos.length > 0 && (
         <section aria-label="Workspace task progress">
           <h3>Task progress</h3>
