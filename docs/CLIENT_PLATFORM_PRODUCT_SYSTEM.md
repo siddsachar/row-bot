@@ -168,15 +168,20 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   glyphs; it expands into a step timeline with human verbs and the key
   argument, and step details load their paged result on demand. Live work shows
   one activity row with shimmer text; an approval card anchors to it and is
-  never hidden. Runtime errors and interrupted runs are callouts with the cause
-  and a next step (Resume, Retry, Switch model, Open providers, New chat).
+  never hidden. A step that failed or never ran is never worded as done
+  ("Couldn't read a file", "Didn't delete a file"; "1 tool skipped"). Runtime
+  errors and interrupted runs are callouts with the cause and a next step
+  (Resume, Retry, Switch model, Open providers, New chat); a stop that leaves
+  the last message unanswered offers Send again.
 - Each generated result renders once, inline with its turn; Context outputs link
   to it. Embeds use `.rich-block` cards with a header toolbar of 28px icon
   actions; charts take their colours from `--chart-series-*`.
 - The composer is one field (`.composer-field`, radius `--radius-composer`)
   that grows from a single 24px line to 240px. Chips appear inside it only when
   present. Left: `+` menu, model pill, approval shield; right: context ring,
-  dictation with a Talk chevron, send/stop (32px round). Status lines are
+  dictation with a Talk chevron, send/stop (32px round). The context ring is
+  neutral ink until it nears the compaction threshold. `/` opens commands and
+  `@` opens agent profiles, write targets and files. Status lines are
   announced, not printed, except a failed or conflicting draft. Floating
   composer menus (slash commands, model picker, Skills) open above the field
   and stay inside the viewport.
