@@ -1,9 +1,11 @@
 import { Fragment, useState, type JSX, type ReactNode } from 'react';
-import { saveTextDownload } from '../../platform/download';
-import { Button } from '../../ui/primitives';
+import { Check, Table } from 'lucide-react';
+import { Hint, IconButton } from '../../ui/primitives';
+import { CodeBlock } from './CodeBlock';
 
 const INLINE =
-  /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
+  /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])/g;
+const CITATION = /^\[?\^?(\d{1,3})\]?$/;
 
 function safeHref(value: string) {
   try {
@@ -14,6 +16,39 @@ function safeHref(value: string) {
   }
 }
 
+function domain(href: string) {
+  try {
+    const url = new URL(href);
+    return url.protocol === 'mailto:'
+      ? url.pathname
+      : url.hostname.replace(/^www\./, '');
+  } catch {
+    return href;
+  }
+}
+
+/** A numbered source chip: the number and the domain, full URL on hover. */
+function Citation({ number, href }: { number: string; href: string }) {
+  return (
+    <Hint label={href}>
+      <a
+        className="citation-chip"
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        aria-label={`Source ${number}: ${domain(href)}`}
+      >
+        <span className="citation-number" aria-hidden>
+          {number}
+        </span>
+        <span className="citation-domain" aria-hidden>
+          {domain(href)}
+        </span>
+      </a>
+    </Hint>
+  );
+}
+
 function inline(text: string): ReactNode[] {
   return text.split(INLINE).map((part, index) => {
     if (!part) return null;
@@ -22,9 +57,28 @@ function inline(text: string): ReactNode[] {
     const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(part);
     if (link) {
       const href = safeHref(link[2]);
+      const citation = CITATION.exec(link[1].trim());
+      if (href && citation && /^https?:/i.test(href))
+        return <Citation key={index} number={citation[1]} href={href} />;
+      return href ? (
+        <a
+          key={index}
+          href={href}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={domain(href)}
+        >
+          {link[1]}
+        </a>
+      ) : (
+        <Fragment key={index}>{part}</Fragment>
+      );
+    }
+    if (/^https?:\/\//i.test(part)) {
+      const href = safeHref(part);
       return href ? (
         <a key={index} href={href} target="_blank" rel="noreferrer noopener">
-          {link[1]}
+          {part}
         </a>
       ) : (
         <Fragment key={index}>{part}</Fragment>
@@ -79,52 +133,89 @@ function tableColumns(lines: string[], index: number) {
     : 0;
 }
 
-function CodeBlock({
-  language,
-  text,
+/** Plain cell text for CSV: inline Markdown markers removed. */
+function plainCell(value: string) {
+  return value
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, '$1')
+    .replace(/(\*\*|__|~~)/g, '')
+    .trim();
+}
+
+function csvField(value: string) {
+  return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+export function tableCsv(headers: string[], rows: string[][]) {
+  return [headers, ...rows]
+    .map((row) =>
+      headers
+        .map((_, index) => csvField(plainCell(row[index] ?? '')))
+        .join(','),
+    )
+    .join('\r\n');
+}
+
+/** A scrolling table with a sticky header and "Copy as CSV". */
+function MarkdownTable({
+  headers,
+  rows,
   copyText,
 }: {
-  language: string;
-  text: string;
+  headers: string[];
+  rows: string[][];
   copyText?: (value: string) => Promise<boolean>;
 }) {
   const [status, setStatus] = useState('');
-  const extension = /^[A-Za-z0-9_+-]{1,20}$/.test(language)
-    ? language.toLowerCase()
-    : 'txt';
   async function copy() {
     try {
-      setStatus(
-        (await (copyText ?? (async () => false))(text))
-          ? 'Code copied.'
-          : 'Copy is unavailable.',
+      const ok = await (copyText ?? (async () => false))(
+        tableCsv(headers, rows),
       );
+      setStatus(ok ? 'Table copied as CSV.' : 'Copy is unavailable.');
     } catch {
-      setStatus('Code could not be copied.');
+      setStatus('The table could not be copied.');
     }
   }
-  async function download() {
-    const result = await saveTextDownload(text, `code.${extension}`);
-    setStatus(
-      result.status === 'ok'
-        ? 'Code download prepared.'
-        : 'Code download is unavailable.',
-    );
-  }
   return (
-    <figure className="code-block">
-      <figcaption>
-        <span>{language || 'Plain text'}</span>
-        <span className="code-block-actions">
-          <Button onClick={() => void copy()}>Copy code</Button>
-          <Button onClick={() => void download()}>Download code</Button>
+    <div className="markdown-table">
+      <div className="markdown-table-scroll" tabIndex={0}>
+        <table>
+          <thead>
+            <tr>
+              {headers.map((header, cellIndex) => (
+                <th key={cellIndex}>{inline(header)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {headers.map((_, cellIndex) => (
+                  <td key={cellIndex}>{inline(row[cellIndex] ?? '')}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {copyText && (
+        <span className="markdown-table-tools">
+          <IconButton size="sm" label="Copy as CSV" onClick={() => void copy()}>
+            {status === 'Table copied as CSV.' ? (
+              <Check size={15} aria-hidden />
+            ) : (
+              <Table size={15} aria-hidden />
+            )}
+          </IconButton>
         </span>
-      </figcaption>
-      <pre className="code-sample">
-        <code data-language={language || undefined}>{text}</code>
-      </pre>
-      {status && <small role="status">{status}</small>}
-    </figure>
+      )}
+      {status && (
+        <small role="status" className="visually-hidden">
+          {status}
+        </small>
+      )}
+    </div>
   );
 }
 
@@ -144,6 +235,8 @@ export default function SafeMarkdown({
   let index = 0;
   while (index < lines.length) {
     const line = lines[index];
+    // Keys use the start line so a streaming block keeps its identity.
+    const start = index;
     if (!line.trim()) {
       index++;
       continue;
@@ -163,7 +256,7 @@ export default function SafeMarkdown({
           copyText={copyText}
           language={language}
           text={content.join('\n')}
-          key={`code-${index}`}
+          key={`code-${start}`}
         />,
       );
       continue;
@@ -173,13 +266,13 @@ export default function SafeMarkdown({
       const level = heading[1].length;
       const Heading = `h${level}` as keyof JSX.IntrinsicElements;
       blocks.push(
-        <Heading key={`heading-${index}`}>{inline(heading[2])}</Heading>,
+        <Heading key={`heading-${start}`}>{inline(heading[2])}</Heading>,
       );
       index++;
       continue;
     }
     if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      blocks.push(<hr key={`rule-${index}`} />);
+      blocks.push(<hr key={`rule-${start}`} />);
       index++;
       continue;
     }
@@ -188,7 +281,7 @@ export default function SafeMarkdown({
       while (index < lines.length && lines[index].trimStart().startsWith('>'))
         quote.push(lines[index++].trimStart().replace(/^>\s?/, ''));
       blocks.push(
-        <blockquote key={`quote-${index}`}>
+        <blockquote key={`quote-${start}`}>
           {quote.map((item, quoteIndex) => (
             <Fragment key={quoteIndex}>
               {quoteIndex > 0 && <br />}
@@ -211,9 +304,9 @@ export default function SafeMarkdown({
       }
       blocks.push(
         ordered ? (
-          <ol key={`list-${index}`}>{items}</ol>
+          <ol key={`list-${start}`}>{items}</ol>
         ) : (
-          <ul key={`list-${index}`}>{items}</ul>
+          <ul key={`list-${start}`}>{items}</ul>
         ),
       );
       continue;
@@ -230,26 +323,12 @@ export default function SafeMarkdown({
       )
         rows.push(cells(lines[index++]));
       blocks.push(
-        <div className="markdown-table-scroll" key={`table-${index}`}>
-          <table>
-            <thead>
-              <tr>
-                {headers.map((header, cellIndex) => (
-                  <th key={cellIndex}>{inline(header)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {headers.map((_, cellIndex) => (
-                    <td key={cellIndex}>{inline(row[cellIndex] ?? '')}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
+        <MarkdownTable
+          headers={headers}
+          rows={rows}
+          copyText={copyText}
+          key={`table-${start}`}
+        />,
       );
       continue;
     }
@@ -265,7 +344,7 @@ export default function SafeMarkdown({
     )
       paragraph.push(lines[index++]);
     blocks.push(
-      <p key={`paragraph-${index}`}>
+      <p key={`paragraph-${start}`}>
         {paragraph.map((item, paragraphIndex) => (
           <Fragment key={paragraphIndex}>
             {paragraphIndex > 0 && <br />}

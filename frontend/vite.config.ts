@@ -17,6 +17,10 @@ if (
   throw new Error('ROW_BOT_DEV_BACKEND must be a plain HTTP loopback origin');
 }
 
+// Shiki's core, regex engine and their HTML helpers (lazy `syntax` chunk).
+const SYNTAX_MODULES =
+  /\/node_modules\/(?:shiki|@shikijs|oniguruma-to-es|oniguruma-parser|regex|regex-recursion|regex-utilities|hast-util-to-html|hast-util-whitespace|html-void-elements|mdast-util-to-hast|micromark-util-[\w-]+|unist-util-[\w-]+|vfile|vfile-message|property-information|space-separated-tokens|comma-separated-tokens|ccount|character-entities-html4|character-entities-legacy|stringify-entities|zwitch|trim-lines|devlop|@ungap\/structured-clone)\//;
+
 // Dev-only same-loopback proxy. Production access policy is untouched.
 const loopbackProxy: ProxyOptions = {
   target: backend.origin,
@@ -61,6 +65,13 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Syntax highlighting loads on first use: each grammar is its own
+          // chunk and the highlighter core stays out of the startup vendor.
+          if (
+            /\/node_modules\/(?:@shikijs\/langs|shiki\/dist\/langs)\//.test(id)
+          )
+            return undefined;
+          if (SYNTAX_MODULES.test(id)) return 'syntax';
           if (id.includes('/node_modules/')) return 'vendor';
           if (id.includes('/contracts/client-platform/')) return 'protocol';
         },
