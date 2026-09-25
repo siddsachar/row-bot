@@ -50,6 +50,7 @@ export default function ModelCatalog({
   const [error, setError] = useState('');
   const [cursorExpired, setCursorExpired] = useState(false);
   const [reload, setReload] = useState(0);
+  const [summaryReload, setSummaryReload] = useState(0);
   const ticket = useRef(0);
   const more = useRef<AbortController | null>(null);
   const browseRows = !!provider || !!query;
@@ -66,7 +67,7 @@ export default function ModelCatalog({
       },
     );
     return () => abort.abort();
-  }, [controller, surface, reload, refreshSignal]);
+  }, [controller, surface, reload, summaryReload, refreshSignal]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -143,7 +144,31 @@ export default function ModelCatalog({
       if (kind === 'pin') await onPin(surface, model);
       else await onDefault(surface, model);
       await onChanged();
-      setReload((value) => value + 1);
+      setSummaryReload((value) => value + 1);
+      // Keep the loaded rows (and the reader's place): refetching would reset
+      // to the first page and drop a row reached through "Show more models".
+      // Pin toggles this surface; choosing a default also pins it.
+      const pinned =
+        kind === 'default' || !model.pinned_surfaces.includes(surface);
+      setPage((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((item) =>
+                item.selection_ref !== model.selection_ref
+                  ? item
+                  : {
+                      ...item,
+                      pinned_surfaces: pinned
+                        ? [...new Set([...item.pinned_surfaces, surface])]
+                        : item.pinned_surfaces.filter(
+                            (value) => value !== surface,
+                          ),
+                    },
+              ),
+            }
+          : current,
+      );
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {

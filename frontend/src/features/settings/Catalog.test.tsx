@@ -161,12 +161,19 @@ it('pins and applies actual defaults through compact icons; unavailable rows are
     screen.getByRole('button', { name: 'Unpin GPT-6-Astra for chat' }),
   );
   await waitFor(() => expect(props.onPin).toHaveBeenCalledWith('chat', row));
+  const unpinned = { ...row, pinned_surfaces: [] };
   fireEvent.click(
-    screen.getByRole('button', { name: 'Set GPT-6-Astra as chat default' }),
+    await screen.findByRole('button', {
+      name: 'Set GPT-6-Astra as chat default',
+    }),
   );
   await waitFor(() =>
-    expect(props.onDefault).toHaveBeenCalledWith('chat', row),
+    expect(props.onDefault).toHaveBeenCalledWith('chat', unpinned),
   );
+  // Choosing a default also pins the model to that picker.
+  expect(
+    await screen.findByRole('button', { name: 'Unpin GPT-6-Astra for chat' }),
+  ).toBeEnabled();
   expect(
     screen.getByRole('button', { name: 'Unpin Offline for chat' }),
   ).toBeDisabled();
@@ -174,6 +181,28 @@ it('pins and applies actual defaults through compact icons; unavailable rows are
     screen.getByRole('button', { name: 'Set Offline as chat default' }),
   ).toBeDisabled();
   expect(screen.queryByText(/Brain draft/)).not.toBeInTheDocument();
+});
+
+it('keeps loaded rows in place after pinning one reached through Show more', async () => {
+  const props = show();
+  await screen.findByText('Providers');
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  await screen.findByText('GPT-6-Astra');
+  fireEvent.click(screen.getByRole('button', { name: 'Show more models' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Unpin GPT-5.5 for chat' }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Pin GPT-5.5 for chat' }),
+  ).toBeEnabled();
+  expect(props.onChanged).toHaveBeenCalledTimes(1);
+  expect(screen.getByText('GPT-6-Astra')).toBeVisible();
+  expect(screen.getByText('Showing 2 of 81 models')).toBeVisible();
+  expect(props.controller.modelCatalogPage).toHaveBeenCalledTimes(2);
+  // Provider counts refresh without dropping the reader's place.
+  await waitFor(() =>
+    expect(props.controller.modelCatalogSummary).toHaveBeenCalledTimes(2),
+  );
 });
 
 it('offers a reload only after the bounded catalog cursor expires', async () => {
