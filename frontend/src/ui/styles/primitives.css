@@ -18,11 +18,13 @@ time {
 
 /* Programmatic focus targets (route headings, landmark regions, transcript
    messages) move screen-reader focus silently; the ring appears only when the
-   user is navigating by keyboard (B1). */
-[tabindex='-1']:focus {
+   user is navigating by keyboard (B1). Composite widgets with a role (menu
+   items, options, radios, dialogs) keep their own focus treatment. */
+[tabindex='-1']:not([role]):focus {
   outline: none;
 }
-:root[data-input-modality='keyboard'] [tabindex='-1']:focus-visible {
+:root[data-input-modality='keyboard']
+  [tabindex='-1']:not([role]):focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 2px;
