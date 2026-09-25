@@ -1037,6 +1037,10 @@ def p4_provider_credentials(x_fixture_token: str = Header(default="")) -> dict:
     # Capture mode normally suppresses all secret reads. This explicit fixture
     # uses only the in-memory backend above, including staged-value readback.
     secret_store._docs_capture_active = lambda: False
+    # Provider cards then report the seeded credential through the real status
+    # path instead of the display-only capture cards.
+    from row_bot.providers import live_settings
+    live_settings.docs_capture_fake_provider_status = lambda: False
     for name in auth_store.PROVIDER_API_KEY_ENV.values():
         os.environ.pop(name, None)
     auth_store._session_provider_secrets.clear()
@@ -1625,6 +1629,29 @@ def p4_tools(state: str, x_fixture_token: str = Header(default="")) -> dict:
     return {"state": state, "seeded_tools": count}
 
 
+_reasoning_fixture: dict = {}
+
+
+@app.post("/__p4_fixture/reasoning-default")
+def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
+    """Restore the one Thinking-capable synthetic model as the saved default.
+
+    Earlier specs may choose another default; this publishes the choice the
+    same way a reviewed save does, without creating or unloading clients.
+    """
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models
+    from row_bot.providers import saved_model_settings
+    if not Path(saved_model_settings.SETTINGS_PATH).resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    reference = _reasoning_fixture.get("model")
+    if not reference:
+        raise HTTPException(status_code=409, detail="Reasoning fixture unavailable")
+    saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": reference})
+    models.adopt_saved_default(reference)
+    return {"model_ref": reference}
+
+
 def main() -> None:
     # Resolve the fixture's already selected isolated Python for child probes.
     os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
@@ -1715,6 +1742,7 @@ def main() -> None:
     # Exactly one isolated synthetic model supplies Thinking controls. These
     # fixture capabilities perform no discovery and never reach a provider.
     reasoning_model = model_choice_value(models.get_current_model())
+    _reasoning_fixture["model"] = reasoning_model
     reasoning_provider = (parse_model_ref(reasoning_model) or ("ollama", ""))[0]
     reasoning_caps = reasoning.ReasoningCapabilities(
         supported_efforts=("low", "high"), request_style="ollama" if reasoning_provider == "ollama" else "openai",
