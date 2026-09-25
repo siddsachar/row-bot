@@ -41,6 +41,14 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
   await newConversation(page);
   let call: FixtureCall | undefined;
   let primaryFailure: { error: unknown } | undefined;
+  // Each generated result renders once, inline with the answer, and is
+  // downloaded once (B22): not again by a folded tool row or Context.
+  const mediaReads = new Map<string, number>();
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && path.startsWith('/api/v1/attachments/'))
+      mediaReads.set(path, (mediaReads.get(path) ?? 0) + 1);
+  });
   try {
     // Install the Blob observer before the authenticated controller downloads
     // either fixture, then exercise the same anchor click exposed to the user.
@@ -63,14 +71,12 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
             )?.quiesced,
         )
         .toBe(true);
-      await page
-        .locator('summary')
-        .filter({ hasText: /^Activity \(/ })
-        .click();
-      const image = page.getByRole('img', {
+      const log = page.getByRole('log', { name: 'Conversation', exact: true });
+      const image = log.getByRole('img', {
         name: 'Generated result',
         exact: true,
       });
+      await expect(image).toHaveCount(1);
       await image.scrollIntoViewIfNeeded({ timeout: 10_000 });
       await expect(image).toBeInViewport({ ratio: 0.99 });
       const downloads = page.getByRole('link', {
@@ -88,14 +94,9 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
     expect(digest(imageDownload.bytes)).toBe(FIXTURE_IMAGE.sha256);
     await screenshot(page, info, 'generated-image-visible');
 
-    // The same media also appears (folded) on the tool row and under Context
-    // outputs; check the player in the activity feed opened above.
-    const activity = page.locator('details', {
-      has: page.locator('summary', { hasText: /^Activity \(/ }),
-    });
-    const video = activity.getByLabel('Generated video result', {
-      exact: true,
-    });
+    const video = page
+      .getByRole('log', { name: 'Conversation', exact: true })
+      .getByLabel('Generated video result', { exact: true });
     const fallback = page.getByRole('alert').filter({
       hasText:
         'This generated result could not be previewed. Download it or retry.',
@@ -117,6 +118,8 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
         { timeout: 10_000 },
       )
       .toMatch(/^(fallback|playback)$/);
+    // Image and video, one read each, before any explicit retry.
+    expect([...mediaReads.values()]).toEqual([1, 1]);
 
     let playback:
       | {

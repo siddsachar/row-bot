@@ -67,6 +67,39 @@ export function formatBytes(value: number) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Results are immutable per reference, so a settled download is kept for the
+// session (bounded) and reused when the same result mounts again, for example
+// when a live preview becomes the settled one. Retry always downloads again.
+const RECENT_LIMIT = 24;
+const RECENT_BYTES = 96 * 1024 * 1024;
+const recent = new WeakMap<object, Map<string, Blob>>();
+function remembered(owner: object, reference: string) {
+  const entries = recent.get(owner);
+  const blob = entries?.get(reference);
+  if (entries && blob) {
+    entries.delete(reference);
+    entries.set(reference, blob);
+  }
+  return blob;
+}
+function remember(owner: object, reference: string, blob: Blob) {
+  let entries = recent.get(owner);
+  if (!entries) recent.set(owner, (entries = new Map()));
+  entries.delete(reference);
+  if (blob.size > RECENT_BYTES) return;
+  entries.set(reference, blob);
+  let total = [...entries.values()].reduce((sum, item) => sum + item.size, 0);
+  for (const [key, value] of entries) {
+    if (entries.size <= RECENT_LIMIT && total <= RECENT_BYTES) break;
+    entries.delete(key);
+    total -= value.size;
+  }
+}
+/** Tests and sign-out: drop remembered results for a controller. */
+export function forgetMediaPreviews(owner: object) {
+  recent.delete(owner);
+}
+
 async function isPdf(blob: Blob) {
   const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
   return String.fromCharCode(...head) === '%PDF-';
@@ -130,10 +163,16 @@ export function MediaPreview({
     setResult(null);
     setError(null);
     setFailedUrl('');
-    void controller
-      .download(reference, abort.signal)
+    const key = `${mediaType(mime)} ${reference}`;
+    const cached = attempt === 0 ? remembered(controller, key) : undefined;
+    void (
+      cached
+        ? Promise.resolve(cached)
+        : controller.download(reference, abort.signal)
+    )
       .then(async (blob) => {
         if (abort.signal.aborted) return;
+        if (!cached) remember(controller, key, blob);
         let kind = previewKind(mime, blob.type);
         let body: Blob = blob;
         let text: string | undefined;

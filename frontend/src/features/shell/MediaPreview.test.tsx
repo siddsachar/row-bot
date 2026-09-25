@@ -6,7 +6,7 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { MediaPreview } from './MediaPreview';
+import { forgetMediaPreviews, MediaPreview } from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn() }));
 vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
@@ -28,6 +28,7 @@ function pending<T>() {
   return { promise, resolve, reject };
 }
 beforeEach(() => {
+  forgetMediaPreviews(mock);
   mock.download.mockReset();
   let sequence = 0;
   vi.spyOn(URL, 'createObjectURL').mockImplementation(
@@ -295,4 +296,23 @@ it('shows bounded plain-text attachments as code, never as markup', async () => 
   expect(await screen.findByText(/const answer = 42;/)).toBeVisible();
   expect(container.querySelector('b')).toBeNull();
   expect(container.querySelector('iframe,object,embed')).toBeNull();
+});
+
+it('downloads a result once when it mounts again, and again only on retry', async () => {
+  mock.download.mockResolvedValue(new Blob(['pixels'], { type: 'image/png' }));
+  const first = render(
+    <MediaPreview reference="settled-once" mime="image/png" />,
+  );
+  await screen.findByAltText('Generated result');
+  first.unmount();
+  // A live preview becoming the settled one reuses the same bytes (B22).
+  render(<MediaPreview reference="settled-once" mime="image/png" />);
+  await screen.findByAltText('Generated result');
+  expect(mock.download).toHaveBeenCalledTimes(1);
+  fireEvent.error(screen.getByAltText('Generated result'));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Retry generated result' }),
+  );
+  await screen.findByAltText('Generated result');
+  expect(mock.download).toHaveBeenCalledTimes(2);
 });
