@@ -2066,9 +2066,11 @@
 .context-ring.is-unavailable .context-ring-track {
   stroke: var(--border-subtle);
 }
+/* A quiet gauge in neutral ink (an accent arc reads as a loading spinner);
+   colour appears only near the compaction threshold or on failure. */
 .context-ring-fill {
   fill: none;
-  stroke: var(--accent-solid);
+  stroke: var(--text-secondary);
   stroke-width: 2.5;
   stroke-linecap: round;
   transition: stroke-dasharray var(--motion-panel) var(--ease-out);
