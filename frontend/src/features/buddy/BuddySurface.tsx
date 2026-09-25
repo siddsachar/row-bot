@@ -61,6 +61,9 @@ export function BuddyAvatar({
 }) {
   const [still, setStill] = useState('');
   const [motion, setMotion] = useState('');
+  // Media URLs from a finished load, revoked once no committed source uses them.
+  const retiredUrls = useRef(new Set<string>());
+  const [retiredVersion, setRetiredVersion] = useState(0);
   const [motionPasses, setMotionPasses] = useState(0);
   const [videoReady, setVideoReady] = useState(false);
   const [canvasReady, setCanvasReady] = useState(false);
@@ -131,6 +134,7 @@ export function BuddyAvatar({
   useEffect(() => {
     const abort = new AbortController();
     const urls = new Set<string>();
+    const retired = retiredUrls.current;
     canvasReadyRef.current = false;
     setCanvasReady(false);
     setVideoReady(false);
@@ -181,10 +185,10 @@ export function BuddyAvatar({
     }
     return () => {
       abort.abort();
-      // The old image/video may still reference these URLs until React commits
-      // the fallback source. Release them after that paint.
-      const revoke = URL.revokeObjectURL.bind(URL);
-      requestAnimationFrame(() => urls.forEach((url) => revoke(url)));
+      // The old image/video keeps these URLs until React commits the cleared
+      // sources. A frame is not a guaranteed commit, so revoke after it.
+      urls.forEach((url) => retired.add(url));
+      setRetiredVersion((value) => value + 1);
     };
   }, [
     loadMedia,
@@ -198,6 +202,20 @@ export function BuddyAvatar({
     preview,
     snapshot.preferences.animation_intensity,
   ]);
+  useEffect(() => {
+    for (const url of retiredUrls.current)
+      if (url !== still && url !== motion) {
+        URL.revokeObjectURL(url);
+        retiredUrls.current.delete(url);
+      }
+  }, [still, motion, retiredVersion]);
+  useEffect(() => {
+    const retired = retiredUrls.current;
+    return () => {
+      for (const url of retired) URL.revokeObjectURL(url);
+      retired.clear();
+    };
+  }, []);
   const style = {
     '--buddy-energy': `${percentage(snapshot.status.energy)}%`,
     '--buddy-focus': `${percentage(snapshot.status.focus)}%`,

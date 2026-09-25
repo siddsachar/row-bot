@@ -186,7 +186,11 @@ describe('Buddy avatar lifecycle', () => {
   it('uses canonical status hooks and revokes scoped media on conversation change', async () => {
     let nextUrl = 0;
     const create = vi.fn(() => `blob:buddy-${++nextUrl}`);
-    const revoke = vi.fn();
+    // A URL is revoked only once no committed image or video still uses it.
+    const stillReferenced: string[] = [];
+    const revoke = vi.fn((url: string) => {
+      if (document.body.innerHTML.includes(url)) stillReferenced.push(url);
+    });
     vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: revoke });
     const signals: AbortSignal[] = [];
     const loadMedia = vi.fn(async (...args: Parameters<BuddyMediaLoader>) => {
@@ -228,8 +232,8 @@ describe('Buddy avatar lifecycle', () => {
       />,
     );
     expect(signals[0].aborted).toBe(true);
-    expect(revoke).not.toHaveBeenCalled();
     await waitFor(() => expect(revoke).toHaveBeenCalledTimes(2));
+    expect(stillReferenced).toEqual([]);
     await waitFor(() =>
       expect(loadMedia).toHaveBeenCalledWith(
         'conversation-two',
