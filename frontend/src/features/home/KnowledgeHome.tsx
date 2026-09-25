@@ -11,6 +11,40 @@ import {
 import KnowledgeGraphCanvas, {
   type KnowledgeGraphHandle,
 } from './KnowledgeGraphCanvas';
+import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+
+/** Recall tiers from memory_policy.py, in words people use (B8). */
+const MEMORY_TIERS: Record<string, string> = {
+  core: 'Core · always recalled',
+  semantic: 'Long-term knowledge',
+  episodic: 'From a conversation',
+  resource: 'From a document or media',
+};
+
+export function memoryTierLabel(tier: string) {
+  return MEMORY_TIERS[tier.trim().toLowerCase()] ?? humanizeToken(tier);
+}
+
+export function memorySourceLabel(source: string) {
+  const value = source.trim();
+  if (!value) return 'Unknown';
+  if (value.startsWith('document:'))
+    return `Document · ${value.slice('document:'.length) || 'unnamed'}`;
+  if (value.startsWith('dream_')) return 'Dream Cycle';
+  return humanizeToken(value);
+}
+
+function UpdatedAt({ value }: { value?: string }) {
+  if (!value) return <>Unknown</>;
+  const exact = absoluteTime(value);
+  return exact ? (
+    <time dateTime={value} title={exact}>
+      {relativeTime(value)}
+    </time>
+  ) : (
+    <>Unknown</>
+  );
+}
 
 export type KnowledgeGraphNode = {
   id: string;
@@ -549,15 +583,25 @@ export default function KnowledgeHome({
                           </p>
                           <dl>
                             <dt>Source</dt>
-                            <dd>
-                              {selectedDetail.value.source ??
-                                selectedNode.source}
+                            <dd
+                              title={
+                                selectedDetail.value.source ??
+                                selectedNode.source
+                              }
+                            >
+                              {memorySourceLabel(
+                                selectedDetail.value.source ??
+                                  selectedNode.source,
+                              )}
                             </dd>
                             <dt>Updated</dt>
                             <dd>
-                              {(selectedDetail.value.updated_at ??
-                                selectedNode.updated_at) ||
-                                'Unknown'}
+                              <UpdatedAt
+                                value={
+                                  selectedDetail.value.updated_at ??
+                                  selectedNode.updated_at
+                                }
+                              />
                             </dd>
                             <dt>Connections</dt>
                             <dd>
@@ -567,13 +611,17 @@ export default function KnowledgeHome({
                             {selectedDetail.value.status && (
                               <>
                                 <dt>Status</dt>
-                                <dd>{selectedDetail.value.status}</dd>
+                                <dd>
+                                  {humanizeToken(selectedDetail.value.status)}
+                                </dd>
                               </>
                             )}
                             {selectedDetail.value.tier && (
                               <>
-                                <dt>Tier</dt>
-                                <dd>{selectedDetail.value.tier}</dd>
+                                <dt>Memory type</dt>
+                                <dd>
+                                  {memoryTierLabel(selectedDetail.value.tier)}
+                                </dd>
                               </>
                             )}
                             {selectedDetail.value.confidence != null && (
@@ -605,7 +653,7 @@ export default function KnowledgeHome({
                                     <li
                                       key={`${relation.peer_id ?? relation.peer_subject ?? 'relation'}-${index}`}
                                     >
-                                      {relation.relation_type}:{' '}
+                                      {humanizeToken(relation.relation_type)}:{' '}
                                       {relation.peer_subject ??
                                         relation.peer_id ??
                                         'Related memory'}

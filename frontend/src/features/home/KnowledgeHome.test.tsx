@@ -99,6 +99,7 @@ function detail(id = 'alpha'): KnowledgeNodeDetail {
     updated_at: '2026-09-19T10:00:00Z',
     relation_count: 1,
     status: 'active',
+    tier: 'episodic',
     confidence: 0.82,
     aliases: ['Project A'],
     tags: ['important'],
@@ -316,7 +317,22 @@ it('loads escaped rich detail, exposes edit, and recovers from detail errors', a
   ).toBeVisible();
   expect(container.querySelector('img')).toBeNull();
   expect(screen.getByText('82%')).toBeVisible();
-  expect(screen.getByText('owned_by: User')).toBeVisible();
+  expect(screen.getByText('Owned by: User')).toBeVisible();
+  // B8: human words and relative time, never raw ISO values or tier ids.
+  const updated = container.querySelector('dd time');
+  expect(updated).toHaveAttribute('datetime', '2026-09-19T10:00:00Z');
+  expect(updated?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  expect(updated).toHaveAttribute('title', expect.stringMatching(/2026/));
+  expect(screen.queryByText('Tier')).toBeNull();
+  expect(
+    screen.getByText('Memory type', { selector: 'dt' }).nextElementSibling,
+  ).toHaveTextContent('From a conversation');
+  expect(
+    screen.getByText('Source', { selector: 'dt' }).nextElementSibling,
+  ).toHaveTextContent('Chat');
+  expect(
+    screen.getByText('Status', { selector: 'dt' }).nextElementSibling,
+  ).toHaveTextContent('Active');
   await user.click(screen.getByRole('button', { name: 'Edit' }));
   expect(onEdit).toHaveBeenCalledWith('alpha');
 
