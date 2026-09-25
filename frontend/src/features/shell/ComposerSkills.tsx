@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { ChevronDown, Sparkles, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { ConversationComposer } from '../../api/types';
-import { Button, Field, Hint, Input } from '../../ui/primitives';
+import { Button, Field, Input } from '../../ui/primitives';
 
 export type ComposerSkillAction = (
   action: 'activate' | 'remove' | 'dismiss' | 'reset',
@@ -69,18 +69,28 @@ export function ComposerSkillChips({
   );
 }
 
+/** Wrap the element the Skills picker should open from. */
+export const SkillsAnchor = Popover.Anchor;
+
+/**
+ * The Smart Skills picker. Its children must contain a `SkillsAnchor` (the
+ * composer's + button); it opens from the + menu or the /skills command.
+ */
 export default function ComposerSkills({
   composer,
   disabled,
   action,
   open: controlledOpen,
   onOpenChange,
+  children,
 }: {
   composer: ConversationComposer;
   disabled: boolean;
   action: ComposerSkillAction;
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  /** Content containing the `SkillsAnchor`. */
+  children: ReactNode;
 }) {
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
@@ -104,31 +114,20 @@ export default function ComposerSkills({
     );
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Hint label={`${composer.active_skills.length} active Smart Skills`}>
-        <Popover.Trigger asChild>
-          <Button
-            variant="ghost"
-            className="composer-control"
-            disabled={disabled}
-            aria-label={`Skills: ${composer.active_skills.length} active`}
-          >
-            <Sparkles size={18} aria-hidden />
-            <span>Skills · {composer.active_skills.length}</span>
-            <ChevronDown size={14} aria-hidden />
-          </Button>
-        </Popover.Trigger>
-      </Hint>
+      {children}
       <Popover.Portal>
         <Popover.Content
           className="popover surface-effect skills-menu"
-          sideOffset={6}
+          side="top"
+          align="start"
+          sideOffset={8}
           collisionPadding={12}
           aria-label="Smart Skills"
         >
           <strong>Smart Skills</strong>
           <small>
-            Changes apply to this conversation. Global library pins stay
-            unchanged.
+            {composer.active_skills.length} active. Changes apply to this
+            conversation; global library pins stay unchanged.
           </small>
           <Field label="Search available skills">
             <Input
@@ -140,21 +139,23 @@ export default function ComposerSkills({
           {composer.library.availability === 'unavailable' ? (
             <small role="status">The Skills library is unavailable.</small>
           ) : available.length ? (
-            available.map((command) => (
-              <Button
-                key={command.id}
-                variant="ghost"
-                className="thinking-option"
-                disabled={disabled || !command.skill_id}
-                title={command.description}
-                onClick={() => {
-                  void action('activate', command.skill_id ?? undefined);
-                  setOpen(false);
-                }}
-              >
-                {command.icon} {command.label}
-              </Button>
-            ))
+            <div className="skills-menu-list">
+              {available.map((command) => (
+                <Button
+                  key={command.id}
+                  variant="ghost"
+                  className="thinking-option"
+                  disabled={disabled || !command.skill_id}
+                  title={command.description}
+                  onClick={() => {
+                    void action('activate', command.skill_id ?? undefined);
+                    setOpen(false);
+                  }}
+                >
+                  {command.icon} {command.label}
+                </Button>
+              ))}
+            </div>
           ) : (
             <small role="status">No available Skills match.</small>
           )}

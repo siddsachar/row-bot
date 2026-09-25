@@ -1,5 +1,5 @@
 import {
-  memo,
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -9,7 +9,6 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type {
-  ApprovalView,
   ConversationComposer,
   PanelDescriptor,
   ResourceView,
@@ -21,28 +20,23 @@ import type {
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import {
-  Button,
-  CompactAction,
-  EmptyState,
-  Menu,
-  Skeleton,
-} from '../../ui/primitives';
+import { Button, Menu, Skeleton } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
-import { MediaPreview as Media } from './MediaPreview';
+import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
 import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
 import ConversationVoice from './ConversationVoice';
 import ResourceTargets from './ResourceTargets';
 import {
+  ArrowDown,
   ArrowUp,
-  Check,
-  Copy,
+  ListPlus,
   MoreHorizontal,
   Paperclip,
   Square,
-  Volume2,
+  TriangleAlert,
+  X,
 } from 'lucide-react';
 import SearchConversations from './SearchConversations';
 import SteeringQueue from './SteeringQueue';
@@ -59,299 +53,26 @@ import {
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
-import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import { openAgentProfiles } from './agent-profiles';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
-import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
+import ApprovalCard from './ApprovalCard';
+import ChatEmpty from './ChatEmpty';
+import ConversationHeader from './ConversationHeader';
+import { TranscriptMessage } from './TranscriptMessage';
+import { publicBlockText } from './TranscriptBlocks';
+import { buildTranscript, liveMedia } from './transcript-model';
+import type { RecoveryAction } from './turn-errors';
+import { modelRefName, splitModelLabel } from './model-choices';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
-
-const NO_BLOCKS: TranscriptRow['blocks'] = [];
-
-const Message = memo(function Message({
-  row,
-  conversationId,
-  toolCharts = NO_BLOCKS,
-}: {
-  row: TranscriptRow;
-  conversationId: string | null;
-  /** Charts produced by this row's folded tool results (B4). */
-  toolCharts?: TranscriptRow['blocks'];
-}) {
-  const { controller, platform } = useRuntime();
-  const [expanded, setExpanded] = useState('');
-  const [cursor, setCursor] = useState<string | undefined>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [previous, setPrevious] = useState<Array<string | undefined>>([]);
-  const pageStart = useRef<string | undefined>(undefined);
-  const author =
-    row.role === 'user'
-      ? 'You'
-      : row.role === 'assistant'
-        ? 'Row-Bot'
-        : 'Tool result';
-  const visibleText =
-    expanded || row.blocks.map(publicBlockText).filter(Boolean).join('\n');
-  async function copy() {
-    try {
-      const result = await platform.writeClipboard(visibleText);
-      if (result.status !== 'ok') {
-        setCopied(false);
-        setError('Copy is unavailable in this browser.');
-        return;
-      }
-      setCopied(true);
-      setError('');
-    } catch {
-      setCopied(false);
-      setError('The visible message could not be copied.');
-    }
-  }
-  async function copyCode(value: string) {
-    try {
-      return (await platform.writeClipboard(value)).status === 'ok';
-    } catch {
-      return false;
-    }
-  }
-  async function more() {
-    const identity = conversationId;
-    if (!identity || !row.content_ref) return;
-    setBusy(true);
-    try {
-      const page = await controller.messageText(
-        identity,
-        row.content_ref,
-        cursor,
-      );
-      if (controller.getSnapshot().selectedConversationId !== identity) return;
-      if (expanded)
-        setPrevious((pages) => [...pages, pageStart.current].slice(-100));
-      pageStart.current = cursor;
-      setExpanded(
-        new TextDecoder().decode(
-          Uint8Array.from(atob(page.data), (c) => c.charCodeAt(0)),
-        ),
-      );
-      setCursor(page.next_cursor ?? undefined);
-      setError('');
-    } catch (cause) {
-      setError(clientError(cause).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <article
-      className={`message message-${row.role}`}
-      aria-label={`${author} message`}
-      data-message-id={row.message_id ?? row.id}
-      data-row-id={row.id}
-      tabIndex={-1}
-    >
-      <div className="transcript-content">
-        <header className="message-meta">
-          <strong className="message-role">{author}</strong>
-          {!!row.tool_call_ids?.length && (
-            <small className="message-tool-count">
-              {row.tool_call_ids.length} tool{' '}
-              {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
-            </small>
-          )}
-          {row.content_status && row.content_status !== 'inline' && (
-            <small className="message-delivery-state">
-              {row.content_status === 'lazy'
-                ? 'Paged content'
-                : 'Oversized content'}
-            </small>
-          )}
-          <CompactAction
-            className="message-copy-action"
-            label={copied ? 'Copied message' : 'Copy message'}
-            onClick={() => void copy()}
-          >
-            {copied ? (
-              <Check aria-hidden="true" />
-            ) : (
-              <Copy aria-hidden="true" />
-            )}
-          </CompactAction>
-        </header>
-        <div className="message-text">
-          {expanded ? (
-            <SafeMarkdown text={expanded} copyText={copyCode} />
-          ) : (
-            <TranscriptBlocks blocks={row.blocks} copyText={copyCode} />
-          )}
-        </div>
-        {!!row.traces?.length && conversationId && (
-          <TranscriptTrace conversation={conversationId} groups={row.traces} />
-        )}
-        {!!toolCharts.length && (
-          <div className="message-tool-embeds">
-            <TranscriptBlocks blocks={toolCharts} copyText={copyCode} />
-          </div>
-        )}
-        {((row.content_status === 'lazy' && (!expanded || cursor)) ||
-          previous.length > 0) && (
-          <div className="message-actions">
-            {row.content_status === 'lazy' && (!expanded || cursor) && (
-              <Button onClick={() => void more()} disabled={busy}>
-                {cursor ? 'Load next content page' : 'Load message content'}
-              </Button>
-            )}
-            {!!previous.length && (
-              <Button
-                onClick={() => {
-                  const start = previous.at(-1);
-                  setPrevious((pages) => pages.slice(0, -1));
-                  setExpanded('');
-                  setCursor(start);
-                  setCopied(false);
-                }}
-              >
-                Previous message portion
-              </Button>
-            )}
-          </div>
-        )}
-        {copied && <small role="status">Visible message copied.</small>}
-        {error && <p role="alert">{error}</p>}
-      </div>
-    </article>
-  );
-});
-
-function ApprovalDetails({ view }: { view: ApprovalView }) {
-  return (
-    <div className="approval-detail stack">
-      <p>{view.reason || view.summary || 'Approval review required.'}</p>
-      <dl>
-        <dt>Action</dt>
-        <dd>{view.action_label}</dd>
-        <dt>Risk</dt>
-        <dd>{view.risk_class}</dd>
-        <dt>Scope</dt>
-        <dd>{view.scope || 'Only this requested action.'}</dd>
-        {view.safe_argument_summary && (
-          <>
-            <dt>Reviewed input</dt>
-            <dd>
-              <code>{view.safe_argument_summary}</code>
-            </dd>
-          </>
-        )}
-        <dt>Expiry</dt>
-        <dd>{view.expires_at || 'No server expiry supplied'}</dd>
-      </dl>
-      <small>
-        Request {view.id} · policy revision {view.policy_revision}
-      </small>
-    </div>
-  );
-}
-
-function ApprovalBar({
-  id,
-  hint,
-}: {
-  id: string;
-  hint?: { action_label?: string; reason?: string; risk_class?: string };
-}) {
-  const { controller } = useRuntime();
-  const overlay = useOverlay();
-  const [view, setView] = useState<ApprovalView | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [resolution, setResolution] = useState('');
-  useEffect(() => {
-    const abort = new AbortController();
-    void controller
-      .approval(id, abort.signal)
-      .then(setView)
-      .catch((error) => {
-        if (!abort.signal.aborted) setError(clientError(error).message);
-      });
-    return () => abort.abort();
-  }, [controller, id]);
-  async function resolve(decision: 'approve' | 'reject') {
-    if (!view || busy) return;
-    setBusy(true);
-    try {
-      await controller.intent(
-        id,
-        'approval.resolve',
-        { decision, nonce: view.nonce },
-        view.revision,
-      );
-      setResolution(
-        decision === 'approve' ? 'Approval submitted.' : 'Rejection submitted.',
-      );
-    } catch (cause) {
-      setError(clientError(cause).message);
-      setBusy(false);
-    }
-  }
-  return (
-    <aside
-      className="approval-bar"
-      aria-label={`Approval required for ${view?.action_label || hint?.action_label || 'requested action'}`}
-      data-risk={view?.risk_class || hint?.risk_class || 'unknown'}
-    >
-      {view ? (
-        <>
-          <div className="approval-bar-context">
-            <strong>{view.action_label}</strong>
-            <span>{view.reason || view.summary}</span>
-            <small>
-              Risk: {view.risk_class} · {view.scope}
-            </small>
-          </div>
-          <div className="approval-bar-actions">
-            <Button
-              variant="danger"
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('reject')}
-            >
-              Reject
-            </Button>
-            <Button
-              disabled={busy || Boolean(resolution)}
-              onClick={() =>
-                overlay.open({
-                  title: `Approval details · ${view.action_label}`,
-                  description: 'Review bounded public context for this action.',
-                  content: <ApprovalDetails view={view} />,
-                })
-              }
-            >
-              Details
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('approve')}
-            >
-              Approve
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="approval-bar-context">
-          <strong>{hint?.action_label || 'Requested action'}</strong>
-          <span>{hint?.reason || 'Loading approval context…'}</span>
-          <Skeleton label="Loading current approval" />
-        </div>
-      )}
-      {resolution && <p role="status">{resolution}</p>}
-      {error && <p role="alert">{error}</p>}
-    </aside>
-  );
-}
+const QUEUE_EVENTS = new Set([
+  'queue.updated',
+  'queue.changed',
+  'steering.queued',
+  'steering.consumed',
+]);
 
 export default function Conversation({
   onPanel,
@@ -621,7 +342,6 @@ export default function Conversation({
     useState<ConversationComposer | null>(null);
   const [composerBusy, setComposerBusy] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [audioOpen, setAudioOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [compactToolbar, setCompactToolbar] = useState(false);
   useEffect(() => {
@@ -633,12 +353,29 @@ export default function Conversation({
     observer.observe(composer);
     return () => observer.disconnect();
   }, [id]);
-  useLayoutEffect(() => {
+  // The field grows from one line; an empty draft always rests at one line
+  // (a wrapped placeholder must not size it), and width changes re-measure.
+  const fitComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) return;
+    composer.style.height = '';
+    if (!composer.value) return;
     composer.style.height = 'auto';
-    composer.style.height = `${Math.min(144, Math.max(54, composer.scrollHeight))}px`;
-  }, [draft.text, id]);
+    composer.style.height = `${Math.min(240, Math.max(24, composer.scrollHeight))}px`;
+  }, []);
+  useLayoutEffect(fitComposer, [draft.text, id, fitComposer]);
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer || typeof ResizeObserver === 'undefined') return;
+    let width = composer.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (composer.clientWidth === width) return;
+      width = composer.clientWidth;
+      fitComposer();
+    });
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [id, fitComposer]);
   const generation = state.projection?.generation;
   const running = generation && !generation.quiesced;
   const controls = state.workspace?.controls;
@@ -683,26 +420,26 @@ export default function Conversation({
     )
       setPending(null);
   }, [id, pending, rows]);
-  const visibleRows = rows.filter(
-    (row) => row.role !== 'tool' || !row.trace_parent_id,
+  // Rows loaded by scrolling up sit above the live window; history pages
+  // (from a search jump) replace it.
+  const earlierRows = state.history ? EMPTY_ROWS : state.earlier;
+  const transcriptRows = useMemo(() => {
+    if (!earlierRows.length) return rows;
+    const live = new Set(rows.map((row) => row.id));
+    return [...earlierRows.filter((row) => !live.has(row.id)), ...rows];
+  }, [earlierRows, rows]);
+  // Tool results fold into their parent; charts and generated media hoist
+  // onto it and render once (B4, B22).
+  const items = useMemo(
+    () => buildTranscript(transcriptRows),
+    [transcriptRows],
   );
-  // Tool results fold into their parent's trace, but a create_chart result's
-  // chart block must still render with that parent (NiceGUI parity, B4).
-  const toolCharts = useMemo(() => {
-    const charts = new Map<string, TranscriptRow['blocks']>();
-    for (const row of rows) {
-      if (row.role !== 'tool' || !row.trace_parent_id) continue;
-      const blocks = row.blocks.filter((block) => block.type === 'chart');
-      if (!blocks.length) continue;
-      charts.set(row.trace_parent_id, [
-        ...(charts.get(row.trace_parent_id) ?? []),
-        ...blocks,
-      ]);
-    }
-    return charts;
-  }, [rows]);
+  const earlierIds = useMemo(
+    () => new Set(earlierRows.map((row) => row.id)),
+    [earlierRows],
+  );
   const hasLiveTranscript =
-    visibleRows.length > 0 || Boolean(pending) || Boolean(running);
+    items.length > 0 || Boolean(pending) || Boolean(running);
   const settledTraceCalls = new Set(
     rows.flatMap((row) =>
       (row.traces ?? []).flatMap((group) =>
@@ -1181,7 +918,7 @@ export default function Conversation({
       if (receiptAlive.current) setBusy(false);
     }
   }
-  function send(example?: string) {
+  function send(example?: string, keepTargets = false) {
     const outgoing = example
       ? { text: example, attachments: [] as typeof draft.attachments }
       : draft;
@@ -1228,7 +965,7 @@ export default function Conversation({
       );
       return;
     }
-    const targets: WriteTarget[] = (example ? [] : resources)
+    const targets: WriteTarget[] = (example && !keepTargets ? [] : resources)
       .filter((r) =>
         (targetSelection[id] ?? defaultTargetIds).includes(
           r.binding.binding_id,
@@ -1807,6 +1544,267 @@ export default function Conversation({
       }
     />
   ) : null;
+  const isRunning = Boolean(running);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // Elapsed time for the live activity row, as this client observed it.
+  const [runStartedAt, setRunStartedAt] = useState<number | undefined>();
+  useEffect(() => {
+    if (isRunning) setRunStartedAt((value) => value ?? Date.now());
+    else setRunStartedAt(undefined);
+  }, [isRunning]);
+  const lastError =
+    [...state.activity]
+      .reverse()
+      .find((record) => record.event.type === 'generation.error')?.event
+      .event_id ?? '';
+  const [failure, setFailure] = useState<{
+    event: string;
+    generation: string;
+  } | null>(null);
+  const captureFailure = useEffectEvent((event: string) =>
+    setFailure({ event, generation: generation?.generation_id ?? '' }),
+  );
+  useEffect(() => {
+    if (lastError) captureFailure(lastError);
+  }, [lastError]);
+  const interrupted = !isRunning && generation?.status === 'interrupted';
+  const failed =
+    !isRunning &&
+    !interrupted &&
+    Boolean(failure) &&
+    failure!.generation === (generation?.generation_id ?? '');
+  const settledMedia = useMemo(
+    () =>
+      new Set(
+        items.flatMap((item) => item.media.map((media) => media.reference)),
+      ),
+    [items],
+  );
+  const pendingMedia = liveMedia(state.activity, settledMedia);
+  const lastUserText = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index -= 1)
+      if (items[index].row.role === 'user')
+        return items[index].row.blocks
+          .map(publicBlockText)
+          .filter(Boolean)
+          .join('\n');
+    return '';
+  }, [items]);
+  let lastAssistant = -1;
+  for (let index = items.length - 1; index >= 0; index -= 1)
+    if (items[index].row.role === 'assistant') {
+      lastAssistant = index;
+      break;
+    }
+  // Actions show once per assistant turn (its last row) and copy the turn.
+  const turns = useMemo(() => {
+    const ends: boolean[] = [];
+    const texts: (string | undefined)[] = [];
+    let start = 0;
+    items.forEach((item, index) => {
+      const next = items[index + 1];
+      const end =
+        item.row.role !== 'assistant' || next?.row.role !== 'assistant';
+      ends.push(end);
+      if (item.row.role !== 'assistant') {
+        texts.push(undefined);
+        start = index + 1;
+        return;
+      }
+      texts.push(
+        end && index > start
+          ? items
+              .slice(start, index + 1)
+              .map((part) =>
+                part.row.blocks.map(publicBlockText).filter(Boolean).join('\n'),
+              )
+              .filter(Boolean)
+              .join('\n\n')
+          : undefined,
+      );
+      if (end) start = index + 1;
+    });
+    return { ends, texts };
+  }, [items]);
+  const newChatRef = useRef(onNewChat);
+  useLayoutEffect(() => {
+    newChatRef.current = onNewChat;
+  });
+  const recoverTurn = useCallback(
+    (next: RecoveryAction) => {
+      if (next === 'model') setModelPickerOpen(true);
+      else if (next === 'providers') navigate('/settings/providers');
+      else if (next === 'new') newChatRef.current();
+    },
+    [navigate],
+  );
+  const queueSeen =
+    Boolean(pendingSteering) ||
+    steeringOpen ||
+    state.activity.some((record) => QUEUE_EVENTS.has(record.event.type));
+  const queueEvent = [...state.activity]
+    .reverse()
+    .find(
+      (record) =>
+        record.event.type === 'queue.updated' ||
+        record.event.type === 'queue.changed',
+    )?.event;
+  const queueCount =
+    queueEvent?.type === 'queue.updated' || queueEvent?.type === 'queue.changed'
+      ? queueEvent.payload.submission_ids.length
+      : 0;
+  const listedTitle = state.conversations.find((item) => item.id === id)?.title;
+  const title =
+    listedTitle || state.conversation?.title || 'Start a conversation';
+  const currentModel = state.handshake?.models.find(
+    (model) => model.model_ref === controls?.model_selection?.model_ref,
+  );
+  const modelName = currentModel
+    ? splitModelLabel(currentModel.label).name
+    : modelRefName(controls?.model_selection?.model_ref);
+  const editMessage = useCallback(
+    (text: string) => {
+      if (!id) return;
+      const current = controller.getDraft(id);
+      const next = current.text.trim()
+        ? `${current.text.replace(/\s+$/, '')}\n\n${text}`
+        : text;
+      controller.setDraft(id, { ...current, text: next });
+      requestAnimationFrame(() => {
+        const input = composerRef.current;
+        input?.focus();
+        input?.setSelectionRange(next.length, next.length);
+      });
+    },
+    [controller, id],
+  );
+  const retryAction = useRef<() => void>(() => undefined);
+  useLayoutEffect(() => {
+    retryAction.current = () => {
+      if (lastUserText) send(lastUserText, true);
+    };
+  });
+  const retryLast = useCallback(() => retryAction.current(), []);
+  async function rename(next: string) {
+    if (!id || !state.conversation) return;
+    try {
+      await controller.intent(
+        id,
+        'conversation.rename',
+        { title: next },
+        state.conversation.revision,
+      );
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  }
+  async function allowInChat() {
+    if (!id || !controls || !state.workspace) return;
+    await controller.intent(
+      id,
+      'conversation.controls',
+      {
+        model_selection: controls.model_selection,
+        runtime_mode: controls.runtime_mode,
+        profile_id: controls.profile_id,
+        approval_mode: 'allow_all',
+      },
+      state.workspace.revision,
+    );
+  }
+  // "↓ N new" counts live rows that arrived while the reader was away.
+  const liveItemCount =
+    items.length -
+    (earlierIds.size
+      ? items.filter((item) => earlierIds.has(item.row.id)).length
+      : 0);
+  const [newCount, setNewCount] = useState(0);
+  const seenItems = useRef<{ conversation: string | null; count: number }>({
+    conversation: null,
+    count: 0,
+  });
+  useEffect(() => {
+    const previous = seenItems.current;
+    seenItems.current = { conversation: id, count: liveItemCount };
+    if (
+      previous.conversation !== id ||
+      state.history ||
+      followingLatest.current
+    ) {
+      setNewCount(0);
+      return;
+    }
+    if (liveItemCount > previous.count)
+      setNewCount((count) => count + liveItemCount - previous.count);
+  }, [id, liveItemCount, state.history]);
+  // Scrolling up loads earlier rows; the first visible row stays in place.
+  const earlierAnchor = useRef<{ row: string; top: number } | null>(null);
+  const loadEarlier = useCallback(() => {
+    const first =
+      transcriptRef.current?.querySelector<HTMLElement>('[data-row-id]');
+    earlierAnchor.current = first
+      ? { row: first.dataset.rowId!, top: first.getBoundingClientRect().top }
+      : null;
+    void controller.loadEarlier().catch((cause) => {
+      earlierAnchor.current = null;
+      setError(clientError(cause).message);
+    });
+  }, [controller]);
+  useLayoutEffect(() => {
+    const anchor = earlierAnchor.current;
+    const transcript = transcriptRef.current;
+    if (!anchor || !transcript) return;
+    earlierAnchor.current = null;
+    const element = Array.from(
+      transcript.querySelectorAll<HTMLElement>('[data-row-id]'),
+    ).find((row) => row.dataset.rowId === anchor.row);
+    if (element)
+      transcript.scrollTop += element.getBoundingClientRect().top - anchor.top;
+  }, [state.earlier]);
+  const topSentinel = useRef<HTMLDivElement>(null);
+  const canLoadEarlier =
+    !state.history && state.earlierAvailable && historyReady;
+  useEffect(() => {
+    const target = topSentinel.current;
+    const root = transcriptRef.current;
+    if (
+      !canLoadEarlier ||
+      !target ||
+      !root ||
+      typeof IntersectionObserver === 'undefined'
+    )
+      return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !followingLatest.current) loadEarlier();
+      },
+      { root, rootMargin: '480px 0px 0px 0px' },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [canLoadEarlier, loadEarlier, id]);
+  function openContextSheet() {
+    overlay.open({
+      kind: 'sheet',
+      key: 'conversation-context',
+      title: 'Conversation context',
+      description: '',
+      content: contextRail,
+    });
+  }
+  const sendBlocked =
+    busy ||
+    Boolean(pendingSteering) ||
+    Boolean(pendingSubmit) ||
+    Boolean(pendingResume);
+  const runAnnouncement = !generation
+    ? ''
+    : generation.status === 'stopping'
+      ? 'Stopping — waiting for the worker to finish.'
+      : generation.quiesced
+        ? `Work ${generation.status}.`
+        : generation.status.replaceAll('_', ' ');
   return (
     <div
       className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
@@ -1819,96 +1817,28 @@ export default function Conversation({
         tabIndex={0}
         aria-label="Conversation details"
       >
-        <header className="conversation-heading">
-          <div className="conversation-title-block">
-            <span className="eyebrow">Conversation</span>
-            <h1 title={state.conversation?.title || 'Start a conversation'}>
-              {state.conversation?.title || 'Start a conversation'}
-            </h1>
-          </div>
-          <div
-            className="button-row conversation-actions"
-            role="group"
-            aria-label="Conversation actions"
-          >
-            {missingReceipt &&
-              (missingReceipt.key === steeringKey ||
-                missingReceipt.key === submitKey ||
-                missingReceipt.key === resumeKey) && (
-                <Button disabled={busy} onClick={reviewMissingReceipt}>
-                  Check pending receipt
-                </Button>
-              )}
-            {id && compactContext && (
-              <Button
-                disabled={!contextReady}
-                onClick={() =>
-                  overlay.open({
-                    kind: 'sheet',
-                    key: 'conversation-context',
-                    title: 'Conversation context',
-                    description: '',
-                    content: contextRail,
-                  })
-                }
-              >
-                Context
+        <ConversationHeader
+          title={title}
+          canRename={Boolean(
+            id && state.conversation && state.status === 'ready',
+          )}
+          onRename={rename}
+          model={id ? modelName : undefined}
+          onModel={id && controls ? () => setModelPickerOpen(true) : undefined}
+          onFind={id ? findConversation : undefined}
+          onShare={id ? manageConversation : undefined}
+          onContext={id && compactContext ? openContextSheet : undefined}
+          contextDisabled={!contextReady}
+        >
+          {missingReceipt &&
+            (missingReceipt.key === steeringKey ||
+              missingReceipt.key === submitKey ||
+              missingReceipt.key === resumeKey) && (
+              <Button disabled={busy} onClick={reviewMissingReceipt}>
+                Check pending receipt
               </Button>
             )}
-          </div>
-        </header>
-        <div
-          className="history-controls"
-          role="group"
-          aria-label="Conversation history"
-        >
-          <Button
-            disabled={!historyReady}
-            onClick={() =>
-              void controller
-                .showHistory()
-                .catch((e) => setError(clientError(e).message))
-            }
-          >
-            Browse history
-          </Button>
-          {state.history?.previous_cursor && (
-            <Button
-              disabled={!historyReady}
-              onClick={() =>
-                void controller
-                  .showHistory(undefined, state.history!.previous_cursor!)
-                  .catch((e) => setError(clientError(e).message))
-              }
-            >
-              Earlier messages
-            </Button>
-          )}
-          {state.history?.next_cursor && (
-            <Button
-              disabled={!historyReady}
-              onClick={() =>
-                void controller
-                  .showHistory(undefined, state.history!.next_cursor!)
-                  .catch((e) => setError(clientError(e).message))
-              }
-            >
-              Later messages
-            </Button>
-          )}
-          {(state.history || showLatest) && (
-            <Button
-              onClick={() => {
-                followingLatest.current = true;
-                setShowLatest(false);
-                if (state.history) controller.showLatest();
-                else scrollToLatest();
-              }}
-            >
-              Latest messages
-            </Button>
-          )}
-        </div>
+        </ConversationHeader>
         <div
           role="log"
           aria-label="Conversation"
@@ -1918,15 +1848,20 @@ export default function Conversation({
           ref={transcriptRef}
           tabIndex={0}
           onScroll={(event) => {
-            if (state.history || state.loadingConversation) return;
+            if (state.loadingConversation) return;
             const transcript = event.currentTarget;
             const following =
               transcript.scrollHeight -
                 transcript.clientHeight -
                 transcript.scrollTop <=
               24;
+            if (state.history) {
+              setShowLatest(true);
+              return;
+            }
             followingLatest.current = following;
             setShowLatest(!following);
+            if (following) setNewCount(0);
           }}
         >
           <div
@@ -1934,222 +1869,288 @@ export default function Conversation({
             ref={transcriptContentRef}
             style={{ display: 'flow-root' }}
           >
+            {canLoadEarlier && (
+              <div className="transcript-sentinel" ref={topSentinel}>
+                <Button
+                  variant="ghost"
+                  disabled={state.loadingEarlier}
+                  onClick={loadEarlier}
+                >
+                  {state.loadingEarlier
+                    ? 'Loading earlier messages…'
+                    : 'Earlier messages'}
+                </Button>
+              </div>
+            )}
+            {state.history?.previous_cursor && (
+              <div className="transcript-sentinel">
+                <Button
+                  variant="ghost"
+                  disabled={!historyReady}
+                  onClick={() =>
+                    void controller
+                      .showHistory(undefined, state.history!.previous_cursor!)
+                      .catch((e) => setError(clientError(e).message))
+                  }
+                >
+                  Earlier messages
+                </Button>
+              </div>
+            )}
             {state.loadingConversation ? (
               <Skeleton label="Opening conversation" />
-            ) : visibleRows.length ? (
-              visibleRows.map((row) => (
-                <Message
-                  key={`${id}:${row.id}`}
-                  row={row}
-                  conversationId={id}
-                  toolCharts={toolCharts.get(row.id)}
-                />
-              ))
-            ) : (
-              <EmptyState
-                title={
-                  id
-                    ? 'What would you like to work on?'
-                    : 'A place for your ideas'
-                }
-                action={
-                  id && (
-                    <div className="stack" aria-label="Example prompts">
-                      {EXAMPLE_PROMPTS.slice(0, 3).map((prompt, index) => (
-                        <Button
-                          key={prompt}
-                          disabled={
-                            !sendActionReady ||
-                            busy ||
-                            !!pendingSubmit ||
-                            !!pendingResume ||
-                            !!pendingSteering
+            ) : items.length || pending?.conversation === id ? (
+              <>
+                {earlierIds.size > 0 && (
+                  // Loaded history is not announced as new conversation.
+                  <div className="transcript-earlier" aria-live="off">
+                    {items.map((item, index) =>
+                      earlierIds.has(item.row.id) ? (
+                        <TranscriptMessage
+                          key={`${id}:${item.row.id}`}
+                          row={item.row}
+                          conversationId={id}
+                          traces={item.traces}
+                          embeds={item.embeds}
+                          media={item.media}
+                          toolbar={turns.ends[index]}
+                          copyText={turns.texts[index]}
+                          onRecover={recoverTurn}
+                          onEdit={
+                            item.row.role === 'user' ? editMessage : undefined
                           }
-                          onClick={() => send(prompt)}
-                        >
-                          {EXAMPLE_LABELS[index]}
-                        </Button>
-                      ))}
-                      <details>
-                        <summary>More ideas</summary>
-                        <div className="stack">
-                          {EXAMPLE_PROMPTS.slice(3).map((prompt, index) => (
-                            <Button
-                              key={prompt}
-                              disabled={
-                                !sendActionReady ||
-                                busy ||
-                                !!pendingSubmit ||
-                                !!pendingResume ||
-                                !!pendingSteering
-                              }
-                              onClick={() => send(prompt)}
-                            >
-                              {EXAMPLE_LABELS[index + 3]}
-                            </Button>
-                          ))}
-                        </div>
-                      </details>
-                    </div>
-                  )
+                        />
+                      ) : null,
+                    )}
+                  </div>
+                )}
+                {items.map((item, index) =>
+                  earlierIds.has(item.row.id) ? null : (
+                    <TranscriptMessage
+                      key={`${id}:${item.row.id}`}
+                      row={item.row}
+                      conversationId={id}
+                      traces={item.traces}
+                      embeds={item.embeds}
+                      media={item.media}
+                      latest={index === lastAssistant && !isRunning}
+                      toolbar={turns.ends[index]}
+                      copyText={turns.texts[index]}
+                      onRecover={recoverTurn}
+                      streaming={
+                        isRunning &&
+                        index === items.length - 1 &&
+                        item.row.role === 'assistant'
+                      }
+                      onRetry={
+                        index === lastAssistant &&
+                        !isRunning &&
+                        !state.history &&
+                        lastUserText &&
+                        sendActionReady
+                          ? retryLast
+                          : undefined
+                      }
+                      onEdit={
+                        item.row.role === 'user' ? editMessage : undefined
+                      }
+                    />
+                  ),
+                )}
+              </>
+            ) : (
+              <ChatEmpty
+                conversationId={id}
+                disabled={
+                  !sendActionReady ||
+                  busy ||
+                  !!pendingSubmit ||
+                  !!pendingResume ||
+                  !!pendingSteering
                 }
-              >
-                <span className="desktop-empty-hint">
-                  Chat, reason, browse, use tools, and work with your local
-                  knowledge, workflows, and designs. Settings can be finished
-                  anytime.
-                </span>
-                <span className="mobile-empty-hint">
-                  Start with a message. Add a code folder or design anytime.
-                </span>
-              </EmptyState>
+                onSend={(prompt) => send(prompt)}
+                recent={state.conversations}
+                onOpen={(target) => navigate(`/conversations/${target}`)}
+              />
             )}
-            {thinkingActive && (
-              <details className="trace-group thinking-stub">
-                <summary>Thinking</summary>
-                <p>Row-Bot is working. Private reasoning is not shown.</p>
-              </details>
-            )}
-            {id && liveTraceGroups.length > 0 && (
-              <TranscriptTrace conversation={id} groups={liveTraceGroups} />
-            )}
-            {generation?.approval_id &&
-              generation.status === 'waiting_approval' && (
-                <ApprovalBar
-                  id={generation.approval_id}
-                  hint={
-                    approvalEvent?.event.type === 'approval.required'
-                      ? approvalEvent.event.payload
-                      : undefined
-                  }
-                />
-              )}
             {pending?.conversation === id &&
               !rows.some((row) => row.message_id === pending.id) && (
                 <article
-                  className="message message-user"
+                  className="message message-user message-pending"
                   aria-label="You message awaiting confirmation"
                   data-message-id={pending.id}
                 >
-                  <header className="message-meta">
-                    <strong className="message-role">You</strong>
+                  <div className="transcript-content">
+                    <div className="message-text">{pending.text}</div>
                     <small className="message-delivery-state">
                       Awaiting confirmation
                     </small>
-                  </header>
-                  <div className="message-text">{pending.text}</div>
+                  </div>
                 </article>
               )}
+            {id &&
+              !state.history &&
+              (isRunning ||
+                liveTraceGroups.length > 0 ||
+                pendingMedia.length > 0 ||
+                (generation?.approval_id &&
+                  generation.status === 'waiting_approval')) && (
+                <div className="message message-assistant message-live">
+                  <div className="transcript-content">
+                    <TranscriptTrace
+                      conversation={id}
+                      groups={liveTraceGroups}
+                      live={{
+                        running: isRunning,
+                        thinking: thinkingActive,
+                        waiting: generation?.status === 'waiting_approval',
+                        stopping: generation?.status === 'stopping',
+                        startedAt: runStartedAt,
+                      }}
+                    >
+                      {generation?.approval_id &&
+                        generation.status === 'waiting_approval' && (
+                          <ApprovalCard
+                            id={generation.approval_id}
+                            hint={
+                              approvalEvent?.event.type === 'approval.required'
+                                ? approvalEvent.event.payload
+                                : undefined
+                            }
+                            onAllowInChat={
+                              controls?.approval_mode === 'allow_all'
+                                ? undefined
+                                : allowInChat
+                            }
+                          />
+                        )}
+                    </TranscriptTrace>
+                    {pendingMedia.length > 0 && (
+                      <div
+                        className="message-media-grid"
+                        data-count={pendingMedia.length}
+                      >
+                        {pendingMedia.map((media) => (
+                          <MediaPreview
+                            key={media.reference}
+                            reference={media.reference}
+                            mime={media.mime}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            {(interrupted || failed) && (
+              <div
+                className="turn-notice"
+                data-tone={interrupted ? 'warning' : 'danger'}
+              >
+                <TriangleAlert className="turn-notice-icon" aria-hidden />
+                <div className="turn-notice-text">
+                  <strong>
+                    {interrupted
+                      ? 'The response was interrupted'
+                      : 'The response could not finish'}
+                  </strong>
+                  <span>
+                    {interrupted
+                      ? 'Resume to continue where it stopped, or switch to another model.'
+                      : 'Try again, or switch to another model.'}
+                    {generation?.external_outcome === 'uncertain'
+                      ? ' An external action may have completed; review it before retrying.'
+                      : ''}
+                  </span>
+                </div>
+                <div className="turn-notice-actions">
+                  {interrupted && (
+                    <Button
+                      disabled={
+                        busy ||
+                        Boolean(pendingSubmit) ||
+                        Boolean(pendingSteering) ||
+                        Boolean(pendingResume)
+                      }
+                      onClick={() => void action('conversation.resume')}
+                    >
+                      Resume
+                    </Button>
+                  )}
+                  {failed && lastUserText && (
+                    <Button
+                      disabled={sendBlocked || !sendActionReady}
+                      onClick={retryLast}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                  {controls && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setModelPickerOpen(true)}
+                    >
+                      Switch model
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+            {state.history?.next_cursor && (
+              <div className="transcript-sentinel">
+                <Button
+                  variant="ghost"
+                  disabled={!historyReady}
+                  onClick={() =>
+                    void controller
+                      .showHistory(undefined, state.history!.next_cursor!)
+                      .catch((e) => setError(clientError(e).message))
+                  }
+                >
+                  Later messages
+                </Button>
+              </div>
+            )}
           </div>
         </div>
-        {id && (
-          <details
-            className="activity steering-activity"
-            onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
+        {(state.history || showLatest) && (
+          <button
+            type="button"
+            className="latest-pill"
+            aria-label="Latest messages"
+            onClick={() => {
+              followingLatest.current = true;
+              setShowLatest(false);
+              setNewCount(0);
+              if (state.history || state.earlier.length)
+                controller.showLatest();
+              else scrollToLatest();
+            }}
           >
-            <summary>Steering queue</summary>
-            {steeringOpen && (
-              <QueueControls
-                conversationId={id}
-                generationId={generation?.generation_id ?? ''}
-                refreshKey={
-                  state.activity
-                    .filter((record) => record.event.type === 'queue.changed')
-                    .at(-1)?.event.event_id ?? ''
-                }
-                loadPage={(run, cursor, signal) =>
-                  controller.queue(id, run, cursor ?? undefined, signal)
-                }
-                onAction={async (type, submission, revision, text) => {
-                  const current = await controller.workspaceFor(id);
-                  await controller.intent(
-                    id,
-                    `conversation.queue.${type}`,
-                    {
-                      submission_id: submission,
-                      expected_queue_revision: revision,
-                      ...(type === 'edit' ? { text } : {}),
-                    },
-                    current.revision,
-                  );
-                }}
-              />
-            )}
-            {steeringOpen && (
-              <SteeringQueue
-                conversationId={id}
-                generationId={generation?.generation_id ?? ''}
-                refreshKey={
-                  state.activity
-                    .filter((record) =>
-                      record.event.type.startsWith('steering.'),
-                    )
-                    .at(-1)?.event.event_id ?? ''
-                }
-                loadPage={(run, cursor, signal) =>
-                  controller.steering(id, run, cursor ?? undefined, signal)
-                }
-              />
-            )}
-          </details>
+            <ArrowDown aria-hidden />
+            <span aria-hidden>
+              {newCount > 0 && !state.history ? `${newCount} new` : 'Latest'}
+            </span>
+          </button>
         )}
-        {!!state.activity.filter(
-          (record) => record.event.type !== 'tool.activity',
-        ).length && (
-          <details className="activity activity-feed">
-            <summary>
-              Activity (
-              {
-                state.activity.filter(
-                  (record) => record.event.type !== 'tool.activity',
-                ).length
-              }
-              )
-            </summary>
-            <ol className="activity-list">
-              {state.activity
-                .filter((record) => record.event.type !== 'tool.activity')
-                .map((record) => (
-                  <li className="activity-item" key={record.event.event_id}>
-                    {record.event.type === 'media.available' ? (
-                      <Media
-                        reference={record.event.payload.media_ref}
-                        mime={record.event.payload.mime_type}
-                      />
-                    ) : record.event.type === 'agent.activity' ? (
-                      <details>
-                        <summary>
-                          Delegated task: {record.event.payload.status}
-                        </summary>
-                        <p>Task reference: {record.event.payload.run_id}</p>
-                      </details>
-                    ) : record.event.type === 'generation.error' ? (
-                      'The response was interrupted.'
-                    ) : record.event.type === 'queue.updated' ? (
-                      `${record.event.payload.submission_ids.length} queued submissions`
-                    ) : (
-                      record.event.type.replaceAll('.', ' ')
-                    )}
-                  </li>
-                ))}
-            </ol>
-          </details>
-        )}
-        {generation && (
-          <p role="status" className="run-status">
-            {generation.status === 'stopping'
-              ? 'Stopping — waiting for the worker to finish.'
-              : generation.quiesced
-                ? `Work ${generation.status}.`
-                : generation.status.replaceAll('_', ' ')}
-            {generation.external_outcome === 'uncertain'
-              ? ' An external action may have completed; review before retrying.'
-              : ''}
-          </p>
-        )}
+        <p role="status" className="visually-hidden run-status">
+          {runAnnouncement}
+          {generation?.external_outcome === 'uncertain'
+            ? ' An external action may have completed; review before retrying.'
+            : ''}
+        </p>
         {error && (
           <div role="alert" className="chat-error">
-            {error}
+            <TriangleAlert aria-hidden />
+            <span>{error}</span>
+            <button
+              type="button"
+              className="chat-error-dismiss"
+              aria-label="Dismiss error"
+              onClick={() => setError('')}
+            >
+              <X aria-hidden />
+            </button>
           </div>
         )}
       </div>
@@ -2163,410 +2164,452 @@ export default function Conversation({
             send();
           }}
         >
-          {!!resources.length && (
-            <ResourceTargets
-              resources={resources}
-              selected={targetSelection[id] ?? defaultTargetIds}
-              onChange={(kind, bindingId) =>
-                setTargets((previous) => ({
-                  ...previous,
-                  [id]: [
-                    ...(previous[id] ?? defaultTargetIds).filter(
-                      (binding) =>
-                        !resources.some(
-                          (resource) =>
-                            resource.binding.binding_id === binding &&
-                            resource.binding.kind === kind,
-                        ),
-                    ),
-                    ...(bindingId ? [bindingId] : []),
-                  ],
-                }))
-              }
-            />
-          )}
-          {!!draft.attachments.length && (
-            <ul className="composer-attachments" aria-label="Attachments">
-              {draft.attachments.map((a) => (
-                <li key={a.attachment_ref} className="attachment-chip">
-                  <span>{a.name}</span>
-                  <Button
-                    aria-label={`Remove ${a.name}`}
-                    onClick={() =>
-                      controller.setDraft(id, {
-                        ...draft,
-                        attachments: draft.attachments.filter(
-                          (item) => item.attachment_ref !== a.attachment_ref,
-                        ),
-                      })
-                    }
-                  >
-                    Remove
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {composerSnapshot && (
-            <ComposerSkillChips
-              composer={composerSnapshot}
-              disabled={Boolean(running) || busy || composerBusy}
-              action={skillAction}
-            />
-          )}
-          <label className="sr-only" htmlFor="message-composer">
-            Message
-          </label>
-          <textarea
-            ref={composerRef}
-            id="message-composer"
-            className="input message-composer"
-            value={draft.text}
-            maxLength={200000}
-            placeholder="Message Row-Bot…"
-            aria-describedby={
-              composerStateReason ? 'message-composer-state' : undefined
-            }
-            onChange={(e) => {
-              controller.setDraft(id, { ...draft, text: e.target.value });
-              setComposerCursor(
-                e.target.selectionStart ?? e.target.value.length,
-              );
-            }}
-            onSelect={(e) =>
-              setComposerCursor(e.currentTarget.selectionStart ?? 0)
-            }
-            onKeyDown={(e) => {
-              if (
-                !e.nativeEvent.isComposing &&
-                slashPaletteRef.current?.key(e)
-              ) {
-                e.preventDefault();
-                return;
-              }
-              if (
-                e.key === 'Enter' &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing &&
-                !running
-              ) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          {composerSnapshot && (
-            <SlashPalette
-              ref={slashPaletteRef}
-              text={draft.text}
-              cursor={composerCursor}
-              commands={composerSnapshot.commands}
-              disabled={Boolean(running) || busy || composerBusy}
-              inputRef={composerRef}
-              onChoose={(command, token) => void chooseSlash(command, token)}
-            />
-          )}
-          <div className="composer-toolbar" ref={toolbarRef}>
-            <ComposerControls
-              key={id}
-              composer={composerSnapshot ?? undefined}
-              onSkillAction={skillAction}
-              skillsOpen={skillsOpen}
-              onSkillsOpenChange={setSkillsOpen}
-              disabled={Boolean(running) || busy || talkBusy || composerBusy}
-              onError={setError}
-            />
-            <div className="composer-actions">
-              {voiceScope && (
-                <div
-                  className="composer-audio"
-                  data-open={audioOpen}
-                  onBlur={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget))
-                      setAudioOpen(false);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') setAudioOpen(false);
-                  }}
-                >
-                  <Button
-                    variant="ghost"
-                    iconOnly
-                    className="composer-audio-toggle"
-                    aria-label="Attachments and audio"
-                    aria-expanded={audioOpen}
-                    onClick={() => setAudioOpen((value) => !value)}
-                  >
-                    <Volume2 size={18} aria-hidden />
-                  </Button>
-                  <div className="composer-audio-actions">
-                    {voiceScope && (
-                      <ConversationVoice
-                        key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
-                        compact
-                        controller={controller}
-                        scope={voiceScope}
-                        available={
-                          voiceExposure.key === voiceHostKey &&
-                          (voiceExposure.talk || voiceExposure.realtime)
-                        }
-                        unavailableReason={voiceExposure.talkReason}
-                        disabled={busy}
-                        running={Boolean(running)}
-                        onBusy={setTalkBusy}
-                        context={
-                          controls?.model_selection && state.conversation
-                            ? {
-                                conversation_revision:
-                                  state.conversation.revision,
-                                model_selection: controls.model_selection,
-                                write_targets: resources
-                                  .filter((resource) =>
-                                    (
-                                      targetSelection[id ?? ''] ??
-                                      defaultTargetIds
-                                    ).includes(resource.binding.binding_id),
-                                  )
-                                  .map((resource) => ({
-                                    kind: resource.binding.kind as
-                                      'artifact' | 'workspace',
-                                    binding_id: resource.binding.binding_id,
-                                    resource_id: resource.binding.resource_id,
-                                    binding_revision: resource.binding.revision,
-                                    resource_revision:
-                                      resource.resource_revision,
-                                  })),
-                              }
-                            : null
-                        }
-                        targets={resources
-                          .filter((resource) =>
-                            (
-                              targetSelection[id ?? ''] ?? defaultTargetIds
-                            ).includes(resource.binding.binding_id),
-                          )
-                          .map((resource) => resource.title)}
-                      />
-                    )}
-                    {voiceScope && (
-                      <VoiceControls
-                        compact
-                        scope={voiceScope}
-                        available={
-                          voiceExposure.key === voiceHostKey &&
-                          voiceExposure.dictate
-                        }
-                        unavailableReason={voiceExposure.dictateReason}
-                        disabled={busy || talkBusy}
-                        start={(request, signal) =>
-                          controller.startDictation(voiceScope, request, signal)
-                        }
-                        transcribe={(handle, utterance, audio, signal) =>
-                          controller.transcribeDictation(
-                            voiceScope,
-                            handle,
-                            utterance,
-                            audio,
-                            signal,
-                          )
-                        }
-                        stop={(handle, signal) =>
-                          controller.stopDictation(voiceScope, handle, signal)
-                        }
-                        applyTranscript={(scope, result) =>
-                          controller.applyDictation(scope, result)
-                        }
-                      />
-                    )}
-                    <Button
-                      variant="ghost"
-                      iconOnly
-                      aria-label="Attach file"
-                      disabled={busy}
-                      onClick={() => void attach()}
-                    >
-                      <Paperclip size={18} aria-hidden />
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {!voiceScope && (
-                <Button
-                  variant="ghost"
-                  iconOnly
-                  aria-label="Attach file"
-                  disabled={busy}
-                  onClick={() => void attach()}
-                >
-                  <Paperclip size={18} aria-hidden />
-                </Button>
-              )}
-              {compactToolbar &&
-                (pendingSubmit ||
-                  pendingResume ||
-                  pendingSteering ||
-                  running ||
-                  (!running && generation?.status === 'interrupted')) && (
-                  <Menu
-                    label="Message actions"
-                    iconOnly
-                    variant="ghost"
-                    actions={[
-                      ...(pendingSubmit
-                        ? [
-                            {
-                              label: 'Check request receipt',
-                              disabled: busy,
-                              onSelect: () => void recover(),
-                            },
-                          ]
-                        : []),
-                      ...(pendingResume
-                        ? [
-                            {
-                              label: 'Check resume receipt',
-                              disabled: busy,
-                              onSelect: () => void resume(true),
-                            },
-                          ]
-                        : []),
-                      ...(pendingSteering
-                        ? [
-                            {
-                              label: 'Check queued message',
-                              disabled: busy,
-                              onSelect: () => void queueMessage(),
-                            },
-                          ]
-                        : []),
-                      ...(running
-                        ? [
-                            {
-                              label: 'Queue message',
-                              disabled:
-                                !draft.text.trim() ||
-                                draft.text.length > 16000 ||
-                                busy ||
-                                Boolean(pendingSteering) ||
-                                Boolean(pendingSubmit) ||
-                                Boolean(pendingResume),
-                              onSelect: () => void action('conversation.steer'),
-                            },
-                          ]
-                        : []),
-                      ...(!running && generation?.status === 'interrupted'
-                        ? [
-                            {
-                              label: 'Resume',
-                              disabled:
-                                busy ||
-                                Boolean(pendingSubmit) ||
-                                Boolean(pendingSteering) ||
-                                Boolean(pendingResume),
-                              onSelect: () =>
-                                void action('conversation.resume'),
-                            },
-                          ]
-                        : []),
-                    ]}
-                  >
-                    <MoreHorizontal size={18} aria-hidden />
-                  </Menu>
+          {queueSeen && (
+            <details
+              className="activity steering-activity composer-queue"
+              onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
+            >
+              <summary>
+                <ListPlus aria-hidden />
+                <span>Steering queue</span>
+                {queueCount > 0 && (
+                  <span className="composer-queue-count">
+                    {queueCount} queued
+                  </span>
                 )}
-              {!compactToolbar && pendingSubmit && (
-                <Button disabled={busy} onClick={() => void recover()}>
-                  Check request receipt
-                </Button>
-              )}
-              {!compactToolbar && pendingResume && (
-                <Button disabled={busy} onClick={() => void resume(true)}>
-                  Check resume receipt
-                </Button>
-              )}
-              {!compactToolbar && pendingSteering && (
-                <Button disabled={busy} onClick={() => void queueMessage()}>
-                  Check queued message
-                </Button>
-              )}
-              {!compactToolbar && running && (
-                <Button
-                  disabled={
-                    !draft.text.trim() ||
-                    draft.text.length > 16000 ||
-                    busy ||
-                    Boolean(pendingSteering) ||
-                    Boolean(pendingSubmit) ||
-                    Boolean(pendingResume)
+              </summary>
+              {steeringOpen && (
+                <QueueControls
+                  conversationId={id}
+                  generationId={generation?.generation_id ?? ''}
+                  refreshKey={
+                    state.activity
+                      .filter((record) => record.event.type === 'queue.changed')
+                      .at(-1)?.event.event_id ?? ''
                   }
-                  onClick={() => void action('conversation.steer')}
-                >
-                  Queue message
-                </Button>
+                  loadPage={(run, cursor, signal) =>
+                    controller.queue(id, run, cursor ?? undefined, signal)
+                  }
+                  onAction={async (type, submission, revision, text) => {
+                    const current = await controller.workspaceFor(id);
+                    await controller.intent(
+                      id,
+                      `conversation.queue.${type}`,
+                      {
+                        submission_id: submission,
+                        expected_queue_revision: revision,
+                        ...(type === 'edit' ? { text } : {}),
+                      },
+                      current.revision,
+                    );
+                  }}
+                />
               )}
-              <span className="composer-primary-slot">
-                {running ? (
-                  <Button
-                    variant="danger"
-                    iconOnly
-                    aria-label="Stop"
-                    title="Stop"
-                    disabled={!generation.can_stop}
-                    onClick={() => void action('conversation.stop')}
-                  >
-                    <Square size={16} aria-hidden />
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    iconOnly
-                    aria-label="Send"
-                    aria-describedby={
-                      composerStateReason ? 'message-composer-state' : undefined
+              {steeringOpen && (
+                <SteeringQueue
+                  conversationId={id}
+                  generationId={generation?.generation_id ?? ''}
+                  refreshKey={
+                    state.activity
+                      .filter((record) =>
+                        record.event.type.startsWith('steering.'),
+                      )
+                      .at(-1)?.event.event_id ?? ''
+                  }
+                  loadPage={(run, cursor, signal) =>
+                    controller.steering(id, run, cursor ?? undefined, signal)
+                  }
+                />
+              )}
+            </details>
+          )}
+          <div className="composer-field">
+            {(!!resources.length ||
+              !!draft.attachments.length ||
+              Boolean(
+                composerSnapshot &&
+                (composerSnapshot.active_skills.length ||
+                  composerSnapshot.suggestions.length),
+              )) && (
+              <div className="composer-chips">
+                {!!resources.length && (
+                  <ResourceTargets
+                    resources={resources}
+                    selected={targetSelection[id] ?? defaultTargetIds}
+                    onChange={(kind, bindingId) =>
+                      setTargets((previous) => ({
+                        ...previous,
+                        [id]: [
+                          ...(previous[id] ?? defaultTargetIds).filter(
+                            (binding) =>
+                              !resources.some(
+                                (resource) =>
+                                  resource.binding.binding_id === binding &&
+                                  resource.binding.kind === kind,
+                              ),
+                          ),
+                          ...(bindingId ? [bindingId] : []),
+                        ],
+                      }))
                     }
-                    disabled={
-                      busy ||
-                      Boolean(pendingSteering) ||
-                      Boolean(pendingSubmit) ||
-                      Boolean(pendingResume) ||
-                      !draft.text.trim() ||
-                      state.status !== 'ready' ||
-                      !state.workspace?.actions.find((a) => a.action === 'send')
-                        ?.ready
-                    }
-                  >
-                    <ArrowUp size={20} aria-hidden />
+                  />
+                )}
+                {!!draft.attachments.length && (
+                  <ul className="composer-attachments" aria-label="Attachments">
+                    {draft.attachments.map((a) => (
+                      <li key={a.attachment_ref} className="attachment-chip">
+                        <Paperclip aria-hidden />
+                        <span>{a.name}</span>
+                        <button
+                          type="button"
+                          className="attachment-chip-remove"
+                          aria-label={`Remove ${a.name}`}
+                          onClick={() =>
+                            controller.setDraft(id, {
+                              ...draft,
+                              attachments: draft.attachments.filter(
+                                (item) =>
+                                  item.attachment_ref !== a.attachment_ref,
+                              ),
+                            })
+                          }
+                        >
+                          <X aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {composerSnapshot && (
+                  <ComposerSkillChips
+                    composer={composerSnapshot}
+                    disabled={isRunning || busy || composerBusy}
+                    action={skillAction}
+                  />
+                )}
+              </div>
+            )}
+            <label className="sr-only" htmlFor="message-composer">
+              Message
+            </label>
+            <textarea
+              ref={composerRef}
+              id="message-composer"
+              className="input message-composer"
+              value={draft.text}
+              rows={1}
+              maxLength={200000}
+              placeholder={
+                isRunning ? 'Queue a follow-up…' : 'Message Row-Bot…'
+              }
+              aria-describedby={
+                composerStateReason ? 'message-composer-state' : undefined
+              }
+              onChange={(e) => {
+                controller.setDraft(id, { ...draft, text: e.target.value });
+                setComposerCursor(
+                  e.target.selectionStart ?? e.target.value.length,
+                );
+              }}
+              onSelect={(e) =>
+                setComposerCursor(e.currentTarget.selectionStart ?? 0)
+              }
+              onKeyDown={(e) => {
+                if (
+                  !e.nativeEvent.isComposing &&
+                  slashPaletteRef.current?.key(e)
+                ) {
+                  e.preventDefault();
+                  return;
+                }
+                if (
+                  e.key === 'ArrowUp' &&
+                  !draft.text &&
+                  !e.shiftKey &&
+                  !e.altKey &&
+                  !e.metaKey &&
+                  !e.ctrlKey &&
+                  lastUserText
+                ) {
+                  // ↑ in an empty composer brings back the last message.
+                  e.preventDefault();
+                  editMessage(lastUserText);
+                  return;
+                }
+                if (
+                  e.key === 'Enter' &&
+                  !e.shiftKey &&
+                  !e.metaKey &&
+                  !e.ctrlKey &&
+                  !e.nativeEvent.isComposing
+                ) {
+                  e.preventDefault();
+                  if (!isRunning) send();
+                  else if (
+                    draft.text.trim() &&
+                    draft.text.length <= 16000 &&
+                    !sendBlocked
+                  )
+                    void action('conversation.steer');
+                }
+              }}
+            />
+            {composerSnapshot && (
+              <SlashPalette
+                ref={slashPaletteRef}
+                text={draft.text}
+                cursor={composerCursor}
+                commands={composerSnapshot.commands}
+                disabled={isRunning || busy || composerBusy}
+                inputRef={composerRef}
+                onChoose={(command, token) => void chooseSlash(command, token)}
+              />
+            )}
+            <div className="composer-toolbar" ref={toolbarRef}>
+              <ComposerControls
+                key={id}
+                composer={composerSnapshot ?? undefined}
+                onSkillAction={skillAction}
+                skillsOpen={skillsOpen}
+                onSkillsOpenChange={setSkillsOpen}
+                disabled={isRunning || busy || talkBusy || composerBusy}
+                onError={setError}
+                onAttach={() => void attach()}
+                attachDisabled={busy}
+                onAddResource={setup}
+                modelPickerOpen={modelPickerOpen}
+                onModelPickerOpenChange={setModelPickerOpen}
+              />
+              <div className="composer-actions">
+                {compactToolbar &&
+                  (pendingSubmit || pendingResume || pendingSteering) && (
+                    <Menu
+                      label="Message actions"
+                      iconOnly
+                      variant="ghost"
+                      actions={[
+                        ...(pendingSubmit
+                          ? [
+                              {
+                                label: 'Check request receipt',
+                                disabled: busy,
+                                onSelect: () => void recover(),
+                              },
+                            ]
+                          : []),
+                        ...(pendingResume
+                          ? [
+                              {
+                                label: 'Check resume receipt',
+                                disabled: busy,
+                                onSelect: () => void resume(true),
+                              },
+                            ]
+                          : []),
+                        ...(pendingSteering
+                          ? [
+                              {
+                                label: 'Check queued message',
+                                disabled: busy,
+                                onSelect: () => void queueMessage(),
+                              },
+                            ]
+                          : []),
+                      ]}
+                    >
+                      <MoreHorizontal size={18} aria-hidden />
+                    </Menu>
+                  )}
+                {!compactToolbar && pendingSubmit && (
+                  <Button disabled={busy} onClick={() => void recover()}>
+                    Check request receipt
                   </Button>
                 )}
-              </span>
-              {!compactToolbar &&
-                !running &&
-                generation?.status === 'interrupted' && (
+                {!compactToolbar && pendingResume && (
+                  <Button disabled={busy} onClick={() => void resume(true)}>
+                    Check resume receipt
+                  </Button>
+                )}
+                {!compactToolbar && pendingSteering && (
+                  <Button disabled={busy} onClick={() => void queueMessage()}>
+                    Check queued message
+                  </Button>
+                )}
+                <ContextUsage usage={state.workspace?.context_usage} />
+                {voiceScope && (
+                  <span className="composer-voice">
+                    <VoiceControls
+                      compact
+                      scope={voiceScope}
+                      available={
+                        voiceExposure.key === voiceHostKey &&
+                        voiceExposure.dictate
+                      }
+                      unavailableReason={voiceExposure.dictateReason}
+                      disabled={busy || talkBusy}
+                      start={(request, signal) =>
+                        controller.startDictation(voiceScope, request, signal)
+                      }
+                      transcribe={(handle, utterance, audio, signal) =>
+                        controller.transcribeDictation(
+                          voiceScope,
+                          handle,
+                          utterance,
+                          audio,
+                          signal,
+                        )
+                      }
+                      stop={(handle, signal) =>
+                        controller.stopDictation(voiceScope, handle, signal)
+                      }
+                      applyTranscript={(scope, result) =>
+                        controller.applyDictation(scope, result)
+                      }
+                    />
+                    <ConversationVoice
+                      key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
+                      compact
+                      chevron
+                      controller={controller}
+                      scope={voiceScope}
+                      available={
+                        voiceExposure.key === voiceHostKey &&
+                        (voiceExposure.talk || voiceExposure.realtime)
+                      }
+                      unavailableReason={voiceExposure.talkReason}
+                      disabled={busy}
+                      running={isRunning}
+                      onBusy={setTalkBusy}
+                      context={
+                        controls?.model_selection && state.conversation
+                          ? {
+                              conversation_revision:
+                                state.conversation.revision,
+                              model_selection: controls.model_selection,
+                              write_targets: resources
+                                .filter((resource) =>
+                                  (
+                                    targetSelection[id ?? ''] ??
+                                    defaultTargetIds
+                                  ).includes(resource.binding.binding_id),
+                                )
+                                .map((resource) => ({
+                                  kind: resource.binding.kind as
+                                    'artifact' | 'workspace',
+                                  binding_id: resource.binding.binding_id,
+                                  resource_id: resource.binding.resource_id,
+                                  binding_revision: resource.binding.revision,
+                                  resource_revision: resource.resource_revision,
+                                })),
+                            }
+                          : null
+                      }
+                      targets={resources
+                        .filter((resource) =>
+                          (
+                            targetSelection[id ?? ''] ?? defaultTargetIds
+                          ).includes(resource.binding.binding_id),
+                        )
+                        .map((resource) => resource.title)}
+                    />
+                  </span>
+                )}
+                {isRunning && draft.text.trim() && (
                   <Button
+                    variant="ghost"
+                    className="composer-queue-button"
+                    aria-label="Queue message"
+                    title="Queue this message for the running response (Enter)"
                     disabled={
+                      draft.text.length > 16000 ||
                       busy ||
-                      Boolean(pendingSubmit) ||
                       Boolean(pendingSteering) ||
+                      Boolean(pendingSubmit) ||
                       Boolean(pendingResume)
                     }
-                    onClick={() => void action('conversation.resume')}
+                    onClick={() => void action('conversation.steer')}
                   >
-                    Resume
+                    <ListPlus size={16} aria-hidden />
+                    <span>Queue</span>
                   </Button>
                 )}
+                {!isRunning &&
+                  state.workspace &&
+                  state.status === 'ready' &&
+                  !sendActionReady && (
+                    <Button
+                      className="composer-setup-model"
+                      onClick={() => navigate('/settings/models')}
+                    >
+                      Set up a model
+                    </Button>
+                  )}
+                <span className="composer-primary-slot">
+                  {running ? (
+                    <Button
+                      variant="secondary"
+                      iconOnly
+                      className="composer-stop"
+                      aria-label="Stop"
+                      title="Stop"
+                      disabled={!generation.can_stop}
+                      onClick={() => void action('conversation.stop')}
+                    >
+                      <Square size={14} aria-hidden />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      iconOnly
+                      className="composer-send"
+                      aria-label="Send"
+                      aria-describedby={
+                        composerStateReason
+                          ? 'message-composer-state'
+                          : undefined
+                      }
+                      disabled={
+                        sendBlocked ||
+                        !draft.text.trim() ||
+                        state.status !== 'ready' ||
+                        !sendActionReady
+                      }
+                    >
+                      <ArrowUp size={18} aria-hidden />
+                    </Button>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
           {composerStateReason && (
             <p
               id="message-composer-state"
-              className="composer-state-reason"
+              className="composer-state-reason visually-hidden"
               role="status"
             >
               {composerStateReason}
             </p>
           )}
-          <div className="composer-status-row">
-            <small role="status" className="draft-status">
+          <div
+            className="composer-status-row"
+            data-visible={
+              state.draftStatus === 'conflict' || state.draftStatus === 'failed'
+                ? 'true'
+                : undefined
+            }
+          >
+            {/* Saving is silent; only a failure or conflict is shown. */}
+            <small
+              role="status"
+              className={`draft-status${
+                state.draftStatus === 'conflict' ||
+                state.draftStatus === 'failed'
+                  ? ''
+                  : ' visually-hidden'
+              }`}
+            >
               {state.draftStatus === 'saving'
                 ? 'Saving draft…'
                 : state.draftStatus === 'conflict'
@@ -2577,6 +2620,7 @@ export default function Conversation({
             </small>
             {state.draftStatus === 'conflict' && (
               <Button
+                variant="ghost"
                 onClick={() =>
                   overlay.open({
                     title: 'Resolve draft conflict',
@@ -2590,12 +2634,14 @@ export default function Conversation({
               </Button>
             )}
             {state.draftStatus === 'failed' && (
-              <Button onClick={() => void controller.retryDraft(id)}>
+              <Button
+                variant="ghost"
+                onClick={() => void controller.retryDraft(id)}
+              >
                 Retry saving draft
               </Button>
             )}
           </div>
-          <ContextUsage usage={state.workspace?.context_usage} />
         </form>
       )}
       {!compactContext && contextRail}

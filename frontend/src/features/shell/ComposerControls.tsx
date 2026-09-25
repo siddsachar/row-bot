@@ -1,12 +1,19 @@
 import { useRef, useState } from 'react';
-import * as Popover from '@radix-ui/react-popover';
+import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
-  Brain,
-  ChevronDown,
-  Cpu,
+  Bot,
+  Check,
+  ChevronRight,
+  FolderPlus,
+  Paperclip,
+  Plus,
+  ShieldBan,
   ShieldCheck,
+  ShieldQuestion,
   SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type {
   ConversationComposer,
   ConversationControls,
@@ -14,10 +21,27 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
-import { Button, Field, Hint, Input, Menu } from '../../ui/primitives';
-import ComposerSkills, { type ComposerSkillAction } from './ComposerSkills';
+import { Button, Hint, Menu } from '../../ui/primitives';
+import ComposerSkills, {
+  SkillsAnchor,
+  type ComposerSkillAction,
+} from './ComposerSkills';
+import ModelPicker from './ModelPicker';
+import { rememberRecentModel } from './model-choices';
 
-/** The server supplies exact-model choices; presentation never invents efforts. */
+const APPROVAL_LABELS = { approve: 'Ask', block: 'Block', allow_all: 'Auto' };
+const APPROVAL_ICONS = {
+  approve: ShieldQuestion,
+  block: ShieldBan,
+  allow_all: ShieldCheck,
+};
+
+/**
+ * The composer's left cluster: a + menu (attach, add resource, skills, agent
+ * profile, mode), the model pill with its picker, and an approval shield whose
+ * glyph shows Ask/Auto/Block. The server supplies exact-model choices;
+ * presentation never invents efforts.
+ */
 export default function ComposerControls({
   composer,
   onSkillAction = async () => undefined,
@@ -25,6 +49,11 @@ export default function ComposerControls({
   onSkillsOpenChange = () => undefined,
   disabled = false,
   onError,
+  onAttach,
+  onAddResource,
+  attachDisabled = false,
+  modelPickerOpen,
+  onModelPickerOpenChange,
 }: {
   composer?: ConversationComposer;
   onSkillAction?: ComposerSkillAction;
@@ -32,13 +61,21 @@ export default function ComposerControls({
   onSkillsOpenChange?(open: boolean): void;
   disabled?: boolean;
   onError: (error: string) => void;
+  onAttach?: () => void;
+  onAddResource?: () => void;
+  attachDisabled?: boolean;
+  modelPickerOpen?: boolean;
+  onModelPickerOpenChange?(open: boolean): void;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
+  const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
+  const [localPickerOpen, setLocalPickerOpen] = useState(false);
+  const pickerOpen = modelPickerOpen ?? localPickerOpen;
+  const setPickerOpen = onModelPickerOpenChange ?? setLocalPickerOpen;
   const operation = useRef(false);
-  const [thinkingOpen, setThinkingOpen] = useState(false);
-  const [budget, setBudget] = useState('');
+  const openSkillsAfterMenu = useRef(false);
   const workspace = state.workspace;
   const controls = workspace?.controls;
   const id = state.selectedConversationId;
@@ -48,19 +85,12 @@ export default function ComposerControls({
     workspace.reasoning?.model_ref === controls.model_selection?.model_ref
       ? workspace.reasoning
       : null;
-  const model = state.handshake?.models.find(
-    (item) => item.model_ref === controls.model_selection?.model_ref,
-  );
-  const selectedModelRef = controls.model_selection?.model_ref;
-  const selectedModelName = selectedModelRef?.startsWith('model:')
-    ? selectedModelRef.split(':').slice(2).join(':') || selectedModelRef
-    : selectedModelRef;
   const profile =
     workspace.profiles.find((item) => item.id === controls.profile_id)?.label ??
     'Default';
-  const approval = { approve: 'Ask', block: 'Block', allow_all: 'Auto' }[
-    controls.approval_mode ?? 'approve'
-  ];
+  const mode = controls.approval_mode ?? 'approve';
+  const approval = APPROVAL_LABELS[mode];
+  const Shield = APPROVAL_ICONS[mode];
   async function save(patch: Partial<ConversationControls>) {
     if (operation.current || blocked || !id || !controls) return;
     operation.current = true;
@@ -79,10 +109,7 @@ export default function ComposerControls({
         },
         workspace!.revision,
       );
-      if (controller.getSelectionVersion() === selectionVersion) {
-        onError('');
-        setThinkingOpen(false);
-      }
+      if (controller.getSelectionVersion() === selectionVersion) onError('');
     } catch (cause) {
       if (controller.getSelectionVersion() === selectionVersion)
         onError(clientError(cause).message);
@@ -108,6 +135,19 @@ export default function ComposerControls({
     (reasoning?.selection.kind === 'budget'
       ? `${reasoning.selection.budget} tokens`
       : 'Provider default');
+  const trigger = (
+    <Dropdown.Trigger asChild>
+      <Button
+        iconOnly
+        variant="ghost"
+        className="composer-plus"
+        aria-label="Add files and more"
+        disabled={state.status !== 'ready'}
+      >
+        <Plus size={18} aria-hidden />
+      </Button>
+    </Dropdown.Trigger>
+  );
   return (
     <div
       className="composer-control-cluster"
@@ -115,179 +155,192 @@ export default function ComposerControls({
       aria-label="Conversation controls"
       aria-busy={saving}
     >
-      <Menu
-        label="Model"
-        hint={`Model: ${model?.label ?? selectedModelName ?? 'Choose model'}`}
-        className="composer-control"
-        variant="ghost"
-        disabled={blocked}
-        actions={
-          state.handshake?.models.length
-            ? state.handshake.models.map((item) => ({
-                label: item.label,
-                disabled: !item.available,
-                selected: item.model_ref === selectedModelRef,
-                onSelect: () =>
-                  void save({
-                    model_selection: {
-                      provider_id: item.provider_id,
-                      model_ref: item.model_ref,
-                    },
-                  }),
-              }))
-            : [
-                {
-                  label: 'No cached models. Open Models in Settings.',
-                  disabled: true,
-                  onSelect: () => {},
-                },
-              ]
-        }
-      >
-        <Cpu size={18} aria-hidden />
-        <span title={model?.label ?? selectedModelName ?? 'Choose model'}>
-          {model?.label ?? selectedModelName ?? 'Choose model'}
-        </span>
-      </Menu>
-      {reasoning?.available && (
-        <Popover.Root open={thinkingOpen} onOpenChange={setThinkingOpen}>
-          <Hint label={`Thinking: ${thinkingLabel}`}>
-            <Popover.Trigger asChild>
-              <Button
-                variant="ghost"
-                className="composer-control"
-                disabled={blocked}
-                aria-label="Thinking"
-                aria-description={thinkingLabel}
+      <Dropdown.Root>
+        {composer ? (
+          <ComposerSkills
+            composer={composer}
+            disabled={blocked}
+            action={onSkillAction}
+            open={skillsOpen}
+            onOpenChange={onSkillsOpenChange}
+          >
+            <Hint label="Add files and more">
+              <SkillsAnchor asChild>{trigger}</SkillsAnchor>
+            </Hint>
+          </ComposerSkills>
+        ) : (
+          <Hint label="Add files and more">{trigger}</Hint>
+        )}
+        <Dropdown.Portal>
+          <Dropdown.Content
+            className="menu surface-effect composer-plus-menu"
+            side="top"
+            align="start"
+            sideOffset={8}
+            collisionPadding={12}
+            onCloseAutoFocus={(event) => {
+              if (!openSkillsAfterMenu.current) return;
+              openSkillsAfterMenu.current = false;
+              event.preventDefault();
+              onSkillsOpenChange(true);
+            }}
+          >
+            {onAttach && (
+              <Dropdown.Item
+                className="menu-item"
+                disabled={attachDisabled}
+                onSelect={onAttach}
               >
-                <Brain size={18} aria-hidden />
-                <span>Thinking · {thinkingLabel}</span>
-                <ChevronDown size={14} aria-hidden />
-              </Button>
-            </Popover.Trigger>
-          </Hint>
-          <Popover.Portal>
-            <Popover.Content
-              className="popover surface-effect thinking-menu"
-              sideOffset={6}
-              collisionPadding={12}
-              aria-label="Thinking"
-            >
-              <strong className="thinking-menu-title">Thinking</strong>
-              {reasoning.choices.map((choice) => (
-                <Button
-                  variant="ghost"
-                  className="thinking-option"
-                  key={JSON.stringify(choice.selection)}
-                  disabled={blocked}
-                  aria-pressed={choice.label === thinkingLabel}
-                  onClick={() => void chooseThinking(choice.selection)}
+                <Paperclip size={16} aria-hidden />
+                <span className="menu-item-label">Attach file</span>
+              </Dropdown.Item>
+            )}
+            {onAddResource && (
+              <Dropdown.Item className="menu-item" onSelect={onAddResource}>
+                <FolderPlus size={16} aria-hidden />
+                <span className="menu-item-label">Add resource…</span>
+              </Dropdown.Item>
+            )}
+            {composer && (
+              <Dropdown.Item
+                className="menu-item"
+                disabled={blocked}
+                onSelect={() => {
+                  openSkillsAfterMenu.current = true;
+                }}
+              >
+                <Sparkles size={16} aria-hidden />
+                <span className="menu-item-label">Skills…</span>
+                <span className="menu-item-meta">
+                  {composer.active_skills.length} active
+                </span>
+              </Dropdown.Item>
+            )}
+            <Dropdown.Separator className="menu-separator" />
+            <Dropdown.Sub>
+              <Dropdown.SubTrigger className="menu-item" disabled={blocked}>
+                <Bot size={16} aria-hidden />
+                <span className="menu-item-label">Agent profile</span>
+                <span className="menu-item-meta">{profile}</span>
+                <ChevronRight size={14} aria-hidden />
+              </Dropdown.SubTrigger>
+              <Dropdown.Portal>
+                <Dropdown.SubContent
+                  className="menu surface-effect"
+                  sideOffset={4}
+                  collisionPadding={12}
                 >
-                  {choice.label}
-                </Button>
-              ))}
-              {reasoning.supports_budget && (
-                <>
-                  <Field
-                    label="Thinking budget"
-                    hint={`${reasoning.budget_min ?? 1}–${reasoning.budget_max ?? 'maximum'} tokens`}
+                  <Dropdown.RadioGroup
+                    value={controls.profile_id ?? ''}
+                    onValueChange={(value) => void save({ profile_id: value })}
                   >
-                    <Input
-                      type="number"
-                      min={reasoning.budget_min ?? 1}
-                      max={reasoning.budget_max ?? undefined}
-                      step={1}
-                      value={budget}
-                      onChange={(event) => setBudget(event.target.value)}
-                    />
-                  </Field>
-                  <Button
-                    disabled={
-                      blocked ||
-                      !Number.isSafeInteger(Number(budget)) ||
-                      Number(budget) < (reasoning.budget_min ?? 1) ||
-                      Number(budget) >
-                        (reasoning.budget_max ?? Number.MAX_SAFE_INTEGER)
-                    }
-                    onClick={() =>
-                      void chooseThinking({
-                        kind: 'budget',
-                        budget: Number(budget),
+                    {[{ id: '', label: 'Default' }, ...workspace.profiles].map(
+                      (item) => (
+                        <Dropdown.RadioItem
+                          key={item.id}
+                          value={item.id}
+                          className="menu-item"
+                        >
+                          <span className="menu-item-label">{item.label}</span>
+                          <Dropdown.ItemIndicator>
+                            <Check size={16} aria-hidden />
+                          </Dropdown.ItemIndicator>
+                        </Dropdown.RadioItem>
+                      ),
+                    )}
+                  </Dropdown.RadioGroup>
+                </Dropdown.SubContent>
+              </Dropdown.Portal>
+            </Dropdown.Sub>
+            <Dropdown.Sub>
+              <Dropdown.SubTrigger className="menu-item" disabled={blocked}>
+                <SlidersHorizontal size={16} aria-hidden />
+                <span className="menu-item-label">Mode</span>
+                <span className="menu-item-meta">
+                  {controls.runtime_mode === 'agent' ? 'Agent' : 'Chat only'}
+                </span>
+                <ChevronRight size={14} aria-hidden />
+              </Dropdown.SubTrigger>
+              <Dropdown.Portal>
+                <Dropdown.SubContent
+                  className="menu surface-effect"
+                  sideOffset={4}
+                  collisionPadding={12}
+                >
+                  <Dropdown.RadioGroup
+                    value={controls.runtime_mode ?? 'agent'}
+                    onValueChange={(value) =>
+                      void save({
+                        runtime_mode: value as 'agent' | 'chat_only',
                       })
                     }
                   >
-                    Use budget
-                  </Button>
-                </>
-              )}
-              {reasoning.stale && (
-                <p role="status" className="composer-control-notice">
-                  The saved Thinking choice is no longer available. Provider
-                  default will be used.
-                </p>
-              )}
-              <Popover.Close asChild>
-                <Button variant="ghost">Close Thinking</Button>
-              </Popover.Close>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-      )}
-      {composer && (
-        <ComposerSkills
-          composer={composer}
-          disabled={blocked}
-          action={onSkillAction}
-          open={skillsOpen}
-          onOpenChange={onSkillsOpenChange}
-        />
-      )}
+                    {(
+                      [
+                        ['agent', 'Agent', 'Uses tools and agents'],
+                        ['chat_only', 'Chat only', 'Answers without tools'],
+                      ] as const
+                    ).map(([value, label, description]) => (
+                      <Dropdown.RadioItem
+                        key={value}
+                        value={value}
+                        className="menu-item"
+                      >
+                        <span className="menu-item-label">
+                          {label}
+                          <small>{description}</small>
+                        </span>
+                        <Dropdown.ItemIndicator>
+                          <Check size={16} aria-hidden />
+                        </Dropdown.ItemIndicator>
+                      </Dropdown.RadioItem>
+                    ))}
+                  </Dropdown.RadioGroup>
+                </Dropdown.SubContent>
+              </Dropdown.Portal>
+            </Dropdown.Sub>
+          </Dropdown.Content>
+        </Dropdown.Portal>
+      </Dropdown.Root>
+      <ModelPicker
+        models={state.handshake?.models ?? []}
+        current={controls.model_selection?.model_ref}
+        disabled={blocked}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onChoose={(item) => {
+          rememberRecentModel(item.model_ref);
+          if (item.model_ref === controls.model_selection?.model_ref) return;
+          void save({
+            model_selection: {
+              provider_id: item.provider_id,
+              model_ref: item.model_ref,
+            },
+          });
+        }}
+        reasoning={reasoning?.available ? reasoning : null}
+        thinkingLabel={thinkingLabel}
+        onThinking={(selection) => void chooseThinking(selection)}
+        onConnect={() => navigate('/settings/providers')}
+        onManage={() => navigate('/settings/models')}
+      />
       <Menu
         label="Approvals"
         hint={`Approvals: ${approval}`}
         variant="ghost"
-        className="composer-control composer-approvals"
+        iconOnly
+        className="composer-shield"
         disabled={blocked}
-        actions={(['approve', 'block', 'allow_all'] as const).map((value) => ({
-          label: { approve: 'Ask', block: 'Block', allow_all: 'Auto' }[value],
-          selected: (controls.approval_mode ?? 'approve') === value,
+        actions={(['approve', 'allow_all', 'block'] as const).map((value) => ({
+          label: APPROVAL_LABELS[value],
+          selected: mode === value,
           onSelect: () => void save({ approval_mode: value }),
         }))}
       >
-        <ShieldCheck size={18} aria-hidden />
-        <span>{approval}</span>
-      </Menu>
-      <Menu
-        label="More conversation controls"
-        hint={`Approvals: ${approval}; Runtime: ${controls.runtime_mode === 'agent' ? 'Agent' : 'Chat only'}; Profile: ${profile}`}
-        variant="ghost"
-        className="composer-control composer-overflow"
-        disabled={blocked}
-        actions={[
-          ...(['approve', 'block', 'allow_all'] as const).map((value) => ({
-            label: `Approvals: ${{ approve: 'Ask', block: 'Block', allow_all: 'Auto' }[value]}${(controls.approval_mode ?? 'approve') === value ? ' (selected)' : ''}`,
-            onSelect: () => void save({ approval_mode: value }),
-          })),
-          ...(['agent', 'chat_only'] as const).map((value) => ({
-            label: `Runtime: ${value === 'agent' ? 'Agent' : 'Chat only'}${controls.runtime_mode === value ? ' (selected)' : ''}`,
-            onSelect: () => void save({ runtime_mode: value }),
-          })),
-          ...[{ id: '', label: 'Default' }, ...workspace.profiles].map(
-            (item) => ({
-              label: `Profile: ${item.label}${controls.profile_id === item.id ? ' (selected)' : ''}`,
-              onSelect: () => void save({ profile_id: item.id }),
-            }),
-          ),
-        ]}
-      >
-        <SlidersHorizontal size={18} aria-hidden />
-        <span>
-          {controls.runtime_mode === 'agent' ? 'Agent' : 'Chat only'} ·{' '}
-          {profile}
-        </span>
+        <Shield size={17} aria-hidden data-mode={mode} />
       </Menu>
       {saving && (
-        <small className="composer-control-status" role="status">
+        <small className="visually-hidden" role="status">
           Saving conversation controls…
         </small>
       )}

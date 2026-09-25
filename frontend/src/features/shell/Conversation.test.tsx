@@ -11,11 +11,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
   ApprovalView,
   CommandReceipt,
+  ConversationView as ConversationRow,
   ConversationWorkspace,
   ModelChoice,
   SearchPage,
   Snapshot,
   TranscriptPage,
+  TranscriptRow,
 } from '../../api/types';
 import { commandReceipts } from './command-receipts';
 import ConversationView, { Media } from './Conversation';
@@ -35,6 +37,10 @@ const mock = vi.hoisted(() => ({
     workspace: null as ConversationWorkspace | null,
     history: null as TranscriptPage | null,
     historyFocus: null,
+    earlier: [] as TranscriptRow[],
+    earlierAvailable: false,
+    loadingEarlier: false,
+    conversations: [] as ConversationRow[],
     status: 'ready',
     handshake: {
       instance_id: '',
@@ -57,6 +63,7 @@ const mock = vi.hoisted(() => ({
   receipt: vi.fn(),
   showHistory: vi.fn(),
   showLatest: vi.fn(),
+  loadEarlier: vi.fn(),
   selectConversation: vi.fn(),
   loadMoreConversations: vi.fn(),
   conversationActions: vi.fn(),
@@ -96,6 +103,7 @@ vi.mock('../../runtime', () => {
       receipt: mock.receipt,
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,
+      loadEarlier: mock.loadEarlier,
       selectConversation: mock.selectConversation,
       loadMoreConversations: mock.loadMoreConversations,
       conversationActions: mock.conversationActions,
@@ -148,6 +156,10 @@ beforeEach(() => {
   mock.state.projection = null;
   mock.state.workspace = null;
   mock.state.history = null;
+  mock.state.earlier = [];
+  mock.state.earlierAvailable = false;
+  mock.state.loadingEarlier = false;
+  mock.state.conversations = [];
   mock.state.loadingConversation = false;
   mock.drafts.clear();
   mock.setDraft.mockImplementation((id, draft) => mock.drafts.set(id, draft));
@@ -208,18 +220,16 @@ function conversation() {
   return render(<Conversation onPanel={vi.fn()} />);
 }
 
-it('keeps Browse history disabled until the selected conversation finishes opening', async () => {
+it('offers earlier messages above the live window only once the selected conversation has opened', async () => {
   mock.state.selectedConversationId = 'conversation-b';
   mock.state.loadingConversation = true;
-  mock.showHistory.mockResolvedValue(undefined);
+  mock.state.earlierAvailable = true;
+  mock.loadEarlier.mockResolvedValue(undefined);
   let rendered!: ReturnType<typeof conversation>;
   await act(async () => {
     rendered = conversation();
   });
-  const browse = screen.getByRole('button', { name: 'Browse history' });
-  expect(browse).toBeDisabled();
-  fireEvent.click(browse);
-  expect(mock.showHistory).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Earlier messages' })).toBeNull();
 
   mock.state.conversation = {
     id: 'conversation-b',
@@ -228,17 +238,15 @@ it('keeps Browse history disabled until the selected conversation finishes openi
     pinned: false,
   };
   rendered.rerender(<Conversation onPanel={vi.fn()} />);
-  expect(browse).toBeDisabled();
-  fireEvent.click(browse);
-  expect(mock.showHistory).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Earlier messages' })).toBeNull();
 
   mock.state.loadingConversation = false;
   rendered.rerender(<Conversation onPanel={vi.fn()} />);
-  expect(browse).toBeEnabled();
   await act(async () => {
-    fireEvent.click(browse);
+    fireEvent.click(screen.getByRole('button', { name: 'Earlier messages' }));
   });
-  expect(mock.showHistory).toHaveBeenCalledExactlyOnceWith();
+  expect(mock.loadEarlier).toHaveBeenCalledOnce();
+  expect(mock.showHistory).not.toHaveBeenCalled();
 });
 
 it('fences history navigation for a missing or mismatched loaded conversation and during loading', async () => {
@@ -253,8 +261,8 @@ it('fences history navigation for a missing or mismatched loaded conversation an
   await act(async () => {
     rendered = conversation();
   });
-  const controls = ['Browse history', 'Earlier messages', 'Later messages'].map(
-    (name) => screen.getByRole('button', { name }),
+  const controls = ['Earlier messages', 'Later messages'].map((name) =>
+    screen.getByRole('button', { name }),
   );
   const expectDisabled = () => {
     for (const button of controls) {
@@ -280,8 +288,8 @@ it('fences history navigation for a missing or mismatched loaded conversation an
   rendered.rerender(<Conversation onPanel={vi.fn()} />);
   for (const button of controls) expect(button).toBeEnabled();
   await act(async () => {
+    fireEvent.click(controls[0]);
     fireEvent.click(controls[1]);
-    fireEvent.click(controls[2]);
   });
   expect(mock.showHistory.mock.calls).toEqual([
     [undefined, 'before'],
@@ -367,8 +375,8 @@ it('anchors bounded approval context inline with canonical resolve controls', as
     name: 'Approval required for fixture_tool',
   });
   expect(bar).toHaveTextContent('Read a reviewed local value.');
-  expect(bar).toHaveTextContent('Risk: low · One local read.');
-  expect(within(bar).getByRole('button', { name: 'Reject' })).toBeVisible();
+  expect(bar).toHaveTextContent('Low risk · One local read.');
+  expect(within(bar).getByRole('button', { name: 'Deny' })).toBeVisible();
   expect(within(bar).getByRole('button', { name: 'Details' })).toBeVisible();
   await act(async () =>
     fireEvent.click(within(bar).getByRole('button', { name: 'Details' })),
@@ -394,6 +402,13 @@ it('renders assistant Markdown safely and copies only the visible canonical text
   activeConversation();
   mock.state.projection = {
     ...mock.state.projection!,
+    // Turn actions appear once the reply has finished streaming.
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: false,
+      status: 'completed',
+    },
     rows: [
       {
         id: 'row-a',
@@ -431,7 +446,8 @@ it('renders assistant Markdown safely and copies only the visible canonical text
     within(message).getByText('<script>never markup</script>'),
   ).toBeVisible();
   expect(message.querySelector('script')).toBeNull();
-  expect(within(message).getByText('1 tool call')).toBeVisible();
+  // No per-turn "Row-Bot" label or call count: the activity row carries tools.
+  expect(within(message).queryByText('Row-Bot')).toBeNull();
   expect(within(message).getByText('Paged content')).toBeVisible();
   await act(async () =>
     fireEvent.click(
@@ -744,7 +760,7 @@ function interruptedConversation() {
   );
 }
 
-it('keeps interrupted recovery in the narrow message actions menu', async () => {
+it('offers interrupted recovery in the transcript with a cause and next steps, at any width', async () => {
   interruptedConversation();
   vi.stubGlobal(
     'ResizeObserver',
@@ -768,13 +784,15 @@ it('keeps interrupted recovery in the narrow message actions menu', async () => 
     }),
   );
   await act(async () => conversation());
-  expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent('The response was interrupted');
+  expect(
+    within(log).getByRole('button', { name: 'Switch model' }),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Message actions' })).toBeNull();
   await userEvent
     .setup()
-    .click(screen.getByRole('button', { name: 'Message actions' }));
-  await userEvent
-    .setup()
-    .click(screen.getByRole('menuitem', { name: 'Resume' }));
+    .click(within(log).getByRole('button', { name: 'Resume' }));
   expect(mock.intent.mock.calls[0][1]).toBe('conversation.resume');
 });
 
@@ -994,12 +1012,16 @@ it('changes the model through the compact composer menu and preserves the curren
   await act(async () => conversation());
   expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull();
   await act(async () =>
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Model' }), {
-      key: 'Enter',
-    }),
+    fireEvent.click(screen.getByRole('button', { name: 'Model' })),
   );
+  const picker = screen.getByRole('dialog', { name: 'Choose a model' });
+  expect(
+    within(picker).getByRole('combobox', { name: 'Search models' }),
+  ).toHaveFocus();
   await act(async () =>
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Chosen model' })),
+    fireEvent.click(
+      within(picker).getByRole('option', { name: 'Chosen model' }),
+    ),
   );
   expect(mock.intent).toHaveBeenCalledWith(
     'conversation-a',
@@ -1031,8 +1053,10 @@ it('shows a failed compact approval save in the conversation without changing it
   expect(mock.intent.mock.calls[0][2].approval_mode).toBe('block');
   expect(screen.getByRole('alert')).toHaveTextContent(/review|changed|retry/i);
   expect(mock.drafts.get('conversation-a')?.text).toBe('Keep my draft');
-  expect(screen.getByRole('button', { name: 'Approvals' })).toHaveTextContent(
-    'Ask',
+  // The shield's glyph shows the mode; its description names it.
+  expect(screen.getByRole('button', { name: 'Approvals' })).toHaveAttribute(
+    'aria-description',
+    'Approvals: Ask',
   );
 });
 

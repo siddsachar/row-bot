@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import { expect, it, vi } from 'vitest';
 import type { ConversationComposer } from '../../api/types';
-import ComposerSkills, { ComposerSkillChips } from './ComposerSkills';
+import ComposerSkills, {
+  ComposerSkillChips,
+  SkillsAnchor,
+} from './ComposerSkills';
 
 const composer: ConversationComposer = {
   schema_version: 1,
@@ -76,14 +80,30 @@ it('shows skill provenance and performs activate, dismiss, and remove actions', 
   expect(action).toHaveBeenCalledWith('remove', 'review');
 });
 
+function Anchored(
+  props: Omit<Parameters<typeof ComposerSkills>[0], 'children'>,
+) {
+  const [open, setOpen] = useState(false);
+  return (
+    <ComposerSkills {...props} open={open} onOpenChange={setOpen}>
+      <SkillsAnchor asChild>
+        <button type="button" onClick={() => setOpen(true)}>
+          Add files and more
+        </button>
+      </SkillsAnchor>
+    </ComposerSkills>
+  );
+}
+
 it('filters the picker and mutates only the current conversation', async () => {
   const action = vi.fn().mockResolvedValue(undefined);
-  render(
-    <ComposerSkills composer={composer} disabled={false} action={action} />,
-  );
+  render(<Anchored composer={composer} disabled={false} action={action} />);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Skills: 1 active' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Add files and more' })),
   );
+  expect(
+    screen.getByRole('dialog', { name: 'Smart Skills' }),
+  ).toHaveTextContent('1 active');
   const menu = within(screen.getByRole('dialog', { name: 'Smart Skills' }));
   fireEvent.change(
     menu.getByRole('textbox', { name: 'Search available skills' }),
@@ -97,7 +117,7 @@ it('filters the picker and mutates only the current conversation', async () => {
   expect(action).toHaveBeenCalledWith('activate', 'write');
 
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Skills: 1 active' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Add files and more' })),
   );
   await act(async () =>
     fireEvent.click(
@@ -117,7 +137,11 @@ it('reports unavailable libraries truthfully', async () => {
       disabled={false}
       action={vi.fn()}
       open
-    />,
+    >
+      <SkillsAnchor asChild>
+        <button type="button">Add files and more</button>
+      </SkillsAnchor>
+    </ComposerSkills>,
   );
   expect(screen.getByRole('status')).toHaveTextContent(
     'The Skills library is unavailable.',

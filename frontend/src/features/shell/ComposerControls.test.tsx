@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => ({
     handshake: { models: [] as ModelChoice[] },
   },
   version: 1,
+  navigate: vi.fn(),
   drafts: new Map<string, { text: string; attachments: [] }>(),
   controller: {
     intent: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
   useRuntime: () => ({ controller: mock.controller }),
 }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => mock.navigate }));
 beforeEach(() => {
   vi.resetAllMocks();
   mock.version = 1;
@@ -106,11 +108,19 @@ async function menu(name: string) {
   );
   return within(screen.getByRole('menu'));
 }
-async function thinking() {
+async function picker() {
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Thinking' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Model' })),
   );
-  return within(screen.getByRole('dialog', { name: 'Thinking' }));
+  return within(screen.getByRole('dialog', { name: 'Choose a model' }));
+}
+async function submenu(parent: ReturnType<typeof within>, name: RegExp) {
+  await act(async () =>
+    fireEvent.keyDown(parent.getByRole('menuitem', { name }), {
+      key: 'ArrowRight',
+    }),
+  );
+  return within(screen.getAllByRole('menu').at(-1)!);
 }
 
 it('shows compact current values with only the exact server-supplied Thinking choices', async () => {
@@ -121,36 +131,40 @@ it('shows compact current values with only the exact server-supplied Thinking ch
   expect(controls.getByRole('button', { name: 'Model' })).toHaveTextContent(
     'Exact effort model',
   );
-  expect(controls.getByRole('button', { name: 'Approvals' })).toHaveTextContent(
-    'Ask',
+  expect(controls.getByRole('button', { name: 'Model' })).toHaveAttribute(
+    'aria-description',
+    'Model: Exact effort model · Thinking: Provider default',
+  );
+  expect(controls.getByRole('button', { name: 'Approvals' })).toHaveAttribute(
+    'aria-description',
+    'Approvals: Ask',
   );
   expect(
-    controls.getByRole('button', { name: 'More conversation controls' }),
-  ).toHaveTextContent('Agent · Writer');
-  expect(controls.getByRole('button', { name: 'Thinking' })).toHaveTextContent(
-    'Provider default',
-  );
+    controls.getByRole('button', { name: 'Add files and more' }),
+  ).toBeEnabled();
   expect(screen.queryByRole('combobox')).toBeNull();
-  const popover = await thinking();
-  expect(
-    popover.getByRole('button', { name: 'Provider default' }),
-  ).toHaveAttribute('aria-pressed', 'true');
-  expect(popover.getByRole('button', { name: 'Careful' })).toBeEnabled();
-  expect(popover.queryByRole('button', { name: 'High' })).toBeNull();
-  expect(popover.queryByLabelText('Thinking budget')).toBeNull();
+  const models = await picker();
+  const choices = within(models.getByRole('radiogroup', { name: 'Thinking' }));
+  expect(choices.getByRole('radio', { name: 'Default' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  expect(choices.getByRole('radio', { name: 'Careful' })).toBeEnabled();
+  expect(choices.queryByRole('radio', { name: 'High' })).toBeNull();
+  expect(models.queryByLabelText('Thinking budget')).toBeNull();
 });
 
 it.each([
   ['Careful', { kind: 'effort', effort: 'careful-exact-model' }],
-  ['Provider default', { kind: 'provider_default' }],
+  ['Default', { kind: 'provider_default' }],
 ] as const)(
   'sends the exact %s reasoning choice and capability revision through conversation.controls',
   async (label, selection) => {
     const onError = vi.fn();
     render(<ComposerControls onError={onError} />);
-    const popover = await thinking();
+    const models = await picker();
     await act(async () =>
-      fireEvent.click(popover.getByRole('button', { name: label })),
+      fireEvent.click(models.getByRole('radio', { name: label })),
     );
     expect(mock.controller.intent).toHaveBeenCalledExactlyOnceWith(
       'conversation-a',
@@ -176,7 +190,8 @@ it.each(['unsupported', 'mismatched'] as const)(
       mock.state.workspace!.reasoning!.available = false;
     else mock.state.workspace!.reasoning!.model_ref = 'other::stale-model';
     render(<ComposerControls onError={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: 'Thinking' })).toBeNull();
+    const models = await picker();
+    expect(models.queryByRole('radiogroup', { name: 'Thinking' })).toBeNull();
     expect(mock.controller.intent).not.toHaveBeenCalled();
   },
 );
@@ -188,11 +203,10 @@ it('validates budget bounds and integer values before sending the exact numeric 
     budget_max: 2048,
   });
   render(<ComposerControls onError={vi.fn()} />);
-  const popover = await thinking();
-  const input = popover.getByRole('spinbutton', {
-    name: 'Thinking budget 256–2048 tokens',
-  });
-  const useBudget = popover.getByRole('button', { name: 'Use budget' });
+  const models = await picker();
+  const input = models.getByRole('spinbutton', { name: 'Thinking budget' });
+  expect(input).toHaveAttribute('placeholder', '256–2048 tokens');
+  const useBudget = models.getByRole('button', { name: 'Use budget' });
   for (const invalid of ['', '255', '2049', '512.5']) {
     fireEvent.change(input, { target: { value: invalid } });
     expect(useBudget).toBeDisabled();
@@ -210,10 +224,10 @@ it('validates budget bounds and integer values before sending the exact numeric 
 it('keeps stale capability feedback visible and sends its revision for server revalidation', async () => {
   mock.state.workspace!.reasoning!.stale = true;
   render(<ComposerControls onError={vi.fn()} />);
-  const popover = await thinking();
-  expect(popover.getByRole('status')).toHaveTextContent('no longer available');
+  const models = await picker();
+  expect(models.getByRole('status')).toHaveTextContent('no longer available');
   await act(async () =>
-    fireEvent.click(popover.getByRole('button', { name: 'Provider default' })),
+    fireEvent.click(models.getByRole('radio', { name: 'Careful' })),
   );
   expect(
     mock.controller.intent.mock.calls[0][2].reasoning.capability_revision,
@@ -227,13 +241,17 @@ it('changes model without forwarding the previous model reasoning setting', asyn
     selection: { kind: 'effort', effort: 'careful-exact-model' },
   };
   render(<ComposerControls onError={vi.fn()} />);
-  const items = await menu('Model');
+  const models = await picker();
+  const unavailable = models.getByRole('option', {
+    name: /^Unavailable model/,
+  });
+  expect(unavailable).toHaveAttribute('aria-disabled', 'true');
   expect(
-    items.getByRole('menuitem', { name: 'Unavailable model' }),
-  ).toHaveAttribute('aria-disabled', 'true');
+    within(unavailable).getByRole('button', { name: 'Connect' }),
+  ).toBeVisible();
   await act(async () =>
     fireEvent.click(
-      items.getByRole('menuitem', { name: 'Other provider model' }),
+      models.getByRole('option', { name: 'Other provider model' }),
     ),
   );
   expect(mock.controller.intent.mock.calls[0][2]).toEqual({
@@ -244,9 +262,24 @@ it('changes model without forwarding the previous model reasoning setting', asyn
   });
 });
 
+it('searches models by name and provider and chooses with the keyboard', async () => {
+  render(<ComposerControls onError={vi.fn()} />);
+  const models = await picker();
+  const search = models.getByRole('combobox', { name: 'Search models' });
+  expect(search).toHaveFocus();
+  fireEvent.change(search, { target: { value: 'other' } });
+  expect(models.getAllByRole('option')).toHaveLength(1);
+  await act(async () => fireEvent.keyDown(search, { key: 'Enter' }));
+  expect(mock.controller.intent.mock.calls[0][2].model_selection).toEqual({
+    provider_id: 'other',
+    model_ref: 'other::no-reasoning',
+  });
+  expect(screen.queryByRole('dialog', { name: 'Choose a model' })).toBeNull();
+});
+
 it('removes old Thinking content immediately after a model switch without sending an old capability', async () => {
   const view = render(<ComposerControls onError={vi.fn()} />);
-  await thinking();
+  await picker();
   mock.state.workspace = {
     ...mock.state.workspace!,
     controls: {
@@ -258,30 +291,38 @@ it('removes old Thinking content immediately after a model switch without sendin
     },
   };
   view.rerender(<ComposerControls onError={vi.fn()} />);
-  expect(screen.queryByRole('dialog', { name: 'Thinking' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Thinking' })).toBeNull();
+  expect(screen.queryByRole('radiogroup', { name: 'Thinking' })).toBeNull();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 
 it('keeps approval, runtime and profile distinct in their compact menus', async () => {
   render(<ComposerControls onError={vi.fn()} />);
   const approvals = await menu('Approvals');
+  expect(approvals.getByRole('menuitem', { name: 'Ask' })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
   await act(async () =>
     fireEvent.click(approvals.getByRole('menuitem', { name: 'Block' })),
   );
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('block');
-  const more = await menu('More conversation controls');
+  const more = await menu('Add files and more');
+  const profiles = await submenu(more, /^Agent profile/);
   expect(
-    more.getByRole('menuitem', { name: 'Approvals: Ask (selected)' }),
-  ).toBeVisible();
-  expect(
-    more.getByRole('menuitem', { name: 'Runtime: Agent (selected)' }),
-  ).toBeVisible();
-  expect(
-    more.getByRole('menuitem', { name: 'Profile: Writer (selected)' }),
-  ).toBeVisible();
+    profiles.getByRole('menuitemradio', { name: 'Writer' }),
+  ).toHaveAttribute('aria-checked', 'true');
   await act(async () =>
-    fireEvent.click(more.getByRole('menuitem', { name: 'Runtime: Chat only' })),
+    fireEvent.keyDown(screen.getAllByRole('menu').at(-1)!, {
+      key: 'ArrowLeft',
+    }),
+  );
+  const modes = await submenu(within(screen.getAllByRole('menu')[0]), /^Mode/);
+  expect(modes.getByRole('menuitemradio', { name: /^Agent/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await act(async () =>
+    fireEvent.click(modes.getByRole('menuitemradio', { name: /^Chat only/ })),
   );
   expect(mock.controller.intent.mock.calls[1][2].runtime_mode).toBe(
     'chat_only',
@@ -291,12 +332,17 @@ it('keeps approval, runtime and profile distinct in their compact menus', async 
 
 it('blocks running and disconnected controls without removing their current values', () => {
   const view = render(<ComposerControls disabled onError={vi.fn()} />);
+  // Attaching and adding resources stay available while a reply runs.
   for (const button of screen.getAllByRole('button'))
-    expect(button).toBeDisabled();
+    if (button.getAttribute('aria-label') !== 'Add files and more')
+      expect(button).toBeDisabled();
   mock.state.status = 'disconnected';
   view.rerender(<ComposerControls onError={vi.fn()} />);
   for (const button of screen.getAllByRole('button'))
     expect(button).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent(
+    'Exact effort model',
+  );
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 
@@ -304,13 +350,13 @@ it('retains an error on rejected controls and ignores a late failure from anothe
   const onError = vi.fn();
   mock.controller.intent.mockRejectedValueOnce({ code: 'revision_conflict' });
   render(<ComposerControls onError={onError} />);
-  const popover = await thinking();
+  const models = await picker();
   await act(async () =>
-    fireEvent.click(popover.getByRole('button', { name: 'Careful' })),
+    fireEvent.click(models.getByRole('radio', { name: 'Careful' })),
   );
   expect(onError).toHaveBeenCalledTimes(1);
   expect(onError.mock.calls[0][0]).not.toBe('');
-  expect(screen.getByRole('dialog', { name: 'Thinking' })).toBeVisible();
+  expect(screen.getByRole('dialog', { name: 'Choose a model' })).toBeVisible();
   let fail!: (reason: unknown) => void;
   mock.controller.intent.mockImplementationOnce(
     () =>
@@ -319,7 +365,7 @@ it('retains an error on rejected controls and ignores a late failure from anothe
       }),
   );
   await act(async () =>
-    fireEvent.click(popover.getByRole('button', { name: 'Careful' })),
+    fireEvent.click(models.getByRole('radio', { name: 'Careful' })),
   );
   mock.version++;
   await act(async () => fail({ code: 'not_found' }));
@@ -347,12 +393,11 @@ it.each([
     expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent(
       displayed,
     );
-    const choices = await menu('Model');
-    const unavailable = choices.getByRole('menuitem', {
-      name: 'No cached models. Open Models in Settings.',
-    });
-    expect(unavailable).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.click(unavailable);
+    const models = await picker();
+    expect(models.queryAllByRole('option')).toHaveLength(0);
+    expect(
+      models.getByText('No cached models. Open Models in Settings.'),
+    ).toBeVisible();
     expect(mock.controller.intent).not.toHaveBeenCalled();
   },
 );

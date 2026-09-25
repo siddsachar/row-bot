@@ -1,9 +1,11 @@
 /*
  * Stylesheet entry. Order is the cascade: bundled fonts, non-palette tokens,
  * the legacy per-surface rules (split into per-surface layers as surfaces are
- * reworked), then shared primitives, which may refine legacy rules.
+ * reworked), then shared primitives, which may refine legacy rules, then the
+ * reworked surfaces (chat).
  */
 @import './fonts.css';
 @import './tokens.css';
 @import '../styles.css';
 @import './primitives.css';
+@import './chat.css';

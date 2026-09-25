@@ -92,13 +92,27 @@ const SlashPalette = forwardRef<
   const listRef = useRef<HTMLDivElement>(null);
   const token = currentToken(text, cursor);
   const query = token?.query;
-  const items = useMemo(
-    () =>
-      query !== undefined
-        ? commands.filter((command) => matches(command, query)).slice(0, 12)
-        : [],
-    [commands, query],
-  );
+  // Matches are grouped by category; keyboard order follows the visual order.
+  const groups = useMemo(() => {
+    if (query === undefined) return [];
+    const order: string[] = [];
+    const byCategory = new Map<string, SlashCommandSpec[]>();
+    for (const command of commands
+      .filter((command) => matches(command, query))
+      .slice(0, 12)) {
+      const category = command.category || 'Commands';
+      if (!byCategory.has(category)) {
+        byCategory.set(category, []);
+        order.push(category);
+      }
+      byCategory.get(category)!.push(command);
+    }
+    return order.map((category) => ({
+      category,
+      items: byCategory.get(category)!,
+    }));
+  }, [commands, query]);
+  const items = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState('');
   // One popover at a time: the palette belongs to the focused composer, so it
@@ -184,6 +198,7 @@ const SlashPalette = forwardRef<
     [disabled, identity, items, onChoose, open, selected, token],
   );
   if (!open) return null;
+  let position = -1;
   return (
     <div
       className="slash-palette surface-effect"
@@ -194,44 +209,80 @@ const SlashPalette = forwardRef<
       onMouseDown={(event) => event.preventDefault()}
     >
       {items.length ? (
-        items.map((command, index) => {
-          const Icon = Object.hasOwn(commandIcons, command.icon)
-            ? commandIcons[command.icon]
-            : Sparkles;
-          return (
-            <button
-              id={`${listboxId}-${index}`}
-              className="slash-palette-row"
-              type="button"
-              role="option"
-              aria-selected={index === selected}
-              key={command.id}
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setSelected(index)}
-              onFocus={() => setSelected(index)}
-              onClick={() => {
-                onChoose(command, token!);
-                setDismissed(identity);
-              }}
+        groups.map((group, groupIndex) => (
+          <div
+            key={group.category}
+            role="group"
+            aria-labelledby={`${listboxId}-group-${groupIndex}`}
+            className="slash-palette-group"
+          >
+            <div
+              id={`${listboxId}-group-${groupIndex}`}
+              className="slash-palette-group-label"
+              role="presentation"
             >
-              <span className="slash-palette-icon" aria-hidden>
-                <Icon size={18} strokeWidth={1.8} />
-              </span>
-              <span className="slash-palette-copy">
-                <strong>{command.token}</strong>
-                <span>{command.label}</span>
-                <small>{command.description}</small>
-              </span>
-              <span className="slash-palette-category">
-                {command.category}
-                {command.argument_hint ? ` · ${command.argument_hint}` : ''}
-              </span>
-            </button>
-          );
-        })
+              {group.category}
+            </div>
+            {group.items.map((command) => {
+              const index = ++position;
+              const Icon = Object.hasOwn(commandIcons, command.icon)
+                ? commandIcons[command.icon]
+                : Sparkles;
+              return (
+                <button
+                  id={`${listboxId}-${index}`}
+                  className="slash-palette-row"
+                  type="button"
+                  role="option"
+                  aria-selected={index === selected}
+                  aria-description={command.description}
+                  key={command.id}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setSelected(index)}
+                  onFocus={() => setSelected(index)}
+                  onClick={() => {
+                    onChoose(command, token!);
+                    setDismissed(identity);
+                  }}
+                >
+                  <span className="slash-palette-icon" aria-hidden>
+                    <Icon size={16} strokeWidth={1.8} />
+                  </span>
+                  <span className="slash-palette-token">{command.token}</span>
+                  <span className="slash-palette-label">
+                    {command.label}
+                    {command.argument_hint ? (
+                      <span className="slash-palette-argument">
+                        {' '}
+                        {command.argument_hint}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="slash-palette-description" aria-hidden>
+                    {command.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))
       ) : (
-        <p role="status">No slash commands match.</p>
+        <p role="status" className="slash-palette-empty">
+          No slash commands match.
+        </p>
       )}
+      <div className="slash-palette-footer" aria-hidden>
+        <span>
+          <kbd>↑</kbd>
+          <kbd>↓</kbd> move
+        </span>
+        <span>
+          <kbd>↵</kbd> choose
+        </span>
+        <span>
+          <kbd>esc</kbd> close
+        </span>
+      </div>
     </div>
   );
 });
