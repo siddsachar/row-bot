@@ -821,7 +821,9 @@ export default function ArtifactPreview({
         )}
       {current?.html && (
         <>
-          <p aria-live="polite" style={{ margin: 0, flexShrink: 0 }}>
+          {/* The toolbar page picker shows this visibly; keep the live
+              announcement for assistive tech without a stray caption (B6). */}
+          <p aria-live="polite" className="visually-hidden">
             {pageLabel} {current.page_index + 1} of {current.page_count}:{' '}
             {current.page_title}
           </p>
