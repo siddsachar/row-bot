@@ -47,7 +47,7 @@ import {
   bindActiveConversationSession,
   browserSessionStorage,
 } from './active-conversation-session';
-import './ui/styles.css';
+import './ui/styles/index.css';
 
 const Gallery = lazy(() => import('./features/shell/Gallery'));
 const Onboarding = lazy(() => import('./features/shell/Onboarding'));

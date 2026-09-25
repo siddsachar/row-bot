@@ -7,10 +7,11 @@ import {
 } from '../../src/ui/theme-model';
 
 // Offline computed-style contract, not a substitute for paired application captures.
-const css = readFileSync(
-  new URL('../../src/ui/styles.css', import.meta.url),
-  'utf8',
-);
+// Layers are read in the cascade order declared by styles/index.css.
+const entry = new URL('../../src/ui/styles/index.css', import.meta.url);
+const css = [...readFileSync(entry, 'utf8').matchAll(/@import '([^']+)';/g)]
+  .map((match) => readFileSync(new URL(match[1], entry), 'utf8'))
+  .join('\n');
 async function theme(page: Page, preference: Partial<ThemePreference> = {}) {
   await page.addScriptTag({
     content: `(${bootstrapTheme.toString()})(${JSON.stringify(TOKENS)},${JSON.stringify({ version: 1, appearance: 'dark', accent: 'blue', density: 'compact', reduce_transparency: false, ...preference })})`,
@@ -122,17 +123,16 @@ test('reference chrome density preserves reading size, focus and accessible them
         };
       });
       expect(measured.body).toEqual(['14px', '21px']);
-      expect(measured.reading).toEqual(['16px', '24px']);
+      expect(measured.reading).toEqual(['15px', '24px']);
       expect(measured.label).toEqual(['13px', '20px']);
       expect(measured.metadata).toEqual(['12px', '18px']);
       expect(measured.status).toEqual(['12px', '18px']);
       expect(measured.panelLabel).toEqual(['13px', '20px']);
-      // Firefox serializes its 1/64px layout units as 15.2031px for 15.2px.
       expect(parseFloat(measured.composer[0])).toBeCloseTo(
-        compact ? 15.2 : 16,
+        compact ? 15 : 16,
         2,
       );
-      expect(measured.composer[1]).toBe(compact ? '21px' : '24px');
+      expect(measured.composer[1]).toBe(compact ? '22px' : '24px');
       expect(measured.cardRadius).toBe('10px');
       expect(measured.panelRadius).toBe('12px');
       expect(measured.controlRadius).toBe('6px');
@@ -189,7 +189,8 @@ test('opaque and reduced-motion preferences preserve readable bounded controls',
     };
   });
   expect(measured.image).toBe('none');
-  expect(measured.background).toBe('rgb(32, 40, 50)');
+  // Opaque mode keeps the raised dark surface token (#171C25).
+  expect(measured.background).toBe('rgb(23, 28, 37)');
   expect(measured.animation).toBe('none');
   await page.emulateMedia({ forcedColors: 'active' });
   if (

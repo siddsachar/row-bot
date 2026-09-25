@@ -21,6 +21,7 @@ integrity hash; the local gate includes exact inventory and audit results.
 | react-resizable-panels 4.12.4 | Selected for pointer capture, touch, separator semantics and size constraints. Row-Bot owns persisted geometry and the specified 16/48px keyboard increments; conversation children retain identity. No floating window manager. |
 | React Router | One basename `/app-v2/`, lazy secondary surfaces and explicit unknown-route recovery. No capability-specific app packages. |
 | Lucide | Bundled SVG icons with text/accessible names. No icon/font CDN. |
+| @fontsource-variable/geist 5.3.0, @fontsource-variable/geist-mono 5.3.0 | Reviewed 2026-09-25 for the polish program. SIL OFL 1.1 variable fonts (Geist by Vercel) with no dependencies and no install scripts. Only the woff2 files are consumed: `src/ui/styles/fonts.css` declares the Latin and Latin Extended subsets with `font-display: swap`, and Vite copies them into hashed same-origin `assets/` files that the asset manifest inventories (about 84 KB). The package CSS is not imported and nothing is fetched at runtime; the CSP `font-src 'self'` is unchanged. The system stack stays the fallback for other scripts. |
 
 [Radix accessibility](https://www.radix-ui.com/primitives/docs/overview/accessibility),
 [dialog behavior](https://www.radix-ui.com/primitives/docs/components/dialog),

@@ -124,7 +124,8 @@ test('real tools and media keep one composer through every colour theme and syst
         fontSize: getComputedStyle(element).fontSize,
         lineHeight: getComputedStyle(element).lineHeight,
       }));
-    expect(responseReading).toEqual({ fontSize: '16px', lineHeight: '24px' });
+    // Chat reads at the 15/24 reading size; dense chrome uses 14/21.
+    expect(responseReading).toEqual({ fontSize: '15px', lineHeight: '24px' });
     await writeEvidence(
       testInfo,
       'actual-response-reading-type',

@@ -1,41 +1,3 @@
-:root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --type-size-body: 15px;
-  --type-line-body: 23px;
-  --type-size-label: 13px;
-  --type-line-label: 20px;
-  --type-size-metadata: 12.5px;
-  --type-line-metadata: 19px;
-  font-size: var(--type-size-body);
-  line-height: var(--type-line-body);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-12: 48px;
-  --radius-control: 6px;
-  --radius-card: 10px;
-  --radius-panel: 12px;
-  --radius-shell: var(--radius-panel);
-  --radius-dialog: 16px;
-  --radius-composer: 18px;
-  --control-size: 44px;
-  --panel-padding: 16px;
-  --content-gap: 16px;
-  --motion-fast: 100ms;
-  --motion-overlay: 160ms;
-  --shadow-raised:
-    inset 0 1px 0 var(--surface-highlight), 0 8px 24px -16px var(--shadow-color);
-  --shadow-modal:
-    inset 0 1px 0 var(--surface-highlight),
-    0 20px 56px -16px var(--shadow-color);
-  color: var(--text-primary);
-  background: var(--canvas);
-}
 .task-graph-editor ol {
   padding-inline-start: 24px;
 }
@@ -683,9 +645,9 @@ svg {
   border-radius: var(--radius-control);
 }
 .transcript {
-  /* Chrome follows NiceGUI's 14/21 scale; conversation reading stays 16/24. */
-  font-size: 16px;
-  line-height: 24px;
+  /* Dense chrome uses the 14/21 body; conversation reads at 15/24. */
+  font-size: var(--type-size-reading);
+  line-height: var(--type-line-reading);
   min-height: 100px;
   flex: 1 1 200px;
   overflow: auto;
@@ -1333,16 +1295,16 @@ small {
   box-shadow: inset 0 1px 0 var(--surface-highlight);
 }
 .surface-effect {
-  background: var(--surface-raised);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-raised);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-overlay);
 }
 @supports (backdrop-filter: blur(6px)) {
   @media (min-width: 768px) and (prefers-reduced-transparency: no-preference) {
     :root:not([data-opaque='true']):not([data-low-performance='true'])
       .surface-effect {
-      background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
-      backdrop-filter: blur(6px);
+      background: color-mix(in srgb, var(--surface-overlay) 94%, transparent);
+      backdrop-filter: blur(12px) saturate(1.2);
     }
   }
 }
@@ -1351,7 +1313,7 @@ small {
 .popover {
   z-index: 80;
   border-radius: var(--radius-card);
-  background: var(--surface-raised);
+  background: var(--surface-overlay);
   color: var(--text-primary);
   max-width: min(360px, calc(100vw - 24px));
 }
@@ -1432,7 +1394,7 @@ small {
   inset: 0;
   z-index: 70;
   background: var(--overlay-scrim);
-  animation: appear var(--motion-overlay) ease-out;
+  animation: appear var(--motion-overlay) var(--ease-out);
 }
 .panel-controls {
   min-height: 0;
@@ -1451,13 +1413,13 @@ small {
   max-height: min(calc(100dvh - 48px), calc(100% - 48px));
   display: flex;
   flex-direction: column;
-  background: var(--surface-raised);
+  background: var(--surface-overlay);
   color: var(--text-primary);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-modal);
   overflow: hidden;
-  animation: appear var(--motion-overlay) ease-out;
+  animation: appear var(--motion-overlay) var(--ease-out);
 }
 .dialog-header {
   display: flex;
@@ -1644,11 +1606,7 @@ progress {
   accent-color: var(--accent-solid);
 }
 .code-sample {
-  font:
-    13px/20px ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  font: 13px/20px var(--font-mono);
   white-space: pre-wrap;
   background: var(--code-background);
   color: var(--code-text);
@@ -1747,7 +1705,7 @@ progress {
 @media (prefers-reduced-transparency: reduce) {
   .surface-effect {
     backdrop-filter: none;
-    background: var(--surface-raised);
+    background: var(--surface-overlay);
   }
 }
 @media (forced-colors: active) {
@@ -1756,12 +1714,14 @@ progress {
     --canvas: Canvas !important;
     --surface: Canvas !important;
     --surface-raised: Canvas !important;
+    --surface-overlay: Canvas !important;
     --surface-hover: Canvas !important;
     --text-primary: CanvasText !important;
     --text-secondary: CanvasText !important;
     --text-muted: CanvasText !important;
     --border-control: ButtonText !important;
     --border-subtle: ButtonText !important;
+    --border-hairline: ButtonText !important;
     --focus-ring: Highlight !important;
     --accent-solid: Highlight !important;
     --accent-on-solid: HighlightText !important;
@@ -5634,8 +5594,8 @@ details[open] > summary > .settings-disclosure-chevron {
   padding: 8px;
   resize: none;
   box-shadow: none;
-  font-size: 15.2px;
-  line-height: 21px;
+  font-size: var(--type-size-reading);
+  line-height: 22px;
 }
 .composer-toolbar,
 .composer-control-cluster {
@@ -5897,11 +5857,7 @@ details[open] > summary > .settings-disclosure-chevron {
   overflow-wrap: anywhere;
   border-radius: 8px;
   background: var(--canvas);
-  font:
-    0.8rem/1.5 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  font: 0.8rem/1.5 var(--font-mono);
 }
 
 .approval-bar {
@@ -7010,11 +6966,7 @@ details[open] > summary > .settings-disclosure-chevron {
   border-radius: var(--radius-card);
   background: #10131a;
   color: #f4f6fb;
-  font:
-    0.875rem/1.45 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  font: 0.875rem/1.45 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
