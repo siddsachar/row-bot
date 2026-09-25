@@ -27,6 +27,17 @@ function domain(href: string) {
   }
 }
 
+/** Domain and path without the scheme or "www.", e.g. example.test/docs. */
+function compactHref(href: string) {
+  try {
+    const url = new URL(href);
+    const path = url.pathname === '/' ? '' : url.pathname.replace(/\/$/, '');
+    return `${url.hostname.replace(/^www\./, '')}${path}${url.search}`;
+  } catch {
+    return href;
+  }
+}
+
 /** A numbered source chip: the number and the domain, full URL on hover. */
 function Citation({ number, href }: { number: string; href: string }) {
   return (
@@ -75,11 +86,20 @@ function inline(text: string): ReactNode[] {
       );
     }
     if (/^https?:\/\//i.test(part)) {
+      // A bare URL is a source: a compact chip, the full address on hover.
       const href = safeHref(part);
       return href ? (
-        <a key={index} href={href} target="_blank" rel="noreferrer noopener">
-          {part}
-        </a>
+        <Hint key={index} label={href}>
+          <a
+            className="citation-chip"
+            data-kind="link"
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <span className="citation-domain">{compactHref(href)}</span>
+          </a>
+        </Hint>
       ) : (
         <Fragment key={index}>{part}</Fragment>
       );

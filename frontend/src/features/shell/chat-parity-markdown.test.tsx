@@ -124,9 +124,9 @@ it('turns numbered links into source chips with the domain and autolinks bare UR
   expect(
     screen.getByRole('link', { name: 'Source 2: docs.example.org' }),
   ).toBeVisible();
-  // Trailing punctuation stays prose, not part of the link.
+  // A bare URL becomes a compact chip; trailing punctuation stays prose.
   expect(
-    screen.getByRole('link', { name: 'https://example.test/notes' }),
+    screen.getByRole('link', { name: 'example.test/notes' }),
   ).toHaveAttribute('href', 'https://example.test/notes');
 });
 

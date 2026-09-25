@@ -1514,6 +1514,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.citation-chip[data-kind='link'] {
+  max-width: 240px;
+  padding-inline-start: 7px;
+}
 
 /* ------------------------------------------------------------ empty chat */
 
