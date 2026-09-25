@@ -68,3 +68,20 @@ export function useTheme() {
   if (!context) throw new Error('ThemeProvider is required');
   return context;
 }
+
+/** The theme actually applied ("light" or "dark"), following system changes. */
+export function useResolvedTheme(): 'light' | 'dark' {
+  const read = () =>
+    document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  const [mode, setMode] = useState<'light' | 'dark'>(read);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setMode(read()));
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    setMode(read());
+    return () => observer.disconnect();
+  }, []);
+  return mode;
+}

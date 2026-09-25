@@ -7,6 +7,14 @@ const download = vi.fn();
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: { download } }),
 }));
+vi.mock('../../ui/overlays', () => ({
+  useOverlay: () => ({
+    open: vi.fn(),
+    close: vi.fn(),
+    dismiss: vi.fn(),
+    notify: vi.fn(),
+  }),
+}));
 
 beforeEach(() => {
   download.mockReset();

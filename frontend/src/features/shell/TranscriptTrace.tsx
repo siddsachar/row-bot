@@ -1,20 +1,68 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, CircleAlert, Clock3, Copy, Wrench } from 'lucide-react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Copy,
+  LoaderCircle,
+  X,
+} from 'lucide-react';
 import type {
   TranscriptTraceGroup,
   TranscriptTraceItem,
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
-import { MediaPreview } from './MediaPreview';
+import {
+  activityLabel,
+  formatElapsed,
+  isAttention,
+  keyArgument,
+  orderedSteps,
+  stepIcon,
+  stepVerb,
+  summarizeActivity,
+} from './tool-activity';
 
-const ATTENTION = new Set(['failed', 'blocked', 'cancelled', 'uncertain']);
 const MAX_RESULT_PAGES = 20;
 
-function statusIcon(status: string) {
-  if (status === 'pending') return <Clock3 aria-hidden="true" />;
-  if (ATTENTION.has(status)) return <CircleAlert aria-hidden="true" />;
-  return <Check aria-hidden="true" />;
+// Durations are observed by this client while a step runs. Durable rows carry
+// no timing, so steps that finished before this page loaded show none.
+const timing = new Map<string, { start: number; end?: number }>();
+function observeTiming(steps: TranscriptTraceItem[], now: number) {
+  let changed = false;
+  for (const step of steps) {
+    const known = timing.get(step.call_id);
+    if (step.status === 'pending') {
+      if (!known) {
+        timing.set(step.call_id, { start: now });
+        changed = true;
+      }
+    } else if (known && known.end === undefined) {
+      known.end = now;
+      changed = true;
+    }
+  }
+  while (timing.size > 512) timing.delete(timing.keys().next().value!);
+  return changed;
+}
+function stepDuration(step: TranscriptTraceItem) {
+  const value = timing.get(step.call_id);
+  return value?.end === undefined ? null : value.end - value.start;
+}
+
+function prettyInput(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
 }
 
 function specialization(item: TranscriptTraceItem) {
@@ -37,36 +85,52 @@ function specialization(item: TranscriptTraceItem) {
         ))}
       </ul>
     );
+  // Generated media renders once, inline with the answer (B22); the step
+  // only says what it produced.
+  const count = (value.media ?? []).length;
+  const kind = value.media_kind || 'result';
   return (
     <div className="trace-specialization trace-media">
-      <p>
-        Media result · {value.media_kind || 'attachment'}
-        {(value.media ?? []).length
-          ? ` · ${(value.media ?? []).length} item${(value.media ?? []).length === 1 ? '' : 's'}`
-          : ''}
-      </p>
+      {count > 0 && (
+        <p>
+          Created {count} {kind}
+          {count === 1 ? '' : 's'} · shown in the conversation
+        </p>
+      )}
       {value.error_code ? (
         <p role="alert">The generated media is unavailable.</p>
       ) : null}
-      {(value.media ?? []).map((media) => (
-        <MediaPreview
-          key={media.media_ref}
-          reference={media.media_ref}
-          mime={media.mime_type}
-        />
-      ))}
     </div>
+  );
+}
+
+function StepNode({ item }: { item: TranscriptTraceItem }) {
+  if (item.status === 'pending')
+    return (
+      <span className="activity-node" data-state="running" aria-hidden>
+        <LoaderCircle className="activity-spinner" />
+      </span>
+    );
+  if (isAttention(item.status))
+    return (
+      <span className="activity-node" data-state="failed" aria-hidden>
+        <X />
+      </span>
+    );
+  const Icon = stepIcon(item.canonical_name);
+  return (
+    <span className="activity-node" data-state="done" aria-hidden>
+      <Icon />
+    </span>
   );
 }
 
 function TraceItem({
   conversation,
   item,
-  number,
 }: {
   conversation: string;
   item: TranscriptTraceItem;
-  number: number;
 }) {
   const { controller, platform } = useRuntime();
   const [open, setOpen] = useState(false);
@@ -175,109 +239,245 @@ function TraceItem({
     }
   }
 
+  const argument = keyArgument(item.safe_input);
+  const duration = stepDuration(item);
   return (
-    <details
-      ref={details}
-      className="trace-item"
-      data-trace-status={item.status}
-      onToggle={(event) => toggle(event.currentTarget.open)}
-    >
-      <summary
-        onClick={(event) =>
-          toggle(
-            !(event.currentTarget.parentElement as HTMLDetailsElement).open,
-          )
-        }
+    <li className="activity-step" data-trace-status={item.status}>
+      <details
+        ref={details}
+        className="activity-step-details"
+        data-trace-status={item.status}
+        onToggle={(event) => toggle(event.currentTarget.open)}
       >
-        <span className="trace-call-number">{number}</span>
-        <span className="trace-call-name">{item.canonical_name}</span>
-        <span className="trace-status">{item.status}</span>
-        {!open && item.safe_summary && (
-          <span className="trace-preview">{item.safe_summary}</span>
-        )}
-      </summary>
-      <div className="trace-item-body">
-        {specialization(item)}
-        {item.safe_input && (
-          <div className="trace-input">
-            <strong>Input</strong>
-            <pre>{item.safe_input}</pre>
+        <summary
+          onClick={(event) =>
+            toggle(
+              !(event.currentTarget.parentElement as HTMLDetailsElement).open,
+            )
+          }
+        >
+          <StepNode item={item} />
+          <span className="activity-step-text">
+            <span className="activity-step-verb">
+              {stepVerb(item.canonical_name, item.status)}
+            </span>
+            {argument ? (
+              <span className="activity-step-arg">{argument}</span>
+            ) : (
+              !open &&
+              item.safe_summary && (
+                <span className="activity-step-preview">
+                  {item.safe_summary}
+                </span>
+              )
+            )}
+          </span>
+          {duration !== null && (
+            <span className="activity-step-duration">
+              {formatElapsed(duration)}
+            </span>
+          )}
+        </summary>
+        <div className="activity-step-body">
+          <p className="activity-step-tool">
+            <span className="visually-hidden">Tool </span>
+            <code>{item.canonical_name}</code>
+            <span className="activity-step-status">{item.status}</span>
+          </p>
+          {specialization(item)}
+          {item.safe_input && (
+            <div className="trace-input">
+              <span className="activity-step-label">Arguments</span>
+              <pre>{prettyInput(item.safe_input)}</pre>
+            </div>
+          )}
+          <div className="trace-result-heading">
+            <span className="activity-step-label">Result</span>
+            {text && (
+              <Button
+                variant="ghost"
+                className="activity-copy"
+                onClick={() => void copy()}
+              >
+                <Copy aria-hidden="true" /> Copy result
+              </Button>
+            )}
           </div>
-        )}
-        <div className="trace-result-heading">
-          <strong>Result</strong>
-          {text && (
-            <Button variant="ghost" onClick={() => void copy()}>
-              <Copy aria-hidden="true" /> Copy result
+          {text && <pre className="trace-output">{text}</pre>}
+          {busy && <small role="status">Loading public result…</small>}
+          {error && <p role="alert">{error}</p>}
+          {error && item.content_ref && (
+            <Button disabled={busy} onClick={() => void load(cursor)}>
+              Retry public result
             </Button>
           )}
+          {copyStatus && <small role="status">{copyStatus}</small>}
+          {cursor && pages < MAX_RESULT_PAGES && (
+            <Button disabled={busy} onClick={() => void load(cursor)}>
+              Load next result page
+            </Button>
+          )}
+          {cursor && pages >= MAX_RESULT_PAGES && (
+            <small>Result display limited to {MAX_RESULT_PAGES} pages.</small>
+          )}
         </div>
-        {text && <pre className="trace-output">{text}</pre>}
-        {busy && <small role="status">Loading public result…</small>}
-        {error && <p role="alert">{error}</p>}
-        {error && item.content_ref && (
-          <Button disabled={busy} onClick={() => void load(cursor)}>
-            Retry public result
-          </Button>
-        )}
-        {copyStatus && <small role="status">{copyStatus}</small>}
-        {cursor && pages < MAX_RESULT_PAGES && (
-          <Button disabled={busy} onClick={() => void load(cursor)}>
-            Load next result page
-          </Button>
-        )}
-        {cursor && pages >= MAX_RESULT_PAGES && (
-          <small>Result display limited to {MAX_RESULT_PAGES} pages.</small>
-        )}
-      </div>
-    </details>
+      </details>
+    </li>
   );
 }
 
+export type LiveActivity = {
+  /** The response is still being produced. */
+  running: boolean;
+  /** The model signalled private reasoning. */
+  thinking?: boolean;
+  /** An approval is holding the run. */
+  waiting?: boolean;
+  /** Stop was requested and the worker is finishing. */
+  stopping?: boolean;
+  /** When this client saw the run start (Date.now()). */
+  startedAt?: number;
+};
+
+function useElapsed(startedAt: number | undefined, active: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active || startedAt === undefined) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active, startedAt]);
+  return active && startedAt !== undefined ? Math.max(0, now - startedAt) : 0;
+}
+
+/**
+ * One quiet line per turn ("Used 3 tools · 8.4s"). While work runs it reads
+ * as live shimmer text; expanded it becomes a step timeline with human verbs,
+ * the key argument, duration and status. Step details load on demand.
+ */
 export default function TranscriptTrace({
   conversation,
   groups,
+  live,
+  children,
 }: {
   conversation: string;
   groups: TranscriptTraceGroup[];
+  live?: LiveActivity;
+  /** Always-visible content anchored below the row, such as an approval. */
+  children?: ReactNode;
 }) {
+  const steps = orderedSteps(groups);
+  const summary = summarizeActivity(groups);
+  const running = Boolean(live?.running) || summary.pending > 0;
+  const [, setTimingVersion] = useState(0);
+  const signature = steps
+    .map((step) => `${step.call_id}:${step.status}`)
+    .join();
+  useLayoutEffect(() => {
+    if (observeTiming(steps, Date.now()))
+      setTimingVersion((value) => value + 1);
+    // The signature captures every status change that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+  const elapsed = useElapsed(live?.startedAt, running);
+  const durations = steps.map(stepDuration);
+  const measured =
+    !running && steps.length && durations.every((value) => value !== null)
+      ? (() => {
+          const spans = steps.map((step) => timing.get(step.call_id)!);
+          return (
+            Math.max(...spans.map((span) => span.end!)) -
+            Math.min(...spans.map((span) => span.start))
+          );
+        })()
+      : null;
+  const status = running ? 'pending' : summary.failed ? 'failed' : 'succeeded';
+  const current = summary.current;
+  const text = live?.stopping
+    ? 'Stopping…'
+    : live?.waiting
+      ? 'Waiting for your approval'
+      : current
+        ? [
+            stepVerb(current.canonical_name, 'pending'),
+            keyArgument(current.safe_input),
+          ]
+            .filter(Boolean)
+            .join(' ')
+        : running && (live?.thinking || !steps.length)
+          ? 'Thinking…'
+          : running
+            ? `Working · ${summary.total} ${summary.total === 1 ? 'tool' : 'tools'} so far`
+            : activityLabel(summary);
+  if (!steps.length && !running && !children) return null;
   return (
-    <div className="transcript-traces" aria-label="Tool results">
-      {groups.map((group) => (
-        <details
-          className="trace-group"
-          data-trace-status={group.status}
-          data-trace-kind={group.kind}
-          key={group.group_id}
-        >
-          <summary>
-            <span className="trace-group-icon">
-              {group.status === 'succeeded' ? (
-                <Wrench aria-hidden="true" />
+    <div
+      className="activity-row"
+      data-trace-status={status}
+      aria-label={steps.length ? 'Tool activity' : 'Activity'}
+      role="group"
+    >
+      {steps.length > 0 ? (
+        <details className="activity-disclosure">
+          <summary className="activity-summary">
+            <span className="activity-summary-icon" aria-hidden>
+              {running ? (
+                <LoaderCircle className="activity-spinner" />
+              ) : summary.failed ? (
+                <CircleAlert />
               ) : (
-                statusIcon(group.status)
+                <Check />
               )}
             </span>
-            <span className="trace-group-name">{group.name}</span>
-            <span className="trace-count">
-              {group.items.length} {group.items.length === 1 ? 'call' : 'calls'}
+            <span
+              className="activity-summary-text"
+              data-live={running ? 'true' : undefined}
+            >
+              {text}
             </span>
-            <span className="trace-status">{group.status}</span>
+            {!running && (
+              <span className="activity-glyphs" aria-hidden>
+                {summary.icons.map((Icon, index) => (
+                  <Icon key={index} />
+                ))}
+              </span>
+            )}
+            {(running ? elapsed >= 1000 : measured !== null) && (
+              <span className="activity-duration">
+                {formatElapsed(running ? elapsed : measured!)}
+              </span>
+            )}
+            <ChevronDown className="activity-chevron" aria-hidden />
           </summary>
-          <div className="trace-items">
-            {[...group.items]
-              .sort((first, second) => first.call_order - second.call_order)
-              .map((item, index) => (
-                <TraceItem
-                  conversation={conversation}
-                  item={item}
-                  number={index + 1}
-                  key={item.item_id}
-                />
-              ))}
-          </div>
+          <ol className="activity-steps" aria-label="Steps">
+            {steps.map((item) => (
+              <TraceItem
+                conversation={conversation}
+                item={item}
+                key={item.item_id}
+              />
+            ))}
+          </ol>
         </details>
-      ))}
+      ) : (
+        running && (
+          <p className="activity-summary activity-summary-static" role="status">
+            <span className="activity-summary-icon" aria-hidden>
+              <LoaderCircle className="activity-spinner" />
+            </span>
+            <span className="activity-summary-text" data-live="true">
+              {text}
+            </span>
+            {elapsed >= 1000 && (
+              <span className="activity-duration">
+                {formatElapsed(elapsed)}
+              </span>
+            )}
+          </p>
+        )
+      )}
+      {children}
     </div>
   );
 }

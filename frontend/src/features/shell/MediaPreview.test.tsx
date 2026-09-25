@@ -10,6 +10,14 @@ import { MediaPreview } from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn() }));
 vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
+vi.mock('../../ui/overlays', () => ({
+  useOverlay: () => ({
+    open: vi.fn(),
+    close: vi.fn(),
+    dismiss: vi.fn(),
+    notify: vi.fn(),
+  }),
+}));
 function pending<T>() {
   let resolve!: (value: T) => void;
   let reject!: (cause: unknown) => void;
@@ -245,3 +253,46 @@ it.each(['audio/mpeg', 'video/mp4'])(
     );
   },
 );
+
+it('embeds a real PDF in a same-origin frame typed as PDF', async () => {
+  mock.download.mockResolvedValue(
+    new Blob(['%PDF-1.7 fixture'], { type: 'application/pdf' }),
+  );
+  let typed = '';
+  vi.mocked(URL.createObjectURL).mockImplementation((blob) => {
+    typed = (blob as Blob).type;
+    return 'blob:pdf';
+  });
+  render(
+    <MediaPreview
+      reference="opaque-reference"
+      mime="application/pdf"
+      label="report.pdf"
+      downloadName="report.pdf"
+    />,
+  );
+  const frame = await screen.findByTitle('report.pdf (PDF)');
+  expect(frame.tagName).toBe('IFRAME');
+  expect(frame).toHaveAttribute('src', 'blob:pdf');
+  expect(typed).toBe('application/pdf');
+  expect(
+    screen.getByRole('link', { name: 'Download report.pdf' }),
+  ).toHaveAttribute('download', 'report.pdf');
+});
+
+it('shows bounded plain-text attachments as code, never as markup', async () => {
+  mock.download.mockResolvedValue(
+    new Blob(['const answer = 42;\n<b>not bold</b>'], { type: 'text/plain' }),
+  );
+  const { container } = render(
+    <MediaPreview
+      reference="opaque-reference"
+      mime="text/plain"
+      label="notes.ts"
+      downloadName="notes.ts"
+    />,
+  );
+  expect(await screen.findByText(/const answer = 42;/)).toBeVisible();
+  expect(container.querySelector('b')).toBeNull();
+  expect(container.querySelector('iframe,object,embed')).toBeNull();
+});
