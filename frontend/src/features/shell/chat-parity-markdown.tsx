@@ -3,8 +3,10 @@ import { Check, Table } from 'lucide-react';
 import { Hint, IconButton } from '../../ui/primitives';
 import { CodeBlock } from './CodeBlock';
 
+// Underscore emphasis never starts or ends inside a word, so snake_case
+// names such as workspace_file_delete stay literal (as in CommonMark).
 const INLINE =
-  /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])/g;
+  /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}_])__[^_\n]+__(?![\p{L}\p{N}_])|~~[^~\n]+~~|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])/gu;
 const CITATION = /^\[?\^?(\d{1,3})\]?$/;
 
 function safeHref(value: string) {

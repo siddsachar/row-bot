@@ -36,6 +36,17 @@ it('renders useful Markdown structure without interpreting raw HTML', () => {
   expect(container.querySelector('script')).toBeNull();
 });
 
+it('keeps snake_case names literal while underscores still emphasise words', () => {
+  const { container } = render(
+    <SafeMarkdown text="Call workspace_file_delete or __init__ now; _this_ is emphasised." />,
+  );
+  expect(container).toHaveTextContent(
+    'Call workspace_file_delete or init now; this is emphasised.',
+  );
+  expect(container.querySelectorAll('em')).toHaveLength(1);
+  expect(container.querySelector('em')).toHaveTextContent('this');
+});
+
 it('allows ordinary web links and leaves dangerous protocols as visible text', () => {
   const { container } = render(
     <SafeMarkdown text="[Docs](https://example.test/docs) [Bad](javascript:alert(1))" />,
