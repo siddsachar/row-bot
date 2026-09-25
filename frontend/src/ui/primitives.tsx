@@ -728,7 +728,7 @@ export function SettingRow({
   const id = useId();
   return (
     <div
-      className={`setting-row ${className}`}
+      className={`ui-setting-row ${className}`}
       role="group"
       aria-labelledby={`${id}-label`}
       aria-describedby={description ? `${id}-help` : undefined}
@@ -986,7 +986,7 @@ export function Toolbar({
       aria-label={label}
       aria-orientation={orientation}
       data-placement={placement}
-      className={`toolbar ${floating ? 'toolbar-floating' : ''} ${className}`}
+      className={`ui-toolbar ${floating ? 'ui-toolbar-floating' : ''} ${className}`}
       onKeyDown={(event) => {
         const forward =
           orientation === 'horizontal' ? 'ArrowRight' : 'ArrowDown';
@@ -1031,7 +1031,7 @@ export function Toolbar({
 }
 
 export function ToolbarSeparator() {
-  return <span className="toolbar-separator" aria-hidden />;
+  return <span className="ui-toolbar-separator" aria-hidden />;
 }
 
 export type ComboboxOption = {

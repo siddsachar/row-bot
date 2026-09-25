@@ -276,7 +276,7 @@ time {
 }
 
 /* SettingRow ------------------------------------------------------------ */
-.setting-row {
+.ui-setting-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -284,7 +284,7 @@ time {
   padding: 12px 0;
   border-top: 1px solid var(--border-hairline);
 }
-.setting-row:first-child {
+.ui-setting-row:first-child {
   border-top: 0;
 }
 .setting-row-text {
@@ -315,7 +315,7 @@ time {
   min-width: 0;
 }
 @media (max-width: 480px) {
-  .setting-row {
+  .ui-setting-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
@@ -478,15 +478,15 @@ time {
 }
 
 /* Toolbar --------------------------------------------------------------- */
-.toolbar {
+.ui-toolbar {
   display: inline-flex;
   align-items: center;
   gap: 2px;
 }
-.toolbar[aria-orientation='vertical'] {
+.ui-toolbar[aria-orientation='vertical'] {
   flex-direction: column;
 }
-.toolbar-floating {
+.ui-toolbar-floating {
   position: absolute;
   z-index: 5;
   padding: 4px;
@@ -498,35 +498,35 @@ time {
 @supports (backdrop-filter: blur(8px)) {
   @media (prefers-reduced-transparency: no-preference) {
     :root:not([data-opaque='true']):not([data-low-performance='true'])
-      .toolbar-floating {
+      .ui-toolbar-floating {
       background: color-mix(in srgb, var(--surface-overlay) 86%, transparent);
       backdrop-filter: blur(10px) saturate(1.2);
     }
   }
 }
-.toolbar-floating[data-placement^='top'] {
+.ui-toolbar-floating[data-placement^='top'] {
   top: 12px;
 }
-.toolbar-floating[data-placement^='bottom'] {
+.ui-toolbar-floating[data-placement^='bottom'] {
   bottom: 12px;
 }
-.toolbar-floating[data-placement$='left'] {
+.ui-toolbar-floating[data-placement$='left'] {
   left: 12px;
 }
-.toolbar-floating[data-placement$='right'] {
+.ui-toolbar-floating[data-placement$='right'] {
   right: 12px;
 }
-.toolbar-floating[data-placement$='center'] {
+.ui-toolbar-floating[data-placement$='center'] {
   left: 50%;
   transform: translateX(-50%);
 }
-.toolbar-separator {
+.ui-toolbar-separator {
   align-self: stretch;
   width: 1px;
   margin: 4px 3px;
   background: var(--border-hairline);
 }
-.toolbar[aria-orientation='vertical'] .toolbar-separator {
+.ui-toolbar[aria-orientation='vertical'] .ui-toolbar-separator {
   width: auto;
   height: 1px;
   margin: 3px 4px;
@@ -771,7 +771,7 @@ time {
   .combobox-option[aria-selected='true'] {
     outline: 2px solid Highlight;
   }
-  .toolbar-floating,
+  .ui-toolbar-floating,
   .drawer-panel,
   .combobox-popover {
     border: 1px solid CanvasText;
