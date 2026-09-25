@@ -1360,29 +1360,56 @@ small {
 .tooltip {
   max-width: min(360px, var(--radix-tooltip-content-available-width));
   pointer-events: auto;
-  padding: 8px 12px;
-  border: 1px solid var(--border-control);
-  font-size: 14px;
-  box-shadow: var(--shadow-raised);
+  padding: 5px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  box-shadow: var(--shadow-overlay);
   overflow-wrap: anywhere;
 }
 .menu {
   padding: 4px;
   min-width: 200px;
+  /* Menus stay inside the viewport; long lists scroll within (B3). */
+  max-width: min(
+    360px,
+    var(--radix-dropdown-menu-content-available-width, 100vw),
+    calc(100vw - 24px)
+  );
+  max-height: min(
+    var(--radix-dropdown-menu-content-available-height, 70vh),
+    calc(100dvh - 24px)
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: popover-in var(--motion-popover) var(--ease-out);
 }
 .menu-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 44px;
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-14);
+  outline: none;
 }
 .menu-item[data-highlighted] {
   background: var(--surface-hover);
+}
+:root[data-input-modality='keyboard'] .menu-item[data-highlighted] {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
+}
+@media (pointer: fine) {
+  .menu-item {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: var(--text-13);
+  }
 }
 .menu-item[data-disabled] {
   color: var(--text-disabled);

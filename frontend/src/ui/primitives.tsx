@@ -278,6 +278,16 @@ export function Menu({
           className="menu surface-effect"
           sideOffset={6}
           collisionPadding={12}
+          ref={(node) => {
+            // Long menus scroll inside the viewport (B3); reveal the current
+            // choice once placement has applied the available-height bound.
+            if (!node) return;
+            requestAnimationFrame(() =>
+              node
+                .querySelector<HTMLElement>('[aria-current="true"]')
+                ?.scrollIntoView?.({ block: 'nearest' }),
+            );
+          }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             const target = focusAfterClose?.() ?? opener.current;
@@ -296,7 +306,7 @@ export function Menu({
                 action.onSelect(opener.current);
               }}
             >
-              {action.label}
+              <span className="menu-item-label">{action.label}</span>
               {action.selected && <Check size={16} aria-hidden />}
             </Dropdown.Item>
           ))}
