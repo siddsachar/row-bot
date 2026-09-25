@@ -52,6 +52,35 @@ it('allows ordinary web links and leaves dangerous protocols as visible text', (
   expect(container).toHaveTextContent('[Bad](javascript:alert(1))');
 });
 
+it('starts a pipe table immediately after prose and handles GFM forms safely', () => {
+  const { container } = render(
+    <SafeMarkdown
+      text={[
+        'Build results follow:',
+        'Item | State',
+        ':--- | ---:',
+        'Build | Ready',
+        'Escaped \\| name | **Done**',
+        '',
+        '| Name | Link |',
+        '| --- | --- |',
+        '| <img src=x onerror=alert(1)> | [safe](https://example.test) |',
+      ].join('\n')}
+    />,
+  );
+  expect(screen.getByText('Build results follow:').tagName).toBe('P');
+  const tables = screen.getAllByRole('table');
+  expect(tables).toHaveLength(2);
+  expect(within(tables[0]).getByText('Escaped | name')).toBeVisible();
+  expect(within(tables[0]).getByText('Done').tagName).toBe('STRONG');
+  expect(within(tables[1]).getByRole('link', { name: 'safe' })).toHaveAttribute(
+    'href',
+    'https://example.test',
+  );
+  expect(container.querySelector('img')).toBeNull();
+  expect(tables[0].parentElement).toHaveClass('markdown-table-scroll');
+});
+
 it('labels fenced code and provides truthful copy and local download actions', async () => {
   const copyText = vi.fn().mockResolvedValue(true);
   const click = vi

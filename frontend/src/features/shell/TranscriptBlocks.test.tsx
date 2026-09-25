@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
@@ -18,7 +18,7 @@ beforeEach(() => {
   );
 });
 
-it('keeps YouTube external until explicit consent and uses the no-cookie host', () => {
+it('embeds a playable YouTube frame immediately without a separate link', () => {
   const blocks: TranscriptRow['blocks'] = [
     {
       id: 'block:youtube',
@@ -29,13 +29,23 @@ it('keeps YouTube external until explicit consent and uses the no-cookie host', 
     },
   ];
   const { container } = render(<TranscriptBlocks blocks={blocks} />);
-  expect(container.querySelector('iframe')).toBeNull();
-  expect(screen.getByText(/contacts YouTube/i)).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Load YouTube player' }));
+  expect(container.querySelector('.youtube-player')).toBeInTheDocument();
   expect(screen.getByTitle('Synthetic video')).toHaveAttribute(
     'src',
     'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
   );
+  expect(screen.getByTitle('Synthetic video')).toHaveAttribute(
+    'allow',
+    'encrypted-media; picture-in-picture',
+  );
+  expect(screen.getByTitle('Synthetic video')).toHaveAttribute(
+    'referrerpolicy',
+    'strict-origin-when-cross-origin',
+  );
+  expect(
+    screen.queryByRole('button', { name: /Play YouTube video/i }),
+  ).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Open video' })).toBeNull();
 });
 
 it('renders canonical Markdown and returns only represented public text', () => {

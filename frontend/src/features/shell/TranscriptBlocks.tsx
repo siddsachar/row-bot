@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { TranscriptRow } from '../../api/types';
-import { Button } from '../../ui/primitives';
 import { loadLocalRuntimeScript } from '../../ui/local-runtime';
 import SafeMarkdown from './chat-parity-markdown';
 import { MediaPreview } from './MediaPreview';
@@ -129,31 +128,23 @@ function Chart({ figure, label }: { figure: string; label: string }) {
 }
 
 function YouTube({ block }: { block: Extract<Block, { type: 'youtube' }> }) {
-  const [consented, setConsented] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
     <figure className="rich-block rich-youtube">
-      {consented ? (
+      <div className="youtube-player">
         <iframe
           title={block.title}
           src={`https://www.youtube-nocookie.com/embed/${block.video_id}`}
-          loading="lazy"
-          referrerPolicy="no-referrer"
+          referrerPolicy="strict-origin-when-cross-origin"
           sandbox="allow-scripts allow-same-origin allow-presentation"
+          allow="encrypted-media; picture-in-picture"
+          onError={() => setFailed(true)}
           allowFullScreen
         />
-      ) : (
-        <div className="external-content-card">
-          <strong>{block.title}</strong>
-          <p>Loading this player contacts YouTube.</p>
-          <Button onClick={() => setConsented(true)}>
-            Load YouTube player
-          </Button>
-          <a href={block.url} target="_blank" rel="noreferrer noopener">
-            Open video link
-          </a>
-        </div>
-      )}
-      <figcaption>YouTube video</figcaption>
+      </div>
+      <figcaption>
+        {failed ? 'YouTube player is unavailable.' : 'YouTube video'}
+      </figcaption>
     </figure>
   );
 }

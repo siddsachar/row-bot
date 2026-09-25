@@ -5758,6 +5758,7 @@ details[open] > summary > .settings-disclosure-chevron {
 .trace-items {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 .transcript-traces {
   margin-block: 8px;
@@ -5772,9 +5773,86 @@ details[open] > summary > .settings-disclosure-chevron {
 .trace-group > summary,
 .trace-item > summary {
   cursor: pointer;
-  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 9px;
   font-size: var(--type-size-label);
   line-height: var(--type-line-label);
+}
+.trace-group > summary:focus-visible,
+.trace-item > summary:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: -2px;
+}
+.trace-group > summary::marker,
+.trace-item > summary::marker {
+  color: var(--text-muted);
+}
+.trace-group-icon,
+.trace-call-number {
+  display: inline-grid;
+  flex: 0 0 21px;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+}
+.trace-group-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.trace-group-name,
+.trace-call-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.trace-count,
+.trace-status {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.trace-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.trace-item-body {
+  min-width: 0;
+  padding: 0 8px 8px;
+}
+.trace-result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 4px;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.trace-result-heading .button {
+  min-height: 26px;
+  padding: 2px 7px;
+}
+.trace-result-heading svg {
+  width: 13px;
+  height: 13px;
+}
+.trace-item-body > .button {
+  margin: 4px 8px 0;
+}
+.trace-item-body > [role='alert'],
+.trace-item-body > [role='status'],
+.trace-item-body > small {
+  display: block;
+  margin: 4px 8px;
 }
 .trace-group[data-trace-status='failed'],
 .trace-group[data-trace-status='blocked'],
@@ -5786,14 +5864,19 @@ details[open] > summary > .settings-disclosure-chevron {
   padding: 0 8px 8px;
 }
 .trace-output {
-  margin: 0 8px 8px;
-  padding: 8px;
-  max-height: 260px;
+  margin: 0 8px;
+  padding: 10px;
+  max-height: 320px;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border-radius: 8px;
   background: var(--canvas);
+  font:
+    0.8rem/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
 }
 
 .approval-bar {
@@ -5879,6 +5962,38 @@ details[open] > summary > .settings-disclosure-chevron {
 .trace-specialization {
   margin: 0 8px 8px;
   color: var(--text-muted);
+}
+.markdown-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-block: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+.markdown-table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-size-body);
+}
+.markdown-table-scroll th,
+.markdown-table-scroll td {
+  padding: 0.45rem 0.65rem;
+  border-inline-end: 1px solid var(--border-subtle);
+  border-block-end: 1px solid var(--border-subtle);
+  text-align: start;
+  vertical-align: top;
+}
+.markdown-table-scroll th {
+  background: var(--surface-soft);
+  font-weight: 600;
+}
+.markdown-table-scroll tr:last-child td {
+  border-block-end: 0;
+}
+.markdown-table-scroll th:last-child,
+.markdown-table-scroll td:last-child {
+  border-inline-end: 0;
 }
 .trace-live {
   margin-block: 6px;
@@ -6841,22 +6956,21 @@ details[open] > summary > .settings-disclosure-chevron {
   white-space: pre-wrap;
 }
 
-.external-content-card {
-  align-items: flex-start;
-  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.85rem;
-}
-
-.rich-youtube iframe {
+.youtube-player {
   aspect-ratio: 16 / 9;
-  border: 0;
-  border-radius: var(--radius-card);
+  width: min(560px, 100%);
   max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: #10131a;
+}
+.rich-youtube iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.rich-youtube figcaption {
   width: min(560px, 100%);
 }
 .settings-break-word {

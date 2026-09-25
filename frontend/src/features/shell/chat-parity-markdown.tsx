@@ -46,17 +46,37 @@ function inline(text: string): ReactNode[] {
   });
 }
 
-function isTableDivider(line: string) {
-  return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
-}
-
 function cells(line: string) {
-  return line
+  const source = line
     .trim()
     .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim());
+    .replace(/(?<!\\)\|$/, '');
+  const result: string[] = [];
+  let value = '';
+  for (let index = 0; index < source.length; index++) {
+    if (source[index] === '\\' && source[index + 1] === '|') {
+      value += '|';
+      index++;
+    } else if (source[index] === '|') {
+      result.push(value.trim());
+      value = '';
+    } else {
+      value += source[index];
+    }
+  }
+  result.push(value.trim());
+  return result;
+}
+
+function tableColumns(lines: string[], index: number) {
+  if (index + 1 >= lines.length || !lines[index].includes('|')) return 0;
+  const header = cells(lines[index]);
+  const divider = cells(lines[index + 1]);
+  return header.length >= 2 &&
+    header.length === divider.length &&
+    divider.every((cell) => /^:?-{3,}:?$/.test(cell))
+    ? header.length
+    : 0;
 }
 
 function CodeBlock({
@@ -198,35 +218,38 @@ export default function SafeMarkdown({
       );
       continue;
     }
-    if (
-      index + 1 < lines.length &&
-      line.includes('|') &&
-      isTableDivider(lines[index + 1])
-    ) {
+    if (tableColumns(lines, index)) {
       const headers = cells(line);
       index += 2;
       const rows: string[][] = [];
-      while (index < lines.length && lines[index].includes('|'))
+      while (
+        index < lines.length &&
+        lines[index].trim() &&
+        lines[index].includes('|') &&
+        cells(lines[index]).length === headers.length
+      )
         rows.push(cells(lines[index++]));
       blocks.push(
-        <table key={`table-${index}`}>
-          <thead>
-            <tr>
-              {headers.map((header, cellIndex) => (
-                <th key={cellIndex}>{inline(header)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {headers.map((_, cellIndex) => (
-                  <td key={cellIndex}>{inline(row[cellIndex] ?? '')}</td>
+        <div className="markdown-table-scroll" key={`table-${index}`}>
+          <table>
+            <thead>
+              <tr>
+                {headers.map((header, cellIndex) => (
+                  <th key={cellIndex}>{inline(header)}</th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>,
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {headers.map((_, cellIndex) => (
+                    <td key={cellIndex}>{inline(row[cellIndex] ?? '')}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }
@@ -237,7 +260,8 @@ export default function SafeMarkdown({
       lines[index].trim() &&
       !lines[index].trimStart().startsWith('```') &&
       !/^(#{1,6})\s+/.test(lines[index]) &&
-      !/^\s*(?:[-*+]\s+|\d+[.)]\s+|>)/.test(lines[index])
+      !/^\s*(?:[-*+]\s+|\d+[.)]\s+|>)/.test(lines[index]) &&
+      !tableColumns(lines, index)
     )
       paragraph.push(lines[index++]);
     blocks.push(
