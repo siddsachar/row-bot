@@ -246,7 +246,7 @@ export default function ComposerControls({
         label="Approvals"
         hint={`Approvals: ${approval}`}
         variant="ghost"
-        className="composer-control"
+        className="composer-control composer-approvals"
         disabled={blocked}
         actions={(['approve', 'block', 'allow_all'] as const).map((value) => ({
           label: { approve: 'Ask', block: 'Block', allow_all: 'Auto' }[value],
@@ -259,11 +259,15 @@ export default function ComposerControls({
       </Menu>
       <Menu
         label="More conversation controls"
-        hint={`Runtime: ${controls.runtime_mode === 'agent' ? 'Agent' : 'Chat only'}; Profile: ${profile}`}
+        hint={`Approvals: ${approval}; Runtime: ${controls.runtime_mode === 'agent' ? 'Agent' : 'Chat only'}; Profile: ${profile}`}
         variant="ghost"
         className="composer-control composer-overflow"
         disabled={blocked}
         actions={[
+          ...(['approve', 'block', 'allow_all'] as const).map((value) => ({
+            label: `Approvals: ${{ approve: 'Ask', block: 'Block', allow_all: 'Auto' }[value]}${(controls.approval_mode ?? 'approve') === value ? ' (selected)' : ''}`,
+            onSelect: () => void save({ approval_mode: value }),
+          })),
           ...(['agent', 'chat_only'] as const).map((value) => ({
             label: `Runtime: ${value === 'agent' ? 'Agent' : 'Chat only'}${controls.runtime_mode === value ? ' (selected)' : ''}`,
             onSelect: () => void save({ runtime_mode: value }),

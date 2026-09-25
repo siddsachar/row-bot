@@ -272,6 +272,9 @@ it('keeps approval, runtime and profile distinct in their compact menus', async 
   expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('block');
   const more = await menu('More conversation controls');
   expect(
+    more.getByRole('menuitem', { name: 'Approvals: Ask (selected)' }),
+  ).toBeVisible();
+  expect(
     more.getByRole('menuitem', { name: 'Runtime: Agent (selected)' }),
   ).toBeVisible();
   expect(

@@ -427,7 +427,7 @@ svg {
 }
 .chat-workspace {
   display: grid;
-  grid-template-columns: minmax(400px, 1fr) minmax(288px, 328px);
+  grid-template-columns: minmax(0, 1fr) minmax(288px, 328px);
   grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
   flex: 1;
@@ -441,13 +441,25 @@ svg {
 .conversation-context-rail {
   grid-column: 2;
   grid-row: 1 / span 2;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  padding: 16px;
-  border-inline-start: 1px solid var(--border-subtle);
+  max-height: min(100%, calc(100dvh - 64px));
+  overflow: hidden;
+  margin: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface-soft) 52%, var(--surface));
+  box-shadow: var(--shadow-shell);
+  overscroll-behavior: contain;
+}
+.context-rail-body {
+  min-height: 0;
+  max-height: min(60dvh, 560px);
+  overflow-y: auto;
   overscroll-behavior: contain;
 }
 .context-rail-heading,
@@ -467,7 +479,7 @@ svg {
   line-height: 24px;
 }
 .context-rail-section {
-  padding-block: 14px;
+  padding-block: 8px;
 }
 .context-rail-section:first-of-type {
   margin-top: 6px;
@@ -714,19 +726,13 @@ svg {
   grid-column: 1;
   grid-row: 2;
   flex-shrink: 0;
-  max-height: 70%;
-  overflow: auto;
+  overflow: visible;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
   display: grid;
   gap: 8px;
   background: var(--canvas);
-}
-.workspace.has-resource-panels .composer {
-  /* Keep live transcript feedback visible when a dock or compact rail shares
-     the viewport; the composer's existing scroll owner retains every control. */
-  max-height: 50%;
 }
 .composer-controls {
   display: grid;
@@ -5581,6 +5587,7 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .composer {
   border-radius: var(--radius-composer);
+  container: composer / inline-size;
   background: var(--surface);
   padding: 8px;
   gap: 6px;
@@ -5608,7 +5615,7 @@ details[open] > summary > .settings-disclosure-chevron {
 .composer-toolbar,
 .composer-control-cluster {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 2px;
   align-items: center;
   min-width: 0;
@@ -5631,12 +5638,26 @@ details[open] > summary > .settings-disclosure-chevron {
   flex-basis: 100%;
 }
 .composer-control-cluster {
-  flex: 1 1 240px;
+  flex: 1 1 auto;
+}
+.composer-control-cluster .composer-control {
+  flex: 0 1 auto;
 }
 .composer-actions {
   gap: 2px;
   margin-inline-start: auto;
   position: relative;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+.composer-audio,
+.composer-audio-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.composer-audio-toggle {
+  display: none;
 }
 .composer-primary-slot {
   display: inline-flex;
@@ -5691,6 +5712,47 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .composer-overflow {
   color: var(--text-muted);
+}
+@container composer (max-width: 600px) {
+  .composer-approvals {
+    display: none;
+  }
+  .composer-control-cluster .composer-control {
+    flex: 0 0 auto;
+    inline-size: 36px;
+    min-inline-size: 36px;
+    padding-inline: 8px;
+  }
+  .composer-control-cluster .composer-control > span,
+  .composer-control-cluster
+    .composer-control
+    > svg:last-child:not(:first-child) {
+    display: none;
+  }
+}
+@container composer (max-width: 520px) {
+  .composer-audio-toggle {
+    display: inline-flex;
+  }
+  .composer-audio-actions {
+    position: absolute;
+    z-index: 22;
+    inset-inline-end: 0;
+    bottom: calc(100% + 8px);
+    padding: 6px;
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    box-shadow: var(--shadow-shell);
+  }
+  .composer-audio[data-open='false'] .composer-audio-actions {
+    display: none;
+  }
+}
+@container composer (max-width: 420px) {
+  .slash-palette-copy {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .transcript-traces,
 .trace-items {
@@ -5872,8 +5934,8 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .slash-palette-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
   gap: 8px;
   width: 100%;
   padding: 7px 8px;
@@ -5886,6 +5948,16 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .slash-palette-row[aria-selected='true'] {
   background: var(--accent-subtle);
+  box-shadow: inset 2px 0 0 var(--accent-solid);
+}
+.slash-palette-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.slash-palette-icon {
+  display: grid;
+  place-items: center;
+  min-height: 24px;
 }
 .slash-palette-copy {
   display: grid;
@@ -5901,6 +5973,9 @@ details[open] > summary > .settings-disclosure-chevron {
   color: var(--text-muted);
 }
 .slash-palette-category {
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--text-muted);
   font-size: var(--type-size-metadata);
 }
@@ -6236,9 +6311,6 @@ details[open] > summary > .settings-disclosure-chevron {
   .home-header {
     flex-wrap: wrap;
   }
-  .composer-control-cluster {
-    flex-basis: 100%;
-  }
   .composer-overflow > span {
     max-width: 100px;
   }
@@ -6334,17 +6406,6 @@ details[open] > summary > .settings-disclosure-chevron {
   .composer {
     max-height: none;
     overflow: visible;
-  }
-  .composer-control-cluster {
-    width: 100%;
-    flex-basis: 100%;
-  }
-  .composer-control {
-    width: 100%;
-    justify-content: flex-start;
-  }
-  .composer-actions {
-    flex-wrap: wrap;
   }
   .write-targets .field {
     flex: 1 1 100%;

@@ -742,6 +742,40 @@ function interruptedConversation() {
   );
 }
 
+it('keeps interrupted recovery in the narrow message actions menu', async () => {
+  interruptedConversation();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        if (target.classList.contains('composer'))
+          this.callback(
+            [{ contentRect: { width: 480 } } as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+      }
+      disconnect() {}
+    },
+  );
+  mock.intent.mockImplementation(
+    async (_id, _type, _payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Message actions' }));
+  await userEvent
+    .setup()
+    .click(screen.getByRole('menuitem', { name: 'Resume' }));
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.resume');
+});
+
 it('shows welcome examples without a request and sends one with a single click while preserving the draft', async () => {
   idleConversation();
   mock.drafts.set('conversation-a', {

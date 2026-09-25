@@ -11,7 +11,7 @@ const commands: SlashCommandSpec[] = [
     aliases: ['/health'],
     label: 'Status',
     description: 'Show local runtime status.',
-    icon: '●',
+    icon: 'monitor_heart',
     category: 'Runtime',
     argument_mode: 'none',
     argument_hint: '',
@@ -23,7 +23,7 @@ const commands: SlashCommandSpec[] = [
     aliases: [],
     label: 'Stop',
     description: 'Stop the current generation.',
-    icon: '■',
+    icon: 'stop_circle',
     category: 'Conversation',
     argument_mode: 'none',
     argument_hint: '',
@@ -31,12 +31,22 @@ const commands: SlashCommandSpec[] = [
   },
 ];
 
-function Harness({ text = 'before /st after' }: { text?: string }) {
+function Harness({
+  text = 'before /st after',
+  specs = commands,
+  disabled = false,
+}: {
+  text?: string;
+  specs?: SlashCommandSpec[];
+  disabled?: boolean;
+}) {
   const ref = createRef<SlashPaletteHandle>();
+  const inputRef = createRef<HTMLTextAreaElement>();
   const choose = vi.fn();
   return (
     <>
       <textarea
+        ref={inputRef}
         aria-label="Draft"
         defaultValue={text}
         onKeyDown={(event) => {
@@ -47,8 +57,9 @@ function Harness({ text = 'before /st after' }: { text?: string }) {
         ref={ref}
         text={text}
         cursor={text.indexOf('/st') + 3}
-        commands={commands}
-        disabled={false}
+        commands={specs}
+        disabled={disabled}
+        inputRef={inputRef}
         onChoose={choose}
       />
       <output data-testid="chosen">{choose.mock.calls.length}</output>
@@ -70,12 +81,43 @@ it('supports keyboard selection and escape dismissal', () => {
   render(<Harness />);
   const draft = screen.getByRole('textbox', { name: 'Draft' });
   fireEvent.keyDown(draft, { key: 'ArrowDown' });
+  expect(draft).toHaveAttribute('aria-expanded', 'true');
+  expect(draft.getAttribute('aria-controls')).toBe(
+    screen.getByRole('listbox').id,
+  );
+  expect(draft.getAttribute('aria-activedescendant')).toBe(
+    screen.getByRole('option', { name: /\/stopStop/ }).id,
+  );
   expect(screen.getByRole('option', { name: /\/stopStop/ })).toHaveAttribute(
     'aria-selected',
     'true',
   );
   fireEvent.keyDown(draft, { key: 'Escape' });
   expect(screen.queryByRole('listbox')).toBeNull();
+  expect(draft).not.toHaveAttribute('aria-activedescendant');
+});
+
+it('renders local SVG icons and a safe fallback without exposing raw icon names', () => {
+  render(
+    <Harness
+      text="/"
+      specs={[
+        ...commands,
+        {
+          ...commands[0],
+          id: 'custom',
+          token: '/custom',
+          icon: '__proto__',
+        },
+      ]}
+    />,
+  );
+  const options = screen.getAllByRole('option');
+  expect(options).toHaveLength(3);
+  for (const option of options) {
+    expect(option.querySelector('.slash-palette-icon svg')).not.toBeNull();
+    expect(option).not.toHaveTextContent(/monitor_heart|stop_circle|__proto__/);
+  }
 });
 
 it('shows an honest empty result and supports mouse choice', () => {
@@ -86,4 +128,13 @@ it('shows an honest empty result and supports mouse choice', () => {
   rerender(<Harness text="/status" />);
   fireEvent.click(screen.getByRole('option', { name: /\/statusStatus/ }));
   expect(screen.queryByRole('listbox')).toBeNull();
+});
+
+it('removes the listbox relationship when commands are disabled', () => {
+  const view = render(<Harness text="/st" />);
+  const draft = screen.getByRole('textbox', { name: 'Draft' });
+  expect(draft).toHaveAttribute('aria-controls');
+  view.rerender(<Harness text="/st" disabled />);
+  expect(screen.queryByRole('listbox')).toBeNull();
+  expect(draft).not.toHaveAttribute('aria-controls');
 });

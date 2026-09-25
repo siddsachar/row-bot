@@ -289,203 +289,212 @@ export default function ConversationContextRail({
         </div>
       </header>
 
-      {(writerQueued || writerStatus === 'queued') && (
-        <p className="context-writer-status" role="status">
-          Checkout busy · Waiting for the other coding run
-          <Button variant="ghost" onClick={onCancelWait}>
-            Cancel wait
-          </Button>
-        </p>
-      )}
-
-      <section
-        className="context-rail-section"
-        aria-labelledby="context-resources"
-      >
-        <h3 id="context-resources">Working on</h3>
-        {loading && !Object.keys(summaries).length && (
-          <Skeleton label="Loading resource summaries" />
+      <div className="context-rail-body">
+        {(writerQueued || writerStatus === 'queued') && (
+          <p className="context-writer-status" role="status">
+            Checkout busy · Waiting for the other coding run
+            <Button variant="ghost" onClick={onCancelWait}>
+              Cancel wait
+            </Button>
+          </p>
         )}
-        <ul className="context-resource-list">
-          {resources.slice(0, 20).map((resource) => {
-            const summary = summaries[resource.binding.binding_id];
-            return (
-              <li
-                key={resource.binding.binding_id}
-                data-kind={resource.binding.kind}
-              >
-                <div className="context-resource-title">
-                  <Button
-                    variant="ghost"
-                    title={`Open ${resource.title}`}
-                    onClick={() => onOpenResource(resource)}
-                  >
-                    {resource.binding.kind === 'artifact' ? (
-                      <Palette size={16} aria-hidden />
-                    ) : (
-                      <Code2 size={16} aria-hidden />
-                    )}
-                    <span>{resource.title}</span>
-                    <small>{resourceKind(resource)}</small>
-                  </Button>
-                  {completedDesignId === resource.binding.binding_id && (
-                    <small className="context-completed-badge">Completed</small>
-                  )}
-                  <Menu
-                    label={`Actions for ${resource.title}`}
-                    iconOnly
-                    variant="ghost"
-                    actions={[
-                      {
-                        label: 'Unbind resource',
-                        onSelect: () => onUnbindResource(resource),
-                      },
-                    ]}
-                  >
-                    <MoreHorizontal size={16} aria-hidden />
-                  </Menu>
-                </div>
-                {summary && (
-                  <p
-                    className="context-resource-summary"
-                    data-state={summary.state}
-                  >
-                    <span>{summary.primary}</span>
-                    <small>{summary.secondary}</small>
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
 
-      {(!!suggestions.length || !!outputs.length) && (
         <section
           className="context-rail-section"
-          aria-labelledby="context-outputs"
+          aria-labelledby="context-resources"
         >
-          <h3 id="context-outputs">Outputs</h3>
-          {outputs.slice(-20).map((output) => (
-            <details className="context-output" key={output.id}>
-              <summary>
-                <FileImage size={16} aria-hidden />{' '}
-                {output.mime.startsWith('video/') ? 'Video' : 'Image'} output
-              </summary>
-              <MediaPreview reference={output.reference} mime={output.mime} />
-              <div className="button-row">
-                <Button
-                  variant="ghost"
-                  disabled={Boolean(outputBusy)}
-                  onClick={() => void saveOutput(output)}
+          <h3 id="context-resources">Working on</h3>
+          {loading && !Object.keys(summaries).length && (
+            <Skeleton label="Loading resource summaries" />
+          )}
+          <ul className="context-resource-list">
+            {resources.slice(0, 20).map((resource) => {
+              const summary = summaries[resource.binding.binding_id];
+              return (
+                <li
+                  key={resource.binding.binding_id}
+                  data-kind={resource.binding.kind}
                 >
-                  Save to workspace
-                </Button>
-                {onUseOutputInCode &&
-                  resources.some(
-                    (resource) =>
-                      resource.binding.kind === 'workspace' &&
-                      resource.available,
-                  ) && (
+                  <div className="context-resource-title">
                     <Button
                       variant="ghost"
-                      onClick={() => onUseOutputInCode(output)}
+                      title={`Open ${resource.title}`}
+                      onClick={() => onOpenResource(resource)}
                     >
-                      Use in code folder
+                      {resource.binding.kind === 'artifact' ? (
+                        <Palette size={16} aria-hidden />
+                      ) : (
+                        <Code2 size={16} aria-hidden />
+                      )}
+                      <span>{resource.title}</span>
+                      <small>{resourceKind(resource)}</small>
                     </Button>
+                    {completedDesignId === resource.binding.binding_id && (
+                      <small className="context-completed-badge">
+                        Completed
+                      </small>
+                    )}
+                    <Menu
+                      label={`Actions for ${resource.title}`}
+                      iconOnly
+                      variant="ghost"
+                      actions={[
+                        {
+                          label: 'Unbind resource',
+                          onSelect: () => onUnbindResource(resource),
+                        },
+                      ]}
+                    >
+                      <MoreHorizontal size={16} aria-hidden />
+                    </Menu>
+                  </div>
+                  {summary && (
+                    <p
+                      className="context-resource-summary"
+                      data-state={summary.state}
+                    >
+                      <span>{summary.primary}</span>
+                      <small>{summary.secondary}</small>
+                    </p>
                   )}
-              </div>
-              {savedOutputs[output.reference] && (
-                <small role="status">
-                  Saved outputs/{savedOutputs[output.reference]}
-                </small>
-              )}
-              {resources.filter(
-                (resource) =>
-                  resource.binding.kind === 'artifact' && resource.available,
-              ).length === 1 && (
-                <Button
-                  variant="ghost"
-                  disabled={Boolean(outputBusy)}
-                  onClick={() =>
-                    void addOutputToDesign(
-                      output,
-                      resources.find(
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        {(!!suggestions.length || !!outputs.length) && (
+          <section
+            className="context-rail-section"
+            aria-labelledby="context-outputs"
+          >
+            <h3 id="context-outputs">Outputs</h3>
+            {outputs.slice(-20).map((output) => (
+              <details className="context-output" key={output.id}>
+                <summary>
+                  <FileImage size={16} aria-hidden />{' '}
+                  {output.mime.startsWith('video/') ? 'Video' : 'Image'} output
+                </summary>
+                <MediaPreview reference={output.reference} mime={output.mime} />
+                <div className="button-row">
+                  <Button
+                    variant="ghost"
+                    disabled={Boolean(outputBusy)}
+                    onClick={() => void saveOutput(output)}
+                  >
+                    Save to workspace
+                  </Button>
+                  {onUseOutputInCode &&
+                    resources.some(
+                      (resource) =>
+                        resource.binding.kind === 'workspace' &&
+                        resource.available,
+                    ) && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => onUseOutputInCode(output)}
+                      >
+                        Use in code folder
+                      </Button>
+                    )}
+                </div>
+                {savedOutputs[output.reference] && (
+                  <small role="status">
+                    Saved outputs/{savedOutputs[output.reference]}
+                  </small>
+                )}
+                {resources.filter(
+                  (resource) =>
+                    resource.binding.kind === 'artifact' && resource.available,
+                ).length === 1 && (
+                  <Button
+                    variant="ghost"
+                    disabled={Boolean(outputBusy)}
+                    onClick={() =>
+                      void addOutputToDesign(
+                        output,
+                        resources.find(
+                          (resource) =>
+                            resource.binding.kind === 'artifact' &&
+                            resource.available,
+                        )!,
+                      )
+                    }
+                  >
+                    Add to design
+                  </Button>
+                )}
+                {resources.filter(
+                  (resource) =>
+                    resource.binding.kind === 'artifact' && resource.available,
+                ).length > 1 && (
+                  <Menu
+                    label="Add output to design"
+                    actions={resources
+                      .filter(
                         (resource) =>
                           resource.binding.kind === 'artifact' &&
                           resource.available,
-                      )!,
-                    )
-                  }
-                >
-                  Add to design
-                </Button>
-              )}
-              {resources.filter(
-                (resource) =>
-                  resource.binding.kind === 'artifact' && resource.available,
-              ).length > 1 && (
-                <Menu
-                  label="Add output to design"
-                  actions={resources
-                    .filter(
-                      (resource) =>
-                        resource.binding.kind === 'artifact' &&
-                        resource.available,
-                    )
-                    .map((resource) => ({
-                      label: resource.title,
-                      onSelect: () => void addOutputToDesign(output, resource),
-                    }))}
-                />
-              )}
-            </details>
-          ))}
-          {outputError && <p role="alert">{outputError}</p>}
-          {suggestions.slice(0, 10).map((suggestion) => (
-            <div
-              className="context-suggestion"
-              key={`${suggestion.descriptor.panel_kind}:${suggestion.descriptor.resource_ref ?? ''}`}
-            >
-              <span>{suggestion.descriptor.title}</span>
-              <div className="button-row">
-                <Button onClick={() => onOpenSuggestion(suggestion)}>
-                  Open
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => onDismissSuggestion(suggestion)}
-                >
-                  Dismiss
-                </Button>
+                      )
+                      .map((resource) => ({
+                        label: resource.title,
+                        onSelect: () =>
+                          void addOutputToDesign(output, resource),
+                      }))}
+                  />
+                )}
+              </details>
+            ))}
+            {outputError && <p role="alert">{outputError}</p>}
+            {suggestions.slice(0, 10).map((suggestion) => (
+              <div
+                className="context-suggestion"
+                key={`${suggestion.descriptor.panel_kind}:${suggestion.descriptor.resource_ref ?? ''}`}
+              >
+                <span>{suggestion.descriptor.title}</span>
+                <div className="button-row">
+                  <Button onClick={() => onOpenSuggestion(suggestion)}>
+                    Open
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => onDismissSuggestion(suggestion)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
-        </section>
-      )}
+            ))}
+          </section>
+        )}
 
-      <details className="context-rail-section context-agents">
-        <summary>Agents</summary>
-        {agents}
-      </details>
+        <details className="context-rail-section context-agents">
+          <summary>Agents</summary>
+          {agents}
+        </details>
 
-      <details className="context-rail-section context-utilities">
-        <summary>Utilities</summary>
-        <div className="context-utility-list">
-          <Button variant="ghost" onClick={onFind} title="Find in conversation">
-            <Search size={16} aria-hidden /> Find in conversation
-          </Button>
-          {terminalAvailable && (
+        <details className="context-rail-section context-utilities">
+          <summary>Utilities</summary>
+          <div className="context-utility-list">
             <Button
               variant="ghost"
-              title="Open the trusted desktop terminal."
-              onClick={onOpenTerminal}
+              onClick={onFind}
+              title="Find in conversation"
             >
-              <Terminal size={16} aria-hidden /> Interactive terminal
+              <Search size={16} aria-hidden /> Find in conversation
             </Button>
-          )}
-        </div>
-      </details>
+            {terminalAvailable && (
+              <Button
+                variant="ghost"
+                title="Open the trusted desktop terminal."
+                onClick={onOpenTerminal}
+              >
+                <Terminal size={16} aria-hidden /> Interactive terminal
+              </Button>
+            )}
+          </div>
+        </details>
+      </div>
     </aside>
   );
 }

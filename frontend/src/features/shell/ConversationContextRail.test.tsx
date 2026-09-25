@@ -112,6 +112,12 @@ it('projects bounded Developer and Designer summaries from canonical owners', as
   const rail = screen.getByRole('complementary', {
     name: 'Conversation context',
   });
+  expect(rail.querySelector('.context-rail-body')).toContainElement(
+    screen.getByRole('heading', { name: 'Working on' }),
+  );
+  expect(rail.querySelector('.context-rail-heading')).not.toBe(
+    rail.querySelector('.context-rail-body'),
+  );
   expect(
     within(rail).queryByRole('button', { name: 'Interactive terminal' }),
   ).toBeNull();

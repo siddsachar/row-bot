@@ -3,9 +3,48 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useId,
+  useRef,
   useState,
+  type RefObject,
 } from 'react';
 import type { SlashCommandSpec } from '../../api/types';
+import {
+  BadgeCheck,
+  Bot,
+  CircleHelp,
+  CircleMinus,
+  CircleStop,
+  Code2,
+  Download,
+  Flag,
+  HeartPulse,
+  MessageSquarePlus,
+  RotateCcw,
+  Sparkles,
+  UserRound,
+  Wrench,
+  Brain,
+  type LucideIcon,
+} from 'lucide-react';
+
+const commandIcons: Record<string, LucideIcon> = {
+  auto_fix_high: Sparkles,
+  restart_alt: RotateCcw,
+  remove_circle: CircleMinus,
+  add_comment: MessageSquarePlus,
+  stop_circle: CircleStop,
+  psychology: Brain,
+  badge: BadgeCheck,
+  person_pin: UserRound,
+  hub: Bot,
+  flag: Flag,
+  monitor_heart: HeartPulse,
+  construction: Wrench,
+  download: Download,
+  help: CircleHelp,
+  code: Code2,
+};
 
 export type SlashPaletteHandle = {
   key(event: React.KeyboardEvent<HTMLTextAreaElement>): boolean;
@@ -39,12 +78,18 @@ const SlashPalette = forwardRef<
     cursor: number;
     commands: SlashCommandSpec[];
     disabled: boolean;
+    inputRef?: RefObject<HTMLTextAreaElement | null>;
     onChoose(
       command: SlashCommandSpec,
       token: { start: number; end: number },
     ): void;
   }
->(function SlashPalette({ text, cursor, commands, disabled, onChoose }, ref) {
+>(function SlashPalette(
+  { text, cursor, commands, disabled, inputRef, onChoose },
+  ref,
+) {
+  const listboxId = useId();
+  const listRef = useRef<HTMLDivElement>(null);
   const token = currentToken(text, cursor);
   const query = token?.query;
   const items = useMemo(
@@ -57,8 +102,35 @@ const SlashPalette = forwardRef<
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState('');
   const identity = token ? `${token.start}:${token.end}:${token.query}` : '';
-  const open = Boolean(token && identity !== dismissed);
+  const open = Boolean(token && identity !== dismissed && !disabled);
   useEffect(() => setSelected(0), [identity]);
+  useEffect(() => {
+    const input = inputRef?.current;
+    if (!input) return;
+    if (open && !disabled && items.length) {
+      input.setAttribute('aria-controls', listboxId);
+      input.setAttribute('aria-expanded', 'true');
+      input.setAttribute(
+        'aria-activedescendant',
+        `${listboxId}-${Math.min(selected, items.length - 1)}`,
+      );
+    } else {
+      input.removeAttribute('aria-controls');
+      input.removeAttribute('aria-expanded');
+      input.removeAttribute('aria-activedescendant');
+    }
+    return () => {
+      input.removeAttribute('aria-controls');
+      input.removeAttribute('aria-expanded');
+      input.removeAttribute('aria-activedescendant');
+    };
+  }, [disabled, inputRef, items.length, listboxId, open, selected]);
+  useEffect(() => {
+    const active = listRef.current?.querySelector<HTMLElement>(
+      '[aria-selected="true"]',
+    );
+    active?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, selected]);
   useImperativeHandle(
     ref,
     () => ({
@@ -78,7 +150,7 @@ const SlashPalette = forwardRef<
           return true;
         }
         if (event.key === 'Enter' || event.key === 'Tab') {
-          onChoose(items[selected], token!);
+          onChoose(items[Math.min(selected, items.length - 1)], token!);
           setDismissed(identity);
           return true;
         }
@@ -91,38 +163,47 @@ const SlashPalette = forwardRef<
   return (
     <div
       className="slash-palette surface-effect"
+      id={listboxId}
+      ref={listRef}
       role="listbox"
       aria-label="Slash commands"
     >
       {items.length ? (
-        items.map((command, index) => (
-          <button
-            className="slash-palette-row"
-            type="button"
-            role="option"
-            aria-selected={index === selected}
-            key={command.id}
-            onMouseDown={(event) => event.preventDefault()}
-            onMouseEnter={() => setSelected(index)}
-            onClick={() => {
-              onChoose(command, token!);
-              setDismissed(identity);
-            }}
-          >
-            <span className="slash-palette-icon" aria-hidden>
-              {command.icon}
-            </span>
-            <span className="slash-palette-copy">
-              <strong>{command.token}</strong>
-              <span>{command.label}</span>
-              <small>{command.description}</small>
-            </span>
-            <span className="slash-palette-category">
-              {command.category}
-              {command.argument_hint ? ` · ${command.argument_hint}` : ''}
-            </span>
-          </button>
-        ))
+        items.map((command, index) => {
+          const Icon = Object.hasOwn(commandIcons, command.icon)
+            ? commandIcons[command.icon]
+            : Sparkles;
+          return (
+            <button
+              id={`${listboxId}-${index}`}
+              className="slash-palette-row"
+              type="button"
+              role="option"
+              aria-selected={index === selected}
+              key={command.id}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setSelected(index)}
+              onFocus={() => setSelected(index)}
+              onClick={() => {
+                onChoose(command, token!);
+                setDismissed(identity);
+              }}
+            >
+              <span className="slash-palette-icon" aria-hidden>
+                <Icon size={18} strokeWidth={1.8} />
+              </span>
+              <span className="slash-palette-copy">
+                <strong>{command.token}</strong>
+                <span>{command.label}</span>
+                <small>{command.description}</small>
+              </span>
+              <span className="slash-palette-category">
+                {command.category}
+                {command.argument_hint ? ` · ${command.argument_hint}` : ''}
+              </span>
+            </button>
+          );
+        })
       ) : (
         <p role="status">No slash commands match.</p>
       )}

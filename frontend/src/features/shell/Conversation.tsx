@@ -24,6 +24,7 @@ import {
   Button,
   CompactAction,
   EmptyState,
+  Menu,
   Skeleton,
 } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
@@ -33,7 +34,15 @@ import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
 import ConversationVoice from './ConversationVoice';
 import ResourceTargets from './ResourceTargets';
-import { ArrowUp, Check, Copy, Paperclip, Square } from 'lucide-react';
+import {
+  ArrowUp,
+  Check,
+  Copy,
+  MoreHorizontal,
+  Paperclip,
+  Square,
+  Volume2,
+} from 'lucide-react';
 import SearchConversations from './SearchConversations';
 import SteeringQueue from './SteeringQueue';
 import ConversationActions from '../settings/ConversationActions';
@@ -582,6 +591,18 @@ export default function Conversation({
     useState<ConversationComposer | null>(null);
   const [composerBusy, setComposerBusy] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [audioOpen, setAudioOpen] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [compactToolbar, setCompactToolbar] = useState(false);
+  useEffect(() => {
+    const composer = toolbarRef.current?.closest('.composer');
+    if (!composer || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      setCompactToolbar(entry.contentRect.width < 600);
+    });
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [id]);
   useLayoutEffect(() => {
     const composer = composerRef.current;
     if (!composer) return;
@@ -2177,10 +2198,11 @@ export default function Conversation({
               cursor={composerCursor}
               commands={composerSnapshot.commands}
               disabled={Boolean(running) || busy || composerBusy}
+              inputRef={composerRef}
               onChoose={(command, token) => void chooseSlash(command, token)}
             />
           )}
-          <div className="composer-toolbar">
+          <div className="composer-toolbar" ref={toolbarRef}>
             <ComposerControls
               key={id}
               composer={composerSnapshot ?? undefined}
@@ -2192,104 +2214,217 @@ export default function Conversation({
             />
             <div className="composer-actions">
               {voiceScope && (
-                <ConversationVoice
-                  key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
-                  compact
-                  controller={controller}
-                  scope={voiceScope}
-                  available={
-                    voiceExposure.key === voiceHostKey &&
-                    (voiceExposure.talk || voiceExposure.realtime)
-                  }
-                  unavailableReason={voiceExposure.talkReason}
-                  disabled={busy}
-                  running={Boolean(running)}
-                  onBusy={setTalkBusy}
-                  context={
-                    controls?.model_selection && state.conversation
-                      ? {
-                          conversation_revision: state.conversation.revision,
-                          model_selection: controls.model_selection,
-                          write_targets: resources
-                            .filter((resource) =>
-                              (
-                                targetSelection[id ?? ''] ?? defaultTargetIds
-                              ).includes(resource.binding.binding_id),
-                            )
-                            .map((resource) => ({
-                              kind: resource.binding.kind as
-                                'artifact' | 'workspace',
-                              binding_id: resource.binding.binding_id,
-                              resource_id: resource.binding.resource_id,
-                              binding_revision: resource.binding.revision,
-                              resource_revision: resource.resource_revision,
-                            })),
+                <div
+                  className="composer-audio"
+                  data-open={audioOpen}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget))
+                      setAudioOpen(false);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setAudioOpen(false);
+                  }}
+                >
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    className="composer-audio-toggle"
+                    aria-label="Attachments and audio"
+                    aria-expanded={audioOpen}
+                    onClick={() => setAudioOpen((value) => !value)}
+                  >
+                    <Volume2 size={18} aria-hidden />
+                  </Button>
+                  <div className="composer-audio-actions">
+                    {voiceScope && (
+                      <ConversationVoice
+                        key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
+                        compact
+                        controller={controller}
+                        scope={voiceScope}
+                        available={
+                          voiceExposure.key === voiceHostKey &&
+                          (voiceExposure.talk || voiceExposure.realtime)
                         }
-                      : null
-                  }
-                  targets={resources
-                    .filter((resource) =>
-                      (targetSelection[id ?? ''] ?? defaultTargetIds).includes(
-                        resource.binding.binding_id,
-                      ),
-                    )
-                    .map((resource) => resource.title)}
-                />
+                        unavailableReason={voiceExposure.talkReason}
+                        disabled={busy}
+                        running={Boolean(running)}
+                        onBusy={setTalkBusy}
+                        context={
+                          controls?.model_selection && state.conversation
+                            ? {
+                                conversation_revision:
+                                  state.conversation.revision,
+                                model_selection: controls.model_selection,
+                                write_targets: resources
+                                  .filter((resource) =>
+                                    (
+                                      targetSelection[id ?? ''] ??
+                                      defaultTargetIds
+                                    ).includes(resource.binding.binding_id),
+                                  )
+                                  .map((resource) => ({
+                                    kind: resource.binding.kind as
+                                      'artifact' | 'workspace',
+                                    binding_id: resource.binding.binding_id,
+                                    resource_id: resource.binding.resource_id,
+                                    binding_revision: resource.binding.revision,
+                                    resource_revision:
+                                      resource.resource_revision,
+                                  })),
+                              }
+                            : null
+                        }
+                        targets={resources
+                          .filter((resource) =>
+                            (
+                              targetSelection[id ?? ''] ?? defaultTargetIds
+                            ).includes(resource.binding.binding_id),
+                          )
+                          .map((resource) => resource.title)}
+                      />
+                    )}
+                    {voiceScope && (
+                      <VoiceControls
+                        compact
+                        scope={voiceScope}
+                        available={
+                          voiceExposure.key === voiceHostKey &&
+                          voiceExposure.dictate
+                        }
+                        unavailableReason={voiceExposure.dictateReason}
+                        disabled={busy || talkBusy}
+                        start={(request, signal) =>
+                          controller.startDictation(voiceScope, request, signal)
+                        }
+                        transcribe={(handle, utterance, audio, signal) =>
+                          controller.transcribeDictation(
+                            voiceScope,
+                            handle,
+                            utterance,
+                            audio,
+                            signal,
+                          )
+                        }
+                        stop={(handle, signal) =>
+                          controller.stopDictation(voiceScope, handle, signal)
+                        }
+                        applyTranscript={(scope, result) =>
+                          controller.applyDictation(scope, result)
+                        }
+                      />
+                    )}
+                    <Button
+                      variant="ghost"
+                      iconOnly
+                      aria-label="Attach file"
+                      disabled={busy}
+                      onClick={() => void attach()}
+                    >
+                      <Paperclip size={18} aria-hidden />
+                    </Button>
+                  </div>
+                </div>
               )}
-              {voiceScope && (
-                <VoiceControls
-                  compact
-                  scope={voiceScope}
-                  available={
-                    voiceExposure.key === voiceHostKey && voiceExposure.dictate
-                  }
-                  unavailableReason={voiceExposure.dictateReason}
-                  disabled={busy || talkBusy}
-                  start={(request, signal) =>
-                    controller.startDictation(voiceScope, request, signal)
-                  }
-                  transcribe={(handle, utterance, audio, signal) =>
-                    controller.transcribeDictation(
-                      voiceScope,
-                      handle,
-                      utterance,
-                      audio,
-                      signal,
-                    )
-                  }
-                  stop={(handle, signal) =>
-                    controller.stopDictation(voiceScope, handle, signal)
-                  }
-                  applyTranscript={(scope, result) =>
-                    controller.applyDictation(scope, result)
-                  }
-                />
+              {!voiceScope && (
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Attach file"
+                  disabled={busy}
+                  onClick={() => void attach()}
+                >
+                  <Paperclip size={18} aria-hidden />
+                </Button>
               )}
-              <Button
-                variant="ghost"
-                iconOnly
-                aria-label="Attach file"
-                disabled={busy}
-                onClick={() => void attach()}
-              >
-                <Paperclip size={18} aria-hidden />
-              </Button>
-              {pendingSubmit && (
+              {compactToolbar &&
+                (pendingSubmit ||
+                  pendingResume ||
+                  pendingSteering ||
+                  running ||
+                  (!running && generation?.status === 'interrupted')) && (
+                  <Menu
+                    label="Message actions"
+                    iconOnly
+                    variant="ghost"
+                    actions={[
+                      ...(pendingSubmit
+                        ? [
+                            {
+                              label: 'Check request receipt',
+                              disabled: busy,
+                              onSelect: () => void recover(),
+                            },
+                          ]
+                        : []),
+                      ...(pendingResume
+                        ? [
+                            {
+                              label: 'Check resume receipt',
+                              disabled: busy,
+                              onSelect: () => void resume(true),
+                            },
+                          ]
+                        : []),
+                      ...(pendingSteering
+                        ? [
+                            {
+                              label: 'Check queued message',
+                              disabled: busy,
+                              onSelect: () => void queueMessage(),
+                            },
+                          ]
+                        : []),
+                      ...(running
+                        ? [
+                            {
+                              label: 'Queue message',
+                              disabled:
+                                !draft.text.trim() ||
+                                draft.text.length > 16000 ||
+                                busy ||
+                                Boolean(pendingSteering) ||
+                                Boolean(pendingSubmit) ||
+                                Boolean(pendingResume),
+                              onSelect: () => void action('conversation.steer'),
+                            },
+                          ]
+                        : []),
+                      ...(!running && generation?.status === 'interrupted'
+                        ? [
+                            {
+                              label: 'Resume',
+                              disabled:
+                                busy ||
+                                Boolean(pendingSubmit) ||
+                                Boolean(pendingSteering) ||
+                                Boolean(pendingResume),
+                              onSelect: () =>
+                                void action('conversation.resume'),
+                            },
+                          ]
+                        : []),
+                    ]}
+                  >
+                    <MoreHorizontal size={18} aria-hidden />
+                  </Menu>
+                )}
+              {!compactToolbar && pendingSubmit && (
                 <Button disabled={busy} onClick={() => void recover()}>
                   Check request receipt
                 </Button>
               )}
-              {pendingResume && (
+              {!compactToolbar && pendingResume && (
                 <Button disabled={busy} onClick={() => void resume(true)}>
                   Check resume receipt
                 </Button>
               )}
-              {pendingSteering && (
+              {!compactToolbar && pendingSteering && (
                 <Button disabled={busy} onClick={() => void queueMessage()}>
                   Check queued message
                 </Button>
               )}
-              {running && (
+              {!compactToolbar && running && (
                 <Button
                   disabled={
                     !draft.text.trim() ||
@@ -2340,19 +2475,21 @@ export default function Conversation({
                   </Button>
                 )}
               </span>
-              {!running && generation?.status === 'interrupted' && (
-                <Button
-                  disabled={
-                    busy ||
-                    Boolean(pendingSubmit) ||
-                    Boolean(pendingSteering) ||
-                    Boolean(pendingResume)
-                  }
-                  onClick={() => void action('conversation.resume')}
-                >
-                  Resume
-                </Button>
-              )}
+              {!compactToolbar &&
+                !running &&
+                generation?.status === 'interrupted' && (
+                  <Button
+                    disabled={
+                      busy ||
+                      Boolean(pendingSubmit) ||
+                      Boolean(pendingSteering) ||
+                      Boolean(pendingResume)
+                    }
+                    onClick={() => void action('conversation.resume')}
+                  >
+                    Resume
+                  </Button>
+                )}
             </div>
           </div>
           {composerStateReason && (
