@@ -404,6 +404,9 @@ it('creates a bounded profile draft from one click', async () => {
   render(<GoalProfileSettings {...props} />);
   await screen.findByText('Complete the migration');
   await openProfiles();
+  const mine = () =>
+    screen.getByText('My Profiles', { exact: true }).closest('details')!;
+  expect(mine().open).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
   fireEvent.change(screen.getByLabelText('Profile slug'), {
     target: { value: 'safe_reader' },
@@ -432,6 +435,8 @@ it('creates a bounded profile draft from one click', async () => {
     },
   });
   await waitFor(() => expect(props.executeProfile).toHaveBeenCalledOnce());
+  // The created profile's group opens so the new row is visible.
+  await waitFor(() => expect(mine().open).toBe(true));
 });
 
 it('tombstones private drafts and late settlements after authentication loss', async () => {

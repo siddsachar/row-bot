@@ -856,7 +856,18 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               : 'Profile change completed.',
         });
         if (attempt.kind === 'goal') session.refreshGoals();
-        else session.refreshProfiles();
+        else {
+          // Created and duplicated profiles are user profiles; open their
+          // group so the new row is visible.
+          const { operation } = attempt.command.payload;
+          if (operation === 'create' || operation === 'duplicate')
+            setExpandedGroups((previous) =>
+              previous.has('My Profiles')
+                ? previous
+                : new Set([...previous, 'My Profiles']),
+            );
+          session.refreshProfiles();
+        }
       } else if (receipt.status === 'rejected') {
         session.update({
           busy: '',
