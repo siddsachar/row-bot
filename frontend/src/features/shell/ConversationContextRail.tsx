@@ -16,7 +16,6 @@ import {
   Search,
   Terminal,
 } from 'lucide-react';
-import { MediaPreview } from './MediaPreview';
 
 type ResourceSummary = {
   primary: string;
@@ -380,8 +379,21 @@ export default function ConversationContextRail({
                   <FileImage size={16} aria-hidden />{' '}
                   {output.mime.startsWith('video/') ? 'Video' : 'Image'} output
                 </summary>
-                <MediaPreview reference={output.reference} mime={output.mime} />
+                {/* One rendering per result (B22): the media lives in the
+                    conversation; this row only points to it. */}
                 <div className="button-row">
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      document
+                        .querySelector<HTMLElement>(
+                          `[data-media-ref=${JSON.stringify(output.reference)}]`,
+                        )
+                        ?.scrollIntoView({ block: 'center' })
+                    }
+                  >
+                    Show in conversation
+                  </Button>
                   <Button
                     variant="ghost"
                     disabled={Boolean(outputBusy)}

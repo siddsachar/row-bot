@@ -293,6 +293,11 @@ it('saves an output with one scoped command and prepares code import without reg
     />,
   );
   fireEvent.click(screen.getByText('Image output'));
+  // The row points at the inline media instead of loading a second copy (B22).
+  expect(runtime.download).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('button', { name: 'Show in conversation' }),
+  ).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Use in code folder' }));
   expect(onUseOutputInCode).toHaveBeenCalledWith(
     expect.objectContaining({

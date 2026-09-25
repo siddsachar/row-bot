@@ -178,7 +178,11 @@ export function MediaPreview({
   );
   if (!current)
     return failure ? (
-      <div role="alert" className="media-preview-error">
+      <div
+        role="alert"
+        className="media-preview-error"
+        data-media-ref={reference}
+      >
         {failure} {retry}
       </div>
     ) : (
@@ -186,6 +190,7 @@ export function MediaPreview({
         role="status"
         className="media-preview-status"
         data-kind={previewKind(mime, '')}
+        data-media-ref={reference}
       >
         Loading {displayLabel}…
       </p>
@@ -228,6 +233,7 @@ export function MediaPreview({
       className="media-preview"
       role="group"
       aria-label={accessibleLabel}
+      data-media-ref={reference}
       data-kind={current.kind}
       data-failed={decodeFailed ? 'true' : undefined}
     >
