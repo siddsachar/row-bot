@@ -1136,8 +1136,10 @@ export default function Workspace() {
                   hidden={homeOpen || routeOpen || Boolean(compact)}
                 >
                   <div className="conversation-heading">
+                    {/* Connected is the quiet default: announced, not drawn.
+                        Any other state shows as a visible pill (B7). */}
                     <span
-                      className={`connection-status ${state.status === 'ready' ? 'connected' : ''}`}
+                      className={`connection-status ${state.status === 'ready' ? 'connected visually-hidden' : ''}`}
                       role="status"
                     >
                       {state.status === 'ready' ? 'Connected' : state.status}

@@ -382,6 +382,13 @@ export default function Conversation({
   const draft = controller.getDraft(id ?? 'new');
   const voiceScope = controller.dictationScope();
   const [talkBusy, setTalkBusy] = useState(false);
+  // The Agents rail section stays hidden until delegated work exists (B7).
+  const [agentsContent, setAgentsContent] = useState<{
+    conversation: string | null;
+    present: boolean;
+  }>({ conversation: null, present: false });
+  const agentsEmpty =
+    agentsContent.conversation !== id || !agentsContent.present;
   const terminalAdvertised = Boolean(
     state.handshake?.application_capabilities?.includes('native:terminal'),
   );
@@ -1658,6 +1665,9 @@ export default function Conversation({
     <DelegatedActivity
       compact
       conversationId={id}
+      onContentChange={(present) =>
+        setAgentsContent({ conversation: id, present })
+      }
       ready={Boolean(state.handshake) && state.status === 'ready'}
       refreshKey={
         state.activity
@@ -1742,6 +1752,7 @@ export default function Conversation({
       terminalAvailable={terminalAvailable}
       compactHeading={compactContext}
       agents={delegatedActivity}
+      agentsEmpty={agentsEmpty}
       outputs={outputs}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}

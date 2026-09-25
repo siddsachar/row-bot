@@ -14,6 +14,8 @@ type Props = {
   loadRun: (runId: string, signal?: AbortSignal) => Promise<DelegatedRun>;
   openConversation: (id: string) => Promise<void>;
   compact?: boolean;
+  /** Reports whether there is anything to show once a load settles. */
+  onContentChange?: (hasContent: boolean) => void;
 };
 
 const ACTIVE_STATES = new Set([
@@ -157,9 +159,22 @@ export default function DelegatedActivity(props: Props) {
         if (!request.signal.aborted && current === ticket.current)
           setPage(result);
       })
-      .catch(() => {
-        if (!request.signal.aborted && current === ticket.current)
-          setError(true);
+      .catch((cause: unknown) => {
+        if (request.signal.aborted || current !== ticket.current) return;
+        // A host without delegated activity simply has nothing to show.
+        if (
+          cause &&
+          typeof cause === 'object' &&
+          (cause as { code?: unknown }).code === 'capability_unavailable'
+        )
+          setPage({
+            conversation_id: callbacks.current.conversationId,
+            parent_conversation_id: null,
+            items: [],
+            next_cursor: null,
+            has_more: false,
+          });
+        else setError(true);
       })
       .finally(() => {
         if (!request.signal.aborted && current === ticket.current)
@@ -201,6 +216,15 @@ export default function DelegatedActivity(props: Props) {
     const rightActive = ACTIVE_STATES.has(right.status) ? 0 : 1;
     return leftActive - rightActive;
   });
+  const hasContent =
+    error ||
+    laterPage ||
+    Boolean(page?.parent_conversation_id) ||
+    Boolean(page?.items.length);
+  useEffect(() => {
+    // Keep the last answer while a refresh is in flight to avoid flicker.
+    if (!loading || hasContent) callbacks.current.onContentChange?.(hasContent);
+  }, [hasContent, loading]);
   return (
     <section
       aria-label="Delegated tasks"

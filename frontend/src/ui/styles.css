@@ -5592,8 +5592,17 @@ details[open] > summary > .settings-disclosure-chevron {
   position: absolute;
   inset-inline-end: 16px;
   top: 8px;
+  z-index: 3;
   pointer-events: none;
   font-size: 11px;
+}
+.conversation > .conversation-heading .connection-status:not(.connected) {
+  padding: 2px 10px 2px 8px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 999px;
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  box-shadow: var(--shadow-raised);
 }
 .chat-workspace {
   gap: 8px;

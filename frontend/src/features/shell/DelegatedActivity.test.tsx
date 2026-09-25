@@ -283,3 +283,58 @@ it('orders active agents before recent settled agents in the compact rail view',
     screen.queryByRole('heading', { name: 'Delegated tasks' }),
   ).not.toBeInTheDocument();
 });
+
+it('reports content once loads settle, without hiding existing work during a refresh', async () => {
+  const first = deferred<DelegatedActivityView>();
+  const refreshed = deferred<DelegatedActivityView>();
+  const load = vi
+    .fn()
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(refreshed.promise);
+  const onContentChange = vi.fn();
+  const props = {
+    conversationId: 'parent-a',
+    loadPage: load,
+    loadRun: async () => run,
+    openConversation: vi.fn().mockResolvedValue(undefined),
+    onContentChange,
+  };
+  const view = render(
+    <OverlayProvider>
+      <DelegatedActivity {...props} refreshKey="first" />
+    </OverlayProvider>,
+  );
+  await act(async () => first.resolve(page));
+  expect(onContentChange).toHaveBeenLastCalledWith(true);
+  onContentChange.mockClear();
+  view.rerender(
+    <OverlayProvider>
+      <DelegatedActivity {...props} refreshKey="second" />
+    </OverlayProvider>,
+  );
+  await act(async () => {});
+  expect(onContentChange).not.toHaveBeenCalledWith(false);
+  await act(async () => refreshed.resolve({ ...page, items: [] }));
+  expect(onContentChange).toHaveBeenLastCalledWith(false);
+});
+
+it('treats a host without delegated activity as having nothing to show', async () => {
+  const onContentChange = vi.fn();
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={vi.fn().mockRejectedValue({ code: 'capability_unavailable' })}
+        loadRun={async () => run}
+        openConversation={vi.fn().mockResolvedValue(undefined)}
+        onContentChange={onContentChange}
+      />
+    </OverlayProvider>,
+  );
+  expect(
+    await screen.findByText('No delegated agents in this conversation.'),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(onContentChange).toHaveBeenLastCalledWith(false);
+});

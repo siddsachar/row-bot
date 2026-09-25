@@ -475,23 +475,28 @@ it('opens reviewed conversation management from the existing action menu', async
   });
 });
 
-it('keeps resources, agents, and utilities in the persistent context rail', async () => {
+it('keeps the context rail quiet: empty Working on and Agents sections stay hidden (B7)', async () => {
   idleConversation();
   await act(async () => conversation());
 
   const rail = screen.getByRole('complementary', {
     name: 'Conversation context',
   });
+  // Delegated activity has loaded with nothing to show.
+  await waitFor(() =>
+    expect(
+      within(rail).getByText('No delegated agents in this conversation.'),
+    ).not.toBeVisible(),
+  );
   expect(
-    within(rail).getByRole('heading', { name: 'Working on' }),
-  ).toBeVisible();
+    within(rail).queryByRole('heading', { name: 'Working on' }),
+  ).not.toBeInTheDocument();
   expect(
     within(rail).getByText('Agents', { selector: 'summary' }),
-  ).toBeVisible();
+  ).not.toBeVisible();
   expect(
     within(rail).getByText('Utilities', { selector: 'summary' }),
   ).toBeVisible();
-  fireEvent.click(within(rail).getByText('Agents', { selector: 'summary' }));
   expect(
     within(rail).getByRole('button', { name: 'Add resource' }),
   ).toBeVisible();
@@ -506,9 +511,6 @@ it('keeps resources, agents, and utilities in the persistent context rail', asyn
       },
     ),
   ).not.toBeInTheDocument();
-  expect(
-    await within(rail).findByText('No delegated agents in this conversation.'),
-  ).toBeVisible();
 });
 
 it('enables terminal only for an authorized pywebview platform', async () => {

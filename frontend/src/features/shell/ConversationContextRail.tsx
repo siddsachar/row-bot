@@ -6,7 +6,7 @@ import type {
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
-import { Button, Menu, Skeleton } from '../../ui/primitives';
+import { Button, Disclosure, Menu, Skeleton } from '../../ui/primitives';
 import {
   Code2,
   FileImage,
@@ -34,6 +34,8 @@ type Props = {
   terminalAvailable: boolean;
   compactHeading?: boolean;
   agents: ReactNode;
+  /** Hide the Agents section while the conversation has no delegated work. */
+  agentsEmpty?: boolean;
   outputs?: { id: string; reference: string; mime: string }[];
   completedDesignId?: string;
   writerQueued?: boolean;
@@ -65,6 +67,7 @@ export default function ConversationContextRail({
   terminalAvailable,
   compactHeading = false,
   agents,
+  agentsEmpty = false,
   outputs = [],
   completedDesignId,
   writerQueued = false,
@@ -299,9 +302,11 @@ export default function ConversationContextRail({
           </p>
         )}
 
+        {/* Sections render only when they have something to show (B7). */}
         <section
           className="context-rail-section"
           aria-labelledby="context-resources"
+          hidden={!resources.length && !loading}
         >
           <h3 id="context-resources">Working on</h3>
           {loading && !Object.keys(summaries).length && (
@@ -468,13 +473,20 @@ export default function ConversationContextRail({
           </section>
         )}
 
-        <details className="context-rail-section context-agents">
-          <summary>Agents</summary>
-          {agents}
-        </details>
+        {/* Kept mounted while empty so delegated work can reveal it. */}
+        <div hidden={agentsEmpty}>
+          <Disclosure
+            className="context-rail-section context-agents"
+            summary="Agents"
+          >
+            {agents}
+          </Disclosure>
+        </div>
 
-        <details className="context-rail-section context-utilities">
-          <summary>Utilities</summary>
+        <Disclosure
+          className="context-rail-section context-utilities"
+          summary="Utilities"
+        >
           <div className="context-utility-list">
             <Button
               variant="ghost"
@@ -493,7 +505,7 @@ export default function ConversationContextRail({
               </Button>
             )}
           </div>
-        </details>
+        </Disclosure>
       </div>
     </aside>
   );

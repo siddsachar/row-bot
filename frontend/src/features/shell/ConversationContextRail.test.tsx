@@ -186,7 +186,10 @@ it('keeps setup quiet and exposes a cancellable checkout wait', () => {
       onDismissSuggestion={vi.fn()}
     />,
   );
-  expect(screen.getByRole('heading', { name: 'Working on' })).toBeVisible();
+  // Nothing is bound yet: the section stays out of the way entirely (B7).
+  expect(
+    screen.queryByRole('heading', { name: 'Working on' }),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByText('No coding workspace or design is bound yet.'),
   ).toBeNull();
@@ -309,4 +312,35 @@ it('saves an output with one scoped command and prepares code import without reg
   expect(
     await screen.findByText('Saved outputs/output-fixture.png'),
   ).toBeVisible();
+});
+
+it('hides the Agents section while delegated work is empty and draws disclosure affordances', () => {
+  const props = {
+    conversationId: 'conversation-a',
+    conversationRevision: '1',
+    resources: [],
+    suggestions: [],
+    ready: true,
+    connectionStatus: 'ready' as const,
+    terminalAvailable: false,
+    agents: <p>Delegated run list</p>,
+    onAddResource: vi.fn(),
+    onOpenResource: vi.fn(),
+    onUnbindResource: vi.fn(),
+    onFind: vi.fn(),
+    onManageConversation: vi.fn(),
+    onManageBrowser: vi.fn(),
+    onDeleteConversation: vi.fn(),
+    onOpenTerminal: vi.fn(),
+    onOpenSuggestion: vi.fn(),
+    onDismissSuggestion: vi.fn(),
+  };
+  const view = render(<ConversationContextRail {...props} agentsEmpty />);
+  const agents = screen.getByText('Agents', { selector: 'summary' });
+  expect(agents).not.toBeVisible();
+  const utilities = screen.getByText('Utilities', { selector: 'summary' });
+  expect(utilities).toBeVisible();
+  expect(utilities.querySelector('.disclosure-chevron')).not.toBeNull();
+  view.rerender(<ConversationContextRail {...props} agentsEmpty={false} />);
+  expect(screen.getByText('Agents', { selector: 'summary' })).toBeVisible();
 });
