@@ -38,6 +38,9 @@ pytestmark = pytest.mark.subsystem
         ({"content": '{"status":"uncertain"}'}, "uncertain"),
         ({"content": "Error: synthetic failure"}, "failed"),
         ({"content": "ordinary public result"}, "succeeded"),
+        # A denied approval is a refusal, not a completed action.
+        ({"content": "Action cancelled by user."}, "cancelled"),
+        ({"content": "Command cancelled by user."}, "cancelled"),
     ],
 )
 def test_result_classification_is_closed_and_truthful(value, expected):

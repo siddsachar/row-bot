@@ -338,6 +338,17 @@ def _content(value: Any) -> Any:
     return value
 
 
+# Refusals a tool returns when a person denies its approval (the approval gate,
+# the agent's tool wrapper and the shell tool). A denied action did not run.
+_DENIED_RESULTS = frozenset(
+    {
+        "action cancelled by user.",
+        "command cancelled by user.",
+        "install cancelled.",
+    }
+)
+
+
 def classify_tool_result(
     result_or_content: Any,
     *,
@@ -388,6 +399,8 @@ def classify_tool_result(
             return "failed"
 
     text = str(content or "").strip().casefold()
+    if text in _DENIED_RESULTS:
+        return "cancelled"
     if text.startswith(("uncertain:", "outcome uncertain:")):
         return "uncertain"
     if text.startswith(("blocked:", "tool blocked:")):
