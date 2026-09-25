@@ -390,7 +390,14 @@ export class WikiSettingsSession {
     } finally {
       this.set({ busy: false });
     }
+    await this.reloadAfterCompletion();
   };
+  // A completed command changes the saved revision; read it again so the next
+  // action is reviewed against current state instead of failing as stale.
+  private async reloadAfterCompletion() {
+    if (this.state.result?.status === 'completed' && !this.state.pending)
+      await this.load();
+  }
   private accept(result: WikiResult) {
     const pending = this.state.pending;
     if (
@@ -428,6 +435,7 @@ export class WikiSettingsSession {
             'The original outcome is still unconfirmed. No action was repeated.',
         });
     });
+    await this.reloadAfterCompletion();
   };
 }
 
@@ -616,9 +624,6 @@ export default function WikiSettings({
         >
           Check original receipt
         </Button>
-      )}
-      {state.result?.status === 'completed' && (
-        <p>Reload wiki status to review the current saved state.</p>
       )}
       {state.status && (
         <>

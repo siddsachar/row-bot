@@ -142,6 +142,10 @@ it('saves the enabled switch in one click without rebuilding the vault', async (
   const enabled = await screen.findByRole('switch', {
     name: 'Enable wiki vault',
   });
+  // The saved status reflects the completed command.
+  const saved = await io.status(new AbortController().signal);
+  vi.mocked(io.status).mockResolvedValue({ ...saved, enabled: false });
+  vi.mocked(io.status).mockClear();
   fireEvent.click(enabled);
   await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
   expect(vi.mocked(io.execute).mock.calls[0][0]).toBe('wiki.configure');
@@ -149,7 +153,12 @@ it('saves the enabled switch in one click without rebuilding the vault', async (
     revision,
     enabled: false,
   });
-  expect(session.getSnapshot().status?.enabled).toBe(false);
+  // The completed command's new revision is read back for the next action.
+  await waitFor(() => expect(io.status).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(session.getSnapshot().status?.enabled).toBe(false),
+  );
+  expect(enabled).not.toBeChecked();
 });
 
 it('shows both versions and confirms an explicit conflict import', async () => {
