@@ -344,3 +344,42 @@ it('hides the Agents section while delegated work is empty and draws disclosure 
   view.rerender(<ConversationContextRail {...props} agentsEmpty={false} />);
   expect(screen.getByText('Agents', { selector: 'summary' })).toBeVisible();
 });
+
+it('names each suggested panel action after its panel', () => {
+  const suggestion = {
+    type: 'panel.suggested' as const,
+    conversation_id: 'conversation-a',
+    conversation_revision: '1',
+    descriptor: { panel_kind: 'fake.info', title: 'Synthetic notes' },
+  };
+  const onOpenSuggestion = vi.fn();
+  const onDismissSuggestion = vi.fn();
+  render(
+    <ConversationContextRail
+      conversationId="conversation-a"
+      conversationRevision="1"
+      resources={[]}
+      suggestions={[suggestion]}
+      ready
+      connectionStatus="ready"
+      terminalAvailable={false}
+      agents={null}
+      onAddResource={vi.fn()}
+      onOpenResource={vi.fn()}
+      onUnbindResource={vi.fn()}
+      onFind={vi.fn()}
+      onManageConversation={vi.fn()}
+      onManageBrowser={vi.fn()}
+      onDeleteConversation={vi.fn()}
+      onOpenTerminal={vi.fn()}
+      onOpenSuggestion={onOpenSuggestion}
+      onDismissSuggestion={onDismissSuggestion}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open Synthetic notes' }));
+  expect(onOpenSuggestion).toHaveBeenCalledWith(suggestion);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Dismiss Synthetic notes' }),
+  );
+  expect(onDismissSuggestion).toHaveBeenCalledWith(suggestion);
+});

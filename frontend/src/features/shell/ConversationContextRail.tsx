@@ -458,11 +458,15 @@ export default function ConversationContextRail({
               >
                 <span>{suggestion.descriptor.title}</span>
                 <div className="button-row">
-                  <Button onClick={() => onOpenSuggestion(suggestion)}>
+                  <Button
+                    aria-label={`Open ${suggestion.descriptor.title}`}
+                    onClick={() => onOpenSuggestion(suggestion)}
+                  >
                     Open
                   </Button>
                   <Button
                     variant="ghost"
+                    aria-label={`Dismiss ${suggestion.descriptor.title}`}
                     onClick={() => onDismissSuggestion(suggestion)}
                   >
                     Dismiss
