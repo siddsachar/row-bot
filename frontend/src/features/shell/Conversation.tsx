@@ -1877,13 +1877,16 @@ export default function Conversation({
     Boolean(pendingSteering) ||
     Boolean(pendingSubmit) ||
     Boolean(pendingResume);
-  const runAnnouncement = !generation
-    ? ''
-    : generation.status === 'stopping'
-      ? 'Stopping — waiting for the worker to finish.'
-      : generation.quiesced
-        ? `Work ${generation.status}.`
-        : generation.status.replaceAll('_', ' ');
+  const runAnnouncement = generation
+    ? ({
+        running: 'Row-Bot is working.',
+        stopping: 'Stopping — waiting for the worker to finish.',
+        stopped: 'Stopped.',
+        waiting_approval: 'Waiting for your approval.',
+        completed: 'Response complete.',
+        interrupted: 'The response was interrupted.',
+      }[generation.status] ?? '')
+    : '';
   return (
     <div
       className={`chat-workspace${compactContext ? ' compact-context' : ''}`}

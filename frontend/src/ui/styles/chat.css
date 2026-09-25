@@ -256,7 +256,8 @@
   display: inline-block;
   margin: 4px 0;
   color: var(--text-muted);
-  font-size: var(--text-12);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
 }
 .message-error {
   margin: 6px 0 0;
@@ -823,11 +824,14 @@
   justify-content: flex-end;
   gap: 6px;
 }
+/* Decisions are text controls: the compact 34px minimum, never wrapped. */
 .approval-card-actions .button,
 .turn-notice-actions .button {
-  min-height: 30px;
+  flex: none;
+  min-height: 34px;
   padding: 4px 12px;
   border-radius: 8px;
+  white-space: nowrap;
 }
 .approval-card-kbd {
   display: inline-flex;
@@ -842,7 +846,7 @@
 .approval-card-allow.button {
   flex-basis: 100%;
   justify-content: flex-end;
-  min-height: 24px;
+  min-height: 28px;
   padding: 0 4px;
   color: var(--text-muted);
   font-size: var(--text-12);
@@ -1698,7 +1702,7 @@
   padding: 10px 8px 8px 14px;
   border: 1px solid
     color-mix(in srgb, var(--border-control) 28%, var(--border-subtle));
-  border-radius: 20px;
+  border-radius: var(--radius-composer);
   background: var(--surface);
   box-shadow: var(--shadow-raised);
   transition: border-color var(--motion-popover) var(--ease-out);
@@ -1988,8 +1992,9 @@
 .composer-stop.button svg {
   fill: currentColor;
 }
+/* The draft status stays announced (visually hidden) unless it needs you. */
 .composer-status-row {
-  display: none;
+  display: contents;
 }
 .composer-status-row[data-visible] {
   display: flex;
@@ -2039,7 +2044,7 @@
 }
 .context-ring-track {
   fill: none;
-  stroke: var(--surface-hover);
+  stroke: color-mix(in srgb, var(--text-muted) 32%, transparent);
   stroke-width: 2.5;
 }
 .context-ring.is-unavailable .context-ring-track {
@@ -2277,10 +2282,19 @@
   font-size: var(--text-12);
 }
 
-/* + menu and Skills. */
+/* + menu and Skills: icon, label, then meta and chevron at the end. */
 .composer-plus-menu .menu-item,
 .menu .menu-item[role='menuitemradio'] {
+  justify-content: flex-start;
   gap: 10px;
+  min-width: 220px;
+}
+.composer-plus-menu .menu-item > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.menu .menu-item[role='menuitemradio'] > span:last-child {
+  margin-inline-start: auto;
 }
 .menu-item-meta {
   margin-inline-start: auto;
