@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import { bootstrapTheme, TOKENS } from './src/ui/theme-model';
 
@@ -16,6 +16,17 @@ if (
 ) {
   throw new Error('ROW_BOT_DEV_BACKEND must be a plain HTTP loopback origin');
 }
+
+// Dev-only same-loopback proxy. Production access policy is untouched.
+const loopbackProxy: ProxyOptions = {
+  target: backend.origin,
+  changeOrigin: true,
+  configure(proxy) {
+    proxy.on('proxyReq', (request) => {
+      request.setHeader('Origin', backend.origin);
+    });
+  },
+};
 
 export default defineConfig({
   base: '/app-v2/',
@@ -36,16 +47,10 @@ export default defineConfig({
     strictPort: true,
     port: 5173,
     proxy: {
-      '/api/v1': {
-        target: backend.origin,
-        changeOrigin: true,
-        configure(proxy) {
-          // Dev-only same-loopback proxy. Production access policy is untouched.
-          proxy.on('proxyReq', (request) => {
-            request.setHeader('Origin', backend.origin);
-          });
-        },
-      },
+      '/api/v1': loopbackProxy,
+      // Packaged renderer runtimes (vis-network, Mermaid, Plotly) are served
+      // by the backend, not Vite; without this they are "unavailable" in dev.
+      '/app-v2/runtime/': loopbackProxy,
     },
   },
   build: {
