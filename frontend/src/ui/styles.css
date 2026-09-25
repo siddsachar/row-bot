@@ -2600,14 +2600,6 @@ progress {
   font-size: 20px;
   line-height: 26px;
 }
-.settings-pane-header h2:focus {
-  outline: none;
-}
-.settings-pane-header h2:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 4px;
-  border-radius: 2px;
-}
 .settings-pane-header p {
   margin-top: 2px;
   color: var(--text-secondary);

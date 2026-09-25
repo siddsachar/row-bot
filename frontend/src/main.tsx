@@ -10,6 +10,7 @@ import { bindPageLifecycle } from './page-lifecycle';
 import { PwaStatus } from './pwa';
 import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
+import { installInputModality } from './ui/input-modality';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
 import Workspace, { panelMetrics } from './features/shell/Workspace';
 import { resourcePanelMetrics } from './features/panels/ResourcePanel';
@@ -164,6 +165,7 @@ class RenderBoundary extends Component<
   }
 }
 async function start() {
+  installInputModality();
   const query = new URLSearchParams(location.search).get('fixture');
   const fixture = [
     'normal',
