@@ -32,7 +32,7 @@ const plural = (count: number, word: string) =>
  * describe known shapes in words; unknown shapes list their simple fields.
  * Raw JSON is never shown (B9).
  */
-export function describeFinding(raw: string): FindingView {
+function describeFinding(raw: string): FindingView {
   let value: unknown;
   try {
     value = JSON.parse(raw);

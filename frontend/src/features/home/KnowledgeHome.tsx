@@ -21,11 +21,11 @@ const MEMORY_TIERS: Record<string, string> = {
   resource: 'From a document or media',
 };
 
-export function memoryTierLabel(tier: string) {
+function memoryTierLabel(tier: string) {
   return MEMORY_TIERS[tier.trim().toLowerCase()] ?? humanizeToken(tier);
 }
 
-export function memorySourceLabel(source: string) {
+function memorySourceLabel(source: string) {
   const value = source.trim();
   if (!value) return 'Unknown';
   if (value.startsWith('document:'))
