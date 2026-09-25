@@ -96,7 +96,7 @@ it('summarises failures in the row and in the step verb', () => {
   render(<TranscriptTrace conversation="conversation-a" groups={failed} />);
   expect(row()).toHaveAttribute('data-trace-status', 'failed');
   expect(within(row()).getByText('Used 1 tool · 1 failed')).toBeVisible();
-  expect(screen.getByText('Read a file failed')).toBeInTheDocument();
+  expect(screen.getByText("Couldn't read a file")).toBeInTheDocument();
 });
 
 it('shows live shimmer text for the running step and an approval hold', () => {

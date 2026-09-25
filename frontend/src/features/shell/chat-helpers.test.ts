@@ -66,7 +66,20 @@ describe('tool activity', () => {
   it('speaks human verbs for running, finished and failed steps', () => {
     expect(stepVerb('web_search', 'pending')).toBe('Searching the web');
     expect(stepVerb('duckduckgo_search', 'succeeded')).toBe('Searched the web');
-    expect(stepVerb('read_file', 'failed')).toBe('Read a file failed');
+    // Failed or denied steps never read as done.
+    expect(stepVerb('read_file', 'failed')).toBe("Couldn't read a file");
+    expect(stepVerb('workspace_file_delete', 'cancelled')).toBe(
+      "Didn't delete a file",
+    );
+    expect(stepVerb('send_gmail_message', 'blocked')).toBe(
+      "Didn't send an email",
+    );
+    expect(stepVerb('frobnicate_widget', 'failed')).toBe(
+      'Frobnicate widget failed',
+    );
+    expect(stepVerb('frobnicate_widget', 'cancelled')).toBe(
+      'Frobnicate widget skipped',
+    );
     expect(stepVerb('developer_commit_changes', 'succeeded')).toBe(
       'Committed changes',
     );
@@ -78,7 +91,14 @@ describe('tool activity', () => {
       'Frobnicate widget',
     );
     expect(stepVerb('frobnicate_widget', 'pending')).toBe(
-      'Running Frobnicate widget',
+      'Running frobnicate widget',
+    );
+    // Live steps may carry a display label with an emoji.
+    expect(stepVerb('🖥️ shell', 'pending')).toBe('Running a command');
+    expect(stepVerb('🧩 frobnicate', 'succeeded')).toBe('Frobnicate');
+    expect(stepVerb('workspace_write_file', 'succeeded')).toBe('Wrote a file');
+    expect(stepVerb('workspace_list_directory', 'pending')).toBe(
+      'Listing files',
     );
   });
 
@@ -115,6 +135,17 @@ describe('tool activity', () => {
       trace('read_file', 'failed'),
     ]);
     expect(activityLabel(summary)).toBe('Used 3 tools · 1 failed');
+    expect(
+      activityLabel(
+        summarizeActivity([
+          trace('read_file', 'failed'),
+          trace('file_delete', 'cancelled'),
+        ]),
+      ),
+    ).toBe('Used 2 tools · 1 failed · 1 skipped');
+    expect(
+      activityLabel(summarizeActivity([trace('file_delete', 'cancelled')])),
+    ).toBe('1 tool skipped');
     expect(summary.icons).toHaveLength(2);
     expect(summary.current).toBeNull();
     const running = summarizeActivity([trace('web_search', 'pending')]);

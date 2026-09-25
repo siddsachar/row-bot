@@ -200,9 +200,17 @@ const PATTERNS: Array<[RegExp, Verb]> = [
   [/search$/, verb('Searched', 'Searching', Search)],
 ];
 
+// Live steps can carry a display label such as "🖥️ shell"; match on the name.
+function bareName(name: string) {
+  return name.replace(/^[^\p{L}\p{N}_]+/u, '').trim();
+}
+
 function describe(name: string): Verb | null {
-  const key = name.trim().toLowerCase();
+  const key = bareName(name).toLowerCase();
   if (Object.hasOwn(EXACT, key)) return EXACT[key];
+  // Workspace file tools mirror the plain ones: workspace_write_file.
+  const inner = key.replace(/^workspace_/, '');
+  if (inner !== key && Object.hasOwn(EXACT, inner)) return EXACT[inner];
   for (const [pattern, value] of PATTERNS) if (pattern.test(key)) return value;
   return null;
 }
@@ -210,13 +218,23 @@ function describe(name: string): Verb | null {
 /** "Searched the web", "Searching the web" or "Web search failed". */
 export function stepVerb(name: string, status: StepStatus): string {
   const known = describe(name);
-  const fallback = humanizeToken(name) || 'Tool';
-  if (status === 'pending') return known?.running ?? `Running ${fallback}`;
-  if (status === 'failed') return `${known ? known.done : fallback} failed`;
-  if (status === 'blocked') return `${known ? known.done : fallback} blocked`;
-  if (status === 'cancelled')
-    return `${known ? known.done : fallback} cancelled`;
+  const fallback = humanizeToken(bareName(name)) || 'Tool';
+  if (status === 'pending')
+    return known?.running ?? `Running ${midSentence(fallback)}`;
+  // A step that failed or never ran must not read as done ("Deleted a file").
+  const action = known && midSentence(imperative(known.running));
+  if (status === 'failed')
+    return action ? `Couldn't ${action}` : `${fallback} failed`;
+  if (status === 'blocked' || status === 'cancelled')
+    return action ? `Didn't ${action}` : `${fallback} skipped`;
   return known?.done ?? fallback;
+}
+
+/** "Frobnicate widget" reads "frobnicate widget" mid-sentence; "MCP" stays. */
+function midSentence(label: string) {
+  return /^\p{Lu}\p{Ll}/u.test(label)
+    ? label[0].toLowerCase() + label.slice(1)
+    : label;
 }
 
 export function stepIcon(name: string): LucideIcon {
@@ -300,7 +318,10 @@ export function keyArgument(safeInput: string | undefined): string {
 
 export type ActivitySummary = {
   total: number;
+  /** Steps that failed or whose outcome is uncertain. */
   failed: number;
+  /** Steps that never ran: denied, blocked or cancelled. */
+  skipped: number;
   pending: number;
   /** Distinct tool glyphs in call order, at most four. */
   icons: LucideIcon[];
@@ -340,7 +361,12 @@ export function summarizeActivity(
   }
   return {
     total: steps.length,
-    failed: steps.filter((step) => isAttention(step.status)).length,
+    failed: steps.filter(
+      (step) => step.status === 'failed' || step.status === 'uncertain',
+    ).length,
+    skipped: steps.filter(
+      (step) => step.status === 'blocked' || step.status === 'cancelled',
+    ).length,
     pending: steps.filter((step) => step.status === 'pending').length,
     icons,
     current:
@@ -348,11 +374,19 @@ export function summarizeActivity(
   };
 }
 
-/** "Used 3 tools", "Used 1 tool · 1 failed". */
+/** "Used 3 tools", "Used 2 tools · 1 failed · 1 skipped", "1 tool skipped". */
 export function activityLabel(summary: ActivitySummary): string {
   const noun = summary.total === 1 ? 'tool' : 'tools';
-  const used = `Used ${summary.total} ${noun}`;
-  return summary.failed ? `${used} · ${summary.failed} failed` : used;
+  // Nothing ran: every step was denied, blocked or cancelled.
+  if (summary.total && summary.skipped === summary.total)
+    return `${summary.total} ${noun} skipped`;
+  return [
+    `Used ${summary.total} ${noun}`,
+    summary.failed ? `${summary.failed} failed` : '',
+    summary.skipped ? `${summary.skipped} skipped` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** Compact elapsed time: "0.8s", "8.4s", "1m 12s". */
@@ -397,6 +431,7 @@ export function imperative(participle: string): string {
 
 /** "Send an email?" for a canonical tool name awaiting approval. */
 export function approvalQuestion(name: string): string {
-  if (!describe(name)) return `Allow ${humanizeToken(name) || 'this action'}?`;
+  if (!describe(name))
+    return `Allow ${humanizeToken(bareName(name)) || 'this action'}?`;
   return `${imperative(stepVerb(name, 'pending'))}?`;
 }

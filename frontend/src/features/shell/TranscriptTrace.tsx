@@ -392,7 +392,8 @@ export default function TranscriptTrace({
           );
         })()
       : null;
-  const status = running ? 'pending' : summary.failed ? 'failed' : 'succeeded';
+  const attention = summary.failed + summary.skipped;
+  const status = running ? 'pending' : attention ? 'failed' : 'succeeded';
   const current = summary.current;
   const text = live?.stopping
     ? 'Stopping…'
@@ -424,7 +425,7 @@ export default function TranscriptTrace({
             <span className="activity-summary-icon" aria-hidden>
               {running ? (
                 <LoaderCircle className="activity-spinner" />
-              ) : summary.failed ? (
+              ) : attention ? (
                 <CircleAlert />
               ) : (
                 <Check />
