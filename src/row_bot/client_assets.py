@@ -171,12 +171,16 @@ def _shell_headers(content: bytes) -> dict[str, str]:
     # srcdoc inherits this policy. The exact packaged runtime is injected after
     # sanitation; arbitrary generated scripts never receive permission.
     hashes += " " + runtime_script_csp_source()
+    # frame-src blob: lets the transcript show an attached PDF inline. Only this
+    # origin's scripts can mint blob URLs, and the client frames only bytes it
+    # verified as PDF and re-typed as application/pdf. Designer previews keep
+    # their own frame-src 'none'.
     return {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
             "font-src 'self' data:; worker-src 'self'; manifest-src 'self'; object-src 'none'; "
-            "frame-src 'self' https://www.youtube-nocookie.com; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
+            "frame-src 'self' blob: https://www.youtube-nocookie.com; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
 
 
 def _client_runtime_assets() -> dict[str, ClientAsset]:

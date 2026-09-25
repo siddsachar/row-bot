@@ -61,10 +61,13 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     shell = host.get("/app-v2/")
     assert shell.status_code == 200 and shell.headers["cache-control"] == "no-store"
     assert "sha256-" in shell.headers["content-security-policy"]
-    assert "frame-src 'self' https://www.youtube-nocookie.com" in shell.headers["content-security-policy"]
+    assert "frame-src 'self' blob: https://www.youtube-nocookie.com" in shell.headers["content-security-policy"]
     assert "object-src 'none'" in shell.headers["content-security-policy"]
     directives = dict(part.strip().split(' ', 1) for part in shell.headers["content-security-policy"].split(';') if part.strip())
     assert directives['media-src'].split() == ["'self'", 'blob:']
+    # Inline PDF attachments: same-origin blob frames only, no plugins.
+    assert directives['frame-src'].split() == ["'self'", 'blob:', 'https://www.youtube-nocookie.com']
+    assert directives['object-src'].split() == ["'none'"]
     assert host.get("/app-v2/conversations/fixture", headers={"Accept": "text/html"}).content == shell.content
     assert host.head("/app-v2/").content == b""
     assert host.head("/app-v2/").headers["content-length"] == str(len(shell.content))
