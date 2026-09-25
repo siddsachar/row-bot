@@ -102,10 +102,12 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
   expect(directives.get('media-src')).toEqual(["'self'", 'blob:']);
   expect(directives.get('font-src')).toEqual(["'self'", 'data:']);
   expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"]);
-  // The client host permits only its own frames and the reviewed privacy-enhanced
-  // YouTube embed. Keep this exact allowlist aligned with client_assets.py.
+  // The client host permits only its own frames, same-origin blob frames for
+  // verified PDF attachments and the reviewed privacy-enhanced YouTube embed.
+  // Keep this exact allowlist aligned with client_assets.py.
   expect(directives.get('frame-src')).toEqual([
     "'self'",
+    'blob:',
     'https://www.youtube-nocookie.com',
   ]);
   expect(directives.get('object-src')).toEqual(["'none'"]);

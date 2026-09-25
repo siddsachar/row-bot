@@ -144,7 +144,7 @@ test('ordinary queued messages support edit and removal before one accepted disp
     }
     await page
       .locator('summary')
-      .filter({ hasText: /^Steering queue$/ })
+      .filter({ hasText: /^Steering queue/ })
       .click();
     const queue = page.getByRole('region', {
       name: 'Queued messages',
@@ -277,7 +277,7 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
     }
     await page
       .locator('summary')
-      .filter({ hasText: /^Steering queue$/ })
+      .filter({ hasText: /^Steering queue/ })
       .click();
     const queue = page.getByRole('region', {
       name: 'Steering queue',
@@ -325,13 +325,6 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       'finish-child',
     );
     expect(completed.child_status).toBe('completed');
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Activity \(/ })
-      .click();
-    await expect(
-      page.getByText('Delegated task: completed', { exact: true }),
-    ).toBeVisible();
     await releaseProducer(page, call);
     await expect(
       page.getByText(
@@ -350,6 +343,10 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
     await expect(
       childDetail.getByText('Synthetic child result', { exact: true }),
     ).toBeVisible();
+    // Delegated status lives with the agent in Context, not an event feed.
+    await expect(childDetail.getByRole('status')).toHaveText(
+      /Status\s+completed/,
+    );
     await childDetail
       .getByRole('button', { name: 'Open full thread', exact: true })
       .click();
@@ -618,7 +615,7 @@ test('current approval is reviewed once and resumes its original conversation', 
     name: 'Approval required for fixture_action',
     exact: true,
   });
-  await expect(approval.getByRole('button', { name: 'Reject' })).toBeEnabled();
+  await expect(approval.getByRole('button', { name: 'Deny' })).toBeEnabled();
   await approval.getByRole('button', { name: 'Details' }).click();
   const dialog = page.getByRole('dialog', {
     name: 'Approval details · fixture_action',
@@ -680,14 +677,13 @@ test('tool media appears through the real opaque attachment owner and preserves 
   ).toBeVisible();
   const call = (await fixtureState(page)).calls.at(-1)!;
   try {
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Activity \(/ })
-      .click();
-    const result = page.getByRole('img', {
-      name: 'Generated result',
-      exact: true,
-    });
+    // The fixture creates its media once released; it renders inline with
+    // the answer, once (B22).
+    await releaseProducer(page, call);
+    const result = page
+      .getByRole('log', { name: 'Conversation', exact: true })
+      .getByRole('img', { name: 'Generated result', exact: true });
+    await expect(result).toHaveCount(1);
     await expect(result).toBeVisible();
     await expect
       .poll(() =>
@@ -700,7 +696,6 @@ test('tool media appears through the real opaque attachment owner and preserves 
       )
       .toBe(true);
     await screenshot(page, testInfo, 'real-tools-and-media');
-    await releaseProducer(page, call);
     await expect
       .poll(async () => (await fixtureState(page)).calls.at(-1)?.quiesced)
       .toBe(true);

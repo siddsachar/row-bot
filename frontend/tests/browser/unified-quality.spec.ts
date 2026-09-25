@@ -43,10 +43,6 @@ test('real tools and media keep one composer through every colour theme and syst
         )?.quiesced,
     )
     .toBe(true);
-  await page
-    .locator('summary')
-    .filter({ hasText: /^Activity \(/ })
-    .click();
   await expect(
     page.getByRole('img', { name: 'Generated result', exact: true }),
   ).toBeVisible();
@@ -302,7 +298,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await expect(details).toBeFocused();
   const beforeDecision = (await fixtureState(page)).calls.length;
   const reject = approval.getByRole('button', {
-    name: 'Reject',
+    name: 'Deny',
     exact: true,
   });
   const approve = approval.getByRole('button', {
@@ -516,10 +512,6 @@ test('actual state messages and recovery controls remain readable in light and d
               )?.quiesced,
           )
           .toBe(true);
-        await page
-          .locator('summary')
-          .filter({ hasText: /^Activity \(/ })
-          .click();
         await expect(
           page.getByRole('img', { name: 'Generated result', exact: true }),
         ).toBeVisible();
@@ -661,7 +653,7 @@ test('actual state messages and recovery controls remain readable in light and d
         });
         await composer(page).fill('approval fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
-        let approval = page.locator('.approval-bar');
+        let approval = page.locator('.approval-card');
         await expect(approval).toBeVisible();
         await expect(
           approval.getByLabel('Loading current approval', { exact: true }),
@@ -669,14 +661,14 @@ test('actual state messages and recovery controls remain readable in light and d
         await screenshot(page, info, `${label}-approval-loading`);
         releaseApproval();
         await expect(
-          approval.getByRole('button', { name: 'Reject', exact: true }),
+          approval.getByRole('button', { name: 'Deny', exact: true }),
         ).toBeVisible();
         await page.unroute(approvalPath);
         conversation = await newConversation(page);
         const expired = await injectOnce(approvalPath, 409, 'approval_expired');
         await composer(page).fill('approval fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
-        approval = page.locator('.approval-bar');
+        approval = page.locator('.approval-card');
         await expect(approval.getByRole('alert')).toContainText(
           'This approval expired',
         );
@@ -689,9 +681,9 @@ test('actual state messages and recovery controls remain readable in light and d
         conversation = await newConversation(page);
         await composer(page).fill('approval fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
-        approval = page.locator('.approval-bar');
+        approval = page.locator('.approval-card');
         const reject = approval.getByRole('button', {
-          name: 'Reject',
+          name: 'Deny',
           exact: true,
         });
         await assertControlTextUnclipped(reject);

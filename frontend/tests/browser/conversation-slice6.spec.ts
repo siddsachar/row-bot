@@ -219,12 +219,16 @@ test('context card and composer stay compact through panels, narrowing, keyboard
     ).toBeVisible();
     await extras.click();
   }
-  await page
-    .getByRole('button', { name: 'More conversation controls' })
-    .click();
+  // Approvals are a shield glyph; profile and mode sit in the + menu.
+  await page.getByRole('button', { name: 'Approvals', exact: true }).click();
   await expect(
-    page.getByRole('menuitem', { name: 'Approvals: Ask (selected)' }),
-  ).toBeVisible();
+    page.getByRole('menuitem', { name: 'Ask', exact: true }),
+  ).toHaveAttribute('aria-current', 'true');
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('button', { name: 'Add files and more', exact: true })
+    .click();
+  await expect(page.getByRole('menuitem', { name: /^Mode/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await screenshot(page, info, 'slice6-zoom-200');
 });

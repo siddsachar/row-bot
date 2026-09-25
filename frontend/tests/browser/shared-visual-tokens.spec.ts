@@ -25,10 +25,10 @@ test.beforeEach(async ({ page }) => {
       <section class="nav-conversations"><h3>Conversations</h3><p>Saved local conversations</p></section>
       <label class="field"><span>Workspace name</span><input class="input" value="Reviewed local workspace"></label>
       <div class="actions"><button class="button primary">Review</button><button class="button">Cancel</button></div>
-      <div class="transcript"><article class="message message-user"><span class="message-role">You</span><p class="message-text">Preserve readable conversation text.</p></article></div>
+      <div class="transcript"><article class="message message-user"><div class="transcript-content"><small class="message-delivery-state">Paged content</small><p class="message-text">Preserve readable conversation text.</p></div></article></div>
       <span class="connection-status connected">Connected</span>
       <div class="panel-toolbar"><button class="button">Panel action</button></div>
-      <form class="composer"><textarea class="input message-composer" aria-label="Message">Draft stays readable</textarea><div class="composer-toolbar"><button type="button" class="button composer-control">Model</button><button type="button" class="button primary">Send</button></div></form>
+      <form class="composer"><div class="composer-field"><textarea class="input message-composer" aria-label="Message">Draft stays readable</textarea><div class="composer-toolbar"><button type="button" class="button composer-model-pill">Model</button><button type="button" class="button primary">Send</button></div></div></form>
       <span class="status-chip">Waiting</span>
       <div class="dialog" style="position:static;transform:none">Dialog surface</div>
     </main></body></html>`);
@@ -77,8 +77,8 @@ test('reference chrome density preserves reading size, focus and accessible them
             style('.field > span').lineHeight,
           ],
           metadata: [
-            style('.message-role').fontSize,
-            style('.message-role').lineHeight,
+            style('.message-delivery-state').fontSize,
+            style('.message-delivery-state').lineHeight,
           ],
           status: [
             style('.connection-status').fontSize,
@@ -93,7 +93,7 @@ test('reference chrome density preserves reading size, focus and accessible them
           panelRadius: surface.borderRadius,
           controlRadius: button.borderRadius,
           dialogRadius: style('.dialog').borderRadius,
-          composerRadius: style('.composer').borderRadius,
+          composerRadius: style('.composer-field').borderRadius,
           pillRadius: style('.status-chip').borderRadius,
           borders: {
             card: [
@@ -132,7 +132,8 @@ test('reference chrome density preserves reading size, focus and accessible them
         compact ? 15 : 16,
         2,
       );
-      expect(measured.composer[1]).toBe(compact ? '22px' : '24px');
+      // The composer line keeps the 15/24 reading rhythm of the transcript.
+      expect(measured.composer[1]).toBe('24px');
       expect(measured.cardRadius).toBe('10px');
       expect(measured.panelRadius).toBe('12px');
       expect(measured.controlRadius).toBe('6px');

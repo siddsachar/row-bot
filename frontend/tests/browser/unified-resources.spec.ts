@@ -199,10 +199,6 @@ test('generated output is retained explicitly and can be handed to Developer wit
     })
     .toBe(true);
   await releaseProducer(page, call);
-  await page
-    .locator('summary')
-    .filter({ hasText: /^Activity \(/ })
-    .click();
   await expect(
     page.getByRole('img', { name: 'Generated result', exact: true }),
   ).toBeVisible();

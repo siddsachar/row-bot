@@ -34,21 +34,23 @@ test('full-history search jumps to an exact stable row outside the loaded ten-th
       .evaluateAll((rows) =>
         rows.map((row) => row.getAttribute('data-message-id')),
       );
-  await page
-    .getByRole('button', { name: 'Browse history', exact: true })
-    .click();
-  await expect(
-    page.getByRole('button', { name: 'Earlier messages', exact: true }),
-  ).toBeVisible();
+  // History loads by scrolling up: earlier rows are prepended above the live
+  // window (the button at the top also loads automatically when reached).
+  const earlier = transcript.getByRole('button', {
+    name: 'Earlier messages',
+    exact: true,
+  });
+  await expect(earlier).toBeVisible();
   const latestIds = await rowIds();
-  await page
-    .getByRole('button', { name: 'Earlier messages', exact: true })
-    .click();
+  await earlier.click();
   await expect.poll(rowIds).not.toEqual(latestIds);
   const earlierIds = await rowIds();
-  expect(earlierIds.length).toBeGreaterThan(0);
+  expect(earlierIds.length).toBeGreaterThan(latestIds.length);
+  expect(earlierIds.slice(-latestIds.length)).toEqual(latestIds);
+  await expect(early).toHaveCount(0);
+  // The floating pill returns to the live end and trims the loaded rows.
   await page
-    .getByRole('button', { name: 'Later messages', exact: true })
+    .getByRole('button', { name: 'Latest messages', exact: true })
     .click();
   await expect.poll(rowIds).toEqual(latestIds);
   await page.getByRole('button', { name: 'Find', exact: true }).click();

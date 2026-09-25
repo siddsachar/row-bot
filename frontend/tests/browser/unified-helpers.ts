@@ -284,9 +284,10 @@ export async function openConversation(
   await expect(
     page.getByLabel('Opening conversation', { exact: true }),
   ).toHaveCount(0);
+  // History now loads by scrolling up; the transcript is the readiness signal.
   await expect(
-    page.getByRole('button', { name: 'Browse history', exact: true }),
-  ).toBeEnabled();
+    page.getByRole('log', { name: 'Conversation', exact: true }),
+  ).toBeVisible();
   await expect(page.locator('.connection-status.connected')).toHaveText(
     'Connected',
   );
@@ -470,12 +471,11 @@ export async function assertControlTextUnclipped(
 }
 
 export async function assertConversationSummaries(page: Page): Promise<void> {
-  for (const label of [/^Steering queue$/, /^Activity \(/]) {
-    const summary = page
-      .locator('.chat-content > details.activity > summary')
-      .filter({ hasText: label });
-    if (await summary.count()) await assertControlTextUnclipped(summary);
-  }
+  // The steering queue shows above the composer once something is queued.
+  const summary = page
+    .locator('.composer details.steering-activity > summary')
+    .filter({ hasText: /^Steering queue/ });
+  if (await summary.count()) await assertControlTextUnclipped(summary);
 }
 
 export async function addReviewResourcePair(

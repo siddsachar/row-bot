@@ -112,8 +112,11 @@ test('long tool output, adjacent table, and immediate video embed fit wide and n
     });
   });
 
-  const group = page.locator('.trace-group');
+  const group = page.locator('.activity-row');
   await expect(group).toBeVisible();
+  await expect(group.locator('summary.activity-summary')).toHaveText(
+    /Used 2 tools/,
+  );
   await expect(page.getByRole('table')).toHaveCount(1);
   await expect(page.locator('.rich-youtube iframe')).toHaveAttribute(
     'src',
@@ -125,8 +128,8 @@ test('long tool output, adjacent table, and immediate video embed fit wide and n
   await expect(
     page.getByRole('button', { name: /Play YouTube video/i }),
   ).toHaveCount(0);
-  await group.locator('summary').first().click();
-  await group.locator('.trace-item summary').first().click();
+  await group.locator('summary.activity-summary').click();
+  await group.locator('.activity-step summary').first().click();
   await expect(group.locator('.trace-output').first()).toContainText(
     'Line 120: synthetic public result',
   );
@@ -136,6 +139,9 @@ test('long tool output, adjacent table, and immediate video embed fit wide and n
   await screenshot(page, info, 'slice7-wide');
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 844 });
+    // The compact layout settles asynchronously after a viewport change.
+    await expect(page.locator('.youtube-player')).toBeVisible();
+    await expect(page.locator('.trace-output').first()).toBeVisible();
     const layout = await page.evaluate(() => ({
       documentWidth: document.documentElement.scrollWidth,
       viewportWidth: document.documentElement.clientWidth,

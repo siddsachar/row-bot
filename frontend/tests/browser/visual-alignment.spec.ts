@@ -425,29 +425,36 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
 }, info) => {
   await restoreThinkingDefault(page);
   const id = await newConversation(page);
-  await page.getByRole('button', { name: 'Model', exact: true }).click();
+  // Thinking lives in the model picker's footer as a segmented choice.
+  const model = page.getByRole('button', { name: 'Model', exact: true });
+  await model.click();
+  const picker = page.getByRole('dialog', {
+    name: 'Choose a model',
+    exact: true,
+  });
   await screenshot(page, info, 'compact-model-menu');
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Thinking', exact: true }).click();
-  const thinking = page.getByRole('dialog', { name: 'Thinking', exact: true });
+  const thinking = picker.getByRole('radiogroup', {
+    name: 'Thinking',
+    exact: true,
+  });
   await expect(
-    thinking.getByRole('button', { name: 'Provider default', exact: true }),
+    thinking.getByRole('radio', { name: 'Default', exact: true }),
   ).toBeVisible();
   await expect(
-    thinking.getByRole('button', { name: 'Low', exact: true }),
+    thinking.getByRole('radio', { name: 'Low', exact: true }),
   ).toBeVisible();
   await expect(
-    thinking.getByRole('button', { name: 'High', exact: true }),
+    thinking.getByRole('radio', { name: 'High', exact: true }),
   ).toBeVisible();
   await screenshot(page, info, 'compact-thinking-menu');
-  await thinking.getByRole('button', { name: 'High', exact: true }).click();
+  await thinking.getByRole('radio', { name: 'High', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'Thinking', exact: true }),
-  ).toContainText('High');
+    thinking.getByRole('radio', { name: 'High', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
+  await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
+  await page.keyboard.press('Escape');
   await reloadDocument(page);
-  await expect(
-    page.getByRole('button', { name: 'Thinking', exact: true }),
-  ).toContainText('High');
+  await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
   await composer(page).fill('Thinking request uses admitted configuration');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect
