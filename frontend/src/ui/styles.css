@@ -3254,7 +3254,7 @@ progress {
 }
 .settings-model-warning {
   margin: 2px 0 0;
-  color: var(--warning-text, #efbd62);
+  color: var(--status-warning-text);
   font-size: var(--type-size-metadata);
 }
 .settings-model-context {
@@ -7205,9 +7205,12 @@ details[open] > summary > .settings-disclosure-chevron {
   outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
 }
-.toggle-control input:disabled + .toggle-track,
-.toggle-control input:disabled ~ .toggle-state {
+.toggle-control input:disabled + .toggle-track {
   opacity: 0.5;
+}
+/* The state label stays readable; dimming text by opacity fails contrast. */
+.toggle-control input:disabled ~ .toggle-state {
+  color: var(--text-disabled);
 }
 .toggle-state {
   pointer-events: none;
