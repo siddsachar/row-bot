@@ -231,7 +231,7 @@ test('composer menus stay in the viewport and only one popover shows at a time (
   await expect(model).toBeVisible();
   await model.click();
   await expect(
-    page.getByRole('menuitem', { name: 'Fixture model 1' }),
+    page.getByRole('menuitem', { name: 'Fixture model 1', exact: true }),
   ).toBeVisible();
   expect(await withinViewport(page, '.menu')).toEqual({
     inside: true,
