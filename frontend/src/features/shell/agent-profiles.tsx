@@ -5,6 +5,34 @@ import GoalProfileSettings, {
   type ProfileSummary,
 } from '../settings/GoalProfileSettings';
 
+/** The built-in profile a conversation uses when it names none. */
+export const DEFAULT_PROFILE_ID = 'builtin:row_bot_default';
+
+type ProfileChoice = { id: string; label: string };
+
+/**
+ * Profiles to offer in a chat. Naming no profile means the built-in Default,
+ * so Default is listed once: as that profile when the workspace lists it.
+ */
+export function profileChoices(
+  profiles: readonly ProfileChoice[],
+): ProfileChoice[] {
+  return profiles.some((profile) => profile.id === DEFAULT_PROFILE_ID)
+    ? [...profiles]
+    : [{ id: '', label: 'Default' }, ...profiles];
+}
+
+/** The listed choice for a chat's profile_id; none means the Default. */
+export function currentProfileChoice(
+  profiles: readonly ProfileChoice[],
+  profileId: string | null | undefined,
+): string {
+  if (profileId) return profileId;
+  return profiles.some((profile) => profile.id === DEFAULT_PROFILE_ID)
+    ? DEFAULT_PROFILE_ID
+    : '';
+}
+
 /**
  * Open the reusable Agent profiles library. Shared by the sidebar entry and
  * the /profiles slash command so both reach the same reviewed owner instead

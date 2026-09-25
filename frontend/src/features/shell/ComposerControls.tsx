@@ -28,6 +28,7 @@ import ComposerSkills, {
 } from './ComposerSkills';
 import ModelPicker from './ModelPicker';
 import { rememberRecentModel } from './model-choices';
+import { currentProfileChoice, profileChoices } from './agent-profiles';
 
 const APPROVAL_LABELS = { approve: 'Ask', block: 'Block', allow_all: 'Auto' };
 const APPROVAL_ICONS = {
@@ -85,9 +86,13 @@ export default function ComposerControls({
     workspace.reasoning?.model_ref === controls.model_selection?.model_ref
       ? workspace.reasoning
       : null;
+  const profiles = profileChoices(workspace.profiles);
+  const currentProfile = currentProfileChoice(
+    workspace.profiles,
+    controls.profile_id,
+  );
   const profile =
-    workspace.profiles.find((item) => item.id === controls.profile_id)?.label ??
-    'Default';
+    profiles.find((item) => item.id === currentProfile)?.label ?? 'Default';
   const mode = controls.approval_mode ?? 'approve';
   const approval = APPROVAL_LABELS[mode];
   const Shield = APPROVAL_ICONS[mode];
@@ -231,23 +236,21 @@ export default function ComposerControls({
                   collisionPadding={12}
                 >
                   <Dropdown.RadioGroup
-                    value={controls.profile_id ?? ''}
+                    value={currentProfile}
                     onValueChange={(value) => void save({ profile_id: value })}
                   >
-                    {[{ id: '', label: 'Default' }, ...workspace.profiles].map(
-                      (item) => (
-                        <Dropdown.RadioItem
-                          key={item.id}
-                          value={item.id}
-                          className="menu-item"
-                        >
-                          <span className="menu-item-label">{item.label}</span>
-                          <Dropdown.ItemIndicator>
-                            <Check size={16} aria-hidden />
-                          </Dropdown.ItemIndicator>
-                        </Dropdown.RadioItem>
-                      ),
-                    )}
+                    {profiles.map((item) => (
+                      <Dropdown.RadioItem
+                        key={item.id}
+                        value={item.id}
+                        className="menu-item"
+                      >
+                        <span className="menu-item-label">{item.label}</span>
+                        <Dropdown.ItemIndicator>
+                          <Check size={16} aria-hidden />
+                        </Dropdown.ItemIndicator>
+                      </Dropdown.RadioItem>
+                    ))}
                   </Dropdown.RadioGroup>
                 </Dropdown.SubContent>
               </Dropdown.Portal>

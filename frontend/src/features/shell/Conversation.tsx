@@ -58,7 +58,11 @@ import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import MentionPalette, { type MentionItem } from './MentionPalette';
-import { openAgentProfiles } from './agent-profiles';
+import {
+  currentProfileChoice,
+  openAgentProfiles,
+  profileChoices,
+} from './agent-profiles';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
 import ApprovalCard from './ApprovalCard';
@@ -1746,20 +1750,22 @@ export default function Conversation({
   // "@" mentions: a keyboard path to agent profile, write target and files.
   const selectedTargets = id ? (targetSelection[id] ?? defaultTargetIds) : [];
   const mentionItems: MentionItem[] = [
-    ...[{ id: '', label: 'Default' }, ...(state.workspace?.profiles ?? [])].map(
-      (profile) => ({
-        id: `profile:${profile.id}`,
-        group: 'Agents',
-        label: profile.label,
-        description: 'Use this agent profile in this chat',
-        icon: <Bot size={16} />,
-        current: (controls?.profile_id ?? '') === profile.id,
-        onChoose: () =>
-          void updateControls({ profile_id: profile.id }).catch((cause) =>
-            setError(clientError(cause).message),
-          ),
-      }),
-    ),
+    ...profileChoices(state.workspace?.profiles ?? []).map((profile) => ({
+      id: `profile:${profile.id}`,
+      group: 'Agents',
+      label: profile.label,
+      description: 'Use this agent profile in this chat',
+      icon: <Bot size={16} />,
+      current:
+        currentProfileChoice(
+          state.workspace?.profiles ?? [],
+          controls?.profile_id,
+        ) === profile.id,
+      onChoose: () =>
+        void updateControls({ profile_id: profile.id }).catch((cause) =>
+          setError(clientError(cause).message),
+        ),
+    })),
     ...resources
       .filter((resource) => resource.available)
       .map((resource) => ({

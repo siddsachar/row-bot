@@ -5,7 +5,32 @@ import type { useOverlay } from '../../ui/overlays';
 import GoalProfileSettings, {
   type GoalProfileSettingsSession,
 } from '../settings/GoalProfileSettings';
-import { openAgentProfiles } from './agent-profiles';
+import {
+  currentProfileChoice,
+  DEFAULT_PROFILE_ID,
+  openAgentProfiles,
+  profileChoices,
+} from './agent-profiles';
+
+it('lists the Default profile once and treats no profile as Default', () => {
+  const listed = [
+    { id: DEFAULT_PROFILE_ID, label: 'Default' },
+    { id: 'plan', label: 'Plan' },
+  ];
+  expect(profileChoices(listed).map((item) => item.label)).toEqual([
+    'Default',
+    'Plan',
+  ]);
+  expect(currentProfileChoice(listed, null)).toBe(DEFAULT_PROFILE_ID);
+  expect(currentProfileChoice(listed, 'plan')).toBe('plan');
+  // Without the built-in in the list, "no profile" stays a choice of its own.
+  const custom = [{ id: 'plan', label: 'Plan' }];
+  expect(profileChoices(custom)).toEqual([
+    { id: '', label: 'Default' },
+    { id: 'plan', label: 'Plan' },
+  ]);
+  expect(currentProfileChoice(custom, '')).toBe('');
+});
 
 it('opens the reviewed profile library rather than a text summary (B10)', () => {
   const open = vi.fn<ReturnType<typeof useOverlay>['open']>();
