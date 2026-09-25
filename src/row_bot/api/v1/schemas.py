@@ -1240,6 +1240,7 @@ class TaskSummary(WireModel):
     icon: str = Field(max_length=32)
     enabled: bool
     notify_only: bool
+    step_count: int = Field(ge=0)
     schedule: str | None = Field(max_length=256)
     at: str | None = Field(max_length=80)
     last_run: str | None = Field(max_length=80)

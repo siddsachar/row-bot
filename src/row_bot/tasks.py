@@ -1806,8 +1806,9 @@ def list_tasks() -> list[dict]:
 def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
     """Yield bounded saved task metadata from one SQLite read snapshot.
 
-    Prompts, delivery destinations, approval tokens and runtime configuration
-    are deliberately absent. This never starts a task or loads its channels.
+    Prompt and step counts are calculated in SQLite. Their contents, delivery
+    destinations, approval tokens and runtime configuration are absent. This
+    never starts a task or loads its channels.
     """
     conn = _get_conn()
     try:
@@ -1816,6 +1817,10 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
             "SELECT t.id, substr(t.name, 1, 256) AS name, "
             "substr(t.description, 1, 2048) AS description, "
             "substr(t.icon, 1, 32) AS icon, t.enabled, t.notify_only, "
+            "CASE WHEN json_valid(t.steps) AND json_type(t.steps)='array' "
+            "AND json_array_length(t.steps)>0 THEN json_array_length(t.steps) "
+            "WHEN json_valid(t.prompts) AND json_type(t.prompts)='array' "
+            "THEN json_array_length(t.prompts) ELSE 0 END AS step_count, "
             "substr(t.schedule, 1, 256) AS schedule, substr(t.at, 1, 80) AS at, "
             "substr(t.last_run, 1, 80) AS last_run, t.persistent_thread_id, "
             "(SELECT substr(r.status, 1, 80) FROM task_runs r WHERE r.task_id=t.id "

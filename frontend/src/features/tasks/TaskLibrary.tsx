@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type Ref,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,7 +15,6 @@ import {
   FileDown,
   FileUp,
   GitBranch,
-  History,
   Lock,
   Mail,
   Pencil,
@@ -47,7 +47,7 @@ import {
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
-import { useOverlay } from '../../ui/overlays';
+import { ModalTask, useOverlay } from '../../ui/overlays';
 
 const workflowIcons = {
   notifications: Bell,
@@ -72,6 +72,108 @@ function workflowIcon(icon: string, reminder: boolean) {
   return workflowIcons[key] ?? (reminder ? Bell : Zap);
 }
 
+const weekdays: Record<string, string> = {
+  mon: 'Monday',
+  monday: 'Monday',
+  tue: 'Tuesday',
+  tuesday: 'Tuesday',
+  wed: 'Wednesday',
+  wednesday: 'Wednesday',
+  thu: 'Thursday',
+  thursday: 'Thursday',
+  fri: 'Friday',
+  friday: 'Friday',
+  sat: 'Saturday',
+  saturday: 'Saturday',
+  sun: 'Sunday',
+  sunday: 'Sunday',
+};
+
+function localDateTime(value: string): string | null {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(
+      value,
+    );
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const dateParts = [
+    Number(year),
+    Number(month),
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second ?? 0),
+  ];
+  const calendar = new Date(
+    Date.UTC(
+      dateParts[0],
+      dateParts[1] - 1,
+      dateParts[2],
+      dateParts[3],
+      dateParts[4],
+      dateParts[5],
+    ),
+  );
+  if (
+    [
+      calendar.getUTCFullYear(),
+      calendar.getUTCMonth() + 1,
+      calendar.getUTCDate(),
+      calendar.getUTCHours(),
+      calendar.getUTCMinutes(),
+      calendar.getUTCSeconds(),
+    ].some((part, index) => part !== dateParts[index])
+  )
+    return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function scheduleLabel(schedule: string | null, at: string | null): string {
+  if (schedule) {
+    const daily = /^daily:(\d{2}):(\d{2})$/i.exec(schedule);
+    const weekly = /^weekly:([a-z]+):(\d{2}):(\d{2})$/i.exec(schedule);
+    const hour = Number(daily?.[1] ?? weekly?.[2]);
+    const minute = Number(daily?.[2] ?? weekly?.[3]);
+    if ((daily || weekly) && hour < 24 && minute < 60) {
+      const time = new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(new Date(2000, 0, 1, hour, minute));
+      if (daily) return `Daily at ${time}`;
+      const day = weekdays[weekly![1].toLowerCase()];
+      if (day) return `${day} at ${time}`;
+    }
+    const interval = /^interval(_minutes)?:([0-9]+(?:\.[0-9]+)?)$/i.exec(
+      schedule,
+    );
+    if (interval) {
+      const count = Number(interval[2]);
+      if (Number.isFinite(count) && count > 0) {
+        const unit = interval[1] ? 'minute' : 'hour';
+        return `Every ${count} ${unit}${count === 1 ? '' : 's'}`;
+      }
+    }
+    if (/^cron:\S+(?:\s+\S+){4}$/.test(schedule)) return 'Custom cron schedule';
+    return 'Custom schedule';
+  }
+  if (at) {
+    const formatted = localDateTime(at);
+    return formatted ? `Once · ${formatted}` : 'Invalid one-time schedule';
+  }
+  return 'Run manually';
+}
+
+function lastRunLabel(lastRun: string | null): string {
+  if (!lastRun) return 'Never run';
+  const formatted = localDateTime(lastRun);
+  return formatted ? `Last ${formatted}` : 'Last run unavailable';
+}
+
 export function SavedTasks({
   load,
   onEdit,
@@ -89,6 +191,8 @@ export function SavedTasks({
   onRun,
   onStop,
   onSetDeliveryDefaults,
+  refreshToken = 0,
+  createButtonRef,
 }: {
   onEdit?: (id: string, name: string) => void;
   onCreate?: () => void;
@@ -105,6 +209,8 @@ export function SavedTasks({
   onRun?: (id: string) => void | Promise<void>;
   onStop?: (id: string) => void | Promise<void>;
   onSetDeliveryDefaults?: (ids: readonly string[]) => void | Promise<void>;
+  refreshToken?: number;
+  createButtonRef?: Ref<HTMLButtonElement>;
   load: (
     query?: string,
     enabled?: boolean,
@@ -164,7 +270,7 @@ export function SavedTasks({
       abort.abort();
       more.current?.abort();
     };
-  }, [load, filter.query, enabled, reload]);
+  }, [load, filter.query, enabled, reload, refreshToken]);
   async function invoke(
     key: string,
     callback: () => void | Promise<void>,
@@ -369,7 +475,11 @@ export function SavedTasks({
               </Button>
             )}
             {onCreate && (
-              <Button variant="primary" onClick={onCreate}>
+              <Button
+                ref={createButtonRef}
+                variant="primary"
+                onClick={onCreate}
+              >
                 New workflow
               </Button>
             )}
@@ -487,11 +597,8 @@ export function SavedTasks({
             {page.items.map((task) => {
               const Icon = workflowIcon(task.icon, task.notify_only);
               const active = task.last_status?.toLowerCase() === 'running';
-              const schedule = task.schedule
-                ? task.schedule
-                : task.at
-                  ? `Once · ${task.at}`
-                  : 'Run manually';
+              const schedule = scheduleLabel(task.schedule, task.at);
+              const lastRun = lastRunLabel(task.last_run);
               const actions = [
                 ...(onRuns
                   ? [
@@ -554,31 +661,30 @@ export function SavedTasks({
                     </span>
                     <div className="workflow-card-title">
                       <h2 title={task.name}>{task.name}</h2>
-                      <div className="workflow-chips">
-                        <span
-                          className={`status-chip ${task.enabled ? 'success' : ''}`}
-                        >
-                          {task.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                        <span className="status-chip">
-                          {task.notify_only ? 'Reminder' : 'Workflow'}
-                        </span>
-                      </div>
                     </div>
                   </header>
                   <p className="workflow-description">
-                    {task.description || 'No description.'}
+                    {task.description ||
+                      (task.notify_only ? 'Reminder' : 'No description.')}
                   </p>
-                  <div className="workflow-metadata">
-                    <p title={schedule}>
-                      <CalendarClock size={15} aria-hidden />
-                      <span>{schedule}</span>
-                    </p>
-                    <p>
-                      <History size={15} aria-hidden />
-                      <span>{task.last_run || 'Never run'}</span>
-                    </p>
-                  </div>
+                  <p
+                    className="workflow-metadata"
+                    title={
+                      [task.schedule, task.at, task.last_run]
+                        .filter(Boolean)
+                        .join(' · ') || undefined
+                    }
+                  >
+                    <span>
+                      {task.notify_only
+                        ? 'Reminder'
+                        : `${task.step_count} ${task.step_count === 1 ? 'step' : 'steps'}`}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span>{lastRun}</span>
+                    <span aria-hidden>·</span>
+                    <span>{schedule}</span>
+                  </p>
                   <footer className="workflow-card-footer">
                     <div className="workflow-enabled-control">
                       <span>{task.enabled ? 'Enabled' : 'Disabled'}</span>
@@ -717,6 +823,7 @@ export default function TaskLibrary() {
   const deleteOwner = useRef<TaskCommandOwner<void>>({ pending: null });
   const deliveryOwner = useRef<TaskCommandOwner<void>>({ pending: null });
   const editorHeading = useRef<HTMLHeadingElement>(null);
+  const createButton = useRef<HTMLButtonElement>(null);
   const deleteMutation = useMemo(
     () => taskMutation(controller, deleteOwner.current),
     [controller],
@@ -836,7 +943,7 @@ export default function TaskLibrary() {
         />
       </section>
     );
-  if (selected?.session.kind === 'task')
+  if (selected?.session.kind === 'task' && selected.session.taskId)
     return (
       <section className="route-surface stack" aria-label="Workflow editor">
         <h1 ref={editorHeading} tabIndex={-1}>
@@ -875,6 +982,28 @@ export default function TaskLibrary() {
     );
   return (
     <div className="stack">
+      <ModalTask
+        open={selected?.session.kind === 'task' && !selected.session.taskId}
+        title="New task/workflow"
+        description="Define a workflow or reminder, then save it without starting a run."
+        ariaLabel="New task/workflow"
+        dismissible={!selected?.session.getMeta().busy}
+        fallbackFocusTo={createButton.current}
+        onOpenChange={(open) => {
+          if (!open) close();
+        }}
+      >
+        {selected?.session.kind === 'task' && !selected.session.taskId && (
+          <TaskEditor
+            session={selected.session}
+            load={controller.taskEditor}
+            create={selected.edits.create}
+            save={selected.edits.save}
+            onSaved={saved}
+            onCancel={close}
+          />
+        )}
+      </ModalTask>
       {sessions.capacity && (
         <p role="alert">
           Eight workflows already have unsaved or unresolved changes. Continue
@@ -951,7 +1080,9 @@ export default function TaskLibrary() {
         </section>
       )}
       <SavedTasks
-        key={`${state.handshake?.client_session_id ?? ''}:${reload}`}
+        key={state.handshake?.client_session_id ?? ''}
+        refreshToken={reload}
+        createButtonRef={createButton}
         load={controller.savedTasks}
         onCreate={() => taskEditSessions.open('task')}
         onEdit={(id, name) => taskEditSessions.open('task', id, name)}

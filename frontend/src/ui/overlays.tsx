@@ -301,6 +301,7 @@ type ModalTaskProps = {
   kind?: 'dialog' | 'sheet';
   dismissible?: boolean;
   returnFocusTo?: HTMLElement | null;
+  fallbackFocusTo?: HTMLElement | null;
 };
 
 /** Declarative settings/setup task using the same Radix/back/focus contract. */
@@ -314,14 +315,18 @@ export function ModalTask({
   kind = 'dialog',
   dismissible = true,
   returnFocusTo,
+  fallbackFocusTo,
 }: ModalTaskProps) {
   const opener = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(open);
+  const focusTarget = () =>
+    [returnFocusTo, opener.current, fallbackFocusTo].find(
+      (target) => target?.isConnected,
+    );
   const restoreFocus = () => {
-    const target = returnFocusTo ?? opener.current;
     queueMicrotask(() => {
-      if (target?.isConnected) target.focus();
+      focusTarget()?.focus();
     });
   };
   const restoreAfterClose = useEffectEvent(restoreFocus);
@@ -369,8 +374,8 @@ export function ModalTask({
             }
           }}
           onCloseAutoFocus={(event) => {
-            const target = returnFocusTo ?? opener.current;
-            if (!target?.isConnected) return;
+            const target = focusTarget();
+            if (!target) return;
             event.preventDefault();
             target.focus();
           }}

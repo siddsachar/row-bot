@@ -60,6 +60,7 @@ def test_saved_task_pages_retain_ids_order_and_never_expose_prompts_or_delivery(
     assert len(page.items) == 5
     assert [item.id for item in seen] == [f"task-{i:03}" for i in range(205)]
     assert all(item.conversation_id == "conversation-a" for item in seen)
+    assert all(item.step_count == 1 for item in seen)
     assert "PRIVATE_" not in json.dumps([asdict(item) for item in seen])
 
 
@@ -140,6 +141,37 @@ def test_empty_and_bounded_summary_preserve_saved_schedule_and_history(saved):
     assert len(row.name) == 256 and len(row.description) == 2048
     assert row.notify_only and row.schedule == "0 9 * * 1"
     assert row.at == "2026-09-01T09:00:00" and row.last_status == "failed"
+
+
+def test_summary_counts_advanced_steps_without_returning_step_contents(saved):
+    tasks, seed = saved
+    seed()
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "UPDATE tasks SET steps=? WHERE id='task-000'",
+            ('[{"name":"PRIVATE_STEP"},{"name":"PRIVATE_SECOND_STEP"}]',),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    row = task_views.list_saved_tasks().items[0]
+    assert row.step_count == 2
+    assert "PRIVATE_STEP" not in json.dumps(asdict(row))
+
+
+def test_summary_uses_zero_steps_for_malformed_saved_json(saved):
+    tasks, seed = saved
+    seed()
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "UPDATE tasks SET steps='broken', prompts='broken' WHERE id='task-000'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    assert task_views.list_saved_tasks().items[0].step_count == 0
 
 
 @pytest.mark.parametrize(

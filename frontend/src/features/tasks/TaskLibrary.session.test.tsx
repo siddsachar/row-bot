@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type { ClientPlatform } from '../../platform';
@@ -53,6 +54,10 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
   const first = render(application());
   await screen.findByRole('button', { name: 'New workflow' });
   fireEvent.click(screen.getByRole('button', { name: 'New workflow' }));
+  expect(
+    screen.getByRole('dialog', { name: 'New task/workflow' }),
+  ).toBeVisible();
+  expect(document.querySelector('.workflow-grid')).toBeInTheDocument();
   fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), {
     target: { value: 'Retained workflow draft' },
   });
@@ -61,16 +66,25 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
   expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
     'Retained workflow draft',
   );
+  expect(
+    screen.getByRole('dialog', { name: 'New task/workflow' }),
+  ).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   await screen.findByRole('region', { name: 'Continue editing workflows' });
   expect(
     screen.getByText('New workflow', { selector: 'strong' }),
   ).toBeVisible();
   expect(screen.queryByText(/session|\["task"/i)).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Continue editing' }));
+  const resume = screen.getByRole('button', { name: 'Continue editing' });
+  await userEvent.click(resume);
   expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
     'Retained workflow draft',
   );
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(
+    screen.queryByRole('dialog', { name: 'New task/workflow' }),
+  ).toBeNull();
+  expect(resume).toHaveFocus();
   expect(controller.command).not.toHaveBeenCalled();
   second.unmount();
   act(() => taskEditSessions.dispose());

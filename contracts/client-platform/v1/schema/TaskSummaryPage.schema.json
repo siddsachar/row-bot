@@ -94,6 +94,11 @@
             }
           ],
           "title": "Schedule"
+        },
+        "step_count": {
+          "minimum": 0,
+          "title": "Step Count",
+          "type": "integer"
         }
       },
       "required": [
@@ -103,6 +108,7 @@
         "icon",
         "enabled",
         "notify_only",
+        "step_count",
         "schedule",
         "at",
         "last_run",

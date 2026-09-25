@@ -23,6 +23,7 @@ function page(
         icon: '',
         enabled: false,
         notify_only: true,
+        step_count: 0,
         schedule: null,
         at: null,
         last_run: null,
@@ -108,6 +109,41 @@ it('shows recorded task facts and opens its existing conversation', async () => 
   );
   await user.click(screen.getByRole('menuitem', { name: 'Open conversation' }));
   expect(load).toHaveBeenCalledTimes(1);
+});
+
+it('shows one readable metadata line with steps and local schedule/run times', async () => {
+  const task = {
+    ...page().items[0],
+    notify_only: false,
+    step_count: 3,
+    schedule: 'weekly:mon:09:30',
+    last_run: '2026-09-25T12:40:00Z',
+  };
+  const view = show(vi.fn(async () => ({ ...page(), items: [task] })));
+  await screen.findByText('Saved task');
+  const metadata = view.container.querySelector('.workflow-metadata');
+  expect(metadata).toHaveTextContent('3 steps');
+  expect(metadata).toHaveTextContent(/Last .*2026/);
+  expect(metadata).toHaveTextContent(/Monday at/);
+  expect(metadata?.textContent).not.toContain('2026-09-25T');
+  expect(metadata?.textContent).not.toContain('weekly:');
+});
+
+it.each([
+  ['daily:08:00', null, /Daily at/],
+  ['interval:2', null, /Every 2 hours/],
+  ['interval_minutes:30', null, /Every 30 minutes/],
+  ['cron:0 9 * * mon', null, /Custom cron schedule/],
+  ['nonsense', null, /Custom schedule/],
+  [null, '2026-10-01T10:00', /Once · .*2026/],
+  [null, 'invalid', /Invalid one-time schedule/],
+] as const)('formats schedule %s safely', async (schedule, at, expected) => {
+  const task = { ...page().items[0], schedule, at };
+  const view = show(vi.fn(async () => ({ ...page(), items: [task] })));
+  await screen.findByText('Saved task');
+  expect(view.container.querySelector('.workflow-metadata')).toHaveTextContent(
+    expected,
+  );
 });
 
 it('loads another bounded page once even when clicked repeatedly', async () => {

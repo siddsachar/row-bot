@@ -23,6 +23,7 @@ class TaskSummary:
     icon: str
     enabled: bool
     notify_only: bool
+    step_count: int
     schedule: str | None
     at: str | None
     last_run: str | None
@@ -111,6 +112,7 @@ def list_saved_tasks(
                 row["icon"] or "",
                 bool(row["enabled"]),
                 bool(row["notify_only"]),
+                row["step_count"],
                 row["schedule"] or None,
                 row["at"] or None,
                 row["last_run"] or None,
