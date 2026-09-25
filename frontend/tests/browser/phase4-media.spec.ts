@@ -52,6 +52,17 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
       ).toBeVisible();
       call = (await fixtureState(page)).calls.at(-1);
       expect(call).toBeDefined();
+      // The fixture produces its media only once released; wait for it to
+      // settle before opening the activity that lists them.
+      await releaseProducer(page, call!);
+      await expect
+        .poll(
+          async () =>
+            (await fixtureState(page)).calls.find(
+              (item) => item.generation_id === call!.generation_id,
+            )?.quiesced,
+        )
+        .toBe(true);
       await page
         .locator('summary')
         .filter({ hasText: /^Activity \(/ })
@@ -77,7 +88,14 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
     expect(digest(imageDownload.bytes)).toBe(FIXTURE_IMAGE.sha256);
     await screenshot(page, info, 'generated-image-visible');
 
-    const video = page.getByLabel('Generated video result', { exact: true });
+    // The same media also appears (folded) on the tool row and under Context
+    // outputs; check the player in the activity feed opened above.
+    const activity = page.locator('details', {
+      has: page.locator('summary', { hasText: /^Activity \(/ }),
+    });
+    const video = activity.getByLabel('Generated video result', {
+      exact: true,
+    });
     const fallback = page.getByRole('alert').filter({
       hasText:
         'This generated result could not be previewed. Download it or retry.',

@@ -49,22 +49,36 @@ test('an advisory panel waits for explicit open and preserves conversation focus
         descriptor: { panel_kind: 'fake.info', title: 'QA suggested notes' },
       });
     });
+  const pending = () =>
+    page.evaluate(
+      () =>
+        (window as FixtureWindow).__ROW_BOT_FIXTURE__.controller.getSnapshot()
+          .suggestions.length,
+    );
   await suggest();
-  await expect(
-    page.getByText('Suggested: QA suggested notes', { exact: true }),
-  ).toBeVisible();
+  // An advisory waits in Context: nothing opens and focus stays put.
+  await expect.poll(pending).toBe(1);
   expect((await readLayout(page)).panels).toHaveLength(0);
   await expect(focus).toBeFocused();
-  await page
-    .getByRole('button', { name: 'Dismiss suggestion', exact: true })
+  if (testInfo.project.use.viewport!.width < 1024)
+    await page.getByRole('button', { name: 'Context', exact: true }).click();
+  const context = page.getByRole('complementary', {
+    name: 'Conversation context',
+  });
+  await expect(
+    context.getByText('QA suggested notes', { exact: true }),
+  ).toBeVisible();
+  await context
+    .getByRole('button', { name: 'Dismiss QA suggested notes', exact: true })
     .click();
   await expect(
-    page.getByText('Suggested: QA suggested notes', { exact: true }),
+    context.getByText('QA suggested notes', { exact: true }),
   ).toHaveCount(0);
+  expect(await pending()).toBe(0);
   expect((await readLayout(page)).panels).toHaveLength(0);
   await suggest();
-  await page
-    .getByRole('button', { name: 'Open suggested panel', exact: true })
+  await context
+    .getByRole('button', { name: 'Open QA suggested notes', exact: true })
     .click();
   await expect(
     page
