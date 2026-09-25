@@ -99,3 +99,47 @@ it('shows feedback actions only for the applicable proposal state', async () => 
   ).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Apply proposal' })).toBeNull();
 });
+
+it('renders the skill library report as human rows, never raw JSON (B9)', async () => {
+  const report = structuredClone(snapshot);
+  report.curator_report = {
+    created_at: '2026-09-20T08:00:00',
+    manual_skill_count: 21,
+    finding_count: 3,
+    proposal_count: 1,
+    findings: [
+      JSON.stringify({
+        type: 'overlap',
+        skill_names: ['code_delegation', 'code_delegation_custom'],
+        score: 0.986,
+        protected: true,
+      }),
+      JSON.stringify({
+        type: 'skill_insight',
+        insight_id: 'ins-1',
+        title: 'Repeated research workflow',
+        category: 'usage_pattern',
+      }),
+      'plain text finding',
+    ],
+  };
+  const controller = {
+    insights: vi.fn().mockResolvedValue(report),
+  } as unknown as ClientController;
+  render(<InsightsHome controller={controller} />);
+  const list = await screen.findByRole('list', {
+    name: 'Skill library findings',
+  });
+  expect(list).toHaveTextContent(
+    'Code delegation and Code delegation custom overlap',
+  );
+  expect(list).toHaveTextContent('99% similar instructions');
+  expect(list).toHaveTextContent('Protected · pinned or built in');
+  expect(list).toHaveTextContent('Repeated research workflow');
+  expect(list).toHaveTextContent('Usage pattern');
+  expect(list).toHaveTextContent('plain text finding');
+  expect(list.textContent).not.toMatch(/[{}"]|skill_names|overlap"/);
+  expect(
+    screen.getByText(/21 manual skills · 3 findings · 1 proposal/),
+  ).toBeVisible();
+});

@@ -4,9 +4,82 @@ import { readRetainedCommand, retainCommand } from '../../api/retained-command';
 import type { InsightCommand, InsightsSnapshot } from '../../api/types';
 import type { ClientPlatform } from '../../platform/types';
 import { writeClipboardText } from '../../platform/clipboard';
-import { Button, EmptyState, ErrorState } from '../../ui/primitives';
+import { Layers, Lightbulb, ListChecks } from 'lucide-react';
+import {
+  Button,
+  EmptyState,
+  EntityList,
+  EntityRow,
+  ErrorState,
+  type Tone,
+} from '../../ui/primitives';
+import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
 
 type Action = InsightCommand['action'];
+
+type FindingView = {
+  title: string;
+  meta: string;
+  icon: 'overlap' | 'insight' | 'other';
+  status?: { tone: Tone; label: string };
+};
+
+const plural = (count: number, word: string) =>
+  `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`;
+
+/**
+ * The API ships each curator finding as a bounded JSON string. Parse it and
+ * describe known shapes in words; unknown shapes list their simple fields.
+ * Raw JSON is never shown (B9).
+ */
+export function describeFinding(raw: string): FindingView {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return { title: raw.slice(0, 240), meta: '', icon: 'other' };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    return { title: String(value), meta: '', icon: 'other' };
+  const record = value as Record<string, unknown>;
+  const text = (field: unknown) =>
+    typeof field === 'string' || typeof field === 'number' ? String(field) : '';
+  if (record.type === 'overlap' && Array.isArray(record.skill_names)) {
+    const names = record.skill_names.map((name) => humanizeToken(text(name)));
+    const score = Number(record.score);
+    return {
+      title: `${names.slice(0, 2).join(' and ') || 'Two skills'} overlap`,
+      meta: Number.isFinite(score)
+        ? `${Math.round(score * 100)}% similar instructions`
+        : 'Similar instructions',
+      icon: 'overlap',
+      status: record.protected
+        ? { tone: 'info', label: 'Protected · pinned or built in' }
+        : undefined,
+    };
+  }
+  if (record.type === 'skill_insight')
+    return {
+      title: text(record.title) || 'Skill insight',
+      meta: humanizeToken(text(record.category)),
+      icon: 'insight',
+    };
+  const details = Object.entries(record)
+    .filter(([key, field]) => key !== 'type' && text(field))
+    .slice(0, 4)
+    .map(([key, field]) => `${humanizeToken(key)}: ${text(field)}`);
+  return {
+    title: humanizeToken(text(record.type)) || 'Finding',
+    meta: details.join(' · '),
+    icon: 'other',
+  };
+}
+
+const findingIcons = {
+  overlap: <Layers size={16} />,
+  insight: <Lightbulb size={16} />,
+  other: <ListChecks size={16} />,
+};
 
 export default function InsightsHome({
   controller,
@@ -134,16 +207,39 @@ export default function InsightsHome({
           aria-label="Latest skill library report"
         >
           <h3>Latest skill library report</h3>
-          <p>
-            {snapshot.curator_report.manual_skill_count} manual skills,{' '}
-            {snapshot.curator_report.finding_count} findings,{' '}
-            {snapshot.curator_report.proposal_count} proposals.
+          <p className="muted">
+            {plural(snapshot.curator_report.manual_skill_count, 'manual skill')}{' '}
+            · {plural(snapshot.curator_report.finding_count, 'finding')} ·{' '}
+            {plural(snapshot.curator_report.proposal_count, 'proposal')}
+            {snapshot.curator_report.created_at && (
+              <>
+                {' '}
+                ·{' '}
+                <time
+                  dateTime={snapshot.curator_report.created_at}
+                  title={absoluteTime(snapshot.curator_report.created_at)}
+                >
+                  {relativeTime(snapshot.curator_report.created_at)}
+                </time>
+              </>
+            )}
           </p>
-          {snapshot.curator_report.findings.map((finding, index) => (
-            <pre className="insight-preview" key={`${index}:${finding}`}>
-              {finding}
-            </pre>
-          ))}
+          {!!snapshot.curator_report.findings.length && (
+            <EntityList label="Skill library findings">
+              {snapshot.curator_report.findings.map((finding, index) => {
+                const view = describeFinding(finding);
+                return (
+                  <EntityRow
+                    key={`${index}:${finding}`}
+                    title={view.title}
+                    icon={findingIcons[view.icon]}
+                    status={view.status}
+                    meta={view.meta}
+                  />
+                );
+              })}
+            </EntityList>
+          )}
         </section>
       )}
       {snapshot?.items.map((insight) => (
