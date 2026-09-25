@@ -50,7 +50,7 @@ import ConversationActions from '../settings/ConversationActions';
 import DraftConflict from './DraftConflict';
 import QueueControls from './QueueControls';
 import ContextUsage from './ContextUsage';
-import DelegatedActivity from './DelegatedActivity';
+import DelegatedActivity, { type DelegatedRead } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
 import {
   commandReceipts,
@@ -394,6 +394,13 @@ export default function Conversation({
   }>({ conversation: null, present: false });
   const agentsEmpty =
     agentsContent.conversation !== id || !agentsContent.present;
+  const delegatedRead = useRef<DelegatedRead | null>(null);
+  const [recentDelegatedRead] = useState(() => ({
+    get: () => delegatedRead.current,
+    set: (read: DelegatedRead) => {
+      delegatedRead.current = read;
+    },
+  }));
   const terminalAdvertised = Boolean(
     state.handshake?.application_capabilities?.includes('native:terminal'),
   );
@@ -1686,6 +1693,7 @@ export default function Conversation({
       onContentChange={(present) =>
         setAgentsContent({ conversation: id, present })
       }
+      recentRead={recentDelegatedRead}
       ready={Boolean(state.handshake) && state.status === 'ready'}
       refreshKey={
         state.activity

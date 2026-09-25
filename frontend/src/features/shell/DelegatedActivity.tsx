@@ -16,7 +16,23 @@ type Props = {
   compact?: boolean;
   /** Reports whether there is anything to show once a load settles. */
   onContentChange?: (hasContent: boolean) => void;
+  /** Keeps the last first-page read across remounts of this section. */
+  recentRead?: {
+    get: () => DelegatedRead | null;
+    set: (read: DelegatedRead) => void;
+  };
 };
+
+export type DelegatedRead = {
+  key: string;
+  page: DelegatedActivityView;
+  at: number;
+};
+
+// A remount with the same activity state (the context rail unmounts while an
+// open panel narrows the chat) reuses a recent read instead of reading again.
+// New agent activity changes the key, and Retry always reads.
+const RECENT_READ_MS = 30_000;
 
 const ACTIVE_STATES = new Set([
   'queued',
@@ -148,6 +164,19 @@ export default function DelegatedActivity(props: Props) {
       dismiss.current(key);
       return;
     }
+    const readKey = `${props.conversationId}\u0000${props.refreshKey}`;
+    const recent = attempt === 0 ? callbacks.current.recentRead?.get() : null;
+    if (
+      recent &&
+      recent.key === readKey &&
+      Date.now() - recent.at < RECENT_READ_MS
+    ) {
+      setLoading(false);
+      setError(false);
+      setPage(recent.page);
+      setLaterPage(false);
+      return;
+    }
     const request = new AbortController();
     setLoading(true);
     setError(false);
@@ -156,8 +185,14 @@ export default function DelegatedActivity(props: Props) {
     void callbacks.current
       .loadPage(undefined, request.signal)
       .then((result) => {
-        if (!request.signal.aborted && current === ticket.current)
+        if (!request.signal.aborted && current === ticket.current) {
           setPage(result);
+          callbacks.current.recentRead?.set({
+            key: readKey,
+            page: result,
+            at: Date.now(),
+          });
+        }
       })
       .catch((cause: unknown) => {
         if (request.signal.aborted || current !== ticket.current) return;

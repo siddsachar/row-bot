@@ -9,7 +9,7 @@ import {
 import { expect, it, vi } from 'vitest';
 import type { DelegatedActivityView, DelegatedRun } from '../../api/types';
 import { OverlayProvider } from '../../ui/overlays';
-import DelegatedActivity from './DelegatedActivity';
+import DelegatedActivity, { type DelegatedRead } from './DelegatedActivity';
 
 const run: DelegatedRun = {
   run_id: 'run-a',
@@ -337,4 +337,40 @@ it('treats a host without delegated activity as having nothing to show', async (
   ).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(onContentChange).toHaveBeenLastCalledWith(false);
+});
+
+it('reuses a recent read when the section remounts with the same activity', async () => {
+  const load = vi.fn().mockResolvedValue(page);
+  let stored: DelegatedRead | null = null;
+  const recentRead = {
+    get: () => stored,
+    set: (read: DelegatedRead) => {
+      stored = read;
+    },
+  };
+  const show = (refreshKey: string) =>
+    render(
+      <OverlayProvider>
+        <DelegatedActivity
+          conversationId="parent-a"
+          refreshKey={refreshKey}
+          loadPage={load}
+          loadRun={async () => run}
+          openConversation={vi.fn().mockResolvedValue(undefined)}
+          recentRead={recentRead}
+        />
+      </OverlayProvider>,
+    );
+  const first = show('event-1');
+  expect(await screen.findByText('Research task')).toBeVisible();
+  first.unmount();
+  // The context rail remounts when a panel closes; nothing new happened.
+  const second = show('event-1');
+  expect(await screen.findByText('Research task')).toBeVisible();
+  expect(load).toHaveBeenCalledTimes(1);
+  second.unmount();
+  // New agent activity always reads again.
+  show('event-2');
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText('Research task')).toBeVisible();
 });
