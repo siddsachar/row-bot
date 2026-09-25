@@ -1,5 +1,12 @@
-import { act, fireEvent, render, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BuddySurface, {
   BuddyAvatar,
   type BuddyMediaLoader,
@@ -32,24 +39,34 @@ const snapshot: BuddySnapshot = {
   },
 };
 
-const surface = vi.hoisted(() => ({
-  state: { selectedConversationId: null as string | null },
-  navigate: vi.fn(),
-  globalBuddy: vi.fn(),
-  globalBuddyPack: vi.fn(),
-  globalBuddyMedia: vi.fn(),
-}));
+const surface = vi.hoisted(() => {
+  const buddyPlacement = vi.fn();
+  const globalBuddy = vi.fn();
+  const globalBuddyPack = vi.fn();
+  const globalBuddyMedia = vi.fn();
+  return {
+    state: { selectedConversationId: null as string | null },
+    navigate: vi.fn(),
+    globalBuddy,
+    globalBuddyPack,
+    globalBuddyMedia,
+    buddyPlacement,
+    platform: { buddyPlacement },
+    controller: {
+      globalBuddy,
+      globalBuddyPack,
+      globalBuddyMedia,
+      buddyMedia: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../../runtime', () => ({
   useClientState: () => surface.state,
   useRuntime: () => ({
-    controller: {
-      globalBuddy: surface.globalBuddy,
-      globalBuddyPack: surface.globalBuddyPack,
-      globalBuddyMedia: surface.globalBuddyMedia,
-      buddyMedia: vi.fn(),
-    },
+    controller: surface.controller,
     buddyOwner: null,
+    platform: surface.platform,
   }),
 }));
 
@@ -73,8 +90,16 @@ const pack: BuddyPack = {
 };
 
 afterEach(() => {
+  cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  surface.buddyPlacement.mockResolvedValue({
+    status: 'unavailable',
+    reason: 'browser',
+  });
 });
 
 it('renders passive global Buddy state without selecting a conversation', async () => {
@@ -97,6 +122,64 @@ it('renders passive global Buddy state without selecting a conversation', async 
     expect.any(AbortSignal),
   );
   expect(view.getByRole('status')).toHaveTextContent('Ready');
+});
+
+it('hides the duplicate docked Buddy while native overlay is out and restores it on Dock', async () => {
+  surface.state.selectedConversationId = null;
+  surface.globalBuddy.mockResolvedValue({
+    ...snapshot,
+    conversation_id: null,
+    activity: 'idle',
+  });
+  surface.globalBuddyPack.mockResolvedValue(pack);
+  surface.buddyPlacement
+    .mockResolvedValueOnce({
+      status: 'ok',
+      value: { placement: 'desktop', visible: true },
+    })
+    .mockResolvedValueOnce({
+      status: 'ok',
+      value: { placement: 'docked', visible: true },
+    });
+  render(<BuddySurface />);
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Dock Buddy' })).toBeVisible(),
+  );
+  expect(screen.queryByLabelText('Buddy settings')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Dock Buddy' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Buddy settings')).toBeVisible(),
+  );
+  expect(surface.buddyPlacement).toHaveBeenCalledWith('dock');
+});
+
+it('offers native Undock through the placement bridge', async () => {
+  surface.state.selectedConversationId = null;
+  surface.globalBuddy.mockResolvedValue({
+    ...snapshot,
+    conversation_id: null,
+    activity: 'idle',
+  });
+  surface.globalBuddyPack.mockResolvedValue(pack);
+  surface.buddyPlacement
+    .mockResolvedValueOnce({
+      status: 'ok',
+      value: { placement: 'docked', visible: true },
+    })
+    .mockResolvedValueOnce({
+      status: 'ok',
+      value: { placement: 'desktop', visible: true },
+    });
+  render(<BuddySurface />);
+  const undock = await screen.findByRole('button', { name: 'Undock Buddy' });
+  fireEvent.click(undock);
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Dock Buddy' })).toBeVisible(),
+  );
+  expect(surface.buddyPlacement).toHaveBeenCalledWith('tear_off', {
+    x: expect.any(Number),
+    y: expect.any(Number),
+  });
 });
 
 describe('Buddy avatar lifecycle', () => {
@@ -288,6 +371,69 @@ describe('Buddy avatar lifecycle', () => {
     expect(view.container.querySelector('.buddy-avatar-frame')).toHaveAttribute(
       'data-media',
       'still',
+    );
+  });
+
+  it('settles bundled idle media after two passes and restarts for activity', async () => {
+    let nextUrl = 0;
+    vi.stubGlobal('URL', {
+      createObjectURL: () => `blob:bundled-${++nextUrl}`,
+      revokeObjectURL: vi.fn(),
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const loadMedia = async () => new Blob(['bundled media']);
+    const view = render(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={pack}
+        snapshot={snapshot}
+        loadMedia={loadMedia}
+      />,
+    );
+    const video = await waitFor(() => {
+      const element = view.container.querySelector('video');
+      expect(element).toBeInTheDocument();
+      return element!;
+    });
+    expect(video.muted).toBe(true);
+    expect(video).not.toHaveAttribute('loop');
+    fireEvent.ended(video);
+    expect(view.container.querySelector('video')).toBeInTheDocument();
+    fireEvent.ended(video);
+    expect(view.container.querySelector('video')).not.toBeInTheDocument();
+    expect(view.container.querySelector('img')).toHaveAttribute(
+      'src',
+      expect.stringMatching(/^blob:bundled-/),
+    );
+    view.rerender(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={pack}
+        snapshot={{
+          ...snapshot,
+          status: { ...snapshot.status, label: 'Still ready' },
+        }}
+        loadMedia={loadMedia}
+      />,
+    );
+    expect(view.container.querySelector('video')).not.toBeInTheDocument();
+    view.rerender(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={{
+          ...pack,
+          animation_map: { ...pack.animation_map, thinking: 'idle-loop' },
+        }}
+        snapshot={{
+          ...snapshot,
+          activity: 'thinking',
+          status: { ...snapshot.status, event_id: 14 },
+        }}
+        loadMedia={loadMedia}
+      />,
+    );
+    await waitFor(() =>
+      expect(view.container.querySelector('video')).toBeInTheDocument(),
     );
   });
 });

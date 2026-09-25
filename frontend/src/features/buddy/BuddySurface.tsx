@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -10,8 +11,14 @@ import { useClientState, useRuntime } from '../../runtime';
 import { Button, EmptyState } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
+import {
+  BuddyDockButton,
+  BuddyDragHandle,
+  useBuddyPlacement,
+} from './BuddyGesture';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import glyph from '../../assets/row_bot_glyph_256.png';
+import { drawBuddyMedia } from './buddy-media';
 
 export type BuddyMediaLoader = (
   conversation: string | null,
@@ -54,6 +61,14 @@ export function BuddyAvatar({
 }) {
   const [still, setStill] = useState('');
   const [motion, setMotion] = useState('');
+  const [motionPasses, setMotionPasses] = useState(0);
+  const [videoReady, setVideoReady] = useState(false);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const canvasReadyRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scratchRef = useRef<HTMLCanvasElement | null>(null);
   const [phase, setPhase] = useState<
     'loading' | 'motion' | 'still' | 'fallback' | 'unavailable'
   >('loading');
@@ -85,9 +100,40 @@ export function BuddyAvatar({
     pack?.assets.find(
       (asset) => asset.id === clip && asset.content_type === 'video/mp4',
     )?.id ?? '';
+  const motionEvent = `${activity}:${clip}:${snapshot.status.event_id}`;
+  useEffect(() => setMotionPasses(0), [motionEvent]);
+  const motionActive = !!motion && (activity !== 'idle' || motionPasses < 2);
+  const draw = useCallback((source: HTMLImageElement | HTMLVideoElement) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    scratchRef.current ??= document.createElement('canvas');
+    if (
+      drawBuddyMedia(canvas, source, scratchRef.current) &&
+      !canvasReadyRef.current
+    ) {
+      canvasReadyRef.current = true;
+      setCanvasReady(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (!motionActive || !videoReady) {
+      if (imageRef.current?.complete) draw(imageRef.current);
+      return;
+    }
+    let frame = 0;
+    const tick = () => {
+      if (videoRef.current) draw(videoRef.current);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [draw, motionActive, videoReady, still]);
   useEffect(() => {
     const abort = new AbortController();
     const urls = new Set<string>();
+    canvasReadyRef.current = false;
+    setCanvasReady(false);
+    setVideoReady(false);
     setStill('');
     setMotion('');
     if (!packId) setPhase('fallback');
@@ -163,7 +209,14 @@ export function BuddyAvatar({
       data-state={activity}
       data-buddy-mood={snapshot.status.mood}
       data-buddy-animation={snapshot.status.animation}
-      data-media={phase}
+      data-media={
+        motion && activity === 'idle' && motionPasses >= 2
+          ? still
+            ? 'still'
+            : 'fallback'
+          : phase
+      }
+      data-canvas-ready={canvasReady ? 'true' : 'false'}
       data-collapsed={snapshot.preferences.collapsed ? 'true' : 'false'}
       data-animation-intensity={snapshot.preferences.animation_intensity}
       data-reduced-motion={reduced ? 'true' : 'false'}
@@ -174,35 +227,58 @@ export function BuddyAvatar({
       style={style}
       aria-hidden="true"
     >
-      {motion ? (
+      <img
+        ref={imageRef}
+        className="buddy-avatar buddy-avatar-source"
+        src={still || glyph}
+        alt=""
+        aria-hidden="true"
+        onLoad={(event) => {
+          if (!motionActive) draw(event.currentTarget);
+        }}
+        onError={
+          still
+            ? () => {
+                setStill('');
+                setPhase('fallback');
+              }
+            : undefined
+        }
+      />
+      {motionActive && (
         <video
-          className="buddy-avatar"
+          ref={videoRef}
+          key={motionEvent}
+          className="buddy-avatar buddy-avatar-source"
+          aria-hidden="true"
           src={motion}
           poster={still || glyph}
           autoPlay
           muted
-          loop
           playsInline
+          onLoadedData={() => setVideoReady(true)}
+          onEnded={(event) => {
+            if (activity !== 'idle') {
+              event.currentTarget.currentTime = 0;
+              void event.currentTarget.play().catch(() => setMotionPasses(2));
+            } else if (motionPasses === 0) {
+              setMotionPasses(1);
+              event.currentTarget.currentTime = 0;
+              void event.currentTarget.play().catch(() => setMotionPasses(2));
+            } else setMotionPasses(2);
+          }}
           onError={() => {
+            setVideoReady(false);
             setMotion('');
             setPhase(still ? 'still' : 'fallback');
           }}
         />
-      ) : (
-        <img
-          className="buddy-avatar"
-          src={still || glyph}
-          alt=""
-          onError={
-            still
-              ? () => {
-                  setStill('');
-                  setPhase('fallback');
-                }
-              : undefined
-          }
-        />
       )}
+      <canvas
+        ref={canvasRef}
+        className="buddy-avatar-canvas"
+        aria-hidden="true"
+      />
       {phase === 'unavailable' && (
         <span className="buddy-media-note">Pack unavailable</span>
       )}
@@ -223,7 +299,8 @@ function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
 }
 
 function GlobalBuddy() {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
+  const buddyPlacement = useBuddyPlacement(platform);
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<BuddySnapshot | null>(null);
   const [pack, setPack] = useState<BuddyPack | null>(null);
@@ -259,6 +336,9 @@ function GlobalBuddy() {
     };
   }, [attempt, controller]);
   if (snapshot && !snapshot.preferences.visible) return null;
+  if (buddyPlacement.placement === 'desktop' && buddyPlacement.visible)
+    return <BuddyDockButton dock={buddyPlacement.dock} />;
+  if (buddyPlacement.placement === 'desktop') return null;
   if (!snapshot)
     return (
       <aside
@@ -285,8 +365,23 @@ function GlobalBuddy() {
         variant="ghost"
         onClick={() => navigate('/settings/buddy')}
       >
-        <Avatar conversation={null} pack={pack} snapshot={snapshot} />
+        <BuddyDragHandle
+          platform={platform}
+          onTornOff={() => buddyPlacement.setPlacement('desktop')}
+        >
+          <Avatar conversation={null} pack={pack} snapshot={snapshot} />
+        </BuddyDragHandle>
       </Button>
+      {buddyPlacement.supported && (
+        <Button
+          className="buddy-undock"
+          variant="ghost"
+          aria-label="Undock Buddy"
+          onClick={() => void buddyPlacement.tearOff()}
+        >
+          Undock
+        </Button>
+      )}
       {snapshot.preferences.bubble_verbosity !== 'quiet' &&
         !snapshot.preferences.collapsed && (
           <p role="status">{snapshot.status.label || 'Ready when you are.'}</p>
@@ -308,39 +403,56 @@ function OwnedBuddy({
 }) {
   const navigate = useNavigate();
   const overlay = useOverlay();
+  const { platform } = useRuntime();
+  const buddyPlacement = useBuddyPlacement(platform);
   const view = useSyncExternalStore(session.subscribe, session.getSnapshot);
   useEffect(() => session.observe(), [session]);
   return (
-    <BuddyPanel
-      scopeKey={conversation}
-      session={session}
-      settingsOpen={settings}
-      initialPrompt={initialPrompt}
-      companionVisible={!settings}
-      onSettings={() => {
-        overlay.close();
-        navigate(
-          `/settings/buddy?conversation=${encodeURIComponent(conversation)}`,
-        );
-      }}
-      renderAvatar={(snapshot) => (
-        <Avatar
-          conversation={conversation}
-          pack={view.selectedPack}
-          snapshot={snapshot}
-        />
+    <>
+      {buddyPlacement.placement === 'desktop' && buddyPlacement.visible && (
+        <BuddyDockButton dock={buddyPlacement.dock} />
       )}
-      renderPackPreview={(pack) =>
-        view.snapshot && (
-          <Avatar
-            conversation={conversation}
-            pack={pack}
-            snapshot={view.snapshot}
-            preview
-          />
-        )
-      }
-    />
+      <BuddyPanel
+        scopeKey={conversation}
+        session={session}
+        settingsOpen={settings}
+        initialPrompt={initialPrompt}
+        companionVisible={!settings && buddyPlacement.placement === 'docked'}
+        onSettings={() => {
+          overlay.close();
+          navigate(
+            `/settings/buddy?conversation=${encodeURIComponent(conversation)}`,
+          );
+        }}
+        onUndock={
+          buddyPlacement.supported && !settings
+            ? () => void buddyPlacement.tearOff()
+            : undefined
+        }
+        renderAvatar={(snapshot) => (
+          <BuddyDragHandle
+            platform={platform}
+            onTornOff={() => buddyPlacement.setPlacement('desktop')}
+          >
+            <Avatar
+              conversation={conversation}
+              pack={view.selectedPack}
+              snapshot={snapshot}
+            />
+          </BuddyDragHandle>
+        )}
+        renderPackPreview={(pack) =>
+          view.snapshot && (
+            <Avatar
+              conversation={conversation}
+              pack={pack}
+              snapshot={view.snapshot}
+              preview
+            />
+          )
+        }
+      />
+    </>
   );
 }
 

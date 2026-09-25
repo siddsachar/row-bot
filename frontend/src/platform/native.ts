@@ -111,6 +111,42 @@ export function createPyWebViewPlatform(
       /^\/app-v2\/(?:[A-Za-z0-9_-]+\/?)*$/.test(route)
         ? call('managed_window', { route }, nullValue)
         : Promise.resolve(unavailable('invalid_route')),
+    buddyPlacement: async (action, point) => {
+      if (
+        action === 'tear_off' &&
+        (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y))
+      )
+        return unavailable('invalid_drop_position');
+      const discovered = await call<PlatformInfo>(
+        'discover',
+        { attestation },
+        (value): value is PlatformInfo =>
+          object(value) &&
+          value.kind === 'pywebview' &&
+          Array.isArray(value.capabilities) &&
+          typeof value.instanceId === 'string' &&
+          typeof value.windowId === 'string' &&
+          typeof value.epoch === 'number',
+      );
+      if (
+        discovered.status !== 'ok' ||
+        !discovered.value.capabilities.includes('buddy_placement')
+      )
+        return unavailable('buddy_placement_requires_native');
+      return call(
+        'buddy_placement',
+        action === 'tear_off'
+          ? { action, x: point!.x, y: point!.y }
+          : { action },
+        (
+          value,
+        ): value is { placement: 'docked' | 'desktop'; visible: boolean } =>
+          object(value) &&
+          ['docked', 'desktop'].includes(String(value.placement)) &&
+          typeof value.visible === 'boolean' &&
+          Object.keys(value).length === 2,
+      );
+    },
     openTerminal: (conversationId) =>
       call<{ terminalId: string }>(
         'terminal_open',

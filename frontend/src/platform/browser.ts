@@ -145,6 +145,7 @@ export function createBrowserPlatform(
       });
     },
     managedWindow: async () => unavailable('managed_windows_require_native'),
+    buddyPlacement: async () => unavailable('buddy_placement_requires_native'),
     openTerminal: async () => unavailable('terminal_requires_native'),
     save: (reference, name, signal) => {
       if (!safeDownloadName(name))

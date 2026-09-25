@@ -10,6 +10,16 @@
   flex: 0 0 auto;
   border-radius: 50%;
   isolation: isolate;
+  overflow: hidden;
+  background: radial-gradient(
+    circle at 45% 40%,
+    rgba(34, 61, 65, 0.88),
+    rgba(8, 18, 23, 0.96) 72%
+  );
+  border: 1px solid rgba(77, 184, 171, 0.34);
+  box-shadow:
+    0 0 0 1px rgba(228, 194, 94, 0.1),
+    0 10px 28px rgba(0, 0, 0, 0.24);
 }
 
 .buddy-avatar-frame::before,
@@ -29,11 +39,12 @@
 }
 
 .buddy-avatar-frame::after {
-  inset: -1px;
-  z-index: -1;
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
-  box-shadow: 0 4px 18px
-    color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  inset: 5px;
+  z-index: 2;
+  border: 1px solid rgba(77, 184, 171, 0.36);
+  box-shadow:
+    0 0 13px rgba(77, 184, 171, 0.24),
+    0 0 2px rgba(247, 118, 87, 0.24);
 }
 
 .buddy-avatar-frame[data-buddy-mood='focused']::after,
@@ -60,10 +71,82 @@
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
+  display: block;
+  background: transparent;
+  mix-blend-mode: normal;
+}
+
+.buddy-avatar-source {
+  position: absolute;
+  inset: 0;
+}
+.buddy-avatar-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  pointer-events: none;
+  visibility: hidden;
+}
+.buddy-avatar-frame[data-canvas-ready='true'] .buddy-avatar-canvas {
+  visibility: visible;
+}
+.buddy-avatar-frame[data-canvas-ready='true'] .buddy-avatar-source {
+  opacity: 0;
 }
 
 .buddy-avatar-frame[data-preview='true'] .buddy-avatar {
-  object-fit: contain;
+  object-fit: cover;
+}
+
+.buddy-drag-handle {
+  display: inline-grid;
+  touch-action: none;
+  cursor: grab;
+}
+.buddy-drag-handle[data-dragging='true'] {
+  cursor: grabbing;
+  position: relative;
+  z-index: 10;
+  pointer-events: none;
+}
+.buddy-drag-error {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--status-warning-text);
+}
+.buddy-dock-placeholder {
+  display: grid;
+  justify-items: center;
+  padding: 8px;
+}
+.navigation .buddy-companion {
+  gap: 8px;
+}
+.navigation .buddy-companion > p {
+  max-width: 198px;
+  min-height: 13px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+}
+.buddy-companion {
+  position: relative;
+}
+.buddy-companion .buddy-undock {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 0.65rem;
+  opacity: 0;
+}
+.buddy-companion:hover .buddy-undock,
+.buddy-companion .buddy-undock:focus-visible {
+  opacity: 1;
 }
 
 .buddy-avatar-frame[data-collapsed='true'] {

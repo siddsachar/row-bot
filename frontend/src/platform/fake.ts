@@ -32,6 +32,7 @@ export function createFakePlatform(
     writeClipboard: () => result('writeClipboard', unavailable()),
     openExternal: () => result('openExternal', unavailable()),
     managedWindow: () => result('managedWindow', unavailable()),
+    buddyPlacement: () => result('buddyPlacement', unavailable()),
     openTerminal: () => result('openTerminal', unavailable()),
     save: () => result('save', unavailable()),
   };

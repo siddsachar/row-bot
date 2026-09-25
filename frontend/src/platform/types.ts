@@ -38,6 +38,12 @@ export interface MediaTransport {
 
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
+  buddyPlacement(
+    action: 'status' | 'tear_off' | 'dock',
+    point?: { x: number; y: number },
+  ): Promise<
+    CapabilityResult<{ placement: 'docked' | 'desktop'; visible: boolean }>
+  >;
   selectFile(
     signal?: AbortSignal,
     intent?: SelectionIntent,

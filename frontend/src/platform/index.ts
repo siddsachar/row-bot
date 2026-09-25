@@ -27,7 +27,23 @@ export async function selectClientPlatform(
 ): Promise<ClientPlatform> {
   const browser = createBrowserPlatform(media, target);
   const authorization = handshake?.native_adapter;
-  const endpoint = target.__ROW_BOT_NATIVE_CLIENT__;
+  let endpoint = target.__ROW_BOT_NATIVE_CLIENT__;
+  // pywebview installs its document-bound endpoint on loaded, which can race
+  // the React handshake. This bounded wait grants no authority without the
+  // server attestation and native discovery.
+  if (!endpoint && authorization?.available && 'pywebview' in target) {
+    await new Promise<void>((resolve) => {
+      const finished = () => {
+        target.removeEventListener('row-bot-native-ready', finished);
+        target.clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = target.setTimeout(finished, 600);
+      target.addEventListener('row-bot-native-ready', finished, { once: true });
+      if (target.__ROW_BOT_NATIVE_CLIENT__) finished();
+    });
+    endpoint = target.__ROW_BOT_NATIVE_CLIENT__;
+  }
   if (
     !authorization?.available ||
     !authorization.attestation ||

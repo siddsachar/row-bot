@@ -37,6 +37,9 @@ describe('browser capabilities', () => {
     expect(await adapter.managedWindow('/app-v2/')).toMatchObject({
       status: 'unavailable',
     });
+    expect(
+      await adapter.buddyPlacement('tear_off', { x: 10, y: 20 }),
+    ).toMatchObject({ status: 'unavailable' });
     expect(legacy).not.toHaveBeenCalled();
   });
 
@@ -307,6 +310,41 @@ describe('safe native and fake capabilities', () => {
     });
     Reflect.deleteProperty(window, '__ROW_BOT_NATIVE_CLIENT__');
   });
+  it('waits for the native loaded event before selecting the authorized adapter', async () => {
+    const endpoint = {
+      dispatch: vi.fn().mockResolvedValue({
+        status: 'ok',
+        value: {
+          kind: 'pywebview',
+          platform: 'windows',
+          capabilities: ['buddy_placement'],
+          instanceId: 'instance-a',
+          windowId: 'window-a',
+          epoch: 1,
+        },
+      }),
+    };
+    Object.assign(window, { pywebview: {} });
+    const selecting = selectClientPlatform(media(), {
+      native_adapter: {
+        available: true,
+        proof_required: true,
+        instance_id: 'instance-a',
+        attestation: 'a'.repeat(32),
+      },
+    });
+    Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', {
+      configurable: true,
+      value: endpoint,
+    });
+    window.dispatchEvent(new Event('row-bot-native-ready'));
+    await expect((await selecting).discover()).resolves.toMatchObject({
+      status: 'ok',
+      value: { kind: 'pywebview' },
+    });
+    Reflect.deleteProperty(window, '__ROW_BOT_NATIVE_CLIENT__');
+    Reflect.deleteProperty(window, 'pywebview');
+  });
   it.each(['file', 'folder', 'save'] as const)(
     'discards the late native %s completion after abort',
     async (operation) => {
@@ -411,5 +449,67 @@ describe('safe native and fake capabilities', () => {
       reason: 'unsupported',
     });
     expect(adapter.calls).toEqual(['readClipboard', 'selectFolder']);
+  });
+
+  it('checks native Buddy capability and validates placement responses', async () => {
+    const dispatch = vi.fn().mockResolvedValue({
+      status: 'ok',
+      value: {
+        kind: 'pywebview',
+        platform: 'windows',
+        capabilities: ['buddy_placement'],
+        instanceId: 'instance',
+        windowId: 'window',
+        epoch: 1,
+      },
+    });
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+    );
+    expect(
+      await adapter.buddyPlacement('tear_off', { x: Number.NaN, y: 20 }),
+    ).toMatchObject({ status: 'unavailable' });
+    expect(dispatch).not.toHaveBeenCalled();
+    dispatch
+      .mockResolvedValueOnce({
+        status: 'ok',
+        value: {
+          kind: 'pywebview',
+          platform: 'windows',
+          capabilities: ['buddy_placement'],
+          instanceId: 'instance',
+          windowId: 'window',
+          epoch: 1,
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 'ok',
+        value: { placement: 'desktop', visible: true },
+      });
+    expect(
+      await adapter.buddyPlacement('tear_off', { x: 500, y: -200 }),
+    ).toEqual({ status: 'ok', value: { placement: 'desktop', visible: true } });
+    expect(dispatch).toHaveBeenLastCalledWith('buddy_placement', {
+      action: 'tear_off',
+      x: 500,
+      y: -200,
+    });
+    dispatch.mockResolvedValueOnce({
+      status: 'ok',
+      value: {
+        kind: 'pywebview',
+        platform: 'windows',
+        capabilities: [],
+        instanceId: 'instance',
+        windowId: 'window',
+        epoch: 1,
+      },
+    });
+    expect(await adapter.buddyPlacement('dock')).toMatchObject({
+      status: 'unavailable',
+    });
+    expect(dispatch).toHaveBeenCalledTimes(3);
   });
 });

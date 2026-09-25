@@ -185,6 +185,40 @@ def test_all_narrow_operations_and_platform_discovery(native) -> None:
     assert len(driver.calls) == 5
 
 
+def test_buddy_placement_requires_capability_proof_and_closed_payload(native) -> None:
+    bridge, proof, driver, _, _ = native
+    calls = []
+    driver.capabilities = lambda: ["buddy_placement"]
+    driver.buddy_placement = lambda action, x, y: (
+        calls.append((action, x, y)) or {"placement": "desktop" if action == "tear_off" else "docked", "visible": True}
+    )
+    assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "tear_off", "x": 500, "y": -200}) == {
+        "status": "ok", "value": {"placement": "desktop", "visible": True}}
+    assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "dock"})["status"] == "ok"
+    for payload in ({"action": "tear_off", "x": "500", "y": 1},
+                    {"action": "tear_off", "x": 1, "y": 1, "port": 80},
+                    {"action": "hide"}, {"action": "status", "path": "/private"}):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "unavailable"
+    assert calls == [("tear_off", 500, -200), ("dock", None, None)]
+    bridge._invalidate()
+    assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "status"})["status"] == "unavailable"
+    assert len(calls) == 2
+
+
+def test_pywebview_driver_advertises_only_injected_buddy_lifecycle() -> None:
+    calls = []
+    driver = PyWebViewDriver(
+        SimpleNamespace(),
+        buddy_placement=lambda action, x, y: (
+            calls.append((action, x, y)) or {"placement": "desktop", "visible": True}
+        ),
+    )
+    assert "buddy_placement" in driver.capabilities()
+    assert driver.buddy_placement("tear_off", 320, -120) == {"placement": "desktop", "visible": True}
+    assert calls == [("tear_off", 320, -120)]
+    assert "buddy_placement" not in PyWebViewDriver(SimpleNamespace()).capabilities()
+
+
 def test_no_backend_registrar_means_no_native_picker(native) -> None:
     _, _, driver, _, _ = native
     bridge = NativeClientBridge(
@@ -244,6 +278,7 @@ def test_trusted_attach_installs_document_scoped_hook_and_revokes_on_events() ->
     window.events.loaded.fire()
     assert len(exposed) == 1 and exposed[0].__name__ == "native_client_dispatch"
     assert "__ROW_BOT_NATIVE_CLIENT__" in scripts[0] and "localStorage" not in scripts[0]
+    assert "row-bot-native-ready" in scripts[0]
     assert bridge._token
     window.events.before_load.fire()
     assert not bridge._token

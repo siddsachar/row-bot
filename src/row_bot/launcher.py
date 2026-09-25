@@ -2372,7 +2372,7 @@ def _attach_client_v2(window, instance_id):
             "attestation": attestation,
             "instance_id": context.instance_id,
             "window_id": context.window_id,
-            "window_epoch": context.window_epoch,
+            "window_epoch": context.epoch,
         })
         authority = NativeDocumentAuthority(
             str(value["session_id"]),
@@ -2391,7 +2391,7 @@ def _attach_client_v2(window, instance_id):
                 "authority_grant": authority.authority_grant,
                 "instance_id": context.instance_id,
                 "window_id": context.window_id,
-                "window_epoch": context.window_epoch,
+                "window_epoch": context.epoch,
             })
             return value.get("ok") is True
         except Exception:
@@ -2424,7 +2424,7 @@ def _attach_client_v2(window, instance_id):
                 "authority_grant": authority.authority_grant,
                 "instance_id": context.instance_id,
                 "window_id": context.window_id,
-                "window_epoch": context.window_epoch,
+                "window_epoch": context.epoch,
             })
         except Exception:
             pass
@@ -2510,12 +2510,21 @@ def _attach_client_v2(window, instance_id):
         _attach_client_v2(child, instance_id)
         return True
 
+    def buddy_placement(action, x, y):
+        if action == "tear_off" and not _JS_API.tear_off_buddy(x, y):
+            return None
+        if action == "dock" and not _JS_API.dock_buddy():
+            return None
+        state = placement_state_from_config(get_buddy_config())
+        return {"placement": state.placement.value, "visible": state.visible}
+
     driver = PyWebViewDriver(
         window,
         open_window=open_managed,
         read_clipboard=_JS_API.get_clipboard,
         write_clipboard=_native_clipboard_write,
         save_reference=save_reference,
+        buddy_placement=buddy_placement,
     )
     return attach_native_client(
         window,
@@ -2556,7 +2565,7 @@ try:
 except Exception:
     pass
 webview.start(
-    func=_on_loaded,
+    func=lambda: _on_loaded(main_window),
     private_mode=False,
     storage_path=_WEBVIEW_STORAGE_PATH,
     icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None,

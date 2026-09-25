@@ -78,6 +78,7 @@ export type BuddyControlsProps = {
   renderPackPreview?(pack: BuddyPack): ReactNode;
   previewUrl?(pack: BuddyPack): string | null;
   onSettings(): void;
+  onUndock?(): void;
   save(
     changes: Partial<BuddyPreferences>,
     revision: string,
@@ -261,6 +262,16 @@ export default function BuddyControls(props: BuddyControlsProps) {
               <span aria-hidden="true">✦</span>
             )}
           </Button>
+          {props.onUndock && (
+            <Button
+              className="buddy-undock"
+              variant="ghost"
+              aria-label="Undock Buddy"
+              onClick={props.onUndock}
+            >
+              Undock
+            </Button>
+          )}
           {snapshot.preferences.bubble_verbosity !== 'quiet' &&
             !snapshot.preferences.collapsed && (
               <p role="status">{snapshot.status.label}</p>

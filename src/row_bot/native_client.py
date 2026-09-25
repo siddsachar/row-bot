@@ -24,7 +24,7 @@ _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
-                         "terminal_open"})
+                         "terminal_open", "buddy_placement"})
 
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
@@ -120,6 +120,7 @@ class NativeDriver(Protocol):
     def clipboard_write(self, text: str) -> bool: ...
     def open_external(self, url: str) -> bool: ...
     def managed_window(self, route: str) -> bool: ...
+    def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None: ...
     def capabilities(self) -> list[str]: ...
 
@@ -147,18 +148,21 @@ class PyWebViewDriver:
                  read_clipboard: Callable[[], str | None] | None = None,
                  write_clipboard: Callable[[str], bool] | None = None,
                  save_reference: Callable[[str, Path], bool] | None = None,
-                 open_external: Callable[[str], bool] | None = None) -> None:
+                 open_external: Callable[[str], bool] | None = None,
+                 buddy_placement: Callable[[str, float | None, float | None], dict[str, Any] | None] | None = None) -> None:
         self._window = window
         self._open_window = open_window
         self._read_clipboard = read_clipboard
         self._write_clipboard = write_clipboard
         self._save_reference = save_reference
         self._open_external = open_external
+        self._buddy_placement = buddy_placement
 
     def capabilities(self) -> list[str]:
         result = ["select_file", "select_folder", "open_external"]
         for name, callback in (("managed_window", self._open_window), ("clipboard_read", self._read_clipboard),
-                               ("clipboard_write", self._write_clipboard), ("save", self._save_reference)):
+                               ("clipboard_write", self._write_clipboard), ("save", self._save_reference),
+                               ("buddy_placement", self._buddy_placement)):
             if callback is not None:
                 result.append(name)
         return result
@@ -183,6 +187,9 @@ class PyWebViewDriver:
 
     def managed_window(self, route: str) -> bool:
         return bool(self._open_window and self._open_window(route))
+
+    def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None:
+        return self._buddy_placement(action, x, y) if self._buddy_placement else None
 
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None:
         if self._save_reference is None:
@@ -452,6 +459,23 @@ class NativeClientBridge:
                 if not authorized():
                     return _unavailable("native_proof_required")
                 return {"status": "cancelled"} if result is None else ({"status": "ok", "value": None} if result else _unavailable())
+            if operation == "buddy_placement":
+                action = payload.get("action")
+                point = action == "tear_off" and set(payload) == {"action", "x", "y"}
+                if not ((action in {"status", "dock"} and set(payload) == {"action"})
+                        or (point and all(isinstance(payload[key], (int, float))
+                                          and not isinstance(payload[key], bool)
+                                          and abs(payload[key]) <= 1000000 for key in ("x", "y")))):
+                    return _unavailable("invalid_request")
+                value = self._driver.buddy_placement(
+                    action, payload.get("x") if point else None, payload.get("y") if point else None)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return ({"status": "ok", "value": value}
+                        if isinstance(value, dict) and set(value) == {"placement", "visible"}
+                        and value["placement"] in {"docked", "desktop"}
+                        and isinstance(value["visible"], bool) else _unavailable())
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
@@ -523,7 +547,8 @@ def attach_native_client(
             # Token is a closure value, never a storage item, URL or public flag.
             script = "(() => { if (window !== window.top) return; const proof = " + json.dumps(proof) + "; "
             script += "Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', { configurable: true, "
-            script += "value: { dispatch: (operation, payload) => window.pywebview.api.native_client_dispatch(proof, operation, payload) } }); })();"
+            script += "value: { dispatch: (operation, payload) => window.pywebview.api.native_client_dispatch(proof, operation, payload) } }); "
+            script += "window.dispatchEvent(new Event('row-bot-native-ready')); })();"
             window.evaluate_js(script)
 
     window.events.before_load += bridge._invalidate

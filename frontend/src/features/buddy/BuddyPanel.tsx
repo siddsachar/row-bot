@@ -490,6 +490,7 @@ export type BuddyPanelProps = Pick<
   | 'renderPackPreview'
   | 'previewUrl'
   | 'companionVisible'
+  | 'onUndock'
 > & {
   session: BuddyPanelSession;
   settingsOpen: boolean;
