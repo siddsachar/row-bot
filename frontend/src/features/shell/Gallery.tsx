@@ -1,21 +1,276 @@
 import { useState } from 'react';
-import { Check, Command, Info } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  Code2,
+  Command,
+  Cpu,
+  Info,
+  Maximize,
+  MessageSquare,
+  Minus,
+  Palette,
+  PanelRight,
+  Plus,
+  Search,
+  SquarePen,
+  Zap,
+} from 'lucide-react';
 import {
   Button,
+  Combobox,
+  Disclosure,
   EmptyState,
+  EntityList,
+  EntityRow,
   ErrorState,
   Field,
   Hint,
+  IconButton,
+  InlineEmpty,
   Input,
+  Kbd,
   Menu,
   Popup,
   Progress,
+  Segmented,
   Select,
+  SettingRow,
   Skeleton,
+  Stat,
+  StatGroup,
+  StatusDot,
   Surface,
   Tabs,
+  Toggle,
+  Toolbar,
+  ToolbarSeparator,
+  type ComboboxOption,
 } from '../../ui/primitives';
-import { useOverlay } from '../../ui/overlays';
+import { Drawer, useOverlay } from '../../ui/overlays';
+
+const SAMPLE_MODELS: ComboboxOption[] = [
+  ...['Sol', 'Terra', 'Luna', 'Mini'].map((name) => ({
+    value: `sample-cloud:${name}`,
+    label: `Sample ${name}`,
+    group: 'Sample cloud',
+    description: 'Hosted example model',
+  })),
+  ...['Small', 'Medium', 'Large'].map((name) => ({
+    value: `sample-local:${name}`,
+    label: `Local ${name}`,
+    group: 'On this device',
+    keywords: ['private', 'local'],
+    description: 'Private · on device',
+  })),
+  {
+    value: 'sample-offline:unavailable',
+    label: 'Unavailable example',
+    group: 'Not connected',
+    disabled: true,
+  },
+];
+
+function FoundationExamples() {
+  const { notify } = useOverlay();
+  const [filter, setFilter] = useState<
+    'all' | 'chats' | 'designs' | 'code' | 'workflows'
+  >('all');
+  const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [model, setModel] = useState('sample-cloud:Sol');
+  const [sendOnEnter, setSendOnEnter] = useState(true);
+  const [inspector, setInspector] = useState(false);
+  return (
+    <Surface>
+      <h2>Foundation primitives</h2>
+      <p className="muted">
+        Icons for verbs with a tooltip and shortcut, status as shape plus a
+        word, and detail behind disclosure.
+      </p>
+      <div className="gallery-row" role="group" aria-label="Icon actions">
+        <IconButton
+          label="Search"
+          shortcut="Mod+K"
+          onClick={() => notify('Search opened')}
+        >
+          <Search size={16} aria-hidden />
+        </IconButton>
+        <IconButton label="New chat" shortcut="Mod+N">
+          <SquarePen size={16} aria-hidden />
+        </IconButton>
+        <IconButton label="Toggle right panel" shortcut="Mod+Period" pressed>
+          <PanelRight size={16} aria-hidden />
+        </IconButton>
+        <IconButton label="Small icon action" size="sm">
+          <Plus size={14} aria-hidden />
+        </IconButton>
+        <IconButton label="Unavailable icon action" disabled>
+          <Bot size={16} aria-hidden />
+        </IconButton>
+        <span className="gallery-kbd-sample">
+          Palette <Kbd keys="Mod+K" /> · Approve <Kbd keys="Mod+Enter" /> · Stop{' '}
+          <Kbd keys="Escape" />
+        </span>
+      </div>
+      <div className="gallery-row" role="group" aria-label="Status examples">
+        <StatusDot tone="success" label="Connected" showLabel />
+        <StatusDot tone="accent" label="Running" showLabel pulse />
+        <StatusDot tone="warning" label="Needs review" showLabel />
+        <StatusDot tone="danger" label="Failed" showLabel />
+        <StatusDot tone="neutral" label="Idle" showLabel />
+      </div>
+      <div className="gallery-row">
+        <Segmented
+          label="Conversation type"
+          size="sm"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: 'All' },
+            {
+              value: 'chats',
+              label: 'Chats',
+              icon: <MessageSquare size={14} aria-hidden />,
+              hideLabel: true,
+            },
+            {
+              value: 'designs',
+              label: 'Designs',
+              icon: <Palette size={14} aria-hidden />,
+              hideLabel: true,
+            },
+            {
+              value: 'code',
+              label: 'Code',
+              icon: <Code2 size={14} aria-hidden />,
+              hideLabel: true,
+            },
+            {
+              value: 'workflows',
+              label: 'Workflows',
+              icon: <Zap size={14} aria-hidden />,
+              hideLabel: true,
+            },
+          ]}
+        />
+        <Segmented
+          label="Knowledge view"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'graph', label: 'Graph' },
+            { value: 'list', label: 'List' },
+          ]}
+        />
+        <Combobox
+          label="Sample model"
+          icon={<Cpu size={16} aria-hidden />}
+          value={model}
+          onChange={setModel}
+          options={SAMPLE_MODELS}
+          footer={<span className="muted">Pinned and recent appear first</span>}
+        />
+      </div>
+      <div className="gallery-settings">
+        <SettingRow
+          label="Send on Enter"
+          description="Shift+Enter adds a new line."
+        >
+          <Toggle
+            label="Send on Enter"
+            checked={sendOnEnter}
+            onChange={(event) => setSendOnEnter(event.target.checked)}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Default appearance"
+          description="Follows the operating system unless you choose one."
+          htmlFor="gallery-appearance"
+          modified
+        >
+          <Select id="gallery-appearance" defaultValue="system">
+            <option value="system">System</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </Select>
+        </SettingRow>
+        <Disclosure summary="Advanced" meta="1 setting">
+          <SettingRow
+            label="Example timeout"
+            description="Advanced options stay one click away."
+            htmlFor="gallery-timeout"
+          >
+            <Input id="gallery-timeout" defaultValue="30s" />
+          </SettingRow>
+        </Disclosure>
+      </div>
+      <EntityList label="Sample providers">
+        <EntityRow
+          title="Sample Cloud"
+          icon={<Cpu size={16} />}
+          status={{ tone: 'success', label: 'Connected' }}
+          meta="API key · 12 models"
+          action={<Button variant="ghost">Configure</Button>}
+          menu={[
+            { label: 'Refresh models', onSelect: () => notify('Refreshed') },
+            { label: 'Disconnect', danger: true, onSelect: () => undefined },
+          ]}
+          details={<p>Key saved · ····c99 · Replace</p>}
+        />
+        <EntityRow
+          title="Local runtime"
+          icon={<Bot size={16} />}
+          status={{ tone: 'warning', label: 'Not running' }}
+          meta="Private · on device"
+          action={<Button variant="ghost">Start</Button>}
+        />
+      </EntityList>
+      <StatGroup label="Sample totals">
+        <Stat label="Memories" value="658" delta="+12 today" tone="success" />
+        <Stat label="Links" value="1,016" />
+        <Stat label="Median reply" value="8.4" unit="s" />
+      </StatGroup>
+      <InlineEmpty
+        icon={<Info size={14} />}
+        action={<Button variant="ghost">Add resource</Button>}
+      >
+        Nothing attached to this sample yet.
+      </InlineEmpty>
+      <div className="gallery-canvas" role="group" aria-label="Sample canvas">
+        <Toolbar label="Sample canvas controls" floating placement="top-left">
+          <IconButton label="Zoom out" size="sm">
+            <Minus size={14} aria-hidden />
+          </IconButton>
+          <IconButton label="Zoom in" size="sm">
+            <Plus size={14} aria-hidden />
+          </IconButton>
+          <ToolbarSeparator />
+          <IconButton label="Fit to screen" size="sm">
+            <Maximize size={14} aria-hidden />
+          </IconButton>
+        </Toolbar>
+        <Button
+          className="gallery-canvas-node"
+          onClick={() => setInspector(true)}
+        >
+          Open sample inspector
+        </Button>
+        <Drawer
+          open={inspector}
+          onOpenChange={setInspector}
+          title="Sample inspector"
+          description="Details for the selected canvas item"
+        >
+          <StatGroup label="Sample inspector totals">
+            <Stat label="Connections" value="7" />
+            <Stat label="Updated" value="2 min ago" />
+          </StatGroup>
+          <p>Inspectors keep the canvas interactive and close with Escape.</p>
+        </Drawer>
+      </div>
+    </Surface>
+  );
+}
 
 function ExampleForm() {
   const [name, setName] = useState('A useful idea');
@@ -73,6 +328,7 @@ export default function Gallery() {
           The same controls, states and surfaces across your workspace.
         </p>
       </div>
+      <FoundationExamples />
       <Surface>
         <h2>Buttons and inputs</h2>
         <div className="inline-actions">
@@ -138,6 +394,14 @@ export default function Gallery() {
                 disabled: true,
               },
             ]}
+          />
+          <Menu
+            label="Long sample menu"
+            actions={Array.from({ length: 60 }, (_, index) => ({
+              label: `Sample option ${index + 1}`,
+              selected: index === 44,
+              onSelect: () => notify(`Sample option ${index + 1} selected`),
+            }))}
           />
           <Popup label="Sample popover">
             <p>Supporting detail stays close to its control.</p>

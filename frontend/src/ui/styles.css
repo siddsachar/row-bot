@@ -992,6 +992,38 @@ svg {
   display: grid;
   gap: 16px;
 }
+.gallery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.gallery-kbd-sample {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--type-size-label);
+}
+.gallery-settings {
+  display: grid;
+}
+.gallery-canvas {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background-color: var(--canvas);
+  background-image: radial-gradient(
+    var(--border-hairline) 1px,
+    transparent 1px
+  );
+  background-size: 16px 16px;
+}
 .settings-results {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));

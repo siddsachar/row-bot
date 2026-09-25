@@ -10,7 +10,7 @@ import {
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Toast from '@radix-ui/react-toast';
 import { X } from 'lucide-react';
-import { Button } from './primitives';
+import { Button, IconButton } from './primitives';
 
 type Overlay = {
   key?: string;
@@ -403,6 +403,95 @@ export function ModalTask({
     </Dialog.Root>
   );
 }
+type DrawerProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  /** Extra header icon actions shown before Close. */
+  actions?: ReactNode;
+  side?: 'right' | 'left';
+  /**
+   * Inspectors default to non-modal: the canvas stays interactive, focus moves
+   * to the drawer heading and Escape or Close dismisses it.
+   */
+  modal?: boolean;
+  /** Render inside a positioned container instead of the viewport edge. */
+  container?: HTMLElement | null;
+  closeLabel?: string;
+  className?: string;
+};
+
+/** Side inspector for details (knowledge node, tool step, workflow run). */
+export function Drawer({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  actions,
+  side = 'right',
+  modal = false,
+  container,
+  closeLabel,
+  className = '',
+}: DrawerProps) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange} modal={modal}>
+      <Dialog.Portal container={container ?? undefined}>
+        {modal && <Dialog.Overlay className="overlay-backdrop" />}
+        <Dialog.Content
+          className={`drawer-panel ${className}`}
+          data-side={side}
+          data-contained={container ? 'true' : undefined}
+          // Radix expects an explicit opt-out when no description renders.
+          {...(description ? {} : { 'aria-describedby': undefined })}
+          onOpenAutoFocus={(event) => {
+            if (modal) return;
+            event.preventDefault();
+            heading.current?.focus({ preventScroll: true });
+          }}
+          onInteractOutside={(event) => {
+            if (!modal) event.preventDefault();
+          }}
+        >
+          <header className="drawer-header">
+            <div className="drawer-heading">
+              <Dialog.Title
+                ref={heading}
+                tabIndex={-1}
+                className="drawer-title"
+              >
+                {title}
+              </Dialog.Title>
+              {description && (
+                <Dialog.Description className="drawer-description">
+                  {description}
+                </Dialog.Description>
+              )}
+            </div>
+            <div className="drawer-actions">
+              {actions}
+              <Dialog.Close asChild>
+                <IconButton
+                  size="sm"
+                  label={closeLabel ?? `Close ${title}`}
+                  shortcut="Escape"
+                >
+                  <X size={16} aria-hidden />
+                </IconButton>
+              </Dialog.Close>
+            </div>
+          </header>
+          <div className="drawer-body">{children}</div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 export function useOverlay() {
   const context = useContext(OverlayContext);
   if (!context) throw new Error('OverlayProvider is required');

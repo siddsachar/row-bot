@@ -22,29 +22,63 @@ and transparency listeners are removed with the provider. Storage events update
 other open clients. Features use `useTheme().update`, never write palette values
 or this storage key independently.
 
-Use `--canvas`, `--surface`, `--surface-raised`, hover/pressed/disabled surfaces;
-primary/secondary/muted/inverse text; subtle/control borders; accent/focus/link/
+Elevation is expressed by luminance, not borders: `--canvas` → `--surface` →
+`--surface-raised` → `--surface-overlay` (menus, popovers, dialogs, drawers). In
+dark mode each step is lighter; in light mode chrome sits on a slightly darker
+canvas and the overlay is the lightest layer. Neutrals carry a slight cool bias
+toward the blue accent. Use `--border-hairline` (about 7% alpha) only where tone
+alone cannot separate content; `--border-subtle`/`--border-control` remain for
+inputs and controls that need a visible 3:1 boundary. Also use hover/pressed/
+disabled surfaces; primary/secondary/muted/inverse text; accent/focus/link/
 selection variables; named status, code/syntax, diff, chart and artifact tokens.
 Status and diff meaning always includes text or a marker. Do not infer meaning
-from an accent alone. The theme contract tests check text at 4.5:1 and essential
-non-text controls at 3:1; browser tests verify composited results too.
+from an accent alone. The theme contract tests check text at 4.5:1, essential
+non-text controls at 3:1, elevation ordering and hairline alpha; browser tests
+verify composited results too.
 
-Base body text is 16/24, code 13/20, and control text 14/20. Comfortable and touch
-controls are at least 44px; compact desktop fine-pointer controls may be 32px.
-The space scale is 4/8/12/16/24/32/48px; control/panel/dialog radii are 6/10/14px.
-Focus uses a visible 2px ring and offset. Background transitions do not animate
+Non-palette tokens live in `src/ui/styles/tokens.css`. The stylesheet entry
+`src/ui/styles/index.css` fixes the cascade: bundled fonts, tokens, the legacy
+surface rules in `styles.css` (split into per-surface files as surfaces are
+reworked), then shared primitives. Geist and Geist Mono are bundled locally
+(`--font-sans`, `--font-mono`) with a system fallback stack.
+
+The type scale is 12 / 13 / 14 / 15 / 17 / 20 / 26 (`--text-*` with paired
+`--leading-*`), weights 400/500/600, and tabular numbers for data. Dense chrome
+uses the 14/21 body; the conversation reads at 15/24 (`--type-size-reading`);
+labels are 13/20, metadata 12/18 and code 13/20. Comfortable and touch controls
+are at least 44px; compact desktop fine-pointer controls may be 32px and icon
+actions 28/32px. The space scale is 4/8/12/16/24/32/48px; control/panel/dialog
+radii are 6/12/16px. Motion tokens are 120ms for popovers (`--motion-popover`)
+and 180ms for panels (`--motion-panel`) with `--ease-out`; reduced motion sets
+both to zero and removes animations. Background transitions do not animate
 theme colours through intermediate low-contrast values.
+
+Focus uses a visible 2px ring and offset for keyboard focus. Programmatic focus
+targets (`tabindex="-1"` route headings, landmark regions, transcript messages)
+receive focus for assistive technology but draw the ring only when
+`data-input-modality="keyboard"` is set on the root by `installInputModality`.
 
 ## Public primitive inventory
 
 | Surface | Contribution contract |
 | --- | --- |
 | `Button`, `Input`, `Select`, `Field` | Native semantics and labels; primary/secondary/ghost/danger actions; disabled states and named icon buttons. Select stays a native browser control. |
-| `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. |
+| `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
 | `OverlayProvider`, `useOverlay` | One Radix modal scope with title/description; dialogs, short sheets, navigation drawers and alert-dialog semantics share it. |
 | Notifications | `notify` coalesces duplicate text and retains at most three notices. Notices wait while a modal is open, so they cannot cover its footer or consume Escape; Radix pauses dismissal on focus/hover after display. Errors also need a persistent inline recovery action. |
 | `Skeleton`, `EmptyState`, `ErrorState`, `Progress` | Name the operation; delay skeleton visuals 150ms with cancellation; never invent percentage progress. Empty states explain a useful next step. |
-| `Surface` | Opaque by default. The optional elevated effect has a 96% backing and bounded blur only with supporting CSS and appropriate preferences. |
+| `Surface` | Opaque by default. The optional elevated effect has a 94% overlay backing and bounded blur only with supporting CSS and appropriate preferences. |
+| `IconButton`, `Kbd` | Icons for verbs: 28px (`sm`) or 32px (`md`) on fine pointers and 44px on touch. The `label` is required and is both the accessible name and the tooltip; an optional `shortcut` such as `Mod+K` renders keycaps (⌘ on macOS, Ctrl elsewhere) and sets `aria-keyshortcuts`. When a text button becomes an icon button, keep its accessible name. |
+| `StatusDot` | Status as shape, then word. The label is always present, visually hidden unless `showLabel`. Tones: neutral, accent, info, success, warning, danger. |
+| `Segmented` | Single-choice radio group with one tab stop and arrow/Home/End keys that skip disabled options. Icon-only options keep their label as accessible name and tooltip. |
+| `Disclosure` | Native `details`/`summary` with a rotating chevron and optional meta, for "Advanced" sections and quiet rail groups. Pass a plain string summary so the summary text stays queryable. |
+| `SettingRow` | Label and help on the left, one control on the right; a labelled/described group. `htmlFor` ties the visible label to a native control; `modified` shows an accent dot. |
+| `EntityList`, `EntityRow` | Logo, name, status plus meta, one primary action, a named ⋯ menu (`More actions for …`) and optional inline details behind an expand control. |
+| `StatGroup`, `Stat` | A definition list of metrics with tabular values, optional unit and toned delta. |
+| `InlineEmpty` | A one-line muted empty state with an optional action for dense sections. Prefer hiding an empty section entirely when nothing is actionable. |
+| `Combobox` | Searchable single-choice picker for large sets (models, conversations): trigger named by `label` and described by the current value, a `combobox` input with `aria-activedescendant`, grouped `listbox` options, disabled options skipped, Enter chooses and focus returns to the trigger. Native `Select` stays for short enums. |
+| `Toolbar`, `ToolbarSeparator` | `role="toolbar"` with arrow/Home/End focus movement; `floating` adds the glass canvas treatment with placements. Segmented groups and text fields keep their own keys. |
+| `Drawer` | Side inspector on the overlay layer. Non-modal by default: the canvas stays interactive, focus moves to the drawer heading and Escape or Close dismisses it. `container` renders it inside a positioned surface; `modal` adds the scrim and focus trap. Becomes a bottom sheet on phones. |
 | Workspace commands | A labeled button at every width and Ctrl/Cmd+K open searchable native controls with keyboard hints and initial search focus. Modified/reserved chords and IME composition pass through. |
 | Pane groups | `react-resizable-panels` supplies pointer/touch capture and separator semantics; the typed layout model owns bounds/persistence. |
 
