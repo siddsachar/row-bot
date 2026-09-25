@@ -28,10 +28,11 @@ import type { ConversationView } from '../../api/types';
 import ConversationActions from '../settings/ConversationActions';
 import SearchConversations from './SearchConversations';
 import ConversationLibrary from './ConversationLibrary';
-import GoalProfileSettings, {
-  type GoalProfileSettingsSession,
-  type ProfileSummary,
+import type {
+  GoalProfileSettingsSession,
+  ProfileSummary,
 } from '../settings/GoalProfileSettings';
+import { openAgentProfiles } from './agent-profiles';
 
 const PREVIEW_COUNT = 10;
 const PINNED_PREVIEW_COUNT = 5;
@@ -95,43 +96,12 @@ function AgentProfilesEntry({
               '.compact-controls [aria-label="Toggle navigation"]',
             )
           : event.currentTarget;
-        overlay.open({
-          title: 'Agent profiles',
-          description: 'Browse and manage reusable profiles.',
-          className: 'profile-library-dialog',
+        openAgentProfiles({
+          overlay,
+          controller,
+          session,
           returnFocusTo,
-          content: (
-            <GoalProfileSettings
-              profilesOnly
-              session={session}
-              loadProfiles={({ query, scope, cursor }, signal) =>
-                controller.profiles(query, scope, cursor, signal)
-              }
-              loadProfile={controller.profile}
-              reviewProfile={controller.reviewProfile}
-              executeProfile={(command, review) =>
-                controller.executeProfile({
-                  ...command,
-                  payload: { ...command.payload, review_id: review.review_id },
-                })
-              }
-              onStartProfileChat={(profile) => {
-                let started = false;
-                let fallback = 0;
-                const start = () => {
-                  if (started) return;
-                  started = true;
-                  window.removeEventListener('popstate', afterClose);
-                  window.clearTimeout(fallback);
-                  onStartProfileChat?.(profile);
-                };
-                const afterClose = () => window.requestAnimationFrame(start);
-                window.addEventListener('popstate', afterClose, { once: true });
-                overlay.close();
-                fallback = window.setTimeout(start, 500);
-              }}
-            />
-          ),
+          onStartProfileChat,
         });
       }}
     >

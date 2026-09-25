@@ -61,6 +61,8 @@ import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
+import { openAgentProfiles } from './agent-profiles';
+import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
 import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
 
@@ -361,6 +363,7 @@ export default function Conversation({
   firstPrompt,
   onFirstPromptConsumed,
   compactContext: compactFromViewport = false,
+  onStartProfileChat,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
   completedDesignId?: string;
@@ -371,9 +374,11 @@ export default function Conversation({
   firstPrompt?: { conversationId: string; text: string } | null;
   onFirstPromptConsumed?: (conversationId: string) => void;
   compactContext?: boolean;
+  onStartProfileChat?: (profile: ProfileSummary) => void;
 }) {
   const state = useClientState();
-  const { controller, platform, conversationActionsOwner } = useRuntime();
+  const { controller, platform, conversationActionsOwner, goalProfileOwner } =
+    useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const id = state.selectedConversationId;
@@ -921,6 +926,19 @@ export default function Conversation({
     if (command.handler_kind === 'export') {
       replaceSlashToken(token);
       manageConversation();
+      return;
+    }
+    const profileSession = goalProfileOwner?.get();
+    if (command.handler_kind === 'profiles' && profileSession) {
+      // The reviewed profile library, not a text summary (B10).
+      replaceSlashToken(token);
+      openAgentProfiles({
+        overlay,
+        controller,
+        session: profileSession,
+        returnFocusTo: composerRef.current,
+        onStartProfileChat,
+      });
       return;
     }
     if (

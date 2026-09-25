@@ -1192,6 +1192,9 @@ export default function Workspace() {
                         setCompletedDesign(null);
                     }}
                     onNewChat={() => void creation.newChat()}
+                    onStartProfileChat={(profile) =>
+                      void creation.newChat('', profile)
+                    }
                     focusConversationId={creation.focusConversationId}
                     onComposerFocused={creation.onComposerFocused}
                     firstPrompt={creation.firstPrompt}
