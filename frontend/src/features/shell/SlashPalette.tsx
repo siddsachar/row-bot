@@ -101,8 +101,32 @@ const SlashPalette = forwardRef<
   );
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState('');
+  // One popover at a time: the palette belongs to the focused composer, so it
+  // steps aside while focus is in another control such as a composer menu.
+  const [composerBlurred, setComposerBlurred] = useState(false);
   const identity = token ? `${token.start}:${token.end}:${token.query}` : '';
-  const open = Boolean(token && identity !== dismissed && !disabled);
+  const open = Boolean(
+    token && identity !== dismissed && !disabled && !composerBlurred,
+  );
+  useEffect(() => {
+    const input = inputRef?.current;
+    if (!input) return;
+    const blur = (event: FocusEvent) => {
+      if (
+        event.relatedTarget instanceof Node &&
+        listRef.current?.contains(event.relatedTarget)
+      )
+        return;
+      setComposerBlurred(true);
+    };
+    const focus = () => setComposerBlurred(false);
+    input.addEventListener('blur', blur);
+    input.addEventListener('focus', focus);
+    return () => {
+      input.removeEventListener('blur', blur);
+      input.removeEventListener('focus', focus);
+    };
+  }, [inputRef]);
   useEffect(() => setSelected(0), [identity]);
   useEffect(() => {
     const input = inputRef?.current;
@@ -167,6 +191,7 @@ const SlashPalette = forwardRef<
       ref={listRef}
       role="listbox"
       aria-label="Slash commands"
+      onMouseDown={(event) => event.preventDefault()}
     >
       {items.length ? (
         items.map((command, index) => {

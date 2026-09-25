@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { expect, it, vi } from 'vitest';
 import type { SlashCommandSpec } from '../../api/types';
@@ -137,4 +137,24 @@ it('removes the listbox relationship when commands are disabled', () => {
   view.rerender(<Harness text="/st" disabled />);
   expect(screen.queryByRole('listbox')).toBeNull();
   expect(draft).not.toHaveAttribute('aria-controls');
+});
+
+it('steps aside while another composer control has focus and returns with the composer (B5)', () => {
+  render(
+    <>
+      <Harness />
+      <button type="button">Approvals</button>
+    </>,
+  );
+  const draft = screen.getByRole('textbox', { name: 'Draft' });
+  act(() => draft.focus());
+  expect(screen.getByRole('listbox', { name: 'Slash commands' })).toBeVisible();
+  act(() => screen.getByRole('button', { name: 'Approvals' }).focus());
+  expect(screen.queryByRole('listbox')).toBeNull();
+  expect(draft).not.toHaveAttribute('aria-expanded');
+  act(() => draft.focus());
+  expect(screen.getByRole('listbox', { name: 'Slash commands' })).toBeVisible();
+  // Pointer presses inside the palette keep composer focus.
+  const press = fireEvent.mouseDown(screen.getByRole('listbox'));
+  expect(press).toBe(false);
 });
