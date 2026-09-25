@@ -96,6 +96,12 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(
+    () => undefined,
+  );
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(
+    () => undefined,
+  );
   surface.buddyPlacement.mockResolvedValue({
     status: 'unavailable',
     reason: 'browser',
@@ -222,6 +228,7 @@ describe('Buddy avatar lifecycle', () => {
       'pack-revision',
       expect.any(AbortSignal),
     );
+    const video = view.container.querySelector('video')!;
 
     view.rerender(
       <BuddyAvatar
@@ -232,6 +239,11 @@ describe('Buddy avatar lifecycle', () => {
       />,
     );
     expect(signals[0].aborted).toBe(true);
+    // The dropped video stops loading before its source can be revoked.
+    expect(video).not.toHaveAttribute('src');
+    expect(video).not.toHaveAttribute('poster');
+    expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
+    expect(revoke).not.toHaveBeenCalled();
     await waitFor(() => expect(revoke).toHaveBeenCalledTimes(2));
     expect(stillReferenced).toEqual([]);
     await waitFor(() =>

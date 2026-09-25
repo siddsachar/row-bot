@@ -18,6 +18,14 @@ import {
 } from './BuddyGesture';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import glyph from '../../assets/row_bot_glyph_256.png';
+
+// A replaced image or video may still start its fetch in a later task, so a
+// retired media URL outlives the commit that dropped it by this long.
+const REVOKE_DELAY_MS = 250;
+
+function revokeLater(url: string) {
+  window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
+}
 import { drawBuddyMedia } from './buddy-media';
 
 export type BuddyMediaLoader = (
@@ -70,7 +78,19 @@ export function BuddyAvatar({
   const canvasReadyRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // A detached video keeps loading byte ranges from its source, so release it
+  // before that source is revoked.
+  const attachVideo = useCallback((node: HTMLVideoElement | null) => {
+    const previous = videoRef.current;
+    if (previous && previous !== node) {
+      previous.pause();
+      previous.removeAttribute('src');
+      previous.removeAttribute('poster');
+      previous.load();
+    }
+    videoRef.current = node;
+  }, []);
   const scratchRef = useRef<HTMLCanvasElement | null>(null);
   const [phase, setPhase] = useState<
     'loading' | 'motion' | 'still' | 'fallback' | 'unavailable'
@@ -205,14 +225,14 @@ export function BuddyAvatar({
   useEffect(() => {
     for (const url of retiredUrls.current)
       if (url !== still && url !== motion) {
-        URL.revokeObjectURL(url);
+        revokeLater(url);
         retiredUrls.current.delete(url);
       }
   }, [still, motion, retiredVersion]);
   useEffect(() => {
     const retired = retiredUrls.current;
     return () => {
-      for (const url of retired) URL.revokeObjectURL(url);
+      retired.forEach(revokeLater);
       retired.clear();
     };
   }, []);
@@ -265,7 +285,7 @@ export function BuddyAvatar({
       />
       {motionActive && (
         <video
-          ref={videoRef}
+          ref={attachVideo}
           key={motionEvent}
           className="buddy-avatar buddy-avatar-source"
           aria-hidden="true"
