@@ -1824,7 +1824,6 @@ export default function Conversation({
           )}
           onRename={rename}
           model={id ? modelName : undefined}
-          onModel={id && controls ? () => setModelPickerOpen(true) : undefined}
           onFind={id ? findConversation : undefined}
           onShare={id ? manageConversation : undefined}
           onContext={id && compactContext ? openContextSheet : undefined}

@@ -142,16 +142,14 @@
   background: transparent;
   color: var(--text-muted);
   font: var(--text-12) / 1 var(--font-sans);
-  cursor: pointer;
+}
+.conversation-model-chip > svg {
+  flex: none;
 }
 .conversation-model-chip > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.conversation-model-chip:hover {
-  background: var(--surface-hover);
-  color: var(--text-secondary);
 }
 .conversation-actions {
   display: flex;

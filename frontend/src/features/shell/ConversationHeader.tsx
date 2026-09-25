@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, PanelRight, Pencil, Search, Share } from 'lucide-react';
-import { Hint, IconButton } from '../../ui/primitives';
+import { Cpu, PanelRight, Pencil, Search, Share } from 'lucide-react';
+import { IconButton } from '../../ui/primitives';
 
 /**
  * The conversation header: the title (click to rename), the current model as
@@ -11,7 +11,6 @@ export default function ConversationHeader({
   canRename,
   onRename,
   model,
-  onModel,
   onFind,
   onShare,
   onContext,
@@ -22,7 +21,6 @@ export default function ConversationHeader({
   canRename: boolean;
   onRename: (title: string) => Promise<void>;
   model?: string;
-  onModel?: () => void;
   onFind?: () => void;
   onShare?: () => void;
   /** Present when the context panel is a sheet (compact layouts). */
@@ -98,18 +96,13 @@ export default function ConversationHeader({
             <Pencil size={14} aria-hidden />
           </IconButton>
         )}
-        {model && onModel && (
-          <Hint label="Change model">
-            <button
-              type="button"
-              className="conversation-model-chip"
-              aria-label={`Model: ${model}. Change model`}
-              onClick={onModel}
-            >
-              <span>{model}</span>
-              <ChevronDown size={12} aria-hidden />
-            </button>
-          </Hint>
+        {model && (
+          // The composer's model pill is the control; this chip only says
+          // which model the conversation uses.
+          <span className="conversation-model-chip" title={`Model: ${model}`}>
+            <Cpu size={12} aria-hidden />
+            <span>{model}</span>
+          </span>
         )}
       </div>
       <div
