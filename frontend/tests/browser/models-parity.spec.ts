@@ -134,20 +134,24 @@ test('Vision, media, context, and delegation controls write local settings', asy
     models.getByRole('combobox', { name: 'Default model' }),
   ).toBeVisible();
   const vision = models.locator('[aria-label="vision"]');
-  await vision.getByRole('checkbox', { name: 'Enabled' }).uncheck();
+  await vision.getByRole('switch', { name: 'Enable vision' }).uncheck();
   await expect(
-    vision.getByRole('checkbox', { name: 'Enabled' }),
+    vision.getByRole('switch', { name: 'Enable vision' }),
   ).not.toBeChecked();
   await vision.getByRole('button', { name: 'Refresh camera list' }).click();
   await expect(
     vision.getByText(/No cameras detected|camera\(s\) detected/),
   ).toBeVisible();
   const image = models.locator('[aria-label="image"]');
-  await image.getByRole('checkbox', { name: 'Enabled' }).check();
-  await expect(image.getByRole('checkbox', { name: 'Enabled' })).toBeChecked();
+  await image.getByRole('switch', { name: 'Enable image' }).check();
+  await expect(
+    image.getByRole('switch', { name: 'Enable image' }),
+  ).toBeChecked();
   const video = models.locator('[aria-label="video"]');
-  await video.getByRole('checkbox', { name: 'Enabled' }).check();
-  await expect(video.getByRole('checkbox', { name: 'Enabled' })).toBeChecked();
+  await video.getByRole('switch', { name: 'Enable video' }).check();
+  await expect(
+    video.getByRole('switch', { name: 'Enable video' }),
+  ).toBeChecked();
   await models
     .locator('summary')
     .filter({ hasText: 'Advanced context' })

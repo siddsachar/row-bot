@@ -407,55 +407,46 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
     const path = new URL(request.url()).pathname;
     if (
       request.method() === 'POST' &&
-      path === '/api/v1/settings/snapshot/commands'
+      (path === '/api/v1/settings/snapshot/review' ||
+        path === '/api/v1/settings/snapshot/commands')
     )
       commandRequests.push(path);
   };
   page.on('request', recordCommand);
   try {
     await name.fill(replacement);
-    const firstReview = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/api/v1/settings/snapshot/review',
-    );
-    await owner
-      .getByRole('button', { name: 'Review change', exact: true })
-      .click();
-    expect((await firstReview).ok()).toBe(true);
-    await expect(owner.getByRole('status')).toContainText('Review ready:');
-    await expect(
-      owner.getByRole('button', { name: 'Save reviewed change', exact: true }),
-    ).toBeVisible();
+    const save = owner.getByRole('button', { name: 'Save', exact: true });
+    await expect(save).toBeVisible();
 
-    // Edit is the non-mutating cancellation path: it retains the draft and
-    // returns to the review boundary without issuing a command.
-    await owner.getByRole('button', { name: 'Edit', exact: true }).click();
-    await expect(name).toHaveValue(replacement);
-    await expect(
-      owner.getByRole('button', { name: 'Review change', exact: true }),
-    ).toBeVisible();
+    // Revert is the non-mutating cancellation path: it restores the saved
+    // value without issuing a review or a command.
+    await owner
+      .getByRole('button', { name: 'Revert Name', exact: true })
+      .click();
+    await expect(name).toHaveValue(original);
+    await expect(save).toHaveCount(0);
     expect(commandRequests).toEqual([]);
 
-    await owner
-      .getByRole('button', { name: 'Review change', exact: true })
-      .click();
-    await expect(
-      owner.getByRole('button', { name: 'Save reviewed change', exact: true }),
-    ).toBeVisible();
+    await name.fill(replacement);
+    await expect(save).toBeVisible();
     await assertNoOverflow(page);
     await accessibility(page, info, 'settings-snapshot-review-axe');
     await screenshot(page, info, 'settings-snapshot-review');
 
+    // Save is reviewed by the server and committed in one step.
+    const reviewed = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === '/api/v1/settings/snapshot/review',
+    );
     const saved = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname ===
           '/api/v1/settings/snapshot/commands',
     );
-    await owner
-      .getByRole('button', { name: 'Save reviewed change', exact: true })
-      .click();
+    await save.click();
+    expect((await reviewed).ok()).toBe(true);
     const saveResponse = await saved;
     expect(saveResponse.ok()).toBe(true);
     const receipt = (await saveResponse.json()) as {
@@ -466,7 +457,10 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
     expect(receipt.status).toBe('completed');
     expect(receipt.snapshot?.preferences?.identity?.name).toBe(replacement);
     await expect(owner.getByRole('status')).toHaveText('Name saved.');
-    expect(commandRequests).toEqual(['/api/v1/settings/snapshot/commands']);
+    expect(commandRequests).toEqual([
+      '/api/v1/settings/snapshot/review',
+      '/api/v1/settings/snapshot/commands',
+    ]);
 
     // Read the durable receipt with the already authenticated synthetic
     // browser session. The proof remains local to this closure and is never
@@ -499,7 +493,7 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
     await writeEvidence(info, 'settings-snapshot-mutation-result', {
       page: 'preferences',
       field: 'identity.name',
-      review_cancelled_without_command: true,
+      revert_without_request: true,
       command_count: commandRequests.length,
       receipt_status: durableReceipt.status,
       reload_persisted: true,

@@ -60,17 +60,12 @@ test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', 
 
   const memory = page.getByRole('switch', { name: 'Enable Memory' });
   const wasEnabled = await memory.isChecked();
+  // The memory setting is reviewed by the server and applied in one step.
   await memory.click();
-  const reviewedMemory = page.getByRole('region', {
-    name: 'Reviewed memory setting',
-  });
-  await expect(reviewedMemory).toContainText(
-    wasEnabled ? 'disabled' : 'enabled',
-  );
-  await reviewedMemory
-    .getByRole('button', { name: 'Apply memory setting' })
-    .click();
   await expect(memory).toBeChecked({ checked: !wasEnabled });
+  await expect(
+    page.getByRole('region', { name: 'Memory graph summary' }),
+  ).toContainText(wasEnabled ? 'Memory disabled' : 'Memory enabled');
 
   const search = page.getByRole('searchbox', { name: 'Search knowledge' });
   await search.fill('tail needle');
@@ -127,7 +122,11 @@ test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', 
   await row
     .getByRole('checkbox', { name: 'Select Phase 4 knowledge 104' })
     .click();
-  await page.getByRole('button', { name: 'Review delete selected' }).click();
+  // Deletion stays destructive: the reviewed selection still needs a confirm.
+  await page
+    .getByRole('group', { name: 'Knowledge selection actions' })
+    .getByRole('button', { name: 'Delete selected', exact: true })
+    .click();
   await page
     .getByRole('button', { name: 'Confirm permanent deletion' })
     .click();

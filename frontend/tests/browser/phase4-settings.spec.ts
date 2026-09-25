@@ -273,6 +273,8 @@ test('Owner-review narrow Settings keeps representative owners behind one access
       }),
     );
   });
+  // The accessible picker replaces the side navigation below 1024px.
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/app-v2/settings/providers');
   const settings = page.getByRole('region', {
     name: 'Settings',
@@ -314,40 +316,37 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     name: 'Channels',
     exact: true,
   });
-  await expect(
-    channels.getByRole('heading', {
-      name: 'Synthetic local channel',
-      exact: true,
-    }),
-  ).toBeVisible();
-  await channels.getByLabel(/^New Local label/).fill('browser-local');
-  await channels
-    .getByRole('button', { name: 'Review save Local label', exact: true })
-    .click();
-  await expect(
-    channels.getByRole('region', {
-      name: 'Review channel action',
-      exact: true,
-    }),
-  ).toContainText('Confirm configure for p4_control');
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `channels-reviewed-${appearance}`);
-    await accessibility(page, info, `channels-reviewed-${appearance}`);
-  }
-  await channels
-    .getByRole('button', { name: 'Confirm channel action', exact: true })
+  // Channels render as collapsed rows; non-destructive saves are reviewed by
+  // the server and applied in one step (destructive actions still confirm).
+  const channel = channels.getByRole('group', {
+    name: 'Synthetic local channel channel',
+    exact: true,
+  });
+  await expect(channel).toBeVisible();
+  await channel.locator('summary').click();
+  await channel.getByLabel(/^New Local label/).fill('browser-local');
+  await channel
+    .getByRole('button', { name: 'Save Local label', exact: true })
     .click();
   await expect(
     channels.getByText('Channel action completed.', { exact: true }),
   ).toBeVisible();
+  for (const appearance of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await assertNoOverflow(page);
+    await screenshot(page, info, `channels-saved-${appearance}`);
+    await accessibility(page, info, `channels-saved-${appearance}`);
+  }
 
   await page.goto('/app-v2/settings/plugins');
   const plugins = page.getByRole('region', {
     name: 'Plugin Center',
     exact: true,
   });
+  // Search and filters live behind their own disclosure.
+  await plugins
+    .locator('summary', { hasText: 'Search and filter plugins' })
+    .click();
   await plugins
     .getByLabel('Search plugins', { exact: true })
     .fill('Synthetic settings');
@@ -364,55 +363,43 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
   await expect(region).toBeEnabled();
   await region.selectOption({ label: 'isolated' });
   await plugins
-    .getByRole('button', { name: 'Review configuration', exact: true })
+    .getByRole('button', { name: 'Save configuration', exact: true })
     .click();
-  await expect(
-    plugins.getByRole('region', { name: 'Plugin change review', exact: true }),
-  ).toBeVisible();
+  await expect(plugins.getByText(/^Plugin change completed\./)).toBeVisible();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `plugins-reviewed-${appearance}`);
-    await accessibility(page, info, `plugins-reviewed-${appearance}`);
+    await screenshot(page, info, `plugins-saved-${appearance}`);
+    await accessibility(page, info, `plugins-saved-${appearance}`);
   }
-  await plugins
-    .getByRole('button', { name: 'Apply plugin change', exact: true })
-    .click();
-  await expect(
-    plugins.getByText(
-      'Plugin change completed. Refresh to view the saved state.',
-      {
-        exact: true,
-      },
-    ),
-  ).toBeVisible();
 
   await page.goto('/app-v2/settings/skills');
   const skills = page.getByRole('region', { name: 'Skills', exact: true });
-  await skills
-    .getByLabel('Search skills', { exact: true })
-    .fill('Synthetic browser skill');
-  await skills.getByRole('button', { name: 'Search', exact: true }).click();
+  // The public skill hub has its own Search; submit the installed-skill search.
+  const skillSearch = skills.getByLabel('Search skills', { exact: true });
+  await skillSearch.fill('Synthetic browser skill');
+  await skillSearch.press('Enter');
   const skill = skills.getByRole('listitem').filter({
     hasText: 'Synthetic browser skill',
   });
   await expect(skill).toContainText('Available');
-  await skill
-    .getByRole('button', { name: 'Make unavailable', exact: true })
-    .click();
-  await expect(
-    skills.getByRole('heading', { name: 'Review skill change', exact: true }),
-  ).toBeVisible();
+  const available = skill.getByRole('switch', {
+    name: 'Synthetic browser skill available',
+    exact: true,
+  });
+  await expect(available).toBeChecked();
+  // The switch applies through the server, so its state changes after the
+  // saved outcome rather than on the click itself.
+  await expect(available).toBeEnabled();
+  await available.click();
+  await expect(skill).toContainText('Unavailable');
+  await expect(available).not.toBeChecked();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `skills-reviewed-${appearance}`);
-    await accessibility(page, info, `skills-reviewed-${appearance}`);
+    await screenshot(page, info, `skills-saved-${appearance}`);
+    await accessibility(page, info, `skills-saved-${appearance}`);
   }
-  await skills
-    .getByRole('button', { name: 'Apply reviewed change', exact: true })
-    .click();
-  await expect(skill).toContainText('Unavailable');
 
   const state = await page.request
     .get('/__p4_fixture/capability-settings', { headers })
@@ -450,16 +437,12 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
   await expect(wiki.getByText(/Authorized folder selected/)).toBeVisible();
   const enabled = wiki.getByRole('switch', { name: 'Enable Wiki Vault' });
   if (!(await enabled.isChecked())) await enabled.check();
-  await wiki.getByRole('button', { name: 'Apply', exact: true }).click();
-  const configuration = wiki.getByRole('region', {
-    name: 'Reviewed wiki action',
-    exact: true,
-  });
-  await expect(configuration).toContainText('Wiki will be enabled.');
-  await configuration
-    .getByRole('button', { name: 'Save wiki configuration', exact: true })
+  // "Use selected vault" is reviewed by the server and applied in one step.
+  await wiki
+    .getByRole('button', { name: 'Use selected vault', exact: true })
     .click();
-  await expect(wiki.getByRole('status')).toContainText('Finished');
+  const syncStatus = wiki.getByText(/^Sync status:/);
+  await expect(syncStatus).toContainText('Finished');
   const setup = await page.request.post('/__p4_fixture/wiki', { headers });
   expect(setup.ok()).toBe(true);
   const created = await setup.json();
@@ -468,35 +451,30 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
     .click();
   await expect(wiki.getByText(created.title, { exact: true })).toBeVisible();
   await expect(wiki.getByText('edited', { exact: true })).toBeVisible();
+  // Inspect both versions before importing the external edit. Plain edits
+  // import after the server review; only conflicts need a confirmation.
   await wiki
-    .getByRole('button', {
-      name: `Review versions: ${created.title}`,
-      exact: true,
-    })
+    .getByRole('button', { name: `Open ${created.title}`, exact: true })
     .click();
-  const review = wiki.getByRole('region', {
-    name: 'Reviewed wiki action',
-    exact: true,
-  });
   await expect(
-    review.getByLabel(`Database version: ${created.title}`),
+    wiki.getByLabel(`Database version: ${created.title}`),
   ).toContainText('saved database description');
   await expect(
-    review.getByLabel(`Vault version: ${created.title}`),
+    wiki.getByLabel(`Vault version: ${created.title}`),
   ).toContainText('externally edited vault description');
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `wiki-conflict-review-${appearance}`);
-    await accessibility(page, info, `wiki-conflict-review-${appearance}`);
+    await screenshot(page, info, `wiki-versions-${appearance}`);
+    await accessibility(page, info, `wiki-versions-${appearance}`);
   }
-  await review
+  await wiki
     .getByRole('button', {
-      name: 'Accept reviewed vault version',
+      name: `Import edit: ${created.title}`,
       exact: true,
     })
     .click();
-  await expect(wiki.getByRole('status')).toContainText('Finished: 1 completed');
+  await expect(syncStatus).toContainText('Finished: 1 completed');
   const state = await page.request
     .get('/__p4_fixture/wiki', { headers })
     .then(async (response) => response.json());
@@ -551,31 +529,29 @@ test('Document processing reviews the selected conversation and runs the admitte
       `Synthetic reviewed source bytes for the canonical document processing pipeline: ${info.project.name}.`,
     ),
   });
-  await upload
-    .getByRole('button', { name: 'Review upload', exact: true })
-    .click();
+  // Uploads are reviewed by the server and staged paused in one step.
   const uploaded = page.waitForResponse(
     (response) =>
       response.url().endsWith('/api/v1/documents/uploads/commands') &&
       response.request().method() === 'POST',
   );
   await upload
-    .getByRole('button', { name: 'Confirm upload', exact: true })
+    .getByRole('button', { name: 'Upload selected', exact: true })
     .click();
   const uploadResponse = await uploaded;
   expect(uploadResponse.ok()).toBe(true);
   const { batch_id } = await uploadResponse.json();
   await page
-    .getByRole('button', { name: `Review processing ${batch_id}`, exact: true })
+    .getByRole('button', { name: `Process ${batch_id}`, exact: true })
     .click();
   const processing = page.getByRole('region', {
-    name: 'Document processing review',
+    name: 'Document processing',
     exact: true,
   });
-  await processing
-    .getByRole('button', { name: 'Review processing policy', exact: true })
-    .click();
-  await expect(processing.getByText(/Chat provider: openai/)).toBeVisible();
+  await expect(
+    processing.getByText(`Batch: ${batch_id}`, { exact: true }),
+  ).toBeVisible();
+  // Selecting a batch never starts provider work on its own.
   expect(
     await (
       await page.request.get('/__p4_fixture/document-processing', { headers })
@@ -589,8 +565,12 @@ test('Document processing reviews the selected conversation and runs the admitte
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `document-processing-review-${appearance}`);
-    await accessibility(page, info, `document-processing-review-${appearance}`);
+    await screenshot(page, info, `document-processing-selected-${appearance}`);
+    await accessibility(
+      page,
+      info,
+      `document-processing-selected-${appearance}`,
+    );
   }
   const admitted = page.waitForResponse(
     (response) =>
@@ -601,11 +581,13 @@ test('Document processing reviews the selected conversation and runs the admitte
         ) && response.request().method() === 'POST',
   );
   await processing
-    .getByRole('button', { name: 'Approve and start processing', exact: true })
+    .getByRole('button', { name: 'Start processing', exact: true })
     .click();
   const admissionResponse = await admitted;
   expect(admissionResponse.ok()).toBe(true);
   expect((await admissionResponse.json()).processing).toBe('admitted');
+  // The reviewed providers stay disclosed with the admitted command.
+  await expect(processing.getByText(/Chat provider: openai/)).toBeVisible();
   await expect(processing.getByRole('status')).toContainText(
     'Processing admitted.',
   );
@@ -699,9 +681,7 @@ test('Document upload retains selected files and stages exact streamed bytes pau
   await upload
     .getByLabel('Choose documents', { exact: true })
     .setInputFiles(files);
-  await upload
-    .getByRole('button', { name: 'Review upload', exact: true })
-    .click();
+  // The selection is retained by its owner across navigation.
   await openHomeThroughNavigation(page);
   await openDocumentsFromHome(page);
   await expect(
@@ -712,8 +692,8 @@ test('Document upload retains selected files and stages exact streamed bytes pau
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `document-upload-review-${appearance}`);
-    await accessibility(page, info, `document-upload-review-${appearance}`);
+    await screenshot(page, info, `document-upload-selected-${appearance}`);
+    await accessibility(page, info, `document-upload-selected-${appearance}`);
   }
   const completed = page.waitForResponse(
     (response) =>
@@ -721,7 +701,7 @@ test('Document upload retains selected files and stages exact streamed bytes pau
       response.request().method() === 'POST',
   );
   await upload
-    .getByRole('button', { name: 'Confirm upload', exact: true })
+    .getByRole('button', { name: 'Upload selected', exact: true })
     .click();
   const response = await completed;
   expect(response.ok()).toBe(true);
@@ -787,51 +767,48 @@ test('Document queue reviews pause resume cancellation and clearing while preser
       }),
     })
     .first();
-  await batch
-    .getByRole('button', { name: 'Review pause', exact: true })
+  const status = queue.getByRole('status');
+  // Pause and resume are reviewed by the server and applied in one step.
+  await batch.getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(status).toContainText('Saved queue outcome: paused');
+  expect((await saved()).paused).toBe(true);
+  await queue
+    .getByRole('button', { name: 'Refresh queue', exact: true })
     .click();
+  await batch.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(status).toContainText('Saved queue outcome: resumed');
   expect((await saved()).paused).toBe(false);
+  await queue
+    .getByRole('button', { name: 'Refresh queue', exact: true })
+    .click();
+  // Cancellation still requires an explicit confirmation, retained across
+  // navigation, before anything changes.
+  await batch
+    .getByRole('button', { name: 'Cancel remaining', exact: true })
+    .click();
+  const confirmation = queue.getByRole('group', {
+    name: 'Confirm document queue action',
+    exact: true,
+  });
+  await expect(confirmation).toContainText(
+    'Selected action: document.batch.cancel',
+  );
+  expect((await saved()).status).not.toBe('cancelled');
   await openHomeThroughNavigation(page);
   await openDocumentsFromHome(page);
-  await expect(
-    queue.getByText('Reviewed action: document.batch.pause', { exact: true }),
-  ).toBeVisible();
+  await expect(confirmation).toContainText(
+    'Selected action: document.batch.cancel',
+  );
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
     await screenshot(page, info, `document-queue-review-${appearance}`);
     await accessibility(page, info, `document-queue-review-${appearance}`);
   }
-  await queue
-    .getByRole('button', { name: 'Confirm queue action', exact: true })
+  await confirmation
+    .getByRole('button', { name: 'Confirm cancellation', exact: true })
     .click();
-  await expect(queue.getByRole('status')).toContainText(
-    'Saved queue outcome: paused',
-  );
-  expect((await saved()).paused).toBe(true);
-  await queue
-    .getByRole('button', { name: 'Refresh queue', exact: true })
-    .click();
-  await batch
-    .getByRole('button', { name: 'Review resume', exact: true })
-    .click();
-  await queue
-    .getByRole('button', { name: 'Confirm queue action', exact: true })
-    .click();
-  await expect(queue.getByRole('status')).toContainText(
-    'Saved queue outcome: resumed',
-  );
-  expect((await saved()).paused).toBe(false);
-  await queue
-    .getByRole('button', { name: 'Refresh queue', exact: true })
-    .click();
-  await batch
-    .getByRole('button', { name: 'Review cancel remaining', exact: true })
-    .click();
-  await queue
-    .getByRole('button', { name: 'Confirm queue action', exact: true })
-    .click();
-  await expect(queue.getByRole('status')).toContainText(
+  await expect(status).toContainText(
     'Saved queue outcome: cancellation_requested',
   );
   expect((await saved()).status).toBe('cancelled');
@@ -842,17 +819,12 @@ test('Document queue reviews pause resume cancellation and clearing while preser
     .getByLabel(`Select finished batch ${batch_id}`, { exact: true })
     .check();
   await queue
-    .getByRole('button', {
-      name: 'Review clear selected finished',
-      exact: true,
-    })
+    .getByRole('button', { name: 'Clear selected finished', exact: true })
     .click();
-  await queue
-    .getByRole('button', { name: 'Confirm queue action', exact: true })
+  await confirmation
+    .getByRole('button', { name: 'Confirm clear selected', exact: true })
     .click();
-  await expect(queue.getByRole('status')).toContainText(
-    'Saved queue outcome: cleared',
-  );
+  await expect(status).toContainText('Saved queue outcome: cleared');
   expect(await saved()).toEqual({
     status: null,
     paused: null,
@@ -880,16 +852,23 @@ test('Managed runtimes review metadata then install exact archive and retain rou
     return response.json();
   };
   await page.goto('/app-v2/settings/mcp');
+  // Managed runtimes live behind the MCP page's Advanced disclosure.
+  const runtimes = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Managed runtimes' }),
+  });
+  const expandRuntimes = async () => {
+    if (!(await runtimes.evaluate((node) => (node as HTMLDetailsElement).open)))
+      await runtimes.locator('summary').first().click();
+  };
+  await expandRuntimes();
   const runtime = page.getByRole('region', {
     name: 'node managed runtime installation',
     exact: true,
   });
-  await runtime
-    .getByRole('button', { name: 'Review metadata resolution', exact: true })
-    .click();
   expect((await saved()).calls).toEqual([]);
+  // Resolution and installation are reviewed by the server and run in one step.
   await runtime
-    .getByRole('button', { name: 'Approve and resolve metadata', exact: true })
+    .getByRole('button', { name: 'Resolve metadata', exact: true })
     .click();
   await expect(
     runtime.getByText(
@@ -897,37 +876,33 @@ test('Managed runtimes review metadata then install exact archive and retain rou
       { exact: true },
     ),
   ).toBeVisible();
-  await runtime
-    .getByRole('button', { name: 'Review pinned installation', exact: true })
-    .click();
-  await expect(
-    runtime.getByText('https://example.invalid/node.zip', { exact: true }),
-  ).toBeVisible();
   expect((await saved()).calls).toEqual(['resolve']);
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
     path: '/app-v2/settings/mcp',
-    headingName: 'MCP servers',
+    headingName: 'MCP',
   });
+  await expandRuntimes();
+  // The resolved operation is retained by its owner across navigation.
   await expect(
-    runtime.getByText('https://example.invalid/node.zip', { exact: true }),
+    runtime.getByText(
+      'Original operation: resolved. Worker cleanup: confirmed.',
+      { exact: true },
+    ),
   ).toBeVisible();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `runtime-installation-review-${appearance}`);
+    await screenshot(page, info, `runtime-installation-resolved-${appearance}`);
     await accessibility(
       page,
       info,
-      `runtime-installation-review-${appearance}`,
+      `runtime-installation-resolved-${appearance}`,
     );
   }
   await runtime
-    .getByRole('button', {
-      name: 'Approve and install pinned runtime',
-      exact: true,
-    })
+    .getByRole('button', { name: 'Install pinned runtime', exact: true })
     .click();
   await expect(
     runtime.getByText(
@@ -962,8 +937,9 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
   await expect(
     page.getByRole('button', { name: 'Create knowledge', exact: true }),
   ).toHaveCount(0);
+  // Earlier specs in the shared fixture may add entries; the page size is fixed.
   await expect(
-    page.getByText('Showing 25 of 105 matching entries.'),
+    page.getByText(/^Showing 25 of \d+ matching entries\.$/),
   ).toBeVisible();
   await page
     .getByRole('searchbox', { name: 'Search knowledge' })
@@ -993,9 +969,7 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
   await editor
     .getByRole('textbox', { name: 'Description', exact: true })
     .fill('Synthetic retained modal draft');
-  await editor
-    .getByRole('button', { name: 'Review save', exact: true })
-    .click();
+  // Close without saving: the owner retains the unsaved draft.
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
@@ -1005,7 +979,7 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
     headingName: 'Knowledge',
   });
   await expect(
-    page.getByText('Showing 25 of 105 matching entries.'),
+    page.getByText(/^Showing 25 of \d+ matching entries\.$/),
   ).toBeVisible();
   await page
     .getByRole('searchbox', { name: 'Search knowledge' })
@@ -1038,8 +1012,9 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
   await expect(
     editor.getByRole('textbox', { name: 'Description', exact: true }),
   ).toHaveValue('Synthetic retained modal draft');
+  // Saving is reviewed by the server and applied in one step.
   await editor
-    .getByRole('button', { name: 'Confirm knowledge change', exact: true })
+    .getByRole('button', { name: 'Save knowledge', exact: true })
     .click();
   await expect(
     editor.getByText(
@@ -1055,12 +1030,7 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
       url.searchParams.get('status') === 'active'
     );
   });
-  await editor
-    .getByRole('button', {
-      name: 'Discard draft and reload saved entry',
-      exact: true,
-    })
-    .click();
+  await editor.getByRole('button', { name: /reload saved entry$/i }).click();
   await refreshedCatalog;
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
@@ -1074,18 +1044,18 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
       reopenedEntry.getByText('p4-entity-002', { exact: true }),
     ).toBeVisible();
   }
+  // Archive and restore are reviewed by the server and applied in one step.
   await archive.click();
-  await page
-    .getByRole('button', { name: 'Confirm lifecycle change', exact: true })
-    .click();
   await expect(page.getByText('No matching knowledge')).toBeVisible();
   await page.getByRole('combobox', { name: 'Status' }).selectOption('archived');
   const archived = page.locator('.settings-knowledge-result').first();
   await archived.locator('summary').click();
   await archived.getByRole('button', { name: 'Restore', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Confirm lifecycle change', exact: true })
-    .click();
+  await expect(
+    page.locator('.settings-knowledge-result', {
+      hasText: 'Phase 4 knowledge 002',
+    }),
+  ).toHaveCount(0);
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -1129,9 +1099,6 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
   await relations
     .getByRole('button', { name: 'Phase 4 knowledge 001 · fact', exact: true })
     .click();
-  await relations
-    .getByRole('button', { name: 'Review new relation', exact: true })
-    .click();
   const dialog = page.getByRole('dialog', { name: 'Edit knowledge' });
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
@@ -1150,15 +1117,16 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
     .getByRole('button', { name: 'Edit', exact: true })
     .click();
   await expect(relations).toBeVisible();
-  const confirm = async (outcome: string) => {
+  await expect(
+    relations.getByText(/^Selected: Phase 4 knowledge 001/),
+  ).toBeVisible();
+  const commit = async (action: Locator, outcome: string) => {
     const result = page.waitForResponse(
       (response) =>
         response.url().endsWith('/knowledge/relations/commands') &&
         response.request().method() === 'POST',
     );
-    await relations
-      .getByRole('button', { name: 'Confirm relation change', exact: true })
-      .click();
+    await action.click();
     const response = await result;
     expect(response.ok()).toBe(true);
     expect((await response.json()).outcome).toBe(outcome);
@@ -1166,7 +1134,10 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
       .getByRole('button', { name: 'Reload relations', exact: true })
       .click();
   };
-  await confirm('saved');
+  await commit(
+    relations.getByRole('button', { name: 'Add relation', exact: true }),
+    'saved',
+  );
   await expect(
     relations.getByText('Outgoing · knows · Phase 4 knowledge 001', {
       exact: true,
@@ -1179,9 +1150,14 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
     await accessibility(page, info, `knowledge-relations-${appearance}`);
   }
   await relations
-    .getByRole('button', { name: 'Review removal of knows', exact: true })
+    .getByRole('button', { name: 'Remove knows relation', exact: true })
     .click();
-  await confirm('removed');
+  await commit(
+    relations
+      .getByRole('group', { name: 'Confirm relation removal', exact: true })
+      .getByRole('button', { name: 'Confirm relation removal', exact: true }),
+    'removed',
+  );
   await expect(
     relations.getByText('1 saved relations. 1 shown on this page.', {
       exact: true,
@@ -1192,13 +1168,13 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
       exact: true,
     }),
   ).toBeVisible();
-  await relations
-    .getByRole('button', {
-      name: 'Review Supersede with selected entry',
+  await commit(
+    relations.getByRole('button', {
+      name: 'Supersede with selected entry',
       exact: true,
-    })
-    .click();
-  await confirm('superseded');
+    }),
+    'superseded',
+  );
   const editor = page.getByRole('region', {
     name: 'Knowledge editor',
     exact: true,
@@ -1249,6 +1225,13 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     name: 'Buddy preferences',
     exact: true,
   });
+  // Name and visual style live in the "Advanced companion" disclosure.
+  const advanced = preferences.locator('details.settings-buddy-advanced');
+  const openAdvanced = async () => {
+    if (!(await advanced.evaluate((node) => (node as HTMLDetailsElement).open)))
+      await advanced.locator('summary').click();
+  };
+  await openAdvanced();
   await preferences
     .getByLabel('Buddy name', { exact: true })
     .fill('Synthetic companion');
@@ -1265,6 +1248,7 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     path: '/app-v2/settings/buddy',
     headingName: 'Buddy',
   });
+  await openAdvanced();
   await expect(
     preferences.getByLabel('Buddy name', { exact: true }),
   ).toHaveValue('Synthetic companion');
@@ -2009,12 +1993,14 @@ test('MCP tested tools retain their review and accept the saved catalog without 
     name: 'MCP connection',
     exact: true,
   });
-  await connection
-    .getByRole('button', { name: 'Review Test', exact: true })
-    .click();
-  await connection
-    .getByRole('button', { name: 'Test now', exact: true })
-    .click();
+  // Test is reviewed by the server and runs in one step.
+  await connection.getByRole('button', { name: 'Test', exact: true }).click();
+  await expect(
+    connection.getByText(
+      'Test completed and the temporary connection closed.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   const catalog = page.getByRole('region', {
     name: 'Accept tested MCP tools',
     exact: true,
@@ -2025,9 +2011,7 @@ test('MCP tested tools retain their review and accept the saved catalog without 
   await expect(
     catalog.getByRole('listitem').filter({ hasText: 'delete_record' }),
   ).toContainText('Disabled after acceptance. Approval required.');
-  await catalog
-    .getByRole('button', { name: 'Review acceptance', exact: true })
-    .click();
+  // The tested catalog is retained by its owner across navigation.
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
@@ -2079,29 +2063,23 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
     name: 'MCP connection',
     exact: true,
   });
-  await connection
-    .getByRole('button', { name: 'Review Test', exact: true })
-    .click();
+  // Test, Connect and Disconnect are reviewed by the server and run in one
+  // step; the connection owner retains the outcome across navigation.
+  await connection.getByRole('button', { name: 'Test', exact: true }).click();
+  const tested = connection.getByText(
+    'Test completed and the temporary connection closed.',
+    { exact: true },
+  );
+  await expect(tested).toBeVisible();
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
     path: '/app-v2/settings/mcp',
     headingName: 'MCP servers',
   });
+  await expect(tested).toBeVisible();
   await connection
-    .getByRole('button', { name: 'Test now', exact: true })
-    .click();
-  await expect(
-    connection.getByText(
-      'Test completed and the temporary connection closed.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await connection
-    .getByRole('button', { name: 'Review Connect', exact: true })
-    .click();
-  await connection
-    .getByRole('button', { name: 'Connect now', exact: true })
+    .getByRole('button', { name: 'Connect', exact: true })
     .click();
   await expect(
     connection.getByText('Connected.', { exact: true }),
@@ -2113,16 +2091,13 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
     await accessibility(page, info, `mcp-connected-${appearance}`);
   }
   await connection
-    .getByRole('button', { name: 'Review Disconnect', exact: true })
-    .click();
-  await connection
-    .getByRole('button', { name: 'Disconnect now', exact: true })
+    .getByRole('button', { name: 'Disconnect', exact: true })
     .click();
   await expect(
     connection.getByText('Connection cleanup completed.', { exact: true }),
   ).toBeVisible();
   await expect(
-    connection.getByRole('button', { name: 'Review Connect', exact: true }),
+    connection.getByRole('button', { name: 'Connect', exact: true }),
   ).toBeEnabled();
 });
 
@@ -2280,17 +2255,18 @@ test('MCP saved permissions preserve mandatory approval and apply explicit revie
   });
   expect(seeded.ok()).toBe(true);
   await page.goto('/app-v2/settings/mcp');
-  const globals = page
-    .getByRole('region', { name: 'Saved MCP permissions', exact: true })
-    .first();
+  // Global permissions live behind their own disclosure; each change is
+  // reviewed by the server and saved in one step.
+  const disclosure = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Saved MCP permissions' }),
+  });
+  await disclosure.locator('summary').click();
+  const globals = disclosure.getByRole('region', {
+    name: 'Saved MCP permissions',
+    exact: true,
+  });
   await globals
     .getByRole('button', { name: 'Disable MCP access', exact: true })
-    .click();
-  await globals
-    .getByRole('button', { name: 'Review permission', exact: true })
-    .click();
-  await globals
-    .getByRole('button', { name: 'Save permission', exact: true })
     .click();
   await expect(globals.getByText(/Permission saved/)).toBeVisible();
   await page
@@ -2317,12 +2293,6 @@ test('MCP saved permissions preserve mandatory approval and apply explicit revie
   ]) {
     await permissions
       .getByRole('button', { name: action, exact: true })
-      .click();
-    await permissions
-      .getByRole('button', { name: 'Review permission', exact: true })
-      .click();
-    await permissions
-      .getByRole('button', { name: 'Save permission', exact: true })
       .click();
     await expect(permissions.getByText(/Permission saved/)).toBeVisible();
     await permissions
@@ -2373,7 +2343,7 @@ test('Document removal retains its review and original partial cleanup until exp
     exact: true,
   });
   await removal
-    .getByRole('button', { name: 'Review document removal', exact: true })
+    .getByRole('button', { name: 'Remove document', exact: true })
     .click();
   await openHomeThroughNavigation(page);
   await expectFocusedHome(page);
@@ -2395,7 +2365,7 @@ test('Document removal retains its review and original partial cleanup until exp
     }),
   ).toBeVisible();
   await removal
-    .getByRole('button', { name: 'Review remaining cleanup', exact: true })
+    .getByRole('button', { name: 'Continue cleanup', exact: true })
     .click();
   await removal
     .getByRole('button', { name: 'Confirm remaining cleanup', exact: true })
@@ -2452,6 +2422,8 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   });
   const name = `Synthetic MCP ${info.project.name}`;
   const renamed = `${name} renamed`;
+  // The server editor opens from Add server behind its own disclosure.
+  await editor.getByRole('button', { name: 'Add server', exact: true }).click();
   await editor.getByLabel('Server name', { exact: true }).fill(name);
   await editor
     .getByLabel('New command', { exact: true })
@@ -2462,10 +2434,8 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await editor
     .getByLabel('Additional settings (JSON)', { exact: true })
     .fill('{"env":{"SYNTHETIC":"private-test-value"}}');
-  await editor
-    .getByRole('button', { name: 'Review settings', exact: true })
-    .click();
-  await expect(editor.getByText(/Review complete/)).toBeVisible();
+  // The unsaved draft, including write-only fields, is retained by its owner
+  // across navigation and reopens the editor.
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
@@ -2475,21 +2445,18 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await expect(editor.getByLabel('New command', { exact: true })).toHaveValue(
     'synthetic-unused-command',
   );
-  const save = async (review = true) => {
-    if (review)
-      await editor
-        .getByRole('button', { name: 'Review settings', exact: true })
-        .click();
+  // Saving is reviewed by the server and applied, disabled, in one step.
+  const save = async () => {
     await editor
       .getByRole('button', { name: 'Save Disabled', exact: true })
       .click();
     await expect(editor.getByText(/Saved disabled\. Refresh/)).toBeVisible();
     await editor.getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect(
-      editor.getByRole('button', { name: 'Review settings', exact: true }),
+      editor.getByRole('button', { name: 'Save Disabled', exact: true }),
     ).toBeEnabled();
   };
-  await save(false);
+  await save();
   await editor
     .getByRole('button', { name: `Edit ${name}`, exact: true })
     .click();
