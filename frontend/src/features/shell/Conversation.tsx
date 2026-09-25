@@ -31,8 +31,11 @@ import ResourceTargets from './ResourceTargets';
 import {
   ArrowDown,
   ArrowUp,
+  Bot,
+  Code2,
   ListPlus,
   MoreHorizontal,
+  Palette,
   Paperclip,
   Square,
   TriangleAlert,
@@ -54,6 +57,7 @@ import {
 import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
+import MentionPalette, { type MentionItem } from './MentionPalette';
 import { openAgentProfiles } from './agent-profiles';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
@@ -337,6 +341,7 @@ export default function Conversation({
   const [showLatest, setShowLatest] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const slashPaletteRef = useRef<SlashPaletteHandle>(null);
+  const mentionPaletteRef = useRef<SlashPaletteHandle>(null);
   const [composerCursor, setComposerCursor] = useState(0);
   const [composerSnapshot, setComposerSnapshot] =
     useState<ConversationComposer | null>(null);
@@ -1699,7 +1704,10 @@ export default function Conversation({
       setError(clientError(cause).message);
     }
   }
-  async function allowInChat() {
+  async function updateControls(patch: {
+    profile_id?: string;
+    approval_mode?: 'allow_all';
+  }) {
     if (!id || !controls || !state.workspace) return;
     await controller.intent(
       id,
@@ -1708,11 +1716,82 @@ export default function Conversation({
         model_selection: controls.model_selection,
         runtime_mode: controls.runtime_mode,
         profile_id: controls.profile_id,
-        approval_mode: 'allow_all',
+        approval_mode: controls.approval_mode,
+        ...patch,
       },
       state.workspace.revision,
     );
   }
+  const allowInChat = () => updateControls({ approval_mode: 'allow_all' });
+  function chooseTarget(
+    kind: 'artifact' | 'workspace',
+    bindingId: string | null,
+  ) {
+    if (!id) return;
+    setTargets((previous) => ({
+      ...previous,
+      [id]: [
+        ...(previous[id] ?? defaultTargetIds).filter(
+          (binding) =>
+            !resources.some(
+              (resource) =>
+                resource.binding.binding_id === binding &&
+                resource.binding.kind === kind,
+            ),
+        ),
+        ...(bindingId ? [bindingId] : []),
+      ],
+    }));
+  }
+  // "@" mentions: a keyboard path to agent profile, write target and files.
+  const selectedTargets = id ? (targetSelection[id] ?? defaultTargetIds) : [];
+  const mentionItems: MentionItem[] = [
+    ...[{ id: '', label: 'Default' }, ...(state.workspace?.profiles ?? [])].map(
+      (profile) => ({
+        id: `profile:${profile.id}`,
+        group: 'Agents',
+        label: profile.label,
+        description: 'Use this agent profile in this chat',
+        icon: <Bot size={16} />,
+        current: (controls?.profile_id ?? '') === profile.id,
+        onChoose: () =>
+          void updateControls({ profile_id: profile.id }).catch((cause) =>
+            setError(clientError(cause).message),
+          ),
+      }),
+    ),
+    ...resources
+      .filter((resource) => resource.available)
+      .map((resource) => ({
+        id: `resource:${resource.binding.binding_id}`,
+        group: 'Resources',
+        label: resource.title,
+        description:
+          resource.binding.kind === 'artifact'
+            ? 'Send changes to this design'
+            : 'Send changes to this code folder',
+        icon:
+          resource.binding.kind === 'artifact' ? (
+            <Palette size={16} />
+          ) : (
+            <Code2 size={16} />
+          ),
+        current: selectedTargets.includes(resource.binding.binding_id),
+        onChoose: () =>
+          chooseTarget(
+            resource.binding.kind as 'artifact' | 'workspace',
+            resource.binding.binding_id,
+          ),
+      })),
+    {
+      id: 'file',
+      group: 'Files',
+      label: 'Attach a file…',
+      description: 'Choose a file from this device',
+      icon: <Paperclip size={16} />,
+      onChoose: () => void attach(),
+    },
+  ];
   // "↓ N new" counts live rows that arrived while the reader was away.
   const liveItemCount =
     items.length -
@@ -2235,22 +2314,7 @@ export default function Conversation({
                   <ResourceTargets
                     resources={resources}
                     selected={targetSelection[id] ?? defaultTargetIds}
-                    onChange={(kind, bindingId) =>
-                      setTargets((previous) => ({
-                        ...previous,
-                        [id]: [
-                          ...(previous[id] ?? defaultTargetIds).filter(
-                            (binding) =>
-                              !resources.some(
-                                (resource) =>
-                                  resource.binding.binding_id === binding &&
-                                  resource.binding.kind === kind,
-                              ),
-                          ),
-                          ...(bindingId ? [bindingId] : []),
-                        ],
-                      }))
-                    }
+                    onChange={chooseTarget}
                   />
                 )}
                 {!!draft.attachments.length && (
@@ -2316,7 +2380,8 @@ export default function Conversation({
               onKeyDown={(e) => {
                 if (
                   !e.nativeEvent.isComposing &&
-                  slashPaletteRef.current?.key(e)
+                  (slashPaletteRef.current?.key(e) ||
+                    mentionPaletteRef.current?.key(e))
                 ) {
                   e.preventDefault();
                   return;
@@ -2364,6 +2429,15 @@ export default function Conversation({
                 onChoose={(command, token) => void chooseSlash(command, token)}
               />
             )}
+            <MentionPalette
+              ref={mentionPaletteRef}
+              text={draft.text}
+              cursor={composerCursor}
+              items={mentionItems}
+              disabled={busy || composerBusy}
+              inputRef={composerRef}
+              onConsume={(token) => replaceSlashToken(token)}
+            />
             <div className="composer-toolbar" ref={toolbarRef}>
               <ComposerControls
                 key={id}
