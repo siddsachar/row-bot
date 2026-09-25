@@ -5698,6 +5698,13 @@ details[open] > summary > .settings-disclosure-chevron {
 .composer-control-cluster .composer-control {
   flex: 0 1 auto;
 }
+/* The long model name gives way first so short labels (Ask, Skills · 1)
+   stay whole with the wider bundled face. */
+@container composer (min-width: 601px) {
+  .composer-control-cluster > .composer-control:first-child {
+    flex-shrink: 16;
+  }
+}
 .composer-actions {
   gap: 2px;
   margin-inline-start: auto;
