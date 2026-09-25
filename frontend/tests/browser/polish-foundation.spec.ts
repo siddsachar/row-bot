@@ -239,6 +239,9 @@ test('composer menus stay in the viewport and only one popover shows at a time (
   });
   await screenshot(page, info, 'polish-model-menu-bounded');
   await page.keyboard.press('Escape');
+  // Wait for the menu to finish closing: it returns focus to its trigger,
+  // and the palette (B5) steps aside whenever the composer loses focus.
+  await expect(page.getByRole('menu')).toHaveCount(0);
 
   const draft = page.getByRole('textbox', { name: 'Message' });
   await draft.fill('/');
@@ -280,4 +283,31 @@ test('the context rail hides empty sections and keeps Connected quiet (B7)', asy
     await status.evaluate((element) => element.getBoundingClientRect().width),
   ).toBeLessThanOrEqual(1);
   await screenshot(page, info, 'polish-context-rail-quiet');
+});
+
+test('compact navigation opens Settings after its drawer releases history', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openFixture(page);
+  await page
+    .getByRole('button', { name: 'Toggle navigation', exact: true })
+    .click();
+  const drawer = page.getByRole('dialog', { name: 'Conversations' });
+  await expect(drawer).toBeVisible();
+  // The drawer sits on a same-URL history entry; closing it pops that entry
+  // asynchronously, which must not undo the route the link opens.
+  await drawer.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(drawer).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Providers', exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/app-v2\/conversations\/conversation-a/);
+  await expect(drawer).toHaveCount(0);
 });

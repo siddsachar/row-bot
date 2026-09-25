@@ -105,7 +105,7 @@ test('modal child menus and popovers stay above the modal; suspension preserves 
   ).toBeFocused();
 });
 
-test('sheet footer and command search stay reachable with long content', async ({
+test('sheet close action and command search stay reachable with long content', async ({
   page,
 }, testInfo) => {
   await page.goto('/app-v2/primitives?fixture=normal');
@@ -125,9 +125,10 @@ test('sheet footer and command search stay reachable with long content', async (
   await expect(
     page.getByRole('dialog', { name: 'Sample sheet', exact: true }),
   ).toBeVisible();
+  // Sheets close from their header action (the footer was removed for sheets).
   const close = page
     .getByRole('dialog')
-    .getByRole('button', { name: 'Close', exact: true });
+    .getByRole('button', { name: 'Close dialog', exact: true });
   await expect(close).toBeInViewport();
   expect(
     await close.evaluate((element) => {
@@ -139,7 +140,7 @@ test('sheet footer and command search stay reachable with long content', async (
         ),
       );
     }),
-    'The modal footer action must remain visible and reachable while a notification is present',
+    'The sheet close action must remain visible and reachable while a notification is present',
   ).toBe(true);
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'sheet-long-content-footer');

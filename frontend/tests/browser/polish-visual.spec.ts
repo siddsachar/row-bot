@@ -84,15 +84,17 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
   await expect(editor).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'New workflow' }),
-  ).toBeVisible();
+  // Creation opens in a dialog since the workflow cards pass.
+  const dialog = page.getByRole('dialog', {
+    name: 'New task/workflow',
+    exact: true,
+  });
+  await expect(dialog).toContainText('New task/workflow');
+  await expect(dialog.getByRole('heading').first()).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-phone');
   await page.setViewportSize({ width: 720, height: 900 });
-  await page
-    .getByRole('heading', { name: 'New workflow' })
-    .scrollIntoViewIfNeeded();
+  await dialog.getByRole('heading').first().scrollIntoViewIfNeeded();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-200-percent-reflow');
   await page.goto('/app-v2/settings/providers');

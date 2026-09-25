@@ -54,6 +54,15 @@ export async function fixtureState(page: Page): Promise<{
   return response.json();
 }
 
+// Earlier specs may choose another default model; Thinking controls belong to
+// the one synthetic model that supplies reasoning capabilities.
+export async function restoreThinkingDefault(page: Page): Promise<void> {
+  const response = await page.request.post('/__p4_fixture/reasoning-default', {
+    headers: fixtureHeaders(),
+  });
+  expect(response.ok()).toBe(true);
+}
+
 export async function releaseProducer(
   page: Page,
   call: FixtureCall,
@@ -288,8 +297,10 @@ export async function openConversation(
 export async function newConversation(page: Page): Promise<string> {
   await retireDocument(page);
   await page.goto('/app-v2/');
-  await expect(page.locator('.home-connection-status')).toHaveText(
-    'Connected · local workspace',
+  // Home no longer shows a connected label (parity slice 1); the shell's
+  // announced connection status is the stable readiness signal.
+  await expect(page.locator('.connection-status.connected')).toHaveText(
+    'Connected',
   );
   const newChat = page.getByRole('button', {
     name: 'New chat',

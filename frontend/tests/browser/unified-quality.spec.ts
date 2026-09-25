@@ -330,7 +330,13 @@ test('reduced motion and forced colours preserve a usable single conversation', 
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
   ).toBeVisible();
   await assertControlTextUnclipped(send);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  // Settings is a navigation link; the navigation is collapsed at this width.
+  const settings = page.getByRole('link', { name: 'Settings', exact: true });
+  if (!(await settings.isVisible()))
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  await settings.click();
   await expect(page).toHaveURL(/\/settings\/providers$/);
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));

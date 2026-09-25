@@ -19,6 +19,7 @@ import {
   openConversation,
   reloadDocument,
   releaseProducer,
+  restoreThinkingDefault,
 } from './unified-helpers';
 
 test.use({ serviceWorkers: 'allow' });
@@ -304,9 +305,12 @@ for (const zoom of [1, 2])
     await markWorkspaceIdentity(page);
     try {
       await addDeck(peer, `Background available Deck ${zoom}`);
-      await expect
-        .poll(async () => (await layoutFor(page, id))?.panels.length)
-        .toBe(1);
+      // A resource bound by another client becomes a composer write target;
+      // only an explicit open creates a panel, so nothing moves focus.
+      await expect(
+        page.getByRole('group', { name: 'Resource write targets' }),
+      ).toContainText(`Design · Background available Deck ${zoom}`);
+      expect((await layoutFor(page, id))?.panels.length ?? 0).toBe(0);
       await expect(composer(page)).toBeVisible();
       await expect(composer(page)).toBeFocused();
       await expect(composer(page)).toHaveValue(
@@ -320,14 +324,8 @@ for (const zoom of [1, 2])
       ).toEqual([2, 9]);
       await assertWorkspaceIdentity(page);
       if (page.viewportSize()!.width < 1024) {
-        expect((await layoutFor(page, id)).activePanelId).toBeNull();
+        expect((await layoutFor(page, id))?.activePanelId ?? null).toBeNull();
         await expect(page.getByRole('dialog')).toHaveCount(0);
-        await expect(
-          page.locator('.panel-rail').getByRole('button', {
-            name: `Background available Deck ${zoom}`,
-            exact: true,
-          }),
-        ).toBeVisible();
       }
       await assertNoOverflow(page);
       await screenshot(
@@ -393,10 +391,13 @@ test('last explicitly opened Deck retains priority when another client adds a wo
     await expect(
       setup.getByText('Resource ready', { exact: true }),
     ).toBeVisible();
-    await expect
-      .poll(async () => (await layoutFor(page, id)).panels.length)
-      .toBe(2);
+    // The background workspace is listed for this client without opening a
+    // panel, so the explicitly opened Deck keeps its place.
+    await expect(
+      page.getByRole('group', { name: 'Resource write targets' }),
+    ).toContainText('Folder · Phase 1 workspace');
     const after = await layoutFor(page, id);
+    expect(after.panels).toHaveLength(before.panels.length);
     expect(after.activePanelId).toBe(before.activePanelId);
     expect(after.presentation.lastExplicitKey).toBe(
       before.presentation.lastExplicitKey,
@@ -422,6 +423,7 @@ test('last explicitly opened Deck retains priority when another client adds a wo
 test('Thinking persists its exact-model choice and changes the admitted fake request', async ({
   page,
 }, info) => {
+  await restoreThinkingDefault(page);
   const id = await newConversation(page);
   await page.getByRole('button', { name: 'Model', exact: true }).click();
   await screenshot(page, info, 'compact-model-menu');
