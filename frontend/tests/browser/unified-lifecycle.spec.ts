@@ -351,7 +351,7 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       childDetail.getByText('Synthetic child result', { exact: true }),
     ).toBeVisible();
     await childDetail
-      .getByRole('button', { name: 'Open child conversation', exact: true })
+      .getByRole('button', { name: 'Open full thread', exact: true })
       .click();
     await expect(page).toHaveURL(
       new RegExp(`/conversations/${completed.child_conversation_id}$`),

@@ -20,7 +20,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-async function setup(count = 55) {
+async function setup(count = 55, initialSelectedId?: string) {
   const transport = new FixtureTransport({ conversationCount: count });
   const controller = new ClientController(transport, () => 1);
   clients.push(controller);
@@ -28,13 +28,32 @@ async function setup(count = 55) {
   render(
     <MemoryRouter>
       <OverlayProvider>
-        <ConversationLibrary controller={controller} />
+        <ConversationLibrary
+          controller={controller}
+          initialSelectedId={initialSelectedId}
+        />
       </OverlayProvider>
     </MemoryRouter>,
   );
   await screen.findByRole('combobox', { name: 'Conversation type' });
   return { controller, transport };
 }
+
+it('opens an exact older deletion target on its library page for review', async () => {
+  const { transport } = await setup(150, 'conversation-120');
+  expect(await screen.findByText('1 selected')).toBeVisible();
+  expect(screen.getByText('Page 2 of 2')).toBeVisible();
+  expect(
+    screen.getByRole('checkbox', { name: 'Sample conversation 120' }),
+  ).toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete selected' }));
+  expect(
+    within(screen.getByRole('alertdialog')).getByText(
+      /Bound designs and workspaces remain/,
+    ),
+  ).toBeVisible();
+  expect(transport.counters.commands).toBe(0);
+});
 
 it('reads beyond the sidebar page and selects every conversation in a type filter', async () => {
   const { transport } = await setup();

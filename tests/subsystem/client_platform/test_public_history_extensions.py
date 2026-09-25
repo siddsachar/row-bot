@@ -127,6 +127,39 @@ def test_server_pin_and_resource_groups_find_old_conversations_beyond_first_thou
         service.list_conversations(limit=1, cursor=cursor, group="artifact")
 
 
+def test_conversation_list_projects_canonical_parent_and_activity_date(service):
+    from row_bot import agent_runs, threads
+
+    parent = threads.create_thread("Parent", thread_id="parent-conversation", seed_default_skills=False)
+    child = threads.create_thread("Delegated", thread_id="child-conversation", thread_type="agent_child", seed_default_skills=False)
+    agent_runs.create_agent_run(run_id="child-run", parent_thread_id=parent,
+                                thread_id=child, display_name="Delegated")
+
+    page = service.list_conversations(limit=1)
+    assert page["has_more"] and page["next_cursor"]
+    following = service.list_conversations(limit=1, cursor=page["next_cursor"])
+    rows = {row["id"]: row for row in [*page["items"], *following["items"]]}
+    assert rows[child]["parent_conversation_id"] == parent
+    assert rows[parent]["parent_conversation_id"] is None
+    assert rows[parent]["updated_at"] and rows[child]["updated_at"]
+    assert service.get_conversation(child)["parent_conversation_id"] == parent
+
+
+def test_conversation_list_projects_canonical_orchestration_activity(service, monkeypatch):
+    from row_bot import agent_orchestrator, threads
+
+    parent = threads.create_thread("Active parent", seed_default_skills=False)
+    activity = {"state": "active", "phase": "background"}
+    monkeypatch.setattr(agent_orchestrator, "get_thread_orchestration_activity",
+                        lambda ids: {parent: dict(activity)} if parent in ids else {})
+    assert service.list_conversations()["items"][0]["activity_state"] == "active"
+    assert service.get_conversation(parent)["activity_phase"] == "background"
+    activity.update(state="attention", phase="resume_required")
+    assert service.list_conversations()["items"][0]["activity_state"] == "attention"
+    activity.update(state="terminal", phase="failed")
+    assert service.get_conversation(parent)["activity_state"] == "terminal"
+
+
 @pytest.mark.parametrize("phase", ["before", "during"])
 def test_history_read_fences_pending_deletion(service, monkeypatch, phase):
     from langchain_core.messages import HumanMessage

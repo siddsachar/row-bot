@@ -28,7 +28,9 @@ test('simplified shell keeps controls and Home reachable', async ({
   await expect(
     nav.getByRole('combobox', { name: 'Conversation group' }),
   ).toHaveCount(0);
-  await expect(nav.getByRole('list', { name: 'Conversations' })).toBeVisible();
+  await expect(
+    nav.getByRole('list', { name: 'Recent conversations' }),
+  ).toBeVisible();
   await expect(nav.getByRole('button', { name: 'New chat' })).toBeVisible();
   await screenshot(page, info, 'slice1-conversation-shell');
 

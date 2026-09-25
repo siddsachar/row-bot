@@ -178,6 +178,29 @@
   },
   "additionalProperties": false,
   "properties": {
+    "activity_phase": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Activity Phase",
+      "type": "string"
+    },
+    "activity_state": {
+      "anyOf": [
+        {
+          "enum": [
+            "active",
+            "attention",
+            "terminal"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activity State"
+    },
     "category": {
       "default": "chat",
       "enum": [
@@ -204,6 +227,21 @@
       "title": "Id",
       "type": "string"
     },
+    "parent_conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Conversation Id"
+    },
     "pinned": {
       "title": "Pinned",
       "type": "boolean"
@@ -224,6 +262,12 @@
     "title": {
       "maxLength": 256,
       "title": "Title",
+      "type": "string"
+    },
+    "updated_at": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Updated At",
       "type": "string"
     }
   },

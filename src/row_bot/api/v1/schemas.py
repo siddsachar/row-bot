@@ -6011,6 +6011,10 @@ class ConversationView(WireModel):
     revision: Revision
     title: str = Field(max_length=256)
     pinned: bool
+    updated_at: str = Field(default="", max_length=80)
+    parent_conversation_id: OpaqueId | None = None
+    activity_state: Literal["active", "attention", "terminal"] | None = None
+    activity_phase: str = Field(default="", max_length=64)
     category: Literal["chat", "designer", "code", "workflow"] = "chat"
     generation_state: list[GenerationState] = Field(default_factory=list, max_length=32)
     resource_bindings: list[ResourceBinding] = Field(

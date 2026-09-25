@@ -2,21 +2,74 @@ import BuddySurface from '../buddy/BuddySurface';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
+  CircleAlert,
   ChevronDown,
   ChevronRight,
   Home,
   MessageSquare,
+  MoreHorizontal,
+  Pin,
   Plus,
+  RotateCw,
   Search,
   Settings,
 } from 'lucide-react';
 import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Brand, Button, Hint, Skeleton } from '../../ui/primitives';
+import { Brand, Button, Hint, Menu, Skeleton } from '../../ui/primitives';
+import type { ConversationView } from '../../api/types';
+import ConversationActions from '../settings/ConversationActions';
 import SearchConversations from './SearchConversations';
 import ConversationLibrary from './ConversationLibrary';
 
-const PREVIEW_COUNT = 5;
+const PREVIEW_COUNT = 10;
+const PINNED_PREVIEW_COUNT = 5;
+
+function activityLabel(
+  states: NonNullable<ConversationView['generation_state']>,
+  activityState: ConversationView['activity_state'],
+  activityPhase: ConversationView['activity_phase'],
+): { label: string; spin: boolean; attention?: boolean } | null {
+  if (states.some((item) => item.status === 'running' && !item.quiesced))
+    return { label: 'Generating response', spin: true };
+  if (states.some((item) => item.status === 'stopping' && !item.quiesced))
+    return { label: 'Stopping response', spin: true };
+  if (
+    states.some((item) => item.status === 'waiting_approval' && !item.quiesced)
+  )
+    return { label: 'Waiting for approval', spin: false };
+  if (activityState === 'active') {
+    const label =
+      {
+        background: 'Background agents working',
+        child_running: 'Child agents working',
+        approval_wait: 'Agent group needs approval',
+        retry: 'Retrying agent work',
+        stopping: 'Stopping agent work',
+        later_wave_parent: 'Preparing agent work',
+      }[activityPhase ?? ''] ?? 'Agents working';
+    return { label, spin: activityPhase !== 'approval_wait' };
+  }
+  if (activityState === 'attention')
+    return {
+      label: 'Agent work needs attention',
+      spin: false,
+      attention: true,
+    };
+  return null;
+}
+
+function updatedLabel(value: string | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
 
 /** Live store subscription also updates the compact modal's mounted content. */
 export default function Navigation({
@@ -35,13 +88,16 @@ export default function Navigation({
   workspaceControls?: ReactNode;
 }) {
   const state = useClientState();
-  const { controller } = useRuntime();
+  const { controller, platform, conversationActionsOwner } = useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const location = useLocation();
   const [sectionOpen, setSectionOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(0);
+  const [staleActivityIds, setStaleActivityIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const sectionId = useId();
   const sectionHeadingId = `${sectionId}-heading`;
   useEffect(() => {
@@ -55,18 +111,141 @@ export default function Navigation({
     (state.conversation?.id === state.selectedConversationId
       ? state.conversation
       : null);
-  const visible =
-    state.conversationGroup !== 'all'
-      ? []
-      : expanded
-        ? state.conversations.slice(page * 100, page * 100 + 100)
-        : state.conversations.slice(0, PREVIEW_COUNT);
+  const topLevel =
+    state.conversationGroup === 'all'
+      ? state.conversations.filter((row) => !row.parent_conversation_id)
+      : [];
+  const allPinned = topLevel.filter((row) => row.pinned);
+  const allRecent = topLevel.filter((row) => !row.pinned);
+  const previewPinned = allPinned.slice(
+    0,
+    topLevel.length <= PREVIEW_COUNT ? PREVIEW_COUNT : PINNED_PREVIEW_COUNT,
+  );
+  const previewRecent = allRecent.slice(
+    0,
+    PREVIEW_COUNT - previewPinned.length,
+  );
+  const visible = expanded
+    ? topLevel.slice(page * 100, page * 100 + 100)
+    : [...previewPinned, ...previewRecent];
+  const selectedParent = selected?.parent_conversation_id
+    ? state.conversations.find(
+        (row) => row.id === selected.parent_conversation_id,
+      )
+    : null;
+  const activeTopLevel = selected?.parent_conversation_id
+    ? selectedParent
+    : selected;
   const rows =
-    selected && !visible.some(({ id }) => id === selected.id)
-      ? [...visible, selected]
+    activeTopLevel && !visible.some(({ id }) => id === activeTopLevel.id)
+      ? [...visible, activeTopLevel]
       : visible;
-  function conversationRow(conversation: (typeof state.conversations)[number]) {
+  const pinnedRows = rows.filter((row) => row.pinned);
+  const recentRows = rows.filter((row) => !row.pinned);
+  const activeRowKey = rows
+    .filter((row) =>
+      activityLabel(
+        row.generation_state ?? [],
+        row.activity_state,
+        row.activity_phase,
+      ),
+    )
+    .map((row) => row.id)
+    .join('|');
+  useEffect(() => {
+    if (!activeRowKey || state.status !== 'ready') return;
+    const ids = activeRowKey.split('|');
+    let alive = true;
+    let inFlight = false;
+    let request: AbortController | null = null;
+    const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      request = new AbortController();
+      const timeout = window.setTimeout(() => request?.abort(), 8000);
+      try {
+        await Promise.all(
+          ids.map(async (id) => {
+            try {
+              await controller.refreshListedConversation(id, request!.signal);
+              if (alive)
+                setStaleActivityIds((previous) => {
+                  if (!previous.has(id)) return previous;
+                  const next = new Set(previous);
+                  next.delete(id);
+                  return next;
+                });
+            } catch {
+              if (alive)
+                setStaleActivityIds((previous) => new Set(previous).add(id));
+            }
+          }),
+        );
+      } finally {
+        window.clearTimeout(timeout);
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 15000);
+    return () => {
+      alive = false;
+      request?.abort();
+      window.clearInterval(timer);
+    };
+  }, [activeRowKey, controller, state.status]);
+  function openActions(
+    conversation: ConversationView,
+    initialPin?: boolean,
+    initialExport = false,
+  ) {
+    const session = conversationActionsOwner?.get()?.get(conversation.id);
+    if (!session) {
+      overlay.notify(
+        'Conversation actions are unavailable while reviewed actions need attention.',
+      );
+      return;
+    }
+    overlay.open({
+      title: 'Conversation actions',
+      description: `Review changes to ${conversation.title || 'this conversation'}.`,
+      content: (
+        <ConversationActions
+          conversationId={conversation.id}
+          session={session}
+          load={controller.conversationActions}
+          review={controller.reviewConversationAction}
+          execute={controller.executeConversationAction}
+          download={async (reference, fileName) => {
+            const result = await platform.save(reference, fileName);
+            if (result.status !== 'ok') throw Error(result.status);
+          }}
+          initialPin={initialPin}
+          initialExport={initialExport}
+          onChanged={() => {
+            void controller.loadMoreConversations(true);
+            if (state.selectedConversationId === conversation.id)
+              void controller.selectConversation(conversation.id);
+          }}
+        />
+      ),
+    });
+  }
+  function conversationRow(conversation: ConversationView) {
     const title = conversation.title || 'Untitled conversation';
+    const observedActivity = activityLabel(
+      conversation.id === state.selectedConversationId && state.projection
+        ? state.projection.generation
+          ? [state.projection.generation]
+          : []
+        : (conversation.generation_state ?? []),
+      conversation.activity_state,
+      conversation.activity_phase,
+    );
+    const activity =
+      observedActivity && staleActivityIds.has(conversation.id)
+        ? { label: 'Activity status unavailable', spin: false, attention: true }
+        : observedActivity;
+    const timestamp = updatedLabel(conversation.updated_at);
     return (
       <li key={conversation.id} className="nav-conversation-item">
         <Hint label={title}>
@@ -87,17 +266,129 @@ export default function Navigation({
               overlay.close();
             }}
           >
-            <MessageSquare size={15} aria-hidden />
-            <span className="conversation-title">{title}</span>
-            {conversation.pinned && (
-              <span role="img" aria-label="Pinned">
-                ★
-              </span>
+            {activity?.attention ? (
+              <CircleAlert size={15} role="img" aria-label={activity.label} />
+            ) : activity ? (
+              <RotateCw
+                className={activity.spin ? 'nav-activity-spin' : ''}
+                size={15}
+                role="img"
+                aria-label={activity.label}
+              />
+            ) : (
+              <MessageSquare size={15} aria-hidden />
             )}
+            <span className="nav-conversation-text">
+              <span className="conversation-title">{title}</span>
+              {timestamp && (
+                <time
+                  className="nav-conversation-date"
+                  dateTime={conversation.updated_at}
+                >
+                  {timestamp}
+                </time>
+              )}
+            </span>
           </Button>
         </Hint>
+        <div className="nav-conversation-actions">
+          <Hint
+            label={
+              conversation.pinned ? 'Unpin conversation' : 'Pin conversation'
+            }
+          >
+            <Button
+              variant="ghost"
+              iconOnly
+              className={`nav-pin ${conversation.pinned ? 'is-pinned' : ''}`}
+              aria-label={`${conversation.pinned ? 'Unpin' : 'Pin'} ${title}`}
+              aria-pressed={conversation.pinned}
+              onClick={() => openActions(conversation, !conversation.pinned)}
+            >
+              <Pin
+                size={14}
+                fill={conversation.pinned ? 'currentColor' : 'none'}
+                aria-hidden
+              />
+            </Button>
+          </Hint>
+          <Menu
+            label={`Actions for ${title}`}
+            iconOnly
+            variant="ghost"
+            className="nav-row-menu"
+            actions={[
+              {
+                label: conversation.pinned ? 'Unpin' : 'Pin',
+                onSelect: () => openActions(conversation, !conversation.pinned),
+              },
+              {
+                label: 'Rename',
+                onSelect: () => openActions(conversation),
+              },
+              {
+                label: 'Export',
+                onSelect: () => openActions(conversation, undefined, true),
+              },
+              {
+                label: 'Delete…',
+                danger: true,
+                onSelect: () => openDelete(conversation),
+              },
+            ]}
+          >
+            <MoreHorizontal size={16} aria-hidden />
+          </Menu>
+        </div>
+        {selected?.parent_conversation_id === conversation.id && (
+          <Button
+            variant="ghost"
+            className="nav-child-link"
+            aria-current={
+              location.pathname === `/conversations/${selected.id}`
+                ? 'page'
+                : undefined
+            }
+            onClick={() => {
+              void controller.selectConversation(selected.id);
+              navigate(`/conversations/${selected.id}`);
+              onOpenConversation?.();
+              overlay.close();
+            }}
+          >
+            <MessageSquare size={14} aria-hidden />
+            {selected.title || 'Child conversation'}
+          </Button>
+        )}
       </li>
     );
+  }
+  function openLibrary() {
+    overlay.open({
+      title: 'Browse conversations',
+      description: 'Search history or manage saved conversations.',
+      content: (
+        <div className="conversation-browser">
+          <SearchConversations />
+          <details>
+            <summary>Manage saved conversations</summary>
+            <ConversationLibrary controller={controller} />
+          </details>
+        </div>
+      ),
+    });
+  }
+  function openDelete(conversation: ConversationView) {
+    overlay.open({
+      title: 'Delete conversation',
+      description: `Review deletion of ${conversation.title || 'this conversation'}.`,
+      content: (
+        <ConversationLibrary
+          controller={controller}
+          initialSelectedId={conversation.id}
+        />
+      ),
+    });
   }
   return (
     <nav className="navigation" aria-label="Workspace navigation">
@@ -145,25 +436,7 @@ export default function Navigation({
           {creatingChat ? 'Creating…' : 'New chat'}
         </Button>
       </div>
-      <Button
-        className="nav-search"
-        variant="ghost"
-        onClick={() =>
-          overlay.open({
-            title: 'Browse conversations',
-            description: 'Search history or manage saved conversations.',
-            content: (
-              <div className="conversation-browser">
-                <SearchConversations />
-                <details>
-                  <summary>Manage saved conversations</summary>
-                  <ConversationLibrary controller={controller} />
-                </details>
-              </div>
-            ),
-          })
-        }
-      >
+      <Button className="nav-search" variant="ghost" onClick={openLibrary}>
         <Search size={16} aria-hidden />
         Browse conversations
       </Button>
@@ -182,10 +455,23 @@ export default function Navigation({
         )}
         Conversations
       </Button>
-      {!sectionOpen && selected && (
+      {!sectionOpen && activeTopLevel && (
         <ul className="conversation-list" aria-label="Current conversation">
-          {conversationRow(selected)}
+          {conversationRow(activeTopLevel)}
         </ul>
+      )}
+      {!sectionOpen && selected?.parent_conversation_id && !selectedParent && (
+        <div className="nav-child-parent">
+          <Button
+            variant="ghost"
+            onClick={() =>
+              navigate(`/conversations/${selected.parent_conversation_id}`)
+            }
+          >
+            Parent conversation
+          </Button>
+          <span>{selected.title || 'Child conversation'}</span>
+        </div>
       )}
       <section
         id={sectionId}
@@ -216,11 +502,60 @@ export default function Navigation({
                 Your conversations will appear here.
               </p>
             ) : (
-              <ul className="conversation-list" aria-label="Conversations">
-                {rows.map(conversationRow)}
-              </ul>
+              <>
+                {pinnedRows.length > 0 && (
+                  <div className="nav-conversation-group">
+                    <h3>Pinned</h3>
+                    <ul
+                      className="conversation-list"
+                      aria-label="Pinned conversations"
+                    >
+                      {pinnedRows.map(conversationRow)}
+                    </ul>
+                  </div>
+                )}
+                {recentRows.length > 0 && (
+                  <div className="nav-conversation-group">
+                    <h3>Recent</h3>
+                    <ul
+                      className="conversation-list"
+                      aria-label="Recent conversations"
+                    >
+                      {recentRows.map(conversationRow)}
+                    </ul>
+                  </div>
+                )}
+              </>
             )}
-            {(state.conversations.length > PREVIEW_COUNT ||
+            {selected?.parent_conversation_id && !selectedParent && (
+              <div className="nav-child-parent">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    void controller.selectConversation(
+                      selected.parent_conversation_id!,
+                    );
+                    navigate(
+                      `/conversations/${selected.parent_conversation_id}`,
+                    );
+                    onOpenConversation?.();
+                    overlay.close();
+                  }}
+                >
+                  Parent conversation
+                </Button>
+                <span
+                  aria-current={
+                    location.pathname === `/conversations/${selected.id}`
+                      ? 'page'
+                      : undefined
+                  }
+                >
+                  {selected.title || 'Child conversation'}
+                </span>
+              </div>
+            )}
+            {(topLevel.length > PREVIEW_COUNT ||
               state.hasMoreConversations) && (
               <Button
                 className="nav-more"
@@ -228,7 +563,7 @@ export default function Navigation({
                 aria-expanded={expanded}
                 onClick={() => setExpanded((show) => !show)}
               >
-                {expanded ? 'Show less' : 'Show more'}
+                {expanded ? 'Show less' : 'Show all'}
               </Button>
             )}
             {expanded && state.hasMoreConversations && (
@@ -254,7 +589,7 @@ export default function Navigation({
                 Load more conversations
               </Button>
             )}
-            {expanded && state.conversations.length > 100 && (
+            {expanded && topLevel.length > 100 && (
               <div
                 className="button-row nav-pagination"
                 role="group"
@@ -267,7 +602,7 @@ export default function Navigation({
                   Previous rows
                 </Button>
                 <Button
-                  disabled={(page + 1) * 100 >= state.conversations.length}
+                  disabled={(page + 1) * 100 >= topLevel.length}
                   onClick={() => setPage((value) => value + 1)}
                 >
                   Next rows

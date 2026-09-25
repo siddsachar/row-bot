@@ -224,14 +224,27 @@ class ClientPlatformService:
             return dict(row)
 
     def get_conversation(
-        self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None
+        self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None,
+        parent_conversation_id: str | None = None,
+        orchestration_activity: dict | None = None,
     ) -> dict:
         row = self._metadata(conversation_id)
         from row_bot import threads
         from row_bot.conversation_resources import list_bindings
         resources = list_bindings(conversation_id)
+        if parent_conversation_id is None:
+            from row_bot import agent_runs
+            own_run = agent_runs.get_agent_run_for_thread(conversation_id)
+            parent_conversation_id = str(own_run.get("parent_thread_id") or "") if own_run else ""
+        if orchestration_activity is None:
+            from row_bot.agent_orchestrator import get_thread_orchestration_activity
+            orchestration_activity = get_thread_orchestration_activity([conversation_id]).get(conversation_id, {})
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
+                "updated_at": str(row.get("updated_at") or ""),
+                "parent_conversation_id": parent_conversation_id or None,
+                "activity_state": orchestration_activity.get("state"),
+                "activity_phase": str(orchestration_activity.get("phase") or "")[:64],
                 "category": threads.classify_thread(
                     str(row.get("project_id") or ""), conversation_id,
                     workflow_tids=workflow_thread_ids,
@@ -296,7 +309,22 @@ class ClientPlatformService:
         more = len(rows) > limit
         selected = rows[:limit]
         workflow_thread_ids = threads.get_workflow_thread_ids()
-        return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids) for row in selected], "has_more": more,
+        from row_bot import agent_runs
+        agent_runs.ensure_agent_run_schema()
+        parent_ids: dict[str, str] = {}
+        if selected:
+            with closing(agent_runs._get_conn()) as runs_conn:
+                placeholders = ",".join("?" for _ in selected)
+                for child_id, parent_id in runs_conn.execute(
+                    f"SELECT thread_id,parent_thread_id FROM agent_runs WHERE kind='subagent' AND thread_id IN ({placeholders}) ORDER BY updated_at DESC,created_at DESC",
+                    [row[0] for row in selected],
+                ):
+                    parent_ids.setdefault(str(child_id), str(parent_id))
+        from row_bot.agent_orchestrator import get_thread_orchestration_activity
+        activity = get_thread_orchestration_activity([row[0] for row in selected]) if selected else {}
+        return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
+                parent_conversation_id=parent_ids.get(row[0], ""),
+                orchestration_activity=activity.get(row[0], {})) for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:

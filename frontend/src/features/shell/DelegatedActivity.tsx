@@ -102,7 +102,7 @@ function RunDetail({
               disabled={opening || error}
               onClick={() => void openChild()}
             >
-              Open child conversation
+              Open full thread
             </Button>
           ) : (
             <p>Child conversation history is unavailable.</p>

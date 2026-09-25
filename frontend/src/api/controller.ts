@@ -682,6 +682,33 @@ export class ClientController {
       }
     }
   }
+  /** Recheck one visible active row without resetting the sidebar cursor or page. */
+  async refreshListedConversation(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const listTicket = this.conversationListNumber;
+    const original = this.state.conversations.find((row) => row.id === id);
+    if (!original) return;
+    const view = validateWire<import('./types').ConversationView>(
+      'ConversationView',
+      await this.query(() => this.transport.getConversation(id, signal)),
+    );
+    if (signal?.aborted || view.id !== id)
+      throw Error('activity_refresh_stale');
+    const current = this.state.conversations.find((row) => row.id === id);
+    if (
+      listTicket !== this.conversationListNumber ||
+      !current ||
+      current.revision !== original.revision
+    )
+      return;
+    this.update({
+      conversations: this.state.conversations.map((row) =>
+        row.id === id ? view : row,
+      ),
+    });
+  }
   /** An explicit library review reads every page without the sidebar's 1,000-row cache cap. */
   async readConversationLibrary(
     signal?: AbortSignal,

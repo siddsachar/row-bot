@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
 import { Button, Field, Input, Skeleton } from '../../ui/primitives';
 
 export type ConversationAction =
@@ -158,6 +158,8 @@ export type ConversationActionsProps = {
   onChanged?: (
     conversation: NonNullable<ConversationActionReceipt['conversation']>,
   ) => void;
+  initialPin?: boolean;
+  initialExport?: boolean;
 };
 
 function checkedSnapshot(
@@ -181,11 +183,14 @@ export default function ConversationActions({
   execute,
   download,
   onChanged,
+  initialPin,
+  initialExport,
 }: ConversationActionsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const wrongOwner = state.conversationId !== conversationId;
   const locked =
     wrongOwner || !state.active || Boolean(state.busy || state.pending);
+  const initialPinRequested = useRef(false);
 
   useEffect(() => {
     const current = session.getSnapshot();
@@ -366,6 +371,38 @@ export default function ConversationActions({
       });
     }
   };
+
+  const requestInitialPin = useEffectEvent((pinned: boolean) => {
+    void requestReview('conversation.pin', { pinned });
+  });
+  useEffect(() => {
+    if (
+      initialPin === undefined ||
+      initialPinRequested.current ||
+      !state.snapshot ||
+      locked ||
+      !state.snapshot.capabilities.pin.available ||
+      state.snapshot.pinned === initialPin
+    )
+      return;
+    initialPinRequested.current = true;
+    requestInitialPin(initialPin);
+  }, [initialPin, locked, state.snapshot]);
+  const requestInitialExport = useEffectEvent(() => {
+    void requestReview('conversation.export', {});
+  });
+  useEffect(() => {
+    if (
+      !initialExport ||
+      initialPinRequested.current ||
+      !state.snapshot ||
+      locked ||
+      !state.snapshot.capabilities.export.available
+    )
+      return;
+    initialPinRequested.current = true;
+    requestInitialExport();
+  }, [initialExport, locked, state.snapshot]);
 
   if (wrongOwner)
     return (

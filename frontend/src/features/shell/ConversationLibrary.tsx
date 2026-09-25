@@ -66,8 +66,10 @@ const LABELS: Record<Category, string> = {
 /** Explicit library read and revision-fenced per-conversation deletion. */
 export default function ConversationLibrary({
   controller,
+  initialSelectedId,
 }: {
   controller: ClientController;
+  initialSelectedId?: string;
 }) {
   const overlay = useOverlay();
   const navigate = useNavigate();
@@ -89,6 +91,7 @@ export default function ConversationLibrary({
   const cancel = useRef(false);
   const mounted = useRef(true);
   const running = useRef(false);
+  const initialSelection = useRef(Boolean(initialSelectedId));
 
   async function refresh(signal?: AbortSignal) {
     setError('');
@@ -99,7 +102,15 @@ export default function ConversationLibrary({
       if (!mounted.current) return;
       setRows(result);
       setFresh(true);
-      setPage(0);
+      if (initialSelection.current && initialSelectedId) {
+        initialSelection.current = false;
+        const index = result.findIndex((row) => row.id === initialSelectedId);
+        setSelectionMode(index >= 0);
+        setPage(index >= 0 ? Math.floor(index / PAGE_SIZE) : 0);
+        setSelected(index >= 0 ? new Set([initialSelectedId]) : new Set());
+      } else {
+        setPage(0);
+      }
       setSelected((previous) => {
         const available = new Set(result.map((row) => row.id));
         return new Set([...previous].filter((id) => available.has(id)));

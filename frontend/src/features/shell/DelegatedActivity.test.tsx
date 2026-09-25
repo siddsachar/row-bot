@@ -86,9 +86,7 @@ it('opens public detail with focus return and explicitly navigates retained chil
   await waitFor(() => expect(opener).toHaveFocus());
   fireEvent.click(opener);
   await screen.findByText('Public result');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Open child conversation' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open full thread' }));
   await act(async () => {});
   expect(open).toHaveBeenCalledExactlyOnceWith('child-a');
   expect(loadRun).toHaveBeenCalledTimes(3);
@@ -162,7 +160,7 @@ it('loads full continuation and provides the actual parent link without manufact
     await screen.findByText('Child conversation history is unavailable.'),
   ).toBeInTheDocument();
   expect(
-    screen.queryByRole('button', { name: 'Open child conversation' }),
+    screen.queryByRole('button', { name: 'Open full thread' }),
   ).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Back to parent' }));
   fireEvent.click(

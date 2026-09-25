@@ -32,7 +32,7 @@ test('an open compact navigation drawer updates when a large library page arrive
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
-  await page.getByRole('button', { name: 'Show more', exact: true }).click();
+  await page.getByRole('button', { name: 'Show all', exact: true }).click();
   await page
     .getByRole('button', { name: 'Load more conversations', exact: true })
     .click();

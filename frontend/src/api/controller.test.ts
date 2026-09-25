@@ -1353,6 +1353,25 @@ describe('revisioned snapshot and independent selection', () => {
       first.length,
     );
   });
+  it('refreshes a background activity row without losing its list cursor', async () => {
+    const transport = new FixtureTransport({ conversationCount: 55 });
+    const value = client(transport);
+    await value.start();
+    const before = value.getSnapshot();
+    expect(before.hasMoreConversations).toBe(true);
+    transport.conversations[1].activity_state = 'terminal';
+    transport.conversations[1].activity_phase = 'completed';
+    const list = vi.spyOn(transport, 'listConversations');
+    await value.refreshListedConversation('conversation-2');
+    expect(value.getSnapshot().conversations[1].activity_state).toBe(
+      'terminal',
+    );
+    expect(value.getSnapshot().hasMoreConversations).toBe(true);
+    expect(list).not.toHaveBeenCalled();
+    await value.loadMoreConversations();
+    expect(list).toHaveBeenCalledWith('50', expect.any(AbortSignal), 'all');
+    expect(value.getSnapshot().conversations).toHaveLength(55);
+  });
   it('traverses the accepted 1005-row recording with at most 200 materialized rows', async () => {
     const pages = recorded<TranscriptPage>('F-P05', 'TranscriptPage');
     const observed = new Set<string>();

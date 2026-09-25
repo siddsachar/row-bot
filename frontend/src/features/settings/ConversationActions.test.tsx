@@ -114,6 +114,22 @@ it('validates and applies an exact rename in one click', async () => {
   expect(props.session.hasRetained()).toBe(false);
 });
 
+it('reviews and executes an initial pin request once, then uses the receipt', async () => {
+  const props = options();
+  render(<ConversationActions {...props} initialPin />);
+  await screen.findByText('Conversation action completed.');
+  expect(props.review).toHaveBeenCalledExactlyOnceWith(
+    'conversation-1',
+    'conversation.pin',
+    '4',
+    { pinned: true },
+    expect.any(AbortSignal),
+  );
+  expect(props.execute).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Unpin' })).toBeEnabled();
+  expect(props.session.getSnapshot().snapshot?.pinned).toBe(true);
+});
+
 it('creates and downloads the local export with one click', async () => {
   const props = options();
   props.execute.mockImplementationOnce(async (_id, command) => ({
