@@ -843,9 +843,18 @@
   border-color: color-mix(in srgb, currentColor 35%, transparent);
   background: transparent;
 }
+/* An approval reads top to bottom: what, why, then the decision row with
+   the chat-wide allowance set apart at its start. */
+.approval-card {
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+.approval-card .approval-card-actions {
+  grid-column: 2 / -1;
+  margin-top: 6px;
+}
 .approval-card-allow.button {
-  flex-basis: 100%;
-  justify-content: flex-end;
+  order: -1;
+  margin-inline-end: auto;
   min-height: 28px;
   padding: 0 4px;
   color: var(--text-muted);

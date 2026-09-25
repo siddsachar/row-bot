@@ -1554,6 +1554,9 @@ export default function Conversation({
     />
   ) : null;
   const isRunning = Boolean(running);
+  // The latest turn is still in flight while it waits for an approval, even
+  // though the worker is parked: no actions until it settles.
+  const turnInFlight = isRunning || generation?.status === 'waiting_approval';
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // Elapsed time for the live activity row, as this client observed it.
   const [runStartedAt, setRunStartedAt] = useState<number | undefined>();
@@ -2020,18 +2023,18 @@ export default function Conversation({
                       traces={item.traces}
                       embeds={item.embeds}
                       media={item.media}
-                      latest={index === lastAssistant && !isRunning}
+                      latest={index === lastAssistant && !turnInFlight}
                       toolbar={turns.ends[index]}
                       copyText={turns.texts[index]}
                       onRecover={recoverTurn}
                       streaming={
-                        isRunning &&
+                        turnInFlight &&
                         index === items.length - 1 &&
                         item.row.role === 'assistant'
                       }
                       onRetry={
                         index === lastAssistant &&
-                        !isRunning &&
+                        !turnInFlight &&
                         !state.history &&
                         lastUserText &&
                         sendActionReady
@@ -2205,6 +2208,13 @@ export default function Conversation({
             type="button"
             className="latest-pill"
             aria-label="Latest messages"
+            aria-description={
+              generation?.status === 'waiting_approval' && !state.history
+                ? 'An approval is waiting'
+                : newCount > 0 && !state.history
+                  ? `${newCount} new`
+                  : undefined
+            }
             onClick={() => {
               followingLatest.current = true;
               setShowLatest(false);
@@ -2216,7 +2226,11 @@ export default function Conversation({
           >
             <ArrowDown aria-hidden />
             <span aria-hidden>
-              {newCount > 0 && !state.history ? `${newCount} new` : 'Latest'}
+              {generation?.status === 'waiting_approval' && !state.history
+                ? 'Approval needed'
+                : newCount > 0 && !state.history
+                  ? `${newCount} new`
+                  : 'Latest'}
             </span>
           </button>
         )}

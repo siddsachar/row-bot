@@ -5,6 +5,7 @@ import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
+import { absoluteTime, relativeTime } from '../../ui/format';
 import { approvalQuestion, keyArgument } from './tool-activity';
 
 type Hint_ = { action_label?: string; reason?: string; risk_class?: string };
@@ -35,8 +36,17 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
             </dd>
           </>
         )}
-        <dt>Expiry</dt>
-        <dd>{view.expires_at || 'No server expiry supplied'}</dd>
+        <dt>Expires</dt>
+        <dd>
+          {view.expires_at ? (
+            <time dateTime={view.expires_at} title={view.expires_at}>
+              {absoluteTime(view.expires_at) || view.expires_at} (
+              {relativeTime(view.expires_at)})
+            </time>
+          ) : (
+            'No server expiry supplied'
+          )}
+        </dd>
       </dl>
       <small>
         Request {view.id} · policy revision {view.policy_revision}
