@@ -64,6 +64,11 @@ export type ClientState = {
   activity: Wire.EventRecord[];
   history: Wire.TranscriptPage | null;
   historyFocus: string | null;
+  /** Older rows loaded above the live window by scrolling up (newest last). */
+  earlier: Wire.TranscriptRow[];
+  /** Whether history exists before the first loaded row. */
+  earlierAvailable: boolean;
+  loadingEarlier: boolean;
   search: Wire.SearchPage | null;
   searching: boolean;
   draftStatus: 'saved' | 'saving' | 'conflict' | 'failed';

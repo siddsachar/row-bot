@@ -51,6 +51,9 @@ const INITIAL: ClientState = {
   activity: [],
   history: null,
   historyFocus: null,
+  earlier: [],
+  earlierAvailable: false,
+  loadingEarlier: false,
   search: null,
   searching: false,
   draftStatus: 'saved',
@@ -543,6 +546,9 @@ export class ClientController {
         workspace: null,
         activity: [],
         history: null,
+        earlier: [],
+        earlierAvailable: false,
+        loadingEarlier: false,
         search: null,
         selectedConversationId: null,
         suggestions: [],
@@ -769,6 +775,8 @@ export class ClientController {
           selectedConversationId: id,
           conversation: null,
           projection: null,
+          earlier: [],
+          earlierAvailable: false,
           hasMoreTranscript: false,
           loadingConversation: false,
         });
@@ -791,6 +799,9 @@ export class ClientController {
       activity: [],
       history: null,
       historyFocus: null,
+      earlier: [],
+      earlierAvailable: false,
+      loadingEarlier: false,
       loadingConversation: true,
       hasMoreTranscript: false,
       connection: 'none',
@@ -860,6 +871,7 @@ export class ClientController {
         draftStatus: this.draftStates.get(id) ?? 'saved',
         projection: this.pageSnapshot(page),
         hasMoreTranscript: page.has_more,
+        earlierAvailable: Boolean(page.previous_cursor),
         loadingConversation: false,
         status: 'ready',
         error: null,
@@ -1091,6 +1103,7 @@ export class ClientController {
     this.metrics.maxBatch = Math.max(this.metrics.maxBatch, 1);
     const activity = [
       'tool.activity',
+      'generation.activity',
       'agent.activity',
       'queue.updated',
       'queue.changed',
@@ -1545,7 +1558,69 @@ export class ClientController {
   }
   showLatest(): void {
     this.historyNumber += 1;
-    this.update({ history: null, historyFocus: null });
+    const trimmed = this.state.earlier.length > 0;
+    this.update({
+      history: null,
+      historyFocus: null,
+      earlier: [],
+      loadingEarlier: false,
+      // Trimmed rows can be loaded again by scrolling up.
+      earlierAvailable: this.state.earlierAvailable || trimmed,
+    });
+  }
+  /**
+   * Load the rows before the first loaded row and keep them above the live
+   * window. History cursors expire with every new checkpoint, so each read
+   * anchors on the stable message ID of the oldest row already shown.
+   */
+  async loadEarlier(): Promise<void> {
+    const id = this.state.selectedConversationId,
+      selection = this.selectionNumber,
+      ticket = this.historyNumber;
+    const loaded = [
+      ...this.state.earlier,
+      ...(this.state.projection?.rows ?? []),
+    ];
+    const anchor = loaded.find((row) => row.message_id)?.message_id;
+    if (
+      !id ||
+      !anchor ||
+      this.state.history ||
+      this.state.loadingEarlier ||
+      !this.state.earlierAvailable ||
+      this.state.loadingConversation ||
+      this.state.conversation?.id !== id
+    )
+      return;
+    this.update({ loadingEarlier: true });
+    try {
+      const page = await this.query(() =>
+        this.transport.history?.(id, anchor, undefined, this.selection.signal),
+      );
+      if (selection !== this.selectionNumber || ticket !== this.historyNumber)
+        return;
+      if (page.conversation_id !== id) throw new Error('protocol_incompatible');
+      const at = page.rows.findIndex((row) => row.message_id === anchor);
+      const known = new Set(
+        [...this.state.earlier, ...(this.state.projection?.rows ?? [])].map(
+          (row) => row.id,
+        ),
+      );
+      const older = (at < 0 ? [] : page.rows.slice(0, at)).filter(
+        (row) => !known.has(row.id),
+      );
+      this.update({
+        earlier: [...older, ...this.state.earlier],
+        earlierAvailable: at > 0 && Boolean(page.previous_cursor),
+        loadingEarlier: false,
+      });
+    } catch (error) {
+      if (selection !== this.selectionNumber || ticket !== this.historyNumber)
+        return;
+      this.update({ loadingEarlier: false });
+      if (aborted(error)) return;
+      throw error;
+    }
   }
   private async query<T>(operation: () => Promise<T> | undefined): Promise<T> {
     const authentication = this.authenticationNumber;

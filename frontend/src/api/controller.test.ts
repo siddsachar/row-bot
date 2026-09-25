@@ -1885,3 +1885,110 @@ describe('event order, atomic reset and commands', () => {
     expect(value.getSnapshot().handshake).not.toBeNull();
   });
 });
+
+describe('earlier history above the live window', () => {
+  const rows = Array.from({ length: 9 }, (_, index) => ({
+    id: `row-${index}`,
+    message_id: `message-${index}`,
+    role: index % 2 ? ('assistant' as const) : ('user' as const),
+    blocks: [{ type: 'text' as const, text: `Row ${index}` }],
+  }));
+  class Pages extends FixtureTransport {
+    hold = false;
+    release: () => void = () => undefined;
+    history = vi.fn(
+      async (id: string, message?: string): Promise<TranscriptPage> => {
+        const base = await this.getTranscript(id);
+        if (!message)
+          return {
+            ...base,
+            rows: rows.slice(6),
+            previous_cursor: 'latest-previous',
+            has_more: false,
+            next_cursor: null,
+          };
+        if (this.hold)
+          await new Promise<void>((resolve) => {
+            this.release = resolve;
+          });
+        const at = rows.findIndex((row) => row.message_id === message);
+        const start = Math.max(0, at - 3);
+        return {
+          ...base,
+          rows: rows.slice(start, at + 2),
+          previous_cursor: start ? `before-${start}` : null,
+          has_more: true,
+          next_cursor: 'later',
+        };
+      },
+    );
+  }
+
+  it('anchors each read on the oldest shown message and prepends only older rows', async () => {
+    const transport = new Pages(),
+      value = client(transport);
+    value.setVisible(false);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    expect(value.getSnapshot().earlierAvailable).toBe(true);
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'message-6',
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(value.getSnapshot().earlier.map((row) => row.id)).toEqual([
+      'row-3',
+      'row-4',
+      'row-5',
+    ]);
+    expect(value.getSnapshot().earlierAvailable).toBe(true);
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'message-3',
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(value.getSnapshot().earlier.map((row) => row.id)).toEqual([
+      'row-0',
+      'row-1',
+      'row-2',
+      'row-3',
+      'row-4',
+      'row-5',
+    ]);
+    expect(value.getSnapshot().earlierAvailable).toBe(false);
+    const reads = transport.history.mock.calls.length;
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenCalledTimes(reads);
+    value.showLatest();
+    expect(value.getSnapshot().earlier).toEqual([]);
+    // Trimmed rows can be loaded again by scrolling up.
+    expect(value.getSnapshot().earlierAvailable).toBe(true);
+  });
+
+  it('ignores a late earlier page after the selection moves and never loads in history mode', async () => {
+    const transport = new Pages(),
+      value = client(transport);
+    value.setVisible(false);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    transport.hold = true;
+    const late = value.loadEarlier();
+    await flush();
+    expect(value.getSnapshot().loadingEarlier).toBe(true);
+    await value.selectConversation('conversation-3');
+    transport.release();
+    await late;
+    expect(value.getSnapshot().earlier).toEqual([]);
+    expect(value.getSnapshot().loadingEarlier).toBe(false);
+    transport.hold = false;
+    await value.selectConversation('conversation-a');
+    await value.showHistory();
+    const reads = transport.history.mock.calls.length;
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenCalledTimes(reads);
+  });
+});
