@@ -4,6 +4,7 @@ import {
   useId,
   useState,
   useSyncExternalStore,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -186,6 +187,21 @@ export default function Navigation({
   const overlay = useOverlay();
   const navigate = useNavigate();
   const location = useLocation();
+  // Navigate before closing, as Home does: closing the compact drawer pops its
+  // same-URL history entry, and a pop that lands after the push undoes it.
+  const openRoute = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    navigate(to);
+    overlay.close();
+  };
   const [sectionOpen, setSectionOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(0);
@@ -730,7 +746,7 @@ export default function Navigation({
             aria-current={
               location.pathname.startsWith('/settings') ? 'page' : undefined
             }
-            onClick={() => overlay.close()}
+            onClick={openRoute('/settings/providers')}
           >
             <Settings size={17} aria-hidden />
             Settings
@@ -744,7 +760,7 @@ export default function Navigation({
           <Link
             className="button ghost"
             to="/primitives"
-            onClick={() => overlay.close()}
+            onClick={openRoute('/primitives')}
           >
             Component gallery
           </Link>
