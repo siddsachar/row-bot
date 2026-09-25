@@ -796,6 +796,30 @@ it('offers interrupted recovery in the transcript with a cause and next steps, a
   expect(mock.intent.mock.calls[0][1]).toBe('conversation.resume');
 });
 
+it('says when a stop left the last message unanswered and offers to send it again', async () => {
+  idleConversation();
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'user:guidance',
+        message_id: 'guidance',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Keep it under five paragraphs.' }],
+      },
+    ],
+    generation: {
+      generation_id: 'stopped-run',
+      quiesced: true,
+      can_stop: false,
+      status: 'stopped',
+    },
+  } as unknown as Snapshot;
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent('Stopped before a reply');
+  expect(within(log).getByRole('button', { name: 'Send again' })).toBeVisible();
+});
+
 it('shows welcome examples without a request and sends one with a single click while preserving the draft', async () => {
   idleConversation();
   mock.drafts.set('conversation-a', {

@@ -880,6 +880,13 @@
 .turn-notice {
   margin: 16px 0 4px;
 }
+.turn-notice[data-tone='neutral'] {
+  border-color: var(--border-subtle);
+  background: var(--surface-soft);
+}
+.turn-notice[data-tone='neutral'] .turn-notice-icon {
+  color: var(--text-muted);
+}
 @media (max-width: 640px) {
   .approval-card,
   .turn-notice {

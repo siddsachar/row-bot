@@ -1665,6 +1665,21 @@ export default function Conversation({
     queueEvent?.type === 'queue.updated' || queueEvent?.type === 'queue.changed'
       ? queueEvent.payload.submission_ids.length
       : 0;
+  // A stopped run whose transcript ends on the person's own message.
+  const unanswered =
+    !turnInFlight &&
+    !state.history &&
+    generation?.status === 'stopped' &&
+    items.at(-1)?.row.role === 'user' &&
+    Boolean(lastUserText) &&
+    pending?.conversation !== id;
+  // The queue stays out of the way once it has drained and the run is over.
+  const queueVisible =
+    queueSeen &&
+    (queueCount > 0 ||
+      Boolean(pendingSteering) ||
+      steeringOpen ||
+      turnInFlight);
   const listedTitle = state.conversations.find((item) => item.id === id)?.title;
   const title =
     listedTitle || state.conversation?.title || 'Start a conversation';
@@ -2132,6 +2147,26 @@ export default function Conversation({
                   </div>
                 </div>
               )}
+            {unanswered && (
+              // A stop can land after queued guidance was delivered: say so
+              // instead of leaving the last message silently unanswered.
+              <div className="turn-notice" data-tone="neutral">
+                <Square className="turn-notice-icon" aria-hidden />
+                <div className="turn-notice-text">
+                  <strong>Stopped before a reply</strong>
+                  <span>Your last message wasn't answered.</span>
+                </div>
+                <div className="turn-notice-actions">
+                  <Button
+                    variant="secondary"
+                    disabled={sendBlocked || !sendActionReady}
+                    onClick={retryLast}
+                  >
+                    Send again
+                  </Button>
+                </div>
+              </div>
+            )}
             {(interrupted || failed) && (
               <div
                 className="turn-notice"
@@ -2265,7 +2300,7 @@ export default function Conversation({
             send();
           }}
         >
-          {queueSeen && (
+          {queueVisible && (
             <details
               className="activity steering-activity composer-queue"
               onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
