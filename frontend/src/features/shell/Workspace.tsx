@@ -1002,6 +1002,7 @@ export default function Workspace() {
       showBuddy={!layout.navigation.collapsed}
       workspaceControls={desktop ? workspaceControls : undefined}
       onNewChat={() => void creation.newChat()}
+      onStartProfileChat={(profile) => void creation.newChat('', profile)}
       creatingChat={creation.creatingChat}
       onOpenConversation={() =>
         update((previous) =>

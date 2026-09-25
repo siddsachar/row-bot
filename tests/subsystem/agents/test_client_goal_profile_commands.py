@@ -135,6 +135,8 @@ def test_profile_reads_are_global_bounded_and_never_return_instruction_bodies():
         )
     )
     detail = commands.read_profile(saved["id"], validate=_valid)
+    assert detail["profile"]["group"] == ""
+    assert detail["profile"]["icon"] == ""
     assert detail["profile"]["surface_scope"] == "global"
     assert detail["profile"]["instruction_edit"] == {
         "mode": "replace_only",
@@ -146,6 +148,14 @@ def test_profile_reads_are_global_bounded_and_never_return_instruction_bodies():
     assert "sk-private123456" not in public
     assert detail["profile"]["instructions_preview"] == ""
     assert detail["profile"]["instructions_truncated"] is True
+
+
+def test_builtin_profile_projection_exposes_only_bounded_ui_metadata():
+    page = commands.read_profiles(validate=_valid)
+    everyday = next(item for item in page["items"] if item["source"] == "builtin")
+    assert everyday["group"] in {"Everyday", "Work", "Creative", "Developer", "Advanced/Internal"}
+    assert everyday["icon"]
+    assert everyday["instructions_preview"] == ""
 
 
 def test_goal_review_is_closed_and_detects_revision_conflict():

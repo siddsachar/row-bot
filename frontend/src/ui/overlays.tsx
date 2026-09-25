@@ -14,6 +14,7 @@ import { Button } from './primitives';
 
 type Overlay = {
   key?: string;
+  className?: string;
   title: string;
   description: string;
   content?: ReactNode;
@@ -172,7 +173,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Dialog.Content
                 aria-modal="true"
                 role={confirmation ? 'alertdialog' : 'dialog'}
-                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : ''}`}
+                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : ''} ${current?.className ?? ''}`}
                 onOpenAutoFocus={(event) => {
                   const search = document.querySelector<HTMLElement>(
                     '[role="dialog"] [data-initial-focus]',

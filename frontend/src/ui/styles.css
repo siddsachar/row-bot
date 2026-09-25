@@ -5368,6 +5368,122 @@ details[open] > summary > .settings-disclosure-chevron {
   width: 100%;
   border-color: transparent;
 }
+.nav-profiles {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: transparent;
+  gap: 7px;
+}
+.nav-profiles small {
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.profile-library-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.profile-library-toolbar {
+  display: flex;
+  gap: 6px;
+}
+.profile-library-toolbar .button {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.profile-library-group > summary {
+  cursor: pointer;
+  padding: 7px 9px;
+  font-weight: 600;
+}
+.profile-library-group > summary span {
+  float: right;
+  color: var(--text-muted);
+}
+.profile-library-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 5px 5px;
+}
+.profile-library-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  padding: 5px 2px;
+  border-top: 1px solid var(--border-subtle);
+}
+.profile-library-summary {
+  min-width: 0;
+}
+.profile-library-summary strong {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-size: 12px;
+}
+.profile-library-summary p,
+.profile-library-summary small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.profile-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 148px;
+}
+.profile-library-actions .button {
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 3px;
+}
+.profile-off {
+  margin-inline-start: 4px;
+  color: var(--warning);
+  font-size: 10px;
+}
+.dialog.profile-library-dialog {
+  top: 8px;
+  bottom: 8px;
+  left: 300px;
+  transform: none;
+  width: min(460px, calc(100vw - 324px));
+  height: calc(100dvh - 16px);
+  max-height: none;
+}
+.profile-library-dialog .dialog-header {
+  padding: 12px 14px 8px;
+}
+.profile-library-dialog .dialog-body {
+  padding: 4px 12px 12px;
+}
+.profile-library-dialog .dialog-footer {
+  padding: 8px 12px;
+}
+@media (max-width: 1023px) {
+  .dialog.profile-library-dialog:not(.sheet):not(.alert-dialog):not(.drawer) {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(460px, 100vw);
+    height: 100dvh;
+    max-height: 100%;
+    border-radius: 0;
+  }
+}
 .nav-conversations,
 .home-resource-card {
   border: 1px solid var(--card-border);

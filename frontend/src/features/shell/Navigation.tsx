@@ -1,8 +1,15 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   CircleAlert,
+  BadgeCheck,
   ChevronDown,
   ChevronRight,
   Home,
@@ -21,9 +28,123 @@ import type { ConversationView } from '../../api/types';
 import ConversationActions from '../settings/ConversationActions';
 import SearchConversations from './SearchConversations';
 import ConversationLibrary from './ConversationLibrary';
+import GoalProfileSettings, {
+  type GoalProfileSettingsSession,
+  type ProfileSummary,
+} from '../settings/GoalProfileSettings';
 
 const PREVIEW_COUNT = 10;
 const PINNED_PREVIEW_COUNT = 5;
+
+function AgentProfilesEntry({
+  session,
+  onStartProfileChat,
+}: {
+  session: GoalProfileSettingsSession;
+  onStartProfileChat?: (profile: ProfileSummary) => void;
+}) {
+  const { controller } = useRuntime();
+  const state = useClientState();
+  const overlay = useOverlay();
+  const refresh = useSyncExternalStore(
+    session.subscribe,
+    session.getSnapshot,
+  ).profilesRefresh;
+  const [counts, setCounts] = useState<{
+    builtins: number;
+    custom: number;
+  } | null>(null);
+  useEffect(() => {
+    if (state.status !== 'ready') return;
+    const abort = new AbortController();
+    const load = async () => {
+      try {
+        let cursor: string | undefined;
+        let builtins = 0;
+        let custom = 0;
+        do {
+          const page = await controller.profiles(
+            '',
+            undefined,
+            cursor,
+            abort.signal,
+          );
+          if (page.schema_version !== 1 || page.scope !== 'global')
+            throw Error('invalid profile page');
+          page.items.forEach((profile) => {
+            if (profile.source === 'builtin') builtins++;
+            else custom++;
+          });
+          cursor = page.next_cursor ?? undefined;
+        } while (cursor && !abort.signal.aborted);
+        if (!abort.signal.aborted) setCounts({ builtins, custom });
+      } catch {
+        if (!abort.signal.aborted) setCounts(null);
+      }
+    };
+    void load();
+    return () => abort.abort();
+  }, [controller, refresh, state.status]);
+  return (
+    <Button
+      className="nav-profiles"
+      variant="ghost"
+      onClick={(event) => {
+        const returnFocusTo = event.currentTarget.closest('[role="dialog"]')
+          ? document.querySelector<HTMLElement>(
+              '.compact-controls [aria-label="Toggle navigation"]',
+            )
+          : event.currentTarget;
+        overlay.open({
+          title: 'Agent profiles',
+          description: 'Browse and manage reusable profiles.',
+          className: 'profile-library-dialog',
+          returnFocusTo,
+          content: (
+            <GoalProfileSettings
+              profilesOnly
+              session={session}
+              loadProfiles={({ query, scope, cursor }, signal) =>
+                controller.profiles(query, scope, cursor, signal)
+              }
+              loadProfile={controller.profile}
+              reviewProfile={controller.reviewProfile}
+              executeProfile={(command, review) =>
+                controller.executeProfile({
+                  ...command,
+                  payload: { ...command.payload, review_id: review.review_id },
+                })
+              }
+              onStartProfileChat={(profile) => {
+                let started = false;
+                let fallback = 0;
+                const start = () => {
+                  if (started) return;
+                  started = true;
+                  window.removeEventListener('popstate', afterClose);
+                  window.clearTimeout(fallback);
+                  onStartProfileChat?.(profile);
+                };
+                const afterClose = () => window.requestAnimationFrame(start);
+                window.addEventListener('popstate', afterClose, { once: true });
+                overlay.close();
+                fallback = window.setTimeout(start, 500);
+              }}
+            />
+          ),
+        });
+      }}
+    >
+      <BadgeCheck size={16} aria-hidden />
+      <span>Agent profiles</span>
+      {counts && (
+        <small>
+          {counts.builtins} built-in · {counts.custom} custom
+        </small>
+      )}
+    </Button>
+  );
+}
 
 function activityLabel(
   states: NonNullable<ConversationView['generation_state']>,
@@ -76,6 +197,7 @@ export default function Navigation({
   onOpenConversation,
   onOpenHome,
   onNewChat,
+  onStartProfileChat,
   creatingChat = false,
   showBuddy = true,
   workspaceControls,
@@ -83,12 +205,14 @@ export default function Navigation({
   onOpenConversation?: () => void;
   onOpenHome?: () => void;
   onNewChat?: () => void;
+  onStartProfileChat?: (profile: ProfileSummary) => void;
   creatingChat?: boolean;
   showBuddy?: boolean;
   workspaceControls?: ReactNode;
 }) {
   const state = useClientState();
-  const { controller, platform, conversationActionsOwner } = useRuntime();
+  const { controller, platform, conversationActionsOwner, goalProfileOwner } =
+    useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const location = useLocation();
@@ -440,6 +564,12 @@ export default function Navigation({
         <Search size={16} aria-hidden />
         Browse conversations
       </Button>
+      {goalProfileOwner?.get() && (
+        <AgentProfilesEntry
+          session={goalProfileOwner.get()!}
+          onStartProfileChat={onStartProfileChat}
+        />
+      )}
       <Button
         id={sectionHeadingId}
         className="nav-heading"

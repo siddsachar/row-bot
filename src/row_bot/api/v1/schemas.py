@@ -120,6 +120,7 @@ class CreatePayload(WireModel):
     title: Annotated[str, StringConstraints(min_length=1, max_length=256)] = (
         "New conversation"
     )
+    agent_profile_id: str = Field(default="", max_length=256)
 
 
 class PinPayload(WireModel):
@@ -3196,6 +3197,8 @@ class ProfileSummary(WireModel):
     scope: ProfileScope
     surface_scope: Literal["global"]
     source: str = Field(max_length=128)
+    group: str = Field(default="", max_length=64)
+    icon: str = Field(default="", max_length=32)
     enabled: bool
     editable: bool
     revision: str = Field(pattern=r"^[1-9][0-9]{0,19}$")

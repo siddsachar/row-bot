@@ -71,6 +71,32 @@ export class FixtureTransport implements ClientTransport {
   private wakes = new Map<string, () => void>();
   private snapshots = new Map<string, wire.Snapshot>();
   private receipts = new Map<string, wire.CommandReceipt>();
+  private profileReceipts = new Map<string, wire.ProfileReceipt>();
+  readonly profilesData: wire.ProfileSummary[] = [
+    {
+      id: 'builtin:general',
+      slug: 'general',
+      display_name: 'General Assistant',
+      description: 'A safe default for everyday work.',
+      when_to_use: 'General requests.',
+      scope: 'system',
+      surface_scope: 'global',
+      source: 'builtin',
+      group: 'Everyday',
+      icon: 'auto_awesome',
+      enabled: true,
+      editable: false,
+      revision: '1',
+      capability: 'read_only',
+      allow_tools: [],
+      skills: [],
+      context_mode: 'auto',
+      workspace_mode: 'auto',
+      approval_mode: 'inherit',
+      instructions_preview: '',
+      instructions_truncated: true,
+    },
+  ];
   private transcriptSizes = new Map<string, 1000 | 10000>();
   private expireReplay = false;
   private readonly transcriptTemplate = wire.validateWire<wire.TranscriptPage>(
@@ -424,6 +450,38 @@ export class FixtureTransport implements ClientTransport {
   ): Promise<wire.CommandReceipt> {
     this.available(signal);
     this.counters.commands += 1;
+    if (command.type === 'conversation.create') {
+      const existing = this.receipts.get(command.command_id);
+      if (existing) return existing;
+      const payload = command.payload as wire.CreatePayload;
+      const selected = payload.agent_profile_id
+        ? this.profilesData.find(
+            (profile) =>
+              profile.id === payload.agent_profile_id && profile.enabled,
+          )
+        : null;
+      if (payload.agent_profile_id && !selected)
+        throw { code: 'invalid_command', status: 400 };
+      const id = `fixture-${command.command_id}`;
+      const base = this.conversations[0];
+      this.conversations.unshift({
+        ...base,
+        id,
+        title: payload.title ?? 'New conversation',
+      });
+      this.snapshots.set(id, {
+        ...structuredClone(this.snapshots.get(base.id)!),
+        conversation_id: id,
+        rows: [],
+      });
+      const created: wire.CommandReceipt = {
+        command_id: command.command_id,
+        conversation_id: id,
+        status: 'completed',
+      };
+      this.receipts.set(command.command_id, created);
+      return created;
+    }
     if (command.type === 'conversation.delete') {
       const index = this.conversations.findIndex((row) => row.id === target);
       if (index < 0) throw { code: 'not_found', status: 404 };
@@ -454,6 +512,155 @@ export class FixtureTransport implements ClientTransport {
     const result = this.receipts.get(id);
     if (!result) throw { code: 'not_found', status: 404 };
     return result;
+  }
+  async profiles(
+    query: string,
+    scope?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<wire.ProfilePage> {
+    this.available(signal);
+    const matching = this.profilesData.filter(
+      (profile) =>
+        (!scope || profile.scope === scope) &&
+        `${profile.display_name} ${profile.slug} ${profile.description}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+    );
+    const offset = cursor ? Number(cursor) : 0;
+    return {
+      schema_version: 1,
+      scope: 'global',
+      revision: 'a'.repeat(64),
+      items: matching.slice(offset, offset + 50),
+      total: matching.length,
+      next_cursor: offset + 50 < matching.length ? String(offset + 50) : null,
+    };
+  }
+  async profile(id: string, signal?: AbortSignal): Promise<wire.ProfileDetail> {
+    this.available(signal);
+    const profile = this.profilesData.find((item) => item.id === id);
+    if (!profile) throw { code: 'not_found', status: 404 };
+    return {
+      schema_version: 1,
+      profile: {
+        ...profile,
+        instruction_edit: {
+          mode: 'replace_only',
+          stored: profile.instructions_truncated,
+        },
+      },
+    };
+  }
+  async reviewProfile(
+    body: wire.ProfileCommandPayload,
+    signal?: AbortSignal,
+  ): Promise<wire.ProfileReview> {
+    this.available(signal);
+    return {
+      ...body,
+      schema_version: 1,
+      changes: {},
+      action_digest: 'b'.repeat(64),
+      disclosures:
+        body.operation === 'delete' ? ['This removes the profile.'] : [],
+      review_id: 'c'.repeat(64),
+    };
+  }
+  async executeProfile(
+    command: wire.Command,
+    signal?: AbortSignal,
+  ): Promise<wire.ProfileReceipt> {
+    this.available(signal);
+    const previous = this.profileReceipts.get(command.command_id);
+    if (previous) return previous;
+    if (command.type !== 'profile.mutate')
+      throw { code: 'invalid_command', status: 400 };
+    const payload = command.payload as wire.ProfileCommandWirePayload;
+    const index = this.profilesData.findIndex(
+      (item) => item.id === payload.profile_id,
+    );
+    const original = this.profilesData[index];
+    if (
+      payload.operation !== 'create' &&
+      (!original || (payload.operation !== 'duplicate' && !original.editable))
+    )
+      throw { code: 'invalid_command', status: 400 };
+    let result: wire.ProfileSummary | null = null;
+    if (payload.operation === 'create' && payload.fields) {
+      const fields = payload.fields;
+      result = {
+        id: `fixture:${fields.slug}`,
+        slug: fields.slug,
+        display_name: fields.display_name,
+        description: fields.description,
+        when_to_use: fields.when_to_use,
+        scope: 'user',
+        surface_scope: 'global',
+        source: 'user_created',
+        group: '',
+        icon: '',
+        enabled: fields.enabled,
+        editable: true,
+        revision: '1',
+        capability: fields.capability,
+        allow_tools: fields.allow_tools,
+        skills: fields.skills,
+        context_mode: fields.context_mode,
+        workspace_mode: fields.workspace_mode,
+        approval_mode: fields.approval_mode,
+        instructions_preview: '',
+        instructions_truncated: Boolean(fields.instructions),
+      };
+      this.profilesData.push(result);
+    } else if (payload.operation === 'duplicate' && original) {
+      result = {
+        ...original,
+        id: `fixture:${payload.target_slug}`,
+        slug: payload.target_slug!,
+        display_name: payload.target_name!,
+        source: 'user_created',
+        scope: 'user',
+        group: '',
+        icon: '',
+        editable: true,
+        revision: '1',
+      };
+      this.profilesData.push(result);
+    } else if (payload.operation === 'delete')
+      this.profilesData.splice(index, 1);
+    else if (original) {
+      result = {
+        ...original,
+        enabled:
+          payload.operation === 'enable'
+            ? true
+            : payload.operation === 'disable'
+              ? false
+              : original.enabled,
+        ...(payload.operation === 'edit' && payload.fields
+          ? {
+              ...payload.fields,
+              instructions_preview: '' as const,
+              instructions_truncated:
+                payload.fields.instructions === null
+                  ? original.instructions_truncated
+                  : Boolean(payload.fields.instructions),
+            }
+          : {}),
+        revision: String(Number(original.revision) + 1),
+      };
+      this.profilesData[index] = result;
+    }
+    const receipt: wire.ProfileReceipt = {
+      command_id: command.command_id,
+      status: 'completed',
+      operation: payload.operation,
+      profile: result,
+      profile_id: result?.id ?? payload.profile_id,
+    };
+    this.profileReceipts.set(command.command_id, receipt);
+    return receipt;
   }
   async upload(
     _conversation: string,

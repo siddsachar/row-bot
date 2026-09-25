@@ -188,6 +188,7 @@ def _profile_public(
     context = _policy(profile, "context_policy_json")
     workspace = _policy(profile, "workspace_policy_json")
     approval = _policy(profile, "approval_policy_json")
+    ui = _policy(profile, "ui_json")
     instructions = str(profile.get("instructions") or "")
     value = {
         "id": _public_text(profile.get("id"), 256),
@@ -198,6 +199,8 @@ def _profile_public(
         "scope": str(profile.get("scope") or "user"),
         "surface_scope": "global",
         "source": str(profile.get("source") or ""),
+        "group": _public_text(ui.get("group"), 64),
+        "icon": _public_text(ui.get("icon"), 32),
         "enabled": profile.get("enabled") is not False,
         "editable": str(profile.get("source") or "") != "builtin",
         "revision": str(max(1, int(profile.get("revision") or 1))),

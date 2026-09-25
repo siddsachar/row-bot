@@ -545,8 +545,37 @@ class ClientPlatformService:
         kind = command["type"]
         if kind == "conversation.create":
             conversation_id = str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "conversation"))
-            threads.create_thread(str(payload.get("title") or "New conversation"), thread_id=conversation_id)
-            return {"conversation_id": conversation_id, "revision": "0", "status": "completed"}
+            profile_id = str(payload.get("agent_profile_id") or "")
+            profile = None
+            if profile_id:
+                from row_bot.agent_profiles import AgentProfileError, require_agent_profile
+
+                try:
+                    profile = require_agent_profile(profile_id, enabled_only=True)
+                except AgentProfileError as exc:
+                    raise ClientPlatformError("invalid_command") from exc
+            threads.create_thread(
+                str(payload.get("title") or "New conversation"),
+                thread_id=conversation_id,
+                agent_profile_id=str(profile["id"]) if profile else "",
+                agent_profile_slug=str(profile["slug"]) if profile else "",
+            )
+            if profile:
+                skills = profile.get("skill_policy_json") or {}
+                raw_skills = skills.get("skills_override") if isinstance(skills, dict) else None
+                selected = (
+                    list(dict.fromkeys(
+                        item.strip() for item in raw_skills
+                        if isinstance(item, str) and item.strip()
+                    ))
+                    if isinstance(raw_skills, list) else []
+                )
+                threads.set_thread_skills_override(conversation_id, selected or None)
+            revision = (
+                threads.get_thread_composer_context(conversation_id)["client_revision"]
+                if profile else 0
+            )
+            return {"conversation_id": conversation_id, "revision": str(revision), "status": "completed"}
         if kind == "approval.resolve":
             approval = self.get_approval(target)
             if str(command.get("expected_revision")) != approval["revision"]:

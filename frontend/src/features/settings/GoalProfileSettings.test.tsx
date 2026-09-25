@@ -266,8 +266,8 @@ it('keeps built-ins read only while allowing an explicit duplicate', async () =>
   await screen.findByText('Complete the migration');
   await openProfiles();
   expect(
-    screen.getByRole('button', { name: 'Edit General Assistant' }),
-  ).toBeDisabled();
+    screen.queryByRole('button', { name: 'Edit General Assistant' }),
+  ).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'Duplicate General Assistant' }),
   );
@@ -284,6 +284,119 @@ it('keeps built-ins read only while allowing an explicit duplicate', async () =>
     fields: null,
     target_slug: 'general_copy',
   });
+});
+
+it('manages grouped profiles without a conversation and starts a selected profile chat', async () => {
+  const props = options();
+  const onStartProfileChat = vi.fn();
+  render(
+    <GoalProfileSettings
+      {...props}
+      conversationId={undefined}
+      profilesOnly
+      onStartProfileChat={onStartProfileChat}
+    />,
+  );
+  await screen.findByText('General Assistant');
+  expect(props.loadGoals).not.toHaveBeenCalled();
+  expect(screen.getByText('Everyday')).toBeInTheDocument();
+  expect(screen.getByText('My Profiles')).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'View General Assistant' }),
+  );
+  await screen.findByRole('region', { name: 'Profile details' });
+  await waitFor(() =>
+    expect(
+      screen.getByRole('region', { name: 'Profile details' }),
+    ).toHaveFocus(),
+  );
+  expect(
+    screen.getByText(/Stored instructions are private/),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'View General Assistant' }),
+    ).toHaveFocus(),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Start chat with General Assistant' }),
+  );
+  expect(onStartProfileChat).toHaveBeenCalledWith(builtinProfile);
+  expect(props.reviewProfile).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
+  expect(
+    screen.getByRole('group', { name: 'Create profile' }),
+  ).toBeInTheDocument();
+});
+
+it('loads the profile panel after a retained session finishes another read', async () => {
+  const props = options();
+  props.session.update({ busy: 'load-goals' });
+  render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  expect(props.loadProfiles).not.toHaveBeenCalled();
+  act(() => props.session.update({ busy: '' }));
+  await screen.findByText('General Assistant');
+  expect(props.loadProfiles).toHaveBeenCalledTimes(1);
+});
+
+it('groups built-in and custom profile scopes with independent disclosure state', async () => {
+  const props = options();
+  const variants = [
+    {
+      ...builtinProfile,
+      id: 'builtin:work',
+      display_name: 'Work Helper',
+      group: 'Work',
+    },
+    {
+      ...builtinProfile,
+      id: 'builtin:creative',
+      display_name: 'Creative Helper',
+      group: 'Creative',
+    },
+    {
+      ...builtinProfile,
+      id: 'builtin:developer',
+      display_name: 'Developer Helper',
+      group: 'Developer',
+    },
+    {
+      ...builtinProfile,
+      id: 'builtin:advanced',
+      display_name: 'Advanced Helper',
+      group: 'Advanced/Internal',
+    },
+    { ...userProfile, id: 'workspace:helper', scope: 'workspace' as const },
+    { ...userProfile, id: 'plugin:helper', scope: 'plugin' as const },
+    { ...userProfile, id: 'imported:helper', scope: 'imported' as const },
+  ];
+  props.loadProfiles.mockResolvedValue({
+    ...profilePage,
+    items: [builtinProfile, userProfile, ...variants],
+    total: variants.length + 2,
+  });
+  render(<GoalProfileSettings {...props} profilesOnly />);
+  await screen.findByText('Work Helper');
+  for (const group of [
+    'Everyday',
+    'Work',
+    'Creative',
+    'Developer',
+    'Advanced/Internal',
+    'My Profiles',
+    'Workspace Profiles',
+    'Plugin Profiles',
+    'Imported Profiles',
+  ])
+    expect(screen.getByText(group, { exact: true })).toBeInTheDocument();
+  const work = screen.getByText('Work', { exact: true }).closest('details')!;
+  expect(work.open).toBe(false);
+  fireEvent.click(work.querySelector('summary')!);
+  expect(work.open).toBe(true);
+  expect(screen.getByText('Everyday').closest('details')!.open).toBe(true);
 });
 
 it('creates a bounded profile draft from one click', async () => {

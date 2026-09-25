@@ -648,11 +648,30 @@ export default function SettingRoute() {
               />
             </>
           ) : (
-            <EmptyState title="Open a conversation">
-              Goals belong to one conversation. Open or create a conversation,
-              then return here. Agent Profiles remain available from the Goals
-              view.
-            </EmptyState>
+            <div className="stack">
+              <EmptyState title="Open a conversation">
+                Goals belong to one conversation. Open or create a conversation
+                to manage goals.
+              </EmptyState>
+              <GoalProfileSettings
+                profilesOnly
+                session={goalProfileOwner.get()!}
+                loadProfiles={({ query, scope, cursor }, signal) =>
+                  controller.profiles(query, scope, cursor, signal)
+                }
+                loadProfile={controller.profile}
+                reviewProfile={controller.reviewProfile}
+                executeProfile={(command, review) =>
+                  controller.executeProfile({
+                    ...command,
+                    payload: {
+                      ...command.payload,
+                      review_id: review.review_id,
+                    },
+                  })
+                }
+              />
+            </div>
           )
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-documents-flow">

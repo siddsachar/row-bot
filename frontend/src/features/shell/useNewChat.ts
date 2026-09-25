@@ -59,7 +59,10 @@ export default function useNewChat() {
     }
   }, [key]);
 
-  async function newChat(firstMessage = '') {
+  async function newChat(
+    firstMessage = '',
+    profile?: { id: string; display_name: string },
+  ) {
     if (
       operation.current ||
       !key ||
@@ -92,7 +95,12 @@ export default function useNewChat() {
         : await controller.intent(
             null,
             'conversation.create',
-            {},
+            profile
+              ? {
+                  title: `${profile.display_name} chat`,
+                  agent_profile_id: profile.id,
+                }
+              : {},
             '0',
             identity,
           );

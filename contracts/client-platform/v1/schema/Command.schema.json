@@ -2402,6 +2402,12 @@
     "CreatePayload": {
       "additionalProperties": false,
       "properties": {
+        "agent_profile_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Agent Profile Id",
+          "type": "string"
+        },
         "title": {
           "default": "New conversation",
           "maxLength": 256,

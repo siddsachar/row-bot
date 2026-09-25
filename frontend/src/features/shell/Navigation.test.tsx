@@ -14,6 +14,8 @@ import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
 import Navigation from './Navigation';
+import { createAuthenticatedEditorOwner } from '../settings/authenticated-editor-owner';
+import { createGoalProfileSettingsSession } from '../settings/GoalProfileSettings';
 
 const clients: ClientController[] = [];
 afterEach(() => {
@@ -78,6 +80,88 @@ function rows() {
     ),
   );
 }
+
+it('opens the grouped profile panel with counts and starts the selected profile chat', async () => {
+  const transport = new FixtureTransport({ conversationCount: 1 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  const profile = {
+    id: 'builtin:general',
+    slug: 'general',
+    display_name: 'General Assistant',
+    description: 'A safe default.',
+    when_to_use: 'General work.',
+    scope: 'system' as const,
+    surface_scope: 'global' as const,
+    source: 'builtin',
+    group: 'Everyday',
+    icon: 'auto_awesome',
+    enabled: true,
+    editable: false,
+    revision: '1',
+    capability: 'read_only' as const,
+    allow_tools: [],
+    skills: [],
+    context_mode: 'auto' as const,
+    workspace_mode: 'auto' as const,
+    approval_mode: 'inherit' as const,
+    instructions_preview: '',
+    instructions_truncated: true,
+  };
+  controller.profiles = vi.fn().mockResolvedValue({
+    schema_version: 1,
+    scope: 'global',
+    revision: 'a'.repeat(64),
+    items: [profile],
+    total: 1,
+    next_cursor: null,
+  });
+  controller.profile = vi
+    .fn()
+    .mockResolvedValue({ schema_version: 1, profile });
+  const owner = createAuthenticatedEditorOwner(
+    controller,
+    createGoalProfileSettingsSession,
+  );
+  const onStartProfileChat = vi.fn();
+  render(
+    <MemoryRouter>
+      <RuntimeContext.Provider
+        value={{
+          controller,
+          platform: createFakePlatform(),
+          goalProfileOwner: owner,
+        }}
+      >
+        <OverlayProvider>
+          <Navigation
+            showBuddy={false}
+            onStartProfileChat={onStartProfileChat}
+          />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const entry = await screen.findByRole('button', {
+    name: /Agent profiles.*1 built-in.*0 custom/,
+  });
+  fireEvent.click(entry);
+  const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
+  expect(within(dialog).getByText('Everyday')).toBeInTheDocument();
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'View General Assistant' }),
+  );
+  await within(dialog).findByRole('region', { name: 'Profile details' });
+  fireEvent.click(
+    within(dialog).getByRole('button', {
+      name: 'Start chat with General Assistant',
+    }),
+  );
+  await waitFor(() => expect(onStartProfileChat).toHaveBeenCalledWith(profile));
+  expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull();
+  owner.dispose();
+});
 
 it('shows a scoped library failure with retry while retaining confirmed rows and selection', async () => {
   const { controller, list } = await setup(2);
