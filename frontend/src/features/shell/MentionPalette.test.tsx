@@ -106,3 +106,23 @@ it('closes on Escape and ignores text without a mention', () => {
   fireEvent.keyDown(input, { key: 'Escape' });
   expect(screen.queryByRole('listbox', { name: 'Mentions' })).toBeNull();
 });
+
+it('opens again when a dismissed "@" is deleted and typed again', () => {
+  const items = [
+    {
+      id: 'file',
+      group: 'Files',
+      label: 'Attach a file…',
+      icon: null,
+      onChoose: vi.fn(),
+    },
+  ];
+  render(<Harness items={items} onConsume={vi.fn()} />);
+  const input = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(input, { target: { value: '@', selectionStart: 1 } });
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.queryByRole('listbox', { name: 'Mentions' })).toBeNull();
+  fireEvent.change(input, { target: { value: '', selectionStart: 0 } });
+  fireEvent.change(input, { target: { value: '@', selectionStart: 1 } });
+  expect(screen.getByRole('listbox', { name: 'Mentions' })).toBeVisible();
+});

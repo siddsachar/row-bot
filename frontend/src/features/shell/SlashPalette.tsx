@@ -122,6 +122,10 @@ const SlashPalette = forwardRef<
   const open = Boolean(
     token && identity !== dismissed && !disabled && !composerBlurred,
   );
+  // Once the token is gone, typing it again is a new request.
+  useEffect(() => {
+    if (!identity) setDismissed('');
+  }, [identity]);
   useEffect(() => {
     const input = inputRef?.current;
     if (!input) return;
