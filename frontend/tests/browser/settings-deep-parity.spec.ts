@@ -158,6 +158,79 @@ async function expectCoarseTargets(page: Page, info: TestInfo): Promise<void> {
 
 test.use({ serviceWorkers: 'allow' });
 
+test('Settings categories expand in place for deep links, search, and keyboard navigation', async ({
+  browserName,
+  context,
+  page,
+}, info) => {
+  test.skip(
+    browserName !== 'chromium' || info.project.use.viewport!.width !== 1440,
+    'One Chromium desktop pass checks the sidebar and compact picker.',
+  );
+  await blockFixtureServiceWorkers(context);
+  await useLightBlueCompact(page);
+  await page.goto(settingsPath('documents'));
+  await waitForSettings(page, 'Documents');
+  const navigation = page.getByRole('navigation', {
+    name: 'Settings sections',
+    exact: true,
+  });
+  const knowledge = navigation.getByRole('button', {
+    name: 'Knowledge and documents',
+  });
+  await expect(knowledge).toHaveAttribute('aria-expanded', 'true');
+  await expect(
+    navigation.getByRole('link', { name: 'Documents', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(
+    navigation.getByRole('link', { name: 'Providers', exact: true }),
+  ).toHaveCount(0);
+  const listFollowsHeading = await navigation
+    .locator('#settings-group-knowledge')
+    .evaluate(
+      (list) =>
+        list.previousElementSibling?.querySelector('button')?.textContent ===
+        'Knowledge and documents',
+    );
+  expect(listFollowsHeading).toBe(true);
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'settings-category-deep-link-wide');
+
+  const search = navigation.getByRole('searchbox', { name: 'Find a setting' });
+  await search.fill('gmail');
+  await expect(search).toBeFocused();
+  const integrations = navigation.getByRole('button', {
+    name: 'Tools and integrations',
+  });
+  await expect(integrations).toHaveAttribute('aria-expanded', 'true');
+  const accounts = navigation.getByRole('link', {
+    name: 'Accounts',
+    exact: true,
+  });
+  await expect(accounts).toBeVisible();
+  await accounts.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('accounts')}$`));
+  await waitForSettings(page, 'Accounts');
+  await search.fill('');
+  await expect(integrations).toHaveAttribute('aria-expanded', 'true');
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'settings-category-search-wide');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(settingsPath('providers'));
+  await waitForSettings(page, 'Providers');
+  await expect(navigation).toBeHidden();
+  const picker = page.getByRole('combobox', { name: 'Settings section' });
+  await picker.focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
+  await waitForSettings(page, 'Models');
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'settings-picker-keyboard-narrow');
+});
+
 test('Settings shell preserves the exact owner order aliases history and reload', async ({
   browserName,
   context,
@@ -180,7 +253,18 @@ test('Settings shell preserves the exact owner order aliases history and reload'
       exact: true,
     });
     await expect(navigation).toBeVisible();
-    await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
+    await expect(navigation.getByRole('heading')).toHaveText([
+      'Models and input',
+      'Knowledge and documents',
+      'Tools and integrations',
+      'Personal workspace',
+      'System and access',
+    ]);
+    await expect(navigation.getByRole('link')).toHaveText([
+      'Providers',
+      'Models',
+      'Voice',
+    ]);
   } else {
     const picker = page.getByRole('combobox', {
       name: 'Settings section',
@@ -426,7 +510,7 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
   }
 });
 
-test('Keyboard-only Settings traversal reaches navigation controls disclosure and restores dialog focus', async ({
+test('Keyboard-only Settings traversal reaches navigation and local controls', async ({
   browserName,
   context,
   page,
@@ -443,6 +527,21 @@ test('Keyboard-only Settings traversal reaches navigation controls disclosure an
   const close = page.getByRole('link', { name: 'Close settings', exact: true });
   await close.focus();
   await expect(close).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(
+    page.getByRole('searchbox', { name: 'Find a setting' }),
+  ).toBeFocused();
+  await page.keyboard.press('Tab');
+  const category = page.getByRole('button', {
+    name: 'Models and input',
+    exact: true,
+  });
+  await expect(category).toBeFocused();
+  await expect(category).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Enter');
+  await expect(category).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press(' ');
+  await expect(category).toHaveAttribute('aria-expanded', 'true');
   await page.keyboard.press('Tab');
   const providers = page
     .getByRole('navigation', { name: 'Settings sections', exact: true })
@@ -471,6 +570,10 @@ test('Keyboard-only Settings traversal reaches navigation controls disclosure an
 
   await page.goto(settingsPath('preferences'));
   await waitForSettings(page, 'Preferences');
+  await page
+    .locator('summary')
+    .filter({ hasText: 'Local client controls' })
+    .click();
   const appearance = page.getByRole('combobox', {
     name: 'Appearance',
     exact: true,
@@ -483,22 +586,13 @@ test('Keyboard-only Settings traversal reaches navigation controls disclosure an
   ).toBeFocused();
 
   const restore = page.getByRole('button', {
-    name: 'Review layout reset',
+    name: 'Reset layout',
     exact: true,
   });
   await restore.focus();
-  await page.keyboard.press('Enter');
-  const dialog = page.getByRole('alertdialog', {
-    name: 'Reset layout?',
-    exact: true,
-  });
-  await expect(dialog).toBeVisible();
-  await expect(
-    dialog.getByRole('button', { name: 'Cancel', exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
   await expect(restore).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Layout reset', { exact: true })).toBeVisible();
   await assertNoOverflow(page);
   await accessibility(page, info, 'settings-keyboard-axe');
   await screenshot(page, info, 'settings-keyboard-focus-restored');

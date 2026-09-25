@@ -97,10 +97,13 @@ async function openSettingsRouteFromHome(
     name: 'Workspace navigation',
     exact: true,
   });
-  if (!(await navigation.isVisible()))
+  if ((page.viewportSize()?.width ?? 0) >= 900) {
+    await expect(navigation).toBeVisible();
+  } else {
     await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .getByRole('button', { name: 'Expand navigation', exact: true })
       .click();
+  }
   const settings = navigation.getByRole('link', {
     name: 'Settings',
     exact: true,
@@ -112,10 +115,25 @@ async function openSettingsRouteFromHome(
 
   if (route.path === '/app-v2/settings/providers') return;
 
+  if ((page.viewportSize()?.width ?? 0) < 900) {
+    await page
+      .getByRole('combobox', { name: 'Settings section' })
+      .selectOption(route.path.split('/').at(-1)!);
+    await expect(page).toHaveURL(new RegExp(`${route.path}$`));
+    await expect(page.locator('.settings-pane-header h2')).toHaveText(
+      route.headingName,
+    );
+    return;
+  }
+
+  const settingsNavigation = page.getByRole('navigation', {
+    name: 'Settings sections',
+  });
+  await settingsNavigation
+    .getByRole('searchbox', { name: 'Find a setting' })
+    .fill(route.linkName);
   const routeLink = page
-    .getByRole('navigation', {
-      name: 'Settings sections',
-    })
+    .getByRole('navigation', { name: 'Settings sections' })
     .getByRole('link', {
       name: route.linkName,
       exact: true,
@@ -185,7 +203,8 @@ test('Owner-review Settings shell keeps all 17 routed owners in one responsive h
   const settingsHeading = page
     .getByRole('region', { name: 'Settings', exact: true })
     .locator('.settings-pane-header h2');
-  await expect(settingsNavigation.getByRole('link')).toHaveCount(17);
+  await expect(settingsNavigation.getByRole('heading')).toHaveCount(5);
+  await expect(settingsNavigation.getByRole('link')).toHaveCount(3);
   for (const id of leaves) {
     await page.goto(`/app-v2/settings/${id}`);
     await expect(settingsHeading).toHaveText(label(id));

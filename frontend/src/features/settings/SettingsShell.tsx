@@ -11,6 +11,7 @@ import {
   Bot,
   Brain,
   Calculator,
+  ChevronDown,
   Cloud,
   Cpu,
   FileText,
@@ -97,15 +98,20 @@ export default function SettingsShell({
   const navigate = useNavigate();
   const location = useLocation();
   const heading = useRef<HTMLHeadingElement>(null);
-  const [category, setCategory] = useState(leaf.category);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(
+    settingsGroups.find((group) => group.label === leaf.category)?.id ?? null,
+  );
   const [query, setQuery] = useState('');
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [location.pathname]);
-  useEffect(() => setCategory(leaf.category), [leaf.category]);
-  const visibleLeaves = query.trim()
-    ? searchSettings(query)
-    : settingsLeaves.filter((item) => item.category === category);
+  useEffect(() => {
+    setExpandedCategory(
+      settingsGroups.find((group) => group.label === leaf.category)?.id ?? null,
+    );
+  }, [leaf.id, leaf.category]);
+  const searching = Boolean(query.trim());
+  const matchingLeaves = searching ? searchSettings(query) : settingsLeaves;
   return (
     <section className="settings-shell" aria-label="Settings">
       <header className="settings-shell-header">
@@ -150,35 +156,58 @@ export default function SettingsShell({
             role="group"
             aria-label="Settings categories"
           >
-            {settingsGroups.map((group) => (
-              <button
-                className="settings-category"
-                type="button"
-                key={group.id}
-                aria-pressed={category === group.label && !query.trim()}
-                onClick={() => {
-                  setQuery('');
-                  setCategory(group.label);
-                }}
-              >
-                {group.label}
-              </button>
-            ))}
+            {settingsGroups.map((group) => {
+              const groupLeaves = matchingLeaves.filter(
+                (item) => item.category === group.label,
+              );
+              const expanded = searching
+                ? groupLeaves.length > 0
+                : expandedCategory === group.id;
+              return (
+                <div className="settings-category-group" key={group.id}>
+                  <h3 className="settings-category-heading">
+                    <button
+                      className="settings-category"
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-controls={`settings-group-${group.id}`}
+                      onClick={() => {
+                        if (searching) {
+                          setQuery('');
+                          setExpandedCategory(group.id);
+                        } else {
+                          setExpandedCategory(expanded ? null : group.id);
+                        }
+                      }}
+                    >
+                      <span>{group.label}</span>
+                      <ChevronDown size={16} aria-hidden />
+                    </button>
+                  </h3>
+                  <ul
+                    id={`settings-group-${group.id}`}
+                    aria-label={group.label}
+                    hidden={!expanded}
+                  >
+                    {groupLeaves.map((item) => (
+                      <li key={item.id}>
+                        <Link
+                          to={item.href}
+                          aria-current={
+                            item.id === leaf.id ? 'page' : undefined
+                          }
+                        >
+                          <SettingIcon id={item.id} />
+                          <span>{item.label}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
-          <ul aria-label={query.trim() ? 'Matching settings' : category}>
-            {visibleLeaves.map((item) => (
-              <li key={item.id}>
-                <Link
-                  to={item.href}
-                  aria-current={item.id === leaf.id ? 'page' : undefined}
-                >
-                  <SettingIcon id={item.id} />
-                  <span>{item.label}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {visibleLeaves.length === 0 && (
+          {matchingLeaves.length === 0 && (
             <p className="muted settings-no-results">No settings found.</p>
           )}
         </nav>

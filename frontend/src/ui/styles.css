@@ -2494,10 +2494,20 @@ progress {
 .settings-category-list {
   display: grid;
   gap: 2px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
+}
+.settings-category-group {
+  min-width: 0;
+}
+.settings-category-heading {
+  margin: 0;
+  font-size: inherit;
 }
 .settings-category {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   min-height: 40px;
   padding: 8px 10px;
   border: 0;
@@ -2508,12 +2518,24 @@ progress {
   font-weight: 600;
 }
 .settings-category:hover,
-.settings-category[aria-pressed='true'] {
+.settings-category[aria-expanded='true'] {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
-.settings-category[aria-pressed='true'] {
+.settings-category[aria-expanded='true'] {
   box-shadow: inset 3px 0 var(--accent-solid);
+}
+.settings-category svg {
+  flex: 0 0 auto;
+  transition: transform 150ms ease;
+}
+.settings-category[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-category svg {
+    transition: none;
+  }
 }
 .settings-no-results {
   padding: 8px 10px;
@@ -2521,7 +2543,10 @@ progress {
 .settings-side-navigation ul {
   display: grid;
   margin: 0;
-  padding: 10px 0 0;
+  padding: 2px 0 6px 8px;
+}
+.settings-side-navigation ul[hidden] {
+  display: none;
 }
 .settings-side-navigation li {
   list-style: none;
@@ -2529,9 +2554,9 @@ progress {
 .settings-side-navigation a {
   display: flex;
   align-items: center;
-  min-height: 42px;
+  min-height: 40px;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: var(--radius-control);
   color: var(--text-secondary);
   text-decoration: none;

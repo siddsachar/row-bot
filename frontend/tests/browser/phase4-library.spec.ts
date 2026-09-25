@@ -425,21 +425,34 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
   const workspaceNavigation = page.getByRole('navigation', {
     name: 'Workspace navigation',
   });
-  if (!(await workspaceNavigation.isVisible()))
+  if (info.project.use.viewport!.width >= 900) {
+    await expect(workspaceNavigation).toBeVisible();
+  } else {
     await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .getByRole('button', { name: 'Expand navigation', exact: true })
       .click();
+  }
   await workspaceNavigation
     .getByRole('link', { name: 'Settings', exact: true })
+    .click();
+  await page
+    .getByRole('navigation', { name: 'Settings sections' })
+    .getByRole('button', { name: 'Tools and integrations' })
     .click();
   await page
     .getByRole('navigation', { name: 'Settings sections' })
     .getByRole('link', { name: 'Tools', exact: true })
     .click();
   await page
+    .locator('summary')
+    .filter({ hasText: 'Cached tool catalogue' })
+    .click();
+  await page
     .getByRole('combobox', { name: 'Tool source' })
     .selectOption('core');
-  await page.getByRole('searchbox', { name: 'Search tools' }).fill('p4-tool-');
+  await page
+    .getByRole('searchbox', { name: 'Search tools', exact: true })
+    .fill('p4-tool-');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(
     page.getByText('105 matching recorded entries', { exact: true }),
@@ -454,7 +467,7 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
     .click();
   await expect(page.locator('.settings-results > li')).toHaveCount(105);
   await page
-    .getByRole('searchbox', { name: 'Search tools' })
+    .getByRole('searchbox', { name: 'Search tools', exact: true })
     .fill('p4-tool-104');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.locator('.settings-results > li')).toHaveCount(1);
