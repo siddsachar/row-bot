@@ -1944,3 +1944,46 @@ it('fences a search hit when A history resolves after selection has moved throug
   expect(mock.close).not.toHaveBeenCalled();
   expect(mock.state.selectedConversationId).toBe('conversation-c');
 });
+
+it('renders a folded create_chart result with its parent message (B4)', async () => {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    rows: [
+      {
+        id: 'assistant:checkpoint:a',
+        message_id: 'a',
+        role: 'assistant',
+        blocks: [{ type: 'text', text: 'Charting the numbers now.' }],
+        tool_call_ids: ['call-chart'],
+      },
+      {
+        id: 'tool:checkpoint:b',
+        message_id: 'b',
+        role: 'tool',
+        tool_call_id: 'call-chart',
+        trace_parent_id: 'assistant:checkpoint:a',
+        blocks: [
+          {
+            id: 'block:chart',
+            type: 'chart',
+            figure_json: '{"data":[],"layout":{}}',
+            text: 'Sample revenue vs costs',
+          },
+        ],
+      },
+    ],
+  } as unknown as Snapshot;
+  await act(async () => {
+    conversation();
+  });
+  const message = screen.getByRole('article', { name: 'Row-Bot message' });
+  expect(
+    within(message).getByText('Sample revenue vs costs', {
+      selector: 'figcaption',
+    }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('article', { name: 'Tool result message' }),
+  ).toBeNull();
+});

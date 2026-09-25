@@ -679,6 +679,11 @@ svg {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.message-tool-embeds {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
 .message-media {
   max-width: 100%;
   max-height: 280px;

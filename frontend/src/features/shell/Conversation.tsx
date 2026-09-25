@@ -3,6 +3,7 @@ import {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -65,12 +66,17 @@ import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 
+const NO_BLOCKS: TranscriptRow['blocks'] = [];
+
 const Message = memo(function Message({
   row,
   conversationId,
+  toolCharts = NO_BLOCKS,
 }: {
   row: TranscriptRow;
   conversationId: string | null;
+  /** Charts produced by this row's folded tool results (B4). */
+  toolCharts?: TranscriptRow['blocks'];
 }) {
   const { controller, platform } = useRuntime();
   const [expanded, setExpanded] = useState('');
@@ -182,6 +188,11 @@ const Message = memo(function Message({
         </div>
         {!!row.traces?.length && conversationId && (
           <TranscriptTrace conversation={conversationId} groups={row.traces} />
+        )}
+        {!!toolCharts.length && (
+          <div className="message-tool-embeds">
+            <TranscriptBlocks blocks={toolCharts} copyText={copyCode} />
+          </div>
         )}
         {((row.content_status === 'lazy' && (!expanded || cursor)) ||
           previous.length > 0) && (
@@ -656,6 +667,21 @@ export default function Conversation({
   const visibleRows = rows.filter(
     (row) => row.role !== 'tool' || !row.trace_parent_id,
   );
+  // Tool results fold into their parent's trace, but a create_chart result's
+  // chart block must still render with that parent (NiceGUI parity, B4).
+  const toolCharts = useMemo(() => {
+    const charts = new Map<string, TranscriptRow['blocks']>();
+    for (const row of rows) {
+      if (row.role !== 'tool' || !row.trace_parent_id) continue;
+      const blocks = row.blocks.filter((block) => block.type === 'chart');
+      if (!blocks.length) continue;
+      charts.set(row.trace_parent_id, [
+        ...(charts.get(row.trace_parent_id) ?? []),
+        ...blocks,
+      ]);
+    }
+    return charts;
+  }, [rows]);
   const hasLiveTranscript =
     visibleRows.length > 0 || Boolean(pending) || Boolean(running);
   const settledTraceCalls = new Set(
@@ -1879,6 +1905,7 @@ export default function Conversation({
                   key={`${id}:${row.id}`}
                   row={row}
                   conversationId={id}
+                  toolCharts={toolCharts.get(row.id)}
                 />
               ))
             ) : (
