@@ -43,7 +43,7 @@ import {
 } from '../../ui/primitives';
 import type { ConversationView } from '../../api/types';
 import ConversationActions from '../settings/ConversationActions';
-import ConversationLibrary from './ConversationLibrary';
+import { deleteOneConversation } from './ConversationLibrary';
 import type {
   GoalProfileSettingsSession,
   ProfileSummary,
@@ -565,7 +565,7 @@ export default function Navigation({
                 label: 'Delete…',
                 icon: <Trash2 size={16} />,
                 danger: true,
-                onSelect: () => openDelete(conversation),
+                onSelect: (opener) => openDelete(conversation, opener),
               },
             ]}
           >
@@ -605,16 +605,31 @@ export default function Navigation({
       return conversationRow(row, heading);
     });
   }
-  function openDelete(conversation: ConversationView) {
+  // One conversation is one confirmation; bulk deletion lives in the Library.
+  function openDelete(
+    conversation: ConversationView,
+    opener?: HTMLElement | null,
+  ) {
+    const title = conversation.title || 'this conversation';
     overlay.open({
-      title: 'Delete conversation',
-      description: `Review deletion of ${conversation.title || 'this conversation'}.`,
-      content: (
-        <ConversationLibrary
-          controller={controller}
-          initialSelectedId={conversation.id}
-        />
-      ),
+      kind: 'alert',
+      title: `Delete '${title}'?`,
+      description:
+        'This removes the conversation history. Bound designs and workspaces remain. Running work must stop before deletion can finish.',
+      confirmLabel: 'Delete conversation',
+      returnFocusTo: opener,
+      onConfirm: () =>
+        void deleteOneConversation(controller, conversation).then((outcome) => {
+          if (outcome.status === 'deleted') {
+            if (state.selectedConversationId === conversation.id) navigate('/');
+            overlay.notify(
+              outcome.notice
+                ? `Deleted '${title}'. ${outcome.notice}`
+                : `Deleted '${title}'.`,
+            );
+          } else overlay.notify(outcome.message);
+          void controller.loadMoreConversations(true);
+        }),
     });
   }
   const typeLabel =

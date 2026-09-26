@@ -6,12 +6,14 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
 import { OverlayProvider } from '../../ui/overlays';
-import ConversationLibrary from './ConversationLibrary';
+import ConversationLibrary, {
+  deleteOneConversation,
+} from './ConversationLibrary';
 
 const clients: ClientController[] = [];
 afterEach(() => {
@@ -337,4 +339,92 @@ it('reports an authorization denial without deleting or automatically retrying',
   expect(
     screen.queryByRole('button', { name: 'Retry uncertain deletions' }),
   ).toBeNull();
+});
+
+describe('deleteOneConversation (sidebar single delete)', () => {
+  const row = {
+    id: 'conversation-7',
+    revision: '3',
+    title: 'Sample conversation 7',
+    pinned: false,
+  };
+  function owner(command: (...args: unknown[]) => Promise<unknown>) {
+    return {
+      getSnapshot: () =>
+        ({ handshake: { client_session_id: 'session-a' } }) as never,
+      command: vi.fn(command) as never,
+    };
+  }
+
+  it('deletes one conversation with its own revision and clears recovery', async () => {
+    const controller = owner(async () => ({ status: 'DeleteCompleted' }));
+    await expect(deleteOneConversation(controller, row)).resolves.toEqual({
+      status: 'deleted',
+      notice: '',
+    });
+    expect(controller.command).toHaveBeenCalledWith(
+      'conversation-7',
+      expect.objectContaining({
+        type: 'conversation.delete',
+        expected_revision: '3',
+        client_session_id: 'session-a',
+      }),
+      expect.any(String),
+    );
+    expect(
+      sessionStorage.getItem('row-bot.conversation-library.pending-delete.v1'),
+    ).toBeNull();
+  });
+
+  it('reports running work and retained developer work in words', async () => {
+    await expect(
+      deleteOneConversation(
+        owner(async () => ({ status: 'DeleteRequested' })),
+        row,
+      ),
+    ).resolves.toMatchObject({ status: 'not_stopped' });
+    await expect(
+      deleteOneConversation(
+        owner(async () => ({
+          status: 'DeleteCompleted',
+          retained_developer_work: true,
+        })),
+        row,
+      ),
+    ).resolves.toEqual({
+      status: 'deleted',
+      notice: 'Developer work with changes was retained.',
+    });
+  });
+
+  it('keeps an unconfirmed outcome for the Library and never retries it', async () => {
+    const controller = owner(async () => {
+      throw { code: 'operation_uncertain' };
+    });
+    await expect(deleteOneConversation(controller, row)).resolves.toMatchObject(
+      { status: 'uncertain' },
+    );
+    expect(controller.command).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(
+        sessionStorage.getItem(
+          'row-bot.conversation-library.pending-delete.v1',
+        ) ?? 'null',
+      ),
+    ).toMatchObject({ target: 'conversation-7', revision: '3' });
+  });
+
+  it('clears recovery after a definite failure', async () => {
+    await expect(
+      deleteOneConversation(
+        owner(async () => {
+          throw { code: 'revision_conflict' };
+        }),
+        row,
+      ),
+    ).resolves.toMatchObject({ status: 'failed' });
+    expect(
+      sessionStorage.getItem('row-bot.conversation-library.pending-delete.v1'),
+    ).toBeNull();
+  });
 });

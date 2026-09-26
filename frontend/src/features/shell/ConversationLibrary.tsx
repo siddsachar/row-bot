@@ -67,6 +67,65 @@ const LABELS: Record<Category, string> = {
 };
 
 /** "Design · Code" for a thread holding both; "Chats" for a plain one. */
+export type SingleDeleteOutcome =
+  | { status: 'deleted'; notice: string }
+  | { status: 'not_stopped' | 'failed' | 'uncertain'; message: string };
+
+/**
+ * Delete one conversation with the Library's receipt and recovery rules: an
+ * unconfirmed outcome is kept for the Library page to check, never retried.
+ */
+export async function deleteOneConversation(
+  controller: Pick<ClientController, 'getSnapshot' | 'command'>,
+  row: ConversationView,
+): Promise<SingleDeleteOutcome> {
+  const session = controller.getSnapshot().handshake?.client_session_id;
+  if (!session)
+    return {
+      status: 'failed',
+      message: 'The session changed. Reconnect and try again.',
+    };
+  const key = crypto.randomUUID();
+  const command: Command = {
+    command_id: key,
+    client_session_id: session,
+    type: 'conversation.delete',
+    expected_revision: row.revision,
+    payload: {},
+  };
+  writePendingRecovery({
+    target: row.id,
+    key,
+    revision: row.revision,
+    session,
+  });
+  try {
+    const receipt = await controller.command(row.id, command, key);
+    clearPendingRecovery(key);
+    if (receipt.status !== 'DeleteCompleted')
+      return {
+        status: 'not_stopped',
+        message: 'Running work has not stopped. Stop it, then delete again.',
+      };
+    const notice =
+      receipt.retained_developer_work || receipt.deletion_warnings?.length
+        ? receipt.deletion_warnings?.join(' ') ||
+          'Developer work with changes was retained.'
+        : '';
+    return { status: 'deleted', notice };
+  } catch (cause) {
+    const safe = clientError(cause);
+    if (safe.code === 'operation_uncertain')
+      return {
+        status: 'uncertain',
+        message:
+          'The deletion outcome is unconfirmed. Open the Library to check it before trying again.',
+      };
+    clearPendingRecovery(key);
+    return { status: 'failed', message: safe.message };
+  }
+}
+
 function typeLabel(row: ConversationView): string {
   const kinds = conversationKinds(row);
   return kinds.length
