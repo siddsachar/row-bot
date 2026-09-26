@@ -6,15 +6,16 @@ import { expect, it } from 'vitest';
 const read = (path: string) =>
   readFileSync(new URL(path, import.meta.url), 'utf8');
 
-it('proxies the API and packaged renderer runtimes to the same validated loopback backend', () => {
+it('proxies the API, remote access and packaged renderer runtimes to the same validated loopback backend', () => {
   const config = read('../vite.config.ts');
   const proxy = config.slice(
     config.indexOf('proxy: {'),
     config.indexOf('},', config.indexOf('proxy: {')),
   );
   expect(proxy).toContain("'/api/v1': loopbackProxy,");
+  expect(proxy).toContain("'/api/access': loopbackProxy,");
   expect(proxy).toContain("'/app-v2/runtime/': loopbackProxy,");
-  expect(proxy.match(/': /g)).toHaveLength(2);
+  expect(proxy.match(/': /g)).toHaveLength(3);
   expect(config).toMatch(
     /const loopbackProxy: ProxyOptions = \{\s+target: backend\.origin,/,
   );

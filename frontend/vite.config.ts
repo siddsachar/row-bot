@@ -52,6 +52,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api/v1': loopbackProxy,
+      // Remote access (connection links, Tailscale, sessions) lives beside
+      // /api/v1; without this the Access page reads 404s in dev.
+      '/api/access': loopbackProxy,
       // Packaged renderer runtimes (vis-network, Mermaid, Plotly) are served
       // by the backend, not Vite; without this they are "unavailable" in dev.
       '/app-v2/runtime/': loopbackProxy,
