@@ -1268,3 +1268,19 @@
     animation: none;
   }
 }
+
+/* The phone/tablet drawer hosts the same sidebar without a second frame. */
+.dialog.drawer > .dialog-body {
+  padding: 0 8px 8px;
+}
+.dialog.drawer .navigation {
+  min-height: 0;
+  height: auto;
+  padding-inline: 0;
+  background: transparent;
+  overflow: visible;
+}
+.dialog.drawer .nav-footer {
+  position: static;
+  background: transparent;
+}
