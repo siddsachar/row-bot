@@ -454,9 +454,13 @@ export default function CapabilitySettings({
               }
             : null,
           message: deleted
-            ? 'Server deleted. Its connection is stopped or no longer running. Refresh to load the current configuration.'
-            : 'Saved disabled. Refresh to view the current configuration. Connection cleanup was not requested.',
+            ? 'Server deleted. Its connection is stopped or no longer running.'
+            : 'Saved disabled. Connection cleanup was not requested.',
         });
+        // Show the saved list as it is now; keep the outcome message.
+        const saved = session.getSnapshot().message;
+        await refresh(session.getSnapshot().filter);
+        if (!session.getSnapshot().message) session.update({ message: saved });
       } else if (result.mcp_configuration?.code === 'mcp_cleanup_incomplete') {
         session.update({
           busy: '',
@@ -940,6 +944,8 @@ export default function CapabilitySettings({
           {draft.operation === 'import' ? (
             <Field label="Server import JSON">
               <textarea
+                className="input"
+                rows={6}
                 value={draft.imported}
                 maxLength={131072}
                 onChange={(event) => edit({ imported: event.target.value })}
@@ -999,6 +1005,8 @@ export default function CapabilitySettings({
                   </Field>
                   <Field label="Additional settings (JSON)">
                     <textarea
+                      className="input"
+                      rows={3}
                       value={draft.extra}
                       maxLength={131072}
                       autoComplete="off"

@@ -190,6 +190,8 @@ it('confirms configured-server deletion, then removes the row after the original
   await chooseRow('Synthetic', 'Delete Synthetic');
   expect(props.review).not.toHaveBeenCalled();
   expect(screen.getByText('Delete MCP server')).toBeVisible();
+  // After the delete the list is read again, now without the server.
+  props.load.mockResolvedValue({ ...page, items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: 'Delete server' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0].intent).toEqual({
@@ -235,7 +237,7 @@ it('preserves the exact unsent draft across full unmount', async () => {
     '["one two", "--exact"]',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
-  await screen.findByText(/Saved disabled. Refresh/);
+  await screen.findByText(/^Saved disabled\./);
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review).toHaveBeenCalledOnce();
   expect(props.execute.mock.calls[0][0].payload.intent.fields.args).toEqual([
@@ -243,7 +245,9 @@ it('preserves the exact unsent draft across full unmount', async () => {
     '--exact',
   ]);
   expect(props.session.hasRetained()).toBe(false);
-  expect(screen.getByRole('button', { name: 'Save Disabled' })).toBeDisabled();
+  // The saved list is read again and the editor starts from an empty draft.
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  expect(screen.getByLabelText('Server name')).toHaveValue('');
 });
 
 it('retains uncertain originals and only reconciles their exact request after refresh', async () => {
@@ -263,7 +267,7 @@ it('retains uncertain originals and only reconciles their exact request after re
   await choosePage('Refresh');
   await screen.findByText(/interrupted save requires recovery/);
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
-  await screen.findByText(/Saved disabled. Refresh/);
+  await screen.findByText(/^Saved disabled\./);
   expect(props.execute.mock.calls[1]).toEqual(original);
   expect(props.review).toHaveBeenCalledTimes(1);
 });
@@ -383,7 +387,7 @@ it('supports explicit rename and import without launch activity', async () => {
     server_id: 'b'.repeat(64),
     fields: { name: 'Renamed synthetic' },
   });
-  await screen.findByText(/Saved disabled. Refresh/);
+  await screen.findByText(/^Saved disabled\./);
   await choosePage('Refresh');
   await rowMenu('Synthetic');
   fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {

@@ -2485,7 +2485,33 @@
 .settings-page-content .profile-library-group[open] > summary::before {
   transform: rotate(45deg);
 }
-/* The profile editor reads as one raised form, not a browser fieldset. */
+/* Settings forms (profile editor, MCP server settings, plugin
+   configuration) read as one raised form, not a browser fieldset. */
+.settings-page-content fieldset:not(.field):not(.settings-profile-editor) {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.settings-page-content
+  fieldset:not(.field):not(.settings-profile-editor)
+  > legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-title);
+  font-weight: var(--weight-semibold);
+}
+.settings-page-content fieldset textarea.input {
+  min-height: 0;
+  resize: vertical;
+}
 .settings-profile-editor {
   display: grid;
   gap: 12px;

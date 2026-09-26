@@ -716,6 +716,8 @@ export default function PluginSettings({
                   </Select>
                 ) : field.type === 'textarea' ? (
                   <textarea
+                    className="input"
+                    rows={3}
                     value={String(state.settings[field.name] ?? '')}
                     maxLength={65536}
                     autoComplete="off"
