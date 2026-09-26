@@ -106,6 +106,53 @@ def test_passive_snapshot_uses_current_bytes_without_loading_or_writing(
     assert not skills._skills_cache
 
 
+def test_passive_snapshot_reuses_an_unchanged_library_and_rereads_any_change(
+    library, monkeypatch
+):
+    monkeypatch.setattr(library, "_client_snapshot_cache", None)
+    reads = []
+    uncached = library._read_client_skills_uncached
+
+    def counted():
+        reads.append(1)
+        return uncached()
+
+    monkeypatch.setattr(library, "_read_client_skills_uncached", counted)
+    first = library.read_client_skills()
+    second = library.read_client_skills()
+    assert len(reads) == 1
+    assert second == first
+    # Callers receive private copies; mutating one cannot poison the cache.
+    second["items"]["sample"]["skill"].tags.append("mutated")
+    assert "mutated" not in library.read_client_skills()["items"]["sample"]["skill"].tags
+    assert len(reads) == 1
+
+    path = library.USER_SKILLS_DIR / "sample" / "SKILL.md"
+    staged = path.with_name("SKILL.md.next")
+    staged.write_text(
+        "---\nname: sample\ndisplay_name: Changed\ndescription: A saved skill\n---\n\nUse the approved tools.\n",
+        encoding="utf-8",
+    )
+    os.replace(staged, path)
+    changed = library.read_client_skills()
+    assert len(reads) == 2
+    assert changed["items"]["sample"]["skill"].display_name == "Changed"
+    assert changed["revision"] != first["revision"]
+
+    extra = library.USER_SKILLS_DIR / "extra"
+    extra.mkdir()
+    (extra / "SKILL.md").write_text(
+        "---\nname: extra\ndescription: Another skill\n---\n\nUse the approved tools.\n",
+        encoding="utf-8",
+    )
+    assert "extra" in library.read_client_skills()["items"]
+    assert len(reads) == 3
+
+    library.CONFIG_PATH.write_text(json.dumps({"skills": {"sample": False}}), encoding="utf-8")
+    assert library.read_client_skills()["enabled"]["sample"] is False
+    assert len(reads) == 4
+
+
 def test_passive_snapshot_accepts_the_public_description_bound(library):
     path = library.USER_SKILLS_DIR / "sample" / "SKILL.md"
     description = "Detailed local workflow guidance. " * 20

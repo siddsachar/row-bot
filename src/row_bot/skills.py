@@ -19,6 +19,7 @@ import os
 import pathlib
 import re
 import hashlib
+import copy
 import itertools
 import threading
 from functools import wraps
@@ -855,9 +856,47 @@ def _client_file(path: pathlib.Path, *, maximum: int = 65536):
                           unavailable_code='skill_unavailable')
 
 
+_client_snapshot_cache: tuple[tuple, dict] | None = None
+
+
+def _stat_identity(path: pathlib.Path) -> tuple:
+    try:
+        value = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        return (str(path), None)
+    return (str(path), value.st_mode, value.st_dev, value.st_ino, value.st_nlink, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns, getattr(value, 'st_file_attributes', 0))
+
+
+def _client_library_fingerprint() -> tuple:
+    """Cheap lstat identity of the config, each library root, entry and SKILL.md."""
+    parts = [_stat_identity(CONFIG_PATH)]
+    for base in (BUNDLED_SKILLS_DIR, TOOL_GUIDES_DIR, USER_SKILLS_DIR):
+        parts.append(_stat_identity(base))
+        if not base.exists():
+            continue
+        with os.scandir(base) as stream:
+            names = sorted(entry.name for entry in itertools.islice(stream, 4097))
+        for name in names:
+            parts.append(_stat_identity(base / name))
+            parts.append(_stat_identity(base / name / 'SKILL.md'))
+    return tuple(parts)
+
+
 @_serialized
 def read_client_skills() -> dict:
     """Bounded passive snapshot of the canonical library/config; no migrations."""
+    global _client_snapshot_cache
+    fingerprint = _client_library_fingerprint()
+    if _client_snapshot_cache is not None and _client_snapshot_cache[0] == fingerprint:
+        return copy.deepcopy(_client_snapshot_cache[1])
+    result = _read_client_skills_uncached()
+    if _client_library_fingerprint() == fingerprint:
+        _client_snapshot_cache = (fingerprint, copy.deepcopy(result))
+    return result
+
+
+def _read_client_skills_uncached() -> dict:
     config_file = _client_file(CONFIG_PATH, maximum=1024 * 1024)
     config = json.loads(config_file[0]) if config_file[0] is not None else {}
     if (not isinstance(config, dict) or not isinstance(config.get('skills', {}), dict)
