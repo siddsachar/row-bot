@@ -209,6 +209,11 @@ test('generated output is retained explicitly and can be handed to Developer wit
   await context.getByText('Image output').click();
   await context.getByRole('button', { name: 'Use in code folder' }).click();
   await expect(composer(page)).toHaveValue(/developer's media import/i);
+  // The draft save can wait while the media run finalises; reload only once
+  // it is saved, as a person would see "Draft saved".
+  await expect(
+    page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
+  ).toBeVisible();
   await context.getByRole('button', { name: 'Save to workspace' }).click();
   await expect(
     context.getByText(/Saved outputs\/output-[a-f0-9]+\.png/),

@@ -12,7 +12,7 @@ type BrowserEvidence = {
   console: { type: string; text: string }[];
   pageErrors: string[];
   pageErrorDetails: { name: string; stack: string }[];
-  network: { event: string; path: string; status?: number }[];
+  network: { event: string; path: string; status?: number; method?: string }[];
   webSockets: { event: 'open' | 'close' | 'error'; path: string }[];
   blockedExternal: string[];
 };
@@ -175,12 +175,14 @@ export const test = base.extend<{
             event: 'response',
             path: publicPath(response.url()),
             status: response.status(),
+            method: response.request().method(),
           }),
         );
         observed.on('requestfailed', (request) =>
           evidence.network.push({
             event: 'failed',
             path: publicPath(request.url()),
+            method: request.method(),
           }),
         );
         observed.on('websocket', (socket) => {

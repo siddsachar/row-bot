@@ -23,10 +23,14 @@ async function pinOpenConversation(page: Page): Promise<void> {
     name: 'Conversation actions',
     exact: true,
   });
-  await actions.getByRole('button', { name: 'Pin', exact: true }).click();
+  const unpin = actions.getByRole('button', { name: 'Unpin', exact: true });
+  // Pinning persists in the shared fixture; an earlier run may have pinned it.
   await expect(
-    actions.getByRole('button', { name: 'Unpin', exact: true }),
+    actions.getByRole('button', { name: /^(Pin|Unpin)$/ }),
   ).toBeVisible();
+  if (!(await unpin.isVisible()))
+    await actions.getByRole('button', { name: 'Pin', exact: true }).click();
+  await expect(unpin).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 }
