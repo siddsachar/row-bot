@@ -179,7 +179,7 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
 - The composer is one field (`.composer-field`, radius `--radius-composer`)
   that grows from a single 24px line to 240px. Chips appear inside it only when
   present. Left: `+` menu, model pill, approval shield; right: context ring,
-  dictation with a Talk chevron, send/stop (32px round). The context ring is
+  dictation with a Talk chevron, send/stop (34px round). The context ring is
   neutral ink until it nears the compaction threshold. `/` opens commands and
   `@` opens agent profiles, write targets and files. Status lines are
   announced, not printed, except a failed or conflicting draft. Floating

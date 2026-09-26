@@ -1966,11 +1966,12 @@
 .composer-voice .button.icon-button:hover {
   color: var(--text-primary);
 }
+/* Composer actions keep the 34px fine-pointer minimum of text controls. */
 .composer-queue-button.button,
 .composer-setup-model.button {
   gap: 6px;
-  min-height: 30px;
-  height: 30px;
+  min-height: 34px;
+  height: 34px;
   padding: 0 12px;
   border-radius: 999px;
   font-size: var(--text-13);
@@ -1983,10 +1984,10 @@
 }
 .composer-send.button,
 .composer-stop.button {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
   padding: 0;
   border-radius: 50%;
   transition:
@@ -2459,7 +2460,7 @@
     display: none;
   }
   .composer-queue-button.button {
-    width: 30px;
+    width: 34px;
     padding: 0;
     justify-content: center;
   }
