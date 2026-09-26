@@ -1,10 +1,10 @@
 import {
-  useDeferredValue,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
 import {
@@ -122,11 +122,12 @@ export default function CommandPalette({
   const state = useClientState();
   const { controller } = useRuntime();
   const [query, setQuery] = useState('');
-  const deferred = useDeferredValue(query);
   const [active, setActive] = useState(0);
   const listId = useId();
   const listRef = useRef<HTMLDivElement>(null);
-  const trimmed = deferred.trim();
+  // Results follow the typed query synchronously so Enter never runs a
+  // result computed for an earlier query.
+  const trimmed = query.trim();
   const [agents, setAgents] = useState<PaletteAgent[]>([]);
   useEffect(() => {
     if (!loadAgents) return;
@@ -306,6 +307,19 @@ export default function CommandPalette({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
+  function navigate(event: ReactKeyboardEvent) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!items.length) return;
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      setActive((current + step + items.length) % items.length);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      items[current]?.run();
+    }
+  }
+
   const groups: {
     group: PaletteGroup;
     entries: { item: Item; index: number }[];
@@ -333,18 +347,7 @@ export default function CommandPalette({
           placeholder="Search conversations, commands, settings…"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              event.preventDefault();
-              if (!items.length) return;
-              const step = event.key === 'ArrowDown' ? 1 : -1;
-              setActive((current + step + items.length) % items.length);
-            } else if (event.key === 'Enter') {
-              event.preventDefault();
-              items[current]?.run();
-            }
-          }}
+          onKeyDown={navigate}
         />
         {state.searching && (
           <span className="command-palette-busy" role="status">
@@ -357,8 +360,10 @@ export default function CommandPalette({
         id={listId}
         role="listbox"
         aria-label="Results"
-        // Reachable for assistive tech; the field keeps keyboard focus.
-        tabIndex={-1}
+        // Keyboard reachable (the list scrolls); arrows work here as well.
+        tabIndex={0}
+        aria-activedescendant={items.length ? optionId(current) : undefined}
+        onKeyDown={navigate}
         ref={listRef}
       >
         {groups.map(({ group, entries }) => (
