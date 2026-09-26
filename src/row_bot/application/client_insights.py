@@ -98,6 +98,10 @@ def read_insights(*, validate: Callable[[], None]) -> dict:
     return data
 
 
+def _proposals(count: int) -> str:
+    return f"{count} proposal" if count == 1 else f"{count} proposals"
+
+
 def execute_insight(
     command: dict, *, owner_id: str, validate: Callable[[], None]
 ) -> dict:
@@ -158,10 +162,10 @@ def execute_insight(
         if source is None:
             raise ClientPlatformError("insight_unavailable")
         proposals = evolution.ensure_proposals_for_insight(source)
-        summary = f"Prepared {len(proposals)} proposal(s)."
+        summary = f"Prepared {_proposals(len(proposals))}."
     elif action == "review_skills":
         report = evolution.review_skill_library_dry_run(create_proposals=True)
-        summary = f"Skill review prepared {report.get('summary', {}).get('proposal_count', 0)} proposal(s)."
+        summary = f"Skill review prepared {_proposals(report.get('summary', {}).get('proposal_count', 0))}."
     elif action == "reject":
         evolution.reject_proposal(proposal_id, wire["reason"])
         summary = "Proposal rejected."

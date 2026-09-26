@@ -128,6 +128,26 @@ def test_failed_proposal_application_has_a_failed_receipt(isolated_insights, mon
     assert result["summary"] == "Proposal failed; inspect its status."
 
 
+@pytest.mark.parametrize(("count", "words"), [(1, "1 proposal"), (2, "2 proposals")])
+def test_prepared_proposals_are_counted_in_words(isolated_insights, monkeypatch, count, words):
+    monkeypatch.setattr(evolution, "review_skill_library_dry_run",
+                        lambda **_kwargs: {"summary": {"proposal_count": count}})
+    monkeypatch.setattr(evolution, "ensure_proposals_for_insight",
+                        lambda _insight: [{"id": f"p-{index}"} for index in range(count)])
+    results = []
+    for action in ("review_skills", "generate"):
+        snapshot = owner.read_insights(validate=lambda: None)
+        results.append(owner.execute_insight(
+            {
+                "command_id": str(uuid4()), "revision": snapshot["revision"],
+                "action": action, "insight_id": "ins-test", "proposal_id": "",
+                "reason": "",
+            },
+            owner_id="owner", validate=lambda: None,
+        )["summary"])
+    assert results == [f"Skill review prepared {words}.", f"Prepared {words}."]
+
+
 def test_feedback_and_investigation_views_are_bounded(isolated_insights, monkeypatch):
     _current, proposal, _calls = isolated_insights
     proposal.update(
