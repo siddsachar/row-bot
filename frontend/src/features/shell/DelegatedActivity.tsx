@@ -16,6 +16,8 @@ type Props = {
   compact?: boolean;
   /** Reports whether there is anything to show once a load settles. */
   onContentChange?: (hasContent: boolean) => void;
+  /** Reports how many delegated agents are queued, running or waiting. */
+  onLiveChange?: (live: number) => void;
   /** Keeps recent first-page reads across remounts of this section. */
   recentRead?: RecentReads;
 };
@@ -281,6 +283,13 @@ export default function DelegatedActivity(props: Props) {
     // Keep the last answer while a refresh is in flight to avoid flicker.
     if (!loading || hasContent) callbacks.current.onContentChange?.(hasContent);
   }, [hasContent, loading]);
+  const live = page
+    ? page.items.filter((run) => ACTIVE_STATES.has(run.status)).length
+    : null;
+  useEffect(() => {
+    // Only a settled page reports; a refresh in flight keeps the last count.
+    if (live !== null) callbacks.current.onLiveChange?.(live);
+  }, [live]);
   return (
     <section
       aria-label="Delegated tasks"

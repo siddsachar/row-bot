@@ -350,6 +350,67 @@ it('hides the Agents section while delegated work is empty and draws disclosure 
   expect(screen.getByText('Agents', { selector: 'summary' })).toBeVisible();
 });
 
+it('opens and promotes the Agents section while delegated agents are live (B30)', () => {
+  const props = {
+    conversationId: 'conversation-a',
+    conversationRevision: '1',
+    resources: [],
+    suggestions: [],
+    ready: true,
+    connectionStatus: 'ready' as const,
+    terminalAvailable: false,
+    agents: <p>Delegated run list</p>,
+    agentsEmpty: false,
+    onAddResource: vi.fn(),
+    onOpenResource: vi.fn(),
+    onUnbindResource: vi.fn(),
+    onFind: vi.fn(),
+    onManageConversation: vi.fn(),
+    onManageBrowser: vi.fn(),
+    onDeleteConversation: vi.fn(),
+    onOpenTerminal: vi.fn(),
+    onOpenSuggestion: vi.fn(),
+    onDismissSuggestion: vi.fn(),
+  };
+  const view = render(<ConversationContextRail {...props} agentsLive={0} />);
+  const details = () =>
+    screen.getByText('Delegated run list').closest('details')!;
+  const slot = () => details().closest('.context-agents-slot')!;
+  expect(details().open).toBe(false);
+  expect(slot()).not.toHaveAttribute('data-live');
+
+  // A child agent starts: the section opens, shows its status and moves up.
+  view.rerender(<ConversationContextRail {...props} agentsLive={2} />);
+  expect(details().open).toBe(true);
+  expect(slot()).toHaveAttribute('data-live', 'true');
+  expect(within(details()).getByText('2 active')).toBeVisible();
+
+  // The reader may collapse it; a count change while live does not reopen.
+  fireEvent.click(details().querySelector('summary')!);
+  // jsdom queues the toggle event; deliver it before the next update.
+  fireEvent(details(), new Event('toggle'));
+  expect(details().open).toBe(false);
+  view.rerender(<ConversationContextRail {...props} agentsLive={1} />);
+  expect(details().open).toBe(false);
+  expect(within(details()).getByText('1 active')).toBeInTheDocument();
+
+  // Work settles, then new work starts: it opens again.
+  view.rerender(<ConversationContextRail {...props} agentsLive={0} />);
+  expect(slot()).not.toHaveAttribute('data-live');
+  view.rerender(<ConversationContextRail {...props} agentsLive={1} />);
+  expect(details().open).toBe(true);
+
+  // Another conversation with live work starts open as well.
+  view.rerender(
+    <ConversationContextRail
+      {...props}
+      conversationId="conversation-b"
+      agentsLive={1}
+    />,
+  );
+  expect(details().open).toBe(true);
+});
+
 it('names each suggested panel action after its panel', () => {
   const suggestion = {
     type: 'panel.suggested' as const,

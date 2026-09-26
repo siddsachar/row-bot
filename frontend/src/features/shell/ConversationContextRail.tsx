@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ClientPanelSuggestion,
   ClientStatus,
@@ -6,15 +6,25 @@ import type {
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
-import { Button, Disclosure, Menu, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Disclosure,
+  Menu,
+  Skeleton,
+  StatusDot,
+} from '../../ui/primitives';
 import {
   Code2,
   FileImage,
   FolderPlus,
+  Globe,
   MoreHorizontal,
   Palette,
   Search,
+  Settings2,
   Terminal,
+  Trash2,
+  Unlink,
 } from 'lucide-react';
 
 type ResourceSummary = {
@@ -35,6 +45,8 @@ type Props = {
   agents: ReactNode;
   /** Hide the Agents section while the conversation has no delegated work. */
   agentsEmpty?: boolean;
+  /** Delegated agents queued, running or waiting; they are never hidden (B30). */
+  agentsLive?: number;
   outputs?: { id: string; reference: string; mime: string }[];
   completedDesignId?: string;
   writerQueued?: boolean;
@@ -67,6 +79,7 @@ export default function ConversationContextRail({
   compactHeading = false,
   agents,
   agentsEmpty = false,
+  agentsLive = 0,
   outputs = [],
   completedDesignId,
   writerQueued = false,
@@ -92,6 +105,24 @@ export default function ConversationContextRail({
   const [outputError, setOutputError] = useState('');
   const [savedOutputs, setSavedOutputs] = useState<Record<string, string>>({});
   const [writerStatus, setWriterStatus] = useState('');
+  // Live agents open the Agents section (B30). Once open it stays under the
+  // reader's control until work settles and starts again.
+  const [agentsOpen, setAgentsOpen] = useState({
+    conversation: conversationId,
+    open: agentsLive > 0,
+  });
+  const liveBefore = useRef({ conversation: conversationId, live: 0 });
+  useEffect(() => {
+    const previous = liveBefore.current;
+    liveBefore.current = { conversation: conversationId, live: agentsLive };
+    if (
+      agentsLive > 0 &&
+      (previous.conversation !== conversationId || previous.live === 0)
+    )
+      setAgentsOpen({ conversation: conversationId, open: true });
+  }, [agentsLive, conversationId]);
+  const agentsExpanded =
+    agentsOpen.conversation === conversationId && agentsOpen.open;
   const hasWorkspace = resources.some(
     (resource) => resource.binding.kind === 'workspace',
   );
@@ -271,9 +302,22 @@ export default function ConversationContextRail({
             variant="ghost"
             hint="Manage or delete this conversation"
             actions={[
-              { label: 'Manage conversation', onSelect: onManageConversation },
-              { label: 'Manage browser', onSelect: onManageBrowser },
-              { label: 'Delete conversation', onSelect: onDeleteConversation },
+              {
+                label: 'Manage conversation',
+                icon: <Settings2 size={16} />,
+                onSelect: onManageConversation,
+              },
+              {
+                label: 'Manage browser',
+                icon: <Globe size={16} />,
+                onSelect: onManageBrowser,
+              },
+              {
+                label: 'Delete conversation',
+                icon: <Trash2 size={16} />,
+                danger: true,
+                onSelect: onDeleteConversation,
+              },
             ]}
           >
             <MoreHorizontal size={18} aria-hidden />
@@ -345,6 +389,7 @@ export default function ConversationContextRail({
                       actions={[
                         {
                           label: 'Unbind resource',
+                          icon: <Unlink size={16} />,
                           onSelect: () => onUnbindResource(resource),
                         },
                       ]}
@@ -489,11 +534,30 @@ export default function ConversationContextRail({
           </section>
         )}
 
-        {/* Kept mounted while empty so delegated work can reveal it. */}
-        <div hidden={agentsEmpty}>
+        {/* Kept mounted while empty so delegated work can reveal it; live
+            work moves it to the top by order, without remounting it. */}
+        <div
+          className="context-agents-slot"
+          hidden={agentsEmpty}
+          data-live={agentsLive > 0 ? 'true' : undefined}
+        >
           <Disclosure
             className="context-rail-section context-agents"
             summary="Agents"
+            meta={
+              agentsLive > 0 ? (
+                <StatusDot
+                  tone="accent"
+                  pulse
+                  showLabel
+                  label={`${agentsLive} active`}
+                />
+              ) : undefined
+            }
+            open={agentsExpanded}
+            onOpenChange={(open) =>
+              setAgentsOpen({ conversation: conversationId, open })
+            }
           >
             {agents}
           </Disclosure>

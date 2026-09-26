@@ -128,6 +128,11 @@ export default function Conversation({
   }>({ conversation: null, present: false });
   const agentsEmpty =
     agentsContent.conversation !== id || !agentsContent.present;
+  const [agentsLive, setAgentsLive] = useState<{
+    conversation: string | null;
+    live: number;
+  }>({ conversation: null, live: 0 });
+  const liveAgents = agentsLive.conversation === id ? agentsLive.live : 0;
   const [recentDelegatedRead] = useState(() => recentReads());
   const terminalAdvertised = Boolean(
     state.handshake?.application_capabilities?.includes('native:terminal'),
@@ -1440,6 +1445,7 @@ export default function Conversation({
       onContentChange={(present) =>
         setAgentsContent({ conversation: id, present })
       }
+      onLiveChange={(live) => setAgentsLive({ conversation: id, live })}
       recentRead={recentDelegatedRead}
       ready={Boolean(state.handshake) && state.status === 'ready'}
       refreshKey={
@@ -1526,6 +1532,7 @@ export default function Conversation({
       compactHeading={compactContext}
       agents={delegatedActivity}
       agentsEmpty={agentsEmpty}
+      agentsLive={liveAgents}
       outputs={outputs}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}
