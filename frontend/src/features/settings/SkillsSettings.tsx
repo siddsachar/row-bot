@@ -1,9 +1,32 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import PublicSkillHub, { type PublicSkillHubIO } from './PublicSkillHub';
 import PublicSkillMaintenance, {
   type PublicSkillMaintenanceIO,
 } from './PublicSkillMaintenance';
-import { EllipsisVertical, Pin } from 'lucide-react';
+import {
+  ChevronRight,
+  FileUp,
+  Globe2,
+  MoreHorizontal,
+  Pin,
+  Plus,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
+import { humanizeToken } from '../../ui/format';
+import {
+  SettingsAdvanced,
+  SettingsSummary,
+  SettingsTabs,
+  SummaryChip,
+  useTabForAnchor,
+} from './anatomy';
 import {
   Button,
   CompactAction,
@@ -11,6 +34,7 @@ import {
   ErrorState,
   Field,
   Input,
+  Menu,
   Select,
   Skeleton,
   Surface,
@@ -551,102 +575,87 @@ export default function SkillsSettings({
   const shownCustom =
     state.page?.items.filter((skill) => skill.source === 'user').length ?? 0;
 
-  return (
-    <section
-      className="stack"
-      aria-label="Skills settings"
-      aria-busy={Boolean(state.busy)}
+  const [tab, setTab] = useTabForAnchor<'installed' | 'discover'>('installed', {
+    'skill-library': 'installed',
+    'public-skills': 'discover',
+  });
+  const [importOpen, setImportOpen] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(searchTimer.current), []);
+  const installed = (
+    <div
+      className="stack settings-skill-installed"
+      data-setting-anchor="skill-library"
     >
-      <h2>Skill library</h2>
-      <p>
-        Choose which saved workflows are available, pin defaults for new work,
-        and save library changes directly. Removing a skill or rejecting a
-        proposal asks for confirmation.
-      </p>
-      {state.page?.availability === 'available' && (
-        <div
-          className="settings-summary-strip"
-          role="group"
-          aria-label="Displayed skill totals"
-        >
-          <span className="status-chip success">
-            {shownAvailable} available shown
-          </span>
-          <span className="status-chip">{shownPinned} pinned shown</span>
-          <span className="status-chip">{shownCustom} custom shown</span>
-          <span className="status-chip">
-            {state.page.total ?? 'Unknown'} total
-          </span>
-        </div>
-      )}
       <form
-        className="field-row settings-skill-toolbar"
+        className="settings-list-toolbar settings-skill-toolbar"
+        role="search"
+        aria-label="Search installed skills"
         onSubmit={(event) => {
           event.preventDefault();
+          clearTimeout(searchTimer.current);
           void load();
         }}
       >
-        <Field label="Search skills">
+        <label className="settings-inline-search">
+          <span className="visually-hidden">Search skills</span>
+          <Search size={14} aria-hidden />
           <Input
             type="search"
             maxLength={256}
+            placeholder="Search skills"
             value={state.query}
-            onChange={(event) => session.update({ query: event.target.value })}
+            onChange={(event) => {
+              session.update({ query: event.target.value });
+              clearTimeout(searchTimer.current);
+              searchTimer.current = setTimeout(() => void load(), 350);
+            }}
           />
-        </Field>
-        <Field label="Skill source">
-          <Select
-            value={state.source}
-            disabled={locked}
-            onChange={(event) =>
-              changeList({ source: event.target.value as State['source'] })
-            }
-          >
-            <option value="">All sources</option>
-            <option value="user">My skills</option>
-            <option value="bundled">Built in</option>
-            <option value="public">Public</option>
-          </Select>
-        </Field>
-        <Field label="Filter">
-          <Select
-            value={state.filter}
-            disabled={locked}
-            onChange={(event) =>
-              changeList({ filter: event.target.value as State['filter'] })
-            }
-          >
-            <option value="all">All</option>
-            <option value="pinned">Pinned</option>
-            <option value="available">Available</option>
-            <option value="custom">Custom</option>
-            <option value="public">Public</option>
-          </Select>
-        </Field>
-        <Field label="Sort">
-          <Select
-            value={state.sort}
-            disabled={locked}
-            onChange={(event) =>
-              changeList({ sort: event.target.value as State['sort'] })
-            }
-          >
-            <option value="name">Name</option>
-            <option value="recent">Recently used</option>
-            <option value="tokens">Token cost</option>
-            <option value="source">Source</option>
-          </Select>
-        </Field>
-        <Button type="submit" disabled={locked}>
-          Search
-        </Button>
-        <Button disabled={locked} onClick={() => void load()}>
-          Reload skills
-        </Button>
-        <a className="button" href="#public-skill-hub">
-          Browse skills
-        </a>
+        </label>
+        <Select
+          aria-label="Skill source"
+          value={state.source}
+          disabled={locked}
+          onChange={(event) =>
+            changeList({ source: event.target.value as State['source'] })
+          }
+        >
+          <option value="">All sources</option>
+          <option value="user">My skills</option>
+          <option value="bundled">Built in</option>
+          <option value="public">Public</option>
+        </Select>
+        <Select
+          aria-label="Filter"
+          value={state.filter}
+          disabled={locked}
+          onChange={(event) =>
+            changeList({ filter: event.target.value as State['filter'] })
+          }
+        >
+          <option value="all">All</option>
+          <option value="pinned">Pinned</option>
+          <option value="available">Available</option>
+          <option value="custom">Custom</option>
+          <option value="public">Public</option>
+        </Select>
+        <Select
+          aria-label="Sort"
+          value={state.sort}
+          disabled={locked}
+          onChange={(event) =>
+            changeList({ sort: event.target.value as State['sort'] })
+          }
+        >
+          <option value="name">Name</option>
+          <option value="recent">Recently used</option>
+          <option value="tokens">Token cost</option>
+          <option value="source">Source</option>
+        </Select>
         <Button
+          variant="primary"
           disabled={locked}
           onClick={() =>
             session.update({
@@ -655,27 +664,36 @@ export default function SkillsSettings({
             })
           }
         >
+          <Plus size={15} aria-hidden />
           Create skill
         </Button>
+        <Menu
+          label="More skill actions"
+          iconOnly
+          variant="ghost"
+          className="icon-action icon-action-md"
+          actions={[
+            {
+              label: 'Reload skills',
+              icon: <RefreshCw size={16} />,
+              disabled: locked,
+              onSelect: () => void load(),
+            },
+            {
+              label: 'Import a skill',
+              icon: <FileUp size={16} />,
+              onSelect: () => setImportOpen(true),
+            },
+            {
+              label: 'Browse public skills',
+              icon: <Globe2 size={16} />,
+              onSelect: () => setTab('discover'),
+            },
+          ]}
+        >
+          <MoreHorizontal size={18} aria-hidden />
+        </Menu>
       </form>
-      {hub && (
-        <PublicSkillHub
-          io={hub}
-          ownerKey={ownerKey}
-          onInstalled={() => {
-            void load();
-            setHubReload((value) => value + 1);
-          }}
-        />
-      )}
-      {hubMaintenance && (
-        <PublicSkillMaintenance
-          io={hubMaintenance}
-          ownerKey={ownerKey}
-          reload={hubReload}
-          onChanged={() => void load()}
-        />
-      )}
       {state.busy === 'load' && <Skeleton label="Loading saved skills" />}
       {state.message && <p role="status">{state.message}</p>}
       {state.pending && (
@@ -701,7 +719,7 @@ export default function SkillsSettings({
       )}
       {state.page?.availability === 'available' && (
         <>
-          <p role="status">
+          <p role="status" className="settings-list-count">
             {displayedSkills.length} shown of {state.page.total ?? 'unknown'}{' '}
             matching skills
           </p>
@@ -713,24 +731,33 @@ export default function SkillsSettings({
           <ul className="settings-results settings-catalog-list settings-skill-list">
             {displayedSkills.map((skill) => (
               <li className="settings-skill-row" key={skill.id}>
+                <span className="settings-skill-icon" aria-hidden>
+                  {skill.icon || '✦'}
+                </span>
+                <div className="settings-skill-summary">
+                  <div>
+                    <strong>
+                      {skill.icon} {skill.display_name}
+                    </strong>
+                    {skill.pinned && (
+                      <span className="settings-skill-badge">Pinned</span>
+                    )}
+                  </div>
+                  <small>{skill.description || 'No description saved.'}</small>
+                  <span className="settings-skill-metadata">
+                    <span>{skillSourceLabel(skill)}</span>
+                    <span>{skill.available ? 'Available' : 'Unavailable'}</span>
+                    <span>v{skill.version}</span>
+                    {skill.tags.slice(0, 2).map((tag) => (
+                      <span key={tag}>#{tag}</span>
+                    ))}
+                  </span>
+                </div>
                 <div
                   className="settings-skill-preferences"
                   role="group"
                   aria-label={`${skill.display_name} preferences`}
                 >
-                  <Toggle
-                    label={`${skill.display_name} available`}
-                    checked={skill.available}
-                    disabled={locked || skill.tool_guide}
-                    onChange={() =>
-                      void requestReview('skill.preference', {
-                        revision,
-                        name: skill.id,
-                        preference: 'availability',
-                        value: !skill.available,
-                      })
-                    }
-                  />
                   <CompactAction
                     label={skill.pinned ? 'Unpin default' : 'Pin for new work'}
                     disabled={locked || skill.tool_guide}
@@ -745,37 +772,31 @@ export default function SkillsSettings({
                     }
                   >
                     <Pin
-                      size={16}
+                      size={15}
                       fill={skill.pinned ? 'currentColor' : 'none'}
                       aria-hidden
                     />
                   </CompactAction>
-                </div>
-                <div className="settings-skill-summary">
-                  <div>
-                    <strong>
-                      {skill.icon} {skill.display_name}
-                    </strong>
-                    {skill.pinned && (
-                      <span className="status-chip">Pinned</span>
-                    )}
-                  </div>
-                  <small>{skill.description || 'No description saved.'}</small>
-                </div>
-                <div className="settings-skill-metadata">
-                  <span className="status-chip">{skillSourceLabel(skill)}</span>
-                  <span>{skill.available ? 'Available' : 'Unavailable'}</span>
-                  <span>v{skill.version}</span>
-                  {skill.tags.slice(0, 2).map((tag) => (
-                    <span key={tag}>#{tag}</span>
-                  ))}
+                  <Toggle
+                    label={`${skill.display_name} available`}
+                    checked={skill.available}
+                    disabled={locked || skill.tool_guide}
+                    onChange={() =>
+                      void requestReview('skill.preference', {
+                        revision,
+                        name: skill.id,
+                        preference: 'availability',
+                        value: !skill.available,
+                      })
+                    }
+                  />
                 </div>
                 <CompactAction
                   label="Open"
                   disabled={locked}
                   onClick={() => void open(skill.id)}
                 >
-                  <EllipsisVertical size={18} aria-hidden />
+                  <ChevronRight size={16} aria-hidden />
                 </CompactAction>
               </li>
             ))}
@@ -790,34 +811,40 @@ export default function SkillsSettings({
           )}
         </>
       )}
-
-      <details className="settings-supplemental-disclosure">
-        <summary>
-          <span>
-            <strong>Import a skill</strong>
-            <small>Inspect SKILL.md text before saving it locally</small>
-          </span>
-        </summary>
-        <Surface>
-          <p>
-            Browse public skills, inspect their source, then paste trusted
-            SKILL.md text here. Row-Bot validates the exact content before
-            saving it locally.
-          </p>
-          <Field label="Import SKILL.md text">
-            <textarea
-              className="input"
-              rows={5}
-              maxLength={65536}
-              value={state.importText}
-              onChange={(event) =>
-                session.update({
-                  importText: event.target.value,
-                  reviewed: null,
-                })
-              }
-            />
-          </Field>
+      {hubMaintenance && (
+        <PublicSkillMaintenance
+          io={hubMaintenance}
+          ownerKey={ownerKey}
+          reload={hubReload}
+          onChanged={() => void load()}
+        />
+      )}
+      <SettingsAdvanced
+        summary="Import a skill"
+        meta="Inspect SKILL.md text before saving it locally"
+        open={importOpen}
+        onOpenChange={setImportOpen}
+      >
+        <p className="settings-help">
+          Browse public skills, inspect their source, then paste trusted
+          SKILL.md text here. Row-Bot validates the exact content before saving
+          it locally.
+        </p>
+        <Field label="Import SKILL.md text">
+          <textarea
+            className="input"
+            rows={5}
+            maxLength={65536}
+            value={state.importText}
+            onChange={(event) =>
+              session.update({
+                importText: event.target.value,
+                reviewed: null,
+              })
+            }
+          />
+        </Field>
+        <div>
           <Button
             disabled={locked || !revision || !state.importText.trim()}
             onClick={() =>
@@ -829,8 +856,66 @@ export default function SkillsSettings({
           >
             Import skill
           </Button>
-        </Surface>
-      </details>
+        </div>
+      </SettingsAdvanced>
+    </div>
+  );
+
+  return (
+    <section
+      className="stack settings-skills-page"
+      aria-label="Skills settings"
+      aria-busy={Boolean(state.busy)}
+    >
+      <SettingsSummary>
+        {state.page?.availability === 'available' && (
+          <span
+            className="settings-summary-group"
+            role="group"
+            aria-label="Displayed skill totals"
+          >
+            <SummaryChip tone="success">
+              {shownAvailable} available shown
+            </SummaryChip>
+            <SummaryChip>{shownPinned} pinned shown</SummaryChip>
+            <SummaryChip>{shownCustom} custom shown</SummaryChip>
+            <SummaryChip>{state.page.total ?? 'Unknown'} total</SummaryChip>
+          </span>
+        )}
+      </SettingsSummary>
+      <SettingsTabs
+        label="Skills"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          {
+            id: 'installed',
+            label: 'Installed',
+            meta: state.page?.total ?? undefined,
+            content: installed,
+          },
+          {
+            id: 'discover',
+            label: 'Discover',
+            content: (
+              <div data-setting-anchor="public-skills">
+                {hub ? (
+                  <PublicSkillHub
+                    io={hub}
+                    ownerKey={ownerKey}
+                    onInstalled={() => {
+                      void load();
+                      setHubReload((value) => value + 1);
+                    }}
+                  />
+                ) : (
+                  <p className="muted">Public skill sources are unavailable.</p>
+                )}
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {state.detail && (
         <Surface elevated>
@@ -1011,10 +1096,11 @@ export default function SkillsSettings({
                 <li key={proposal.id}>
                   <details>
                     <summary>
-                      {proposal.title} · {proposal.status}
+                      {proposal.title} ·{' '}
+                      {humanizeToken(proposal.status).toLowerCase()}
                     </summary>
                     <p>{proposal.rationale}</p>
-                    <p>Risk: {proposal.risk}</p>
+                    <p>Risk: {humanizeToken(proposal.risk).toLowerCase()}</p>
                     <div className="button-row">
                       <Button
                         disabled={
@@ -1065,10 +1151,16 @@ export default function SkillsSettings({
         (state.reviewed.command.type === 'skill.delete' ||
           state.reviewed.command.type === 'skill.proposal.reject') && (
           <Surface elevated>
-            <h2>Confirm skill removal</h2>
+            <h2>
+              {state.reviewed.command.type === 'skill.delete'
+                ? 'Delete this skill?'
+                : 'Reject this proposal?'}
+            </h2>
             <p>
-              Action: {state.reviewed.command.type}. Target:{' '}
-              {state.reviewed.review.target}.
+              {state.reviewed.command.type === 'skill.delete'
+                ? 'Delete skill'
+                : 'Reject proposal'}{' '}
+              “{state.reviewed.review.target}”.
             </p>
             <p>
               The exact saved version shown here will be checked again before

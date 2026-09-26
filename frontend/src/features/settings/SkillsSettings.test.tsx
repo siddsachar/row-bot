@@ -100,7 +100,7 @@ function io(changes: Partial<SkillsSettingsIO> = {}): SkillsSettingsIO {
   };
 }
 
-it('renders path-free skills as text and searches only on submission', async () => {
+it('renders path-free skills as text and searches from the inline field', async () => {
   const api = io({
     list: vi.fn(async () =>
       page({
@@ -123,8 +123,9 @@ it('renders path-free skills as text and searches only on submission', async () 
   expect(screen.getByText('<img onerror=sentinel()>')).toBeVisible();
   expect(container.querySelector('script,img')).toBeNull();
   await userEvent.type(screen.getByRole('searchbox'), '  saved  ');
+  // Typing waits for a pause; Enter searches at once.
   expect(api.list).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+  await userEvent.keyboard('{Enter}');
   expect(api.list).toHaveBeenLastCalledWith(
     'saved',
     undefined,
@@ -300,11 +301,21 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
-it('keeps public discovery explicit and links to the in-app hub', async () => {
+it('keeps public discovery explicit in its own tab', async () => {
   render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
 
-  const browse = await screen.findByRole('link', { name: 'Browse skills' });
-  expect(browse).toHaveAttribute('href', '#public-skill-hub');
+  await screen.findByText('✨ Sample skill');
+  const installed = screen.getByRole('tab', { name: /^Installed/ });
+  const discover = screen.getByRole('tab', { name: 'Discover' });
+  expect(installed).toHaveAttribute('aria-selected', 'true');
+  fireEvent.click(discover);
+  expect(discover).toHaveAttribute('aria-selected', 'true');
+  expect(
+    screen.getByText('Public skill sources are unavailable.'),
+  ).toBeVisible();
+  // The installed list stays mounted behind its tab.
+  expect(screen.getByText('✨ Sample skill')).not.toBeVisible();
+  fireEvent.click(installed);
   expect(
     screen.getByText('Import a skill').closest('details'),
   ).not.toHaveAttribute('open');

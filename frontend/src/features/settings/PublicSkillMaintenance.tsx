@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, SearchCheck, Trash2, Upload } from 'lucide-react';
+import {
+  MoreHorizontal,
+  RefreshCw,
+  SearchCheck,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import type {
   SkillHubInstalledPage,
   SkillHubInstalledRecord,
@@ -8,7 +14,22 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { ModalTask } from '../../ui/overlays';
-import { Button, ErrorState, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  CompactAction,
+  ErrorState,
+  Menu,
+  Skeleton,
+} from '../../ui/primitives';
+import { absoluteTime, relativeTime } from '../../ui/format';
+
+const sourceLabels: Record<string, string> = {
+  github: 'GitHub',
+  skills_sh: 'skills.sh',
+  browse_sh: 'browse.sh',
+  clawhub: 'ClawHub',
+  lobehub: 'LobeHub',
+};
 
 export type PublicSkillMaintenanceIO = {
   installed: (signal?: AbortSignal) => Promise<SkillHubInstalledPage>;
@@ -138,15 +159,13 @@ export default function PublicSkillMaintenance({
             removes the local skill.
           </p>
         </div>
-        <Button
-          iconOnly
-          aria-label="Refresh installed public skills"
-          title="Refresh installed public skills"
+        <CompactAction
+          label="Refresh installed public skills"
           disabled={busy}
           onClick={() => setRevision((value) => value + 1)}
         >
-          <RefreshCw size={18} aria-hidden="true" />
-        </Button>
+          <RefreshCw size={16} aria-hidden="true" />
+        </CompactAction>
       </header>
       {error && (
         <ErrorState title="Public skill maintenance needs attention">
@@ -183,45 +202,62 @@ export default function PublicSkillMaintenance({
           )}
         </div>
       )}
-      {page?.items.map((record) => (
-        <article className="card stack" key={record.name}>
-          <strong>{record.name}</strong>
-          <p className="muted">
-            {record.source} · {record.enabled ? 'Available' : 'Off'} ·{' '}
-            {record.file_count} files · updated {record.updated_at}
-          </p>
-          <div className="button-row">
-            <Button
-              iconOnly
-              aria-label={`Check update for ${record.name}`}
-              title="Check update"
-              disabled={busy || Boolean(pending)}
-              onClick={() => void act(record, 'check')}
-            >
-              <SearchCheck size={18} aria-hidden="true" />
-            </Button>
-            <Button
-              iconOnly
-              aria-label={`Update ${record.name}`}
-              title="Update"
-              disabled={busy || Boolean(pending)}
-              onClick={() => void act(record, 'update')}
-            >
-              <Upload size={18} aria-hidden="true" />
-            </Button>
-            <Button
-              iconOnly
-              variant="danger"
-              aria-label={`Uninstall ${record.name}`}
-              title="Uninstall"
-              disabled={busy || Boolean(pending)}
-              onClick={() => setConfirm(record)}
-            >
-              <Trash2 size={18} aria-hidden="true" />
-            </Button>
-          </div>
-        </article>
-      ))}
+      {!!page?.items.length && (
+        <ul className="settings-row-list" aria-label="Installed public skills">
+          {page.items.map((record) => (
+            <li key={record.name}>
+              <div className="settings-row-list-text">
+                <strong>{record.name}</strong>
+                <small>
+                  {sourceLabels[record.source] ?? record.source} ·{' '}
+                  {record.enabled ? 'Available' : 'Off'} ·{' '}
+                  {record.file_count === 1
+                    ? '1 file'
+                    : `${record.file_count} files`}{' '}
+                  · updated{' '}
+                  <time
+                    dateTime={record.updated_at}
+                    title={absoluteTime(record.updated_at)}
+                  >
+                    {relativeTime(record.updated_at)}
+                  </time>
+                </small>
+              </div>
+              <span className="settings-provider-actions">
+                <CompactAction
+                  label={`Check update for ${record.name}`}
+                  disabled={busy || Boolean(pending)}
+                  onClick={() => void act(record, 'check')}
+                >
+                  <SearchCheck size={16} aria-hidden="true" />
+                </CompactAction>
+                <Menu
+                  label={`More actions for ${record.name}`}
+                  iconOnly
+                  variant="ghost"
+                  className="icon-action icon-action-sm"
+                  disabled={busy || Boolean(pending)}
+                  actions={[
+                    {
+                      label: `Update ${record.name}`,
+                      icon: <Upload size={16} />,
+                      onSelect: () => void act(record, 'update'),
+                    },
+                    {
+                      label: `Uninstall ${record.name}`,
+                      icon: <Trash2 size={16} />,
+                      danger: true,
+                      onSelect: () => setConfirm(record),
+                    },
+                  ]}
+                >
+                  <MoreHorizontal size={16} aria-hidden />
+                </Menu>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       <ModalTask
         open={confirm !== null}
         onOpenChange={(open) => {

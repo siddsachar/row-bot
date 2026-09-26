@@ -10,6 +10,15 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, ErrorState, Toggle } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
+
+const hubSourceLabels: Record<string, string> = {
+  github: 'GitHub',
+  skills_sh: 'skills.sh',
+  browse_sh: 'browse.sh',
+  clawhub: 'ClawHub',
+  lobehub: 'LobeHub',
+};
 
 export type PublicSkillHubIO = {
   search: (
@@ -160,7 +169,10 @@ export default function PublicSkillHub({
           </p>
         </div>
       </header>
-      <form className="button-row" onSubmit={(event) => void search(event)}>
+      <form
+        className="settings-list-toolbar settings-hub-toolbar"
+        onSubmit={(event) => void search(event)}
+      >
         <label htmlFor="public-skill-query">Search or source URL</label>
         <input
           id="public-skill-query"
@@ -212,20 +224,23 @@ export default function PublicSkillHub({
           {results.error && <p role="alert">{results.error}</p>}
           {results.source_statuses.map((row) => (
             <p className="muted" key={row.source_id}>
-              {row.source_id}: {row.status}
+              {hubSourceLabels[row.source_id] ?? row.source_id}:{' '}
+              {humanizeToken(row.status).toLowerCase()}
               {row.message ? ` · ${row.message}` : ''}
             </p>
           ))}
           {results.entries.length === 0 && <p>No public skills found.</p>}
-          <ul className="stack">
+          <ul className="settings-row-list">
             {results.entries.map((entry) => (
-              <li className="card button-row" key={entry.id}>
-                <span>
-                  <strong>{entry.name}</strong> · {entry.source} ·{' '}
-                  {entry.trust_level}
-                  {entry.installed ? ' · installed' : ''}
-                  <br />
-                  {entry.description}
+              <li key={entry.id}>
+                <span className="settings-row-list-text">
+                  <strong>{entry.name}</strong>
+                  <small>
+                    {hubSourceLabels[entry.source] ?? entry.source} ·{' '}
+                    {humanizeToken(entry.trust_level).toLowerCase()}
+                    {entry.installed ? ' · installed' : ''}
+                  </small>
+                  <small>{entry.description}</small>
                 </span>
                 <Button
                   iconOnly

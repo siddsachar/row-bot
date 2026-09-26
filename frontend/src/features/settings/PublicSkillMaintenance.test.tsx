@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { PublicSkillMaintenanceIO } from './PublicSkillMaintenance';
 import PublicSkillMaintenance from './PublicSkillMaintenance';
@@ -59,8 +65,12 @@ it('loads only local provenance and checks an update on click', async () => {
 it('requires confirmation before uninstall', async () => {
   const io = fixture();
   render(<PublicSkillMaintenance io={io} ownerKey="session-b" />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Uninstall sample' }),
+  const more = await screen.findByRole('button', {
+    name: 'More actions for sample',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Uninstall sample' })),
   );
   expect(io.action).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: /^Uninstall$/ }));
