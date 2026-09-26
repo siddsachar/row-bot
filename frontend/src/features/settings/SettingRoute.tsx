@@ -131,6 +131,10 @@ export default function SettingRoute() {
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
   const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
+  // A removal in progress (retained by its owner) keeps its Danger zone open.
+  const [documentDangerOpen, setDocumentDangerOpen] = useState(() =>
+    Boolean(documentRemovalsOwner?.get()?.getSnapshot().selected),
+  );
   const requestedConversationId = search.get('conversation');
   const settingsConversationId = resolveSettingsConversation(
     state.conversations,
@@ -727,12 +731,23 @@ export default function SettingRoute() {
             <DocumentsCatalog
               key={session}
               load={controller.savedDocuments}
-              onRemove={(id, label) =>
-                documentRemovalsOwner?.get()?.select(id, label)
-              }
+              onRemove={(id, label) => {
+                documentRemovalsOwner?.get()?.select(id, label);
+                // The removal review lives in the Danger zone: show it.
+                setDocumentDangerOpen(true);
+                requestAnimationFrame(() =>
+                  document
+                    .querySelector('.settings-document-danger')
+                    ?.scrollIntoView?.({ block: 'nearest' }),
+                );
+              }}
             />
             {documentRemovalsOwner?.get() && (
-              <SettingsDangerZone meta="Remove indexed documents">
+              <SettingsDangerZone
+                meta="Remove indexed documents"
+                open={documentDangerOpen}
+                onOpenChange={setDocumentDangerOpen}
+              >
                 <div className="settings-document-danger">
                   <p className="settings-help">
                     Remove indexed source material through reviewed,

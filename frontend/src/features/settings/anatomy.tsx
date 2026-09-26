@@ -161,11 +161,16 @@ export function SettingsDangerZone({
   anchor = 'danger-zone',
   children,
   summary = 'Danger zone',
+  open,
+  onOpenChange,
 }: {
   meta?: ReactNode;
   anchor?: string;
   children: ReactNode;
   summary?: string;
+  /** Controlled open state, e.g. when a row starts a removal in here. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
     <div className="settings-danger-zone" data-setting-anchor={anchor}>
@@ -177,6 +182,8 @@ export function SettingsDangerZone({
           </span>
         }
         meta={meta}
+        open={open}
+        onOpenChange={onOpenChange}
       >
         <div className="settings-danger-body">{children}</div>
       </Disclosure>
