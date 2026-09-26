@@ -156,7 +156,23 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await workspace.evaluate((element) =>
     element.setAttribute('data-phase5-retained', 'true'),
   );
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  // Settings is a navigation link since Phase 2; compact layouts keep it in
+  // the navigation drawer.
+  const settingsLink = page.getByRole('link', {
+    name: 'Settings',
+    exact: true,
+  });
+  if (await settingsLink.first().isVisible())
+    await settingsLink.first().click();
+  else {
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+    await page
+      .getByRole('dialog', { name: 'Conversations' })
+      .getByRole('link', { name: 'Settings', exact: true })
+      .click();
+  }
   await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
   await page
     .getByRole('combobox', { name: 'Settings section', exact: true })
