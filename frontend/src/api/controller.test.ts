@@ -860,6 +860,35 @@ describe('connection and lifecycle ownership', () => {
     expect(calls).toBe(3);
     expect(value.getSnapshot().status).toBe('ready');
   });
+  it('re-subscribes after a reset without waiting for the retired subscription DELETE', async () => {
+    const transport = new FixtureTransport();
+    const original = transport.unsubscribe.bind(transport);
+    let release!: () => void;
+    const retire = vi
+      .spyOn(transport, 'unsubscribe')
+      .mockImplementationOnce(async (...args) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return original(...args);
+      });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    transport.emit({ snapshot_required: true, recovery: 'resubscribe' });
+    await flush();
+    // The replacement snapshot is installed while the old DELETE is in flight.
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(transport.counters.subscribes).toBe(2);
+    expect(transport.counters.active).toBe(2);
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().projection).not.toBeNull();
+    release();
+    await flush();
+    expect(transport.counters.unsubscribes).toBe(1);
+    expect(transport.counters.active).toBe(1);
+  });
   it('resets after a stalled ACK deadline and contains its late failure without a trailing ACK', async () => {
     vi.useFakeTimers();
     const transport = new FixtureTransport();

@@ -1169,7 +1169,9 @@ export class ClientController {
       // Cancel trailing cuts and drain the issued ACK within its bounded grace
       // before retiring. A cancelled observer aborts that ACK immediately.
       await previous?.close();
-      await this.retireSubscription(subscriptionId);
+      // The replacement subscription does not depend on this DELETE; a failed
+      // retirement is queued and drained after the next authentication.
+      void this.retireSubscription(subscriptionId);
     };
     const alive = () =>
       !signal.aborted && !this.disposed && ticket === this.selectionNumber;
