@@ -12,10 +12,12 @@ import * as DockTabs from '@radix-ui/react-tabs';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import {
+  Activity,
   ArrowDownToLine,
   ArrowRightToLine,
   Bot,
   BookOpen,
+  Brain,
   ChevronLeft,
   Code2,
   Columns3,
@@ -23,6 +25,7 @@ import {
   Globe,
   Home as HomeIcon,
   Library,
+  Lightbulb,
   MessageSquare,
   Maximize2,
   Minimize2,
@@ -709,18 +712,21 @@ export default function Workspace() {
         id: 'knowledge',
         label: 'Knowledge graph',
         keywords: 'memory memories wiki',
+        icon: <Brain size={16} />,
         run: () => go('/?tab=knowledge'),
       },
       {
         id: 'monitor',
         label: 'Monitor',
         keywords: 'health logs status diagnosis',
+        icon: <Activity size={16} />,
         run: () => go('/?tab=monitor'),
       },
       {
         id: 'insights',
         label: 'Insights',
         keywords: 'suggestions findings',
+        icon: <Lightbulb size={16} />,
         run: () => go('/?tab=insights'),
       },
       {
