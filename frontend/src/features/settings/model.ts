@@ -1,7 +1,9 @@
 /**
  * Settings navigation: seven groups ordered by how often people visit them.
  * Leaf ids are stable deep links; legacy ids and pages that moved redirect to
- * their new home, optionally to one row on that page (`#anchor`).
+ * their new home, optionally to one row on that page (`#anchor`). Goals
+ * belong to one conversation, so `goals` leaves Settings for the thread's
+ * Context (see THREAD_SETTINGS).
  */
 export const settingsGroups = [
   {
@@ -21,7 +23,7 @@ export const settingsGroups = [
     leaves: ['tools', 'skills', 'plugins', 'mcp'],
   },
   { id: 'connections', label: 'Connections', leaves: ['accounts', 'channels'] },
-  { id: 'agents', label: 'Agents', leaves: ['profiles', 'goals'] },
+  { id: 'agents', label: 'Agents', leaves: ['profiles'] },
   {
     id: 'system',
     label: 'System',
@@ -49,7 +51,6 @@ const leafLabels: Record<SettingsLeafId, string> = {
   accounts: 'Accounts',
   channels: 'Channels',
   profiles: 'Agent profiles',
-  goals: 'Goals',
   system: 'System',
   access: 'Access',
   updates: 'Updates',
@@ -74,7 +75,6 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   accounts: 'github google gmail calendar x twitter oauth',
   channels: 'telegram discord slack sms whatsapp messaging',
   profiles: 'agents personas delegation',
-  goals: 'objectives turns',
   system: 'shell browser computer use workspace folder logging files',
   access: 'remote tunnel invitations sessions tailscale mobile phone',
   updates: 'version upgrade release channel beta',
@@ -119,6 +119,9 @@ export const settingsRedirects: Record<
   'remote-access': { leaf: 'access' },
   sessions: { leaf: 'access', anchor: 'sessions' },
 };
+
+/** Former Settings pages that now live in a conversation's Context card. */
+export const THREAD_SETTINGS = new Set(['goals']);
 
 export function resolveSetting(value: string) {
   const key = value.toLowerCase();

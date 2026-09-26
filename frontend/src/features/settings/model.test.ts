@@ -9,6 +9,7 @@ import {
   settingsRedirects,
   settingsRowHref,
   settingsRows,
+  THREAD_SETTINGS,
 } from './model';
 
 describe('settings navigation metadata', () => {
@@ -44,19 +45,20 @@ describe('settings navigation metadata', () => {
       'Accounts',
       'Channels',
       'Agent profiles',
-      'Goals',
       'System',
       'Access',
       'Updates',
       'Data',
     ]);
-    // Every leaf id that existed before the regroup still resolves.
+    // Every leaf id that existed before the regroup still resolves, except
+    // goals, which belong to one conversation and open its Context instead.
+    expect(resolveSetting('goals')).toBeUndefined();
+    expect(THREAD_SETTINGS.has('goals')).toBe(true);
     for (const id of [
       'providers',
       'models',
       'knowledge',
       'buddy',
-      'goals',
       'voice',
       'system',
       'tracker',

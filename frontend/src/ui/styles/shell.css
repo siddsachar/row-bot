@@ -1510,3 +1510,123 @@
 .library-page .conversation-glyph-badge {
   background: var(--surface-overlay);
 }
+
+/* Context › Goal: the conversation's objective, progress and controls. -- */
+.context-goal-body,
+.context-goal-form {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.context-goal-objective {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+  overflow-wrap: anywhere;
+}
+.context-goal-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+.context-goal-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-solid);
+  transition: width var(--motion-panel) var(--ease-out);
+}
+.context-goal-meta,
+.context-goal-blockers,
+.context-goal-message {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.context-goal-blockers {
+  color: var(--status-warning-text);
+}
+.context-goal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: -8px;
+}
+.context-goal-actions .button {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: var(--type-size-metadata);
+}
+.context-goal-form textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  font-size: var(--type-size-label);
+}
+.context-goal-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.context-goal-form-row > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: auto;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.context-goal-form-row .input {
+  width: 64px;
+  min-height: 28px;
+  padding: 2px 6px;
+}
+.context-goal-form-row .button {
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: var(--type-size-metadata);
+}
+.context-goal-history {
+  margin-top: 4px;
+}
+.context-goal-history > summary {
+  width: fit-content;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  cursor: pointer;
+}
+.context-goal-history > summary > span {
+  margin-inline-start: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.context-goal-history ul {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.context-goal-history li {
+  display: grid;
+  gap: 1px;
+}
+.context-goal-history li > span {
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  overflow-wrap: anywhere;
+}
+.context-goal-history li > small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-goal-progress > span {
+    transition: none;
+  }
+}

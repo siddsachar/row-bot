@@ -5,6 +5,8 @@ import type {
   ResourceView,
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
+import { useShellSettled } from '../../shell-settled';
+import ContextGoal from './ContextGoal';
 import { clientError } from '../../api/errors';
 import {
   Button,
@@ -21,6 +23,7 @@ import {
   MoreHorizontal,
   Palette,
   Search,
+  Target,
   Settings2,
   Terminal,
   Trash2,
@@ -100,6 +103,10 @@ export default function ConversationContextRail({
   onDismissSuggestion,
 }: Props) {
   const { controller, artifactDesignSessions } = useRuntime();
+  // Goals are read after the open settles so they never compete with it (B29).
+  const settled = useShellSettled();
+  const [composeGoal, setComposeGoal] = useState(false);
+  useEffect(() => setComposeGoal(false), [conversationId]);
   const [summaries, setSummaries] = useState<Record<string, ResourceSummary>>(
     {},
   );
@@ -538,6 +545,20 @@ export default function ConversationContextRail({
           </section>
         )}
 
+        <ContextGoal
+          conversationId={conversationId}
+          revision={conversationRevision}
+          ready={ready && settled}
+          compose={composeGoal}
+          onComposeDone={() => setComposeGoal(false)}
+          io={{
+            load: (conversation, signal) =>
+              controller.goals(conversation, '', undefined, signal),
+            review: controller.reviewGoal,
+            execute: controller.executeGoal,
+          }}
+        />
+
         {/* Kept mounted while empty so delegated work can reveal it; live
             work moves it to the top by order, without remounting it. */}
         <div
@@ -576,6 +597,14 @@ export default function ConversationContextRail({
               title="Find in conversation"
             >
               <Search size={16} aria-hidden /> Find in conversation
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={!ready}
+              onClick={() => setComposeGoal(true)}
+              title="Give this conversation an objective to work toward"
+            >
+              <Target size={16} aria-hidden /> Set a goal
             </Button>
             {terminalAvailable && (
               <Button

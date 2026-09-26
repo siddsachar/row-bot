@@ -17,7 +17,21 @@ const runtime = vi.hoisted(() => ({
   intent: vi.fn(),
   workspaceFor: vi.fn(async () => ({ writer_status: '' })),
   designSession: { upload: vi.fn() },
+  goals: vi.fn(async (conversation: string) => ({
+    schema_version: 1,
+    scope: 'conversation',
+    conversation_id: conversation,
+    revision: 'goals-1',
+    current_goal_id: null,
+    current_revision: 'none',
+    items: [],
+    total: 0,
+    next_cursor: null,
+  })),
+  reviewGoal: vi.fn(),
+  executeGoal: vi.fn(),
 }));
+vi.mock('../../shell-settled', () => ({ useShellSettled: () => true }));
 
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({

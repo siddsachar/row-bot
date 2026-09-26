@@ -6,7 +6,7 @@ import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
-import { resolveSetting, settingsHref } from './model';
+import { resolveSetting, settingsHref, THREAD_SETTINGS } from './model';
 import Preferences from './Preferences';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
@@ -163,6 +163,25 @@ export default function SettingRoute() {
     settingsSnapshotReload,
     state.handshake?.server_epoch,
   ]);
+  if (THREAD_SETTINGS.has(setting.toLowerCase())) {
+    // Goals belong to one conversation: open it, where Context shows them.
+    const conversation =
+      resolveSettingsConversation(
+        state.conversations,
+        requestedConversationId,
+        state.selectedConversationId,
+      ) ?? '';
+    return (
+      <Navigate
+        to={
+          conversation
+            ? `/conversations/${encodeURIComponent(conversation)}`
+            : '/'
+        }
+        replace
+      />
+    );
+  }
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
@@ -641,54 +660,6 @@ export default function SettingRoute() {
               onStartProfileChat={workspaceActions?.startProfileChat}
             />
           </div>
-        ) : leaf.id === 'goals' && goalProfileOwner?.get() ? (
-          settingsConversationId ? (
-            <GoalProfileSettings
-              key={settingsConversationId}
-              goalsOnly
-              conversationId={settingsConversationId}
-              conversationTitle={
-                state.conversations.find(
-                  (item) => item.id === settingsConversationId,
-                )?.title
-              }
-              session={goalProfileOwner.get()!}
-              loadGoals={({ conversation_id, query, cursor }, signal) =>
-                controller.goals(conversation_id, query, cursor, signal)
-              }
-              loadProfiles={({ query, scope, cursor }, signal) =>
-                controller.profiles(query, scope, cursor, signal)
-              }
-              loadProfile={controller.profile}
-              reviewGoal={(payload, signal) =>
-                controller.reviewGoal(settingsConversationId, payload, signal)
-              }
-              executeGoal={(command, review) =>
-                controller.executeGoal(settingsConversationId, {
-                  ...command,
-                  payload: {
-                    ...command.payload,
-                    review_id: review.review_id,
-                  },
-                })
-              }
-              reviewProfile={controller.reviewProfile}
-              executeProfile={(command, review) =>
-                controller.executeProfile({
-                  ...command,
-                  payload: {
-                    ...command.payload,
-                    review_id: review.review_id,
-                  },
-                })
-              }
-            />
-          ) : (
-            <EmptyState title="Open a conversation">
-              Goals belong to one conversation. Open or create a conversation,
-              then set its goal from Context or here.
-            </EmptyState>
-          )
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-documents-flow">
             {settingsSnapshot && mutation ? (
