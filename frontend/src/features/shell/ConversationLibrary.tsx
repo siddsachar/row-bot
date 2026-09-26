@@ -7,6 +7,7 @@ import { useOverlay } from '../../ui/overlays';
 import { Button, Select, Skeleton } from '../../ui/primitives';
 import { absoluteTime, relativeTime } from '../../ui/format';
 import { ConversationGlyph } from './ConversationGlyph';
+import { conversationKinds, matchesType } from './conversation-groups';
 
 type Category = 'all' | 'chat' | 'designer' | 'code' | 'workflow';
 type FailedDelete = {
@@ -64,6 +65,14 @@ const LABELS: Record<Category, string> = {
   code: 'Code',
   workflow: 'Workflows',
 };
+
+/** "Design · Code" for a thread holding both; "Chats" for a plain one. */
+function typeLabel(row: ConversationView): string {
+  const kinds = conversationKinds(row);
+  return kinds.length
+    ? kinds.map((kind) => LABELS[kind]).join(' · ')
+    : LABELS.chat;
+}
 
 /** Explicit library read and revision-fenced per-conversation deletion. */
 export default function ConversationLibrary({
@@ -141,9 +150,7 @@ export default function ConversationLibrary({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller]);
 
-  const matching = (rows ?? []).filter(
-    (row) => filter === 'all' || (row.category ?? 'chat') === filter,
-  );
+  const matching = (rows ?? []).filter((row) => matchesType(row, filter));
   const visible = matching.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const selectedRows = (rows ?? []).filter((row) => selected.has(row.id));
   const allSelected =
@@ -479,9 +486,7 @@ export default function ConversationLibrary({
                   {LABELS[category]}{' '}
                   {category === 'all'
                     ? rows.length
-                    : rows.filter(
-                        (row) => (row.category ?? 'chat') === category,
-                      ).length}
+                    : rows.filter((row) => matchesType(row, category)).length}
                 </option>
               ))}
             </Select>
@@ -541,7 +546,7 @@ export default function ConversationLibrary({
                       className="library-row-link"
                       to={`/conversations/${encodeURIComponent(row.id)}`}
                     >
-                      <ConversationGlyph category={row.category} />
+                      <ConversationGlyph row={row} />
                       <span className="library-row-title">
                         {row.title || 'Untitled conversation'}
                       </span>
@@ -550,7 +555,7 @@ export default function ConversationLibrary({
                     <span>{row.title || 'Untitled conversation'}</span>
                   )}
                   <span className="muted library-row-meta">
-                    {LABELS[row.category ?? 'chat']}
+                    {typeLabel(row)}
                     {linkRows && row.updated_at && (
                       <>
                         {' · '}

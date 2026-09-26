@@ -503,7 +503,7 @@ export default function Navigation({
                 aria-label={activity.label}
               />
             ) : (
-              <ConversationGlyph category={conversation.category} />
+              <ConversationGlyph row={conversation} />
             )}
             <span className="nav-conversation-text">
               <span className="conversation-title">{title}</span>

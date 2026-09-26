@@ -20,6 +20,17 @@ import { Kbd } from '../../ui/primitives';
 import type { ConversationView, SearchHit } from '../../api/types';
 import { fuzzyScore } from './fuzzy';
 import { ConversationGlyph } from './ConversationGlyph';
+import {
+  conversationKinds,
+  type ConversationKind,
+} from './conversation-groups';
+
+/** Type words a query can use to find threads ("design", "code"). */
+const KIND_WORDS: Record<ConversationKind, string> = {
+  designer: 'design designs',
+  code: 'code coding workspace',
+  workflow: 'workflow workflows',
+};
 import { settingsLeaves } from '../settings/model';
 
 export type PaletteGroup =
@@ -165,7 +176,7 @@ export default function CommandPalette({
           id: `conversation:${row.id}`,
           group: 'Conversations',
           label: row.title || 'Untitled conversation',
-          icon: <ConversationGlyph category={row.category} />,
+          icon: <ConversationGlyph row={row} />,
           score: -index,
           run: () => onOpenConversation(row),
         }),
@@ -186,14 +197,16 @@ export default function CommandPalette({
         const score = fuzzyScore(
           trimmed,
           row.title || 'Untitled conversation',
-          row.category,
+          conversationKinds(row)
+            .map((kind) => KIND_WORDS[kind])
+            .join(' '),
         );
         if (score !== null)
           results.push({
             id: `conversation:${row.id}`,
             group: 'Conversations',
             label: row.title || 'Untitled conversation',
-            icon: <ConversationGlyph category={row.category} />,
+            icon: <ConversationGlyph row={row} />,
             // An equally good command or setting wins the Enter key.
             score: score - 5,
             run: () => onOpenConversation(row),

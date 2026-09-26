@@ -33,17 +33,36 @@ const LABELS: Record<ConversationGroupId, string> = {
   older: 'Older',
 };
 
-export function conversationType(
-  row: Pick<ConversationView, 'category'>,
-): Exclude<ConversationType, 'all'> {
-  return row.category ?? 'chat';
+export type ConversationKind = 'designer' | 'code' | 'workflow';
+type KindSource = Pick<ConversationView, 'category' | 'resource_bindings'>;
+
+/**
+ * What a thread contains. One unified chat can hold a design and a code
+ * folder at once, so kinds come from its bindings as well as the server's
+ * single category; the order is the display precedence.
+ */
+export function conversationKinds(row: KindSource): ConversationKind[] {
+  const bindings = row.resource_bindings ?? [];
+  const kinds: ConversationKind[] = [];
+  if (
+    row.category === 'designer' ||
+    bindings.some((binding) => binding.kind === 'artifact')
+  )
+    kinds.push('designer');
+  if (
+    row.category === 'code' ||
+    bindings.some((binding) => binding.kind === 'workspace')
+  )
+    kinds.push('code');
+  if (row.category === 'workflow') kinds.push('workflow');
+  return kinds;
 }
 
-export function matchesType(
-  row: Pick<ConversationView, 'category'>,
-  type: ConversationType,
-): boolean {
-  return type === 'all' || conversationType(row) === type;
+/** A thread matches every type it contains; Chats are threads with none. */
+export function matchesType(row: KindSource, type: ConversationType): boolean {
+  if (type === 'all') return true;
+  const kinds = conversationKinds(row);
+  return type === 'chat' ? kinds.length === 0 : kinds.includes(type);
 }
 
 function startOfDay(value: Date): number {

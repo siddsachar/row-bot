@@ -1327,3 +1327,25 @@
   font-size: var(--text-12);
   line-height: var(--leading-13);
 }
+
+/* A thread holding two kinds: its first as the glyph, the second as a badge. */
+.conversation-glyph {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.conversation-glyph-badge {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  display: inline-grid;
+  place-items: center;
+  padding: 1px;
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--text-secondary);
+}
+.command-palette .conversation-glyph-badge,
+.library-page .conversation-glyph-badge {
+  background: var(--surface-overlay);
+}

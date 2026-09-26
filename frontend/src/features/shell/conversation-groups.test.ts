@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationView } from '../../api/types';
 import {
+  conversationKinds,
   groupConversations,
   matchesType,
   recencyGroup,
@@ -52,6 +53,32 @@ describe('conversation groups', () => {
     ]);
     expect(groups[1].rows.map((item) => item.id)).toEqual(['a', 'd']);
     expect(groups[0].rows.map((item) => item.id)).toEqual(['b']);
+  });
+
+  it('matches a unified thread under every type it contains', () => {
+    const binding = (kind: 'artifact' | 'workspace') => ({
+      binding_id: `binding-${kind}`,
+      kind,
+      resource_id: `resource-${kind}`,
+      role: 'primary' as const,
+      revision: '1',
+    });
+    const both = {
+      category: 'designer' as const,
+      resource_bindings: [binding('artifact'), binding('workspace')],
+    };
+    expect(conversationKinds(both)).toEqual(['designer', 'code']);
+    expect(matchesType(both, 'designer')).toBe(true);
+    expect(matchesType(both, 'code')).toBe(true);
+    expect(matchesType(both, 'chat')).toBe(false);
+    // A chat that later gained a code folder is Code, not a plain chat.
+    const grown = {
+      category: 'chat' as const,
+      resource_bindings: [binding('workspace')],
+    };
+    expect(matchesType(grown, 'code')).toBe(true);
+    expect(matchesType(grown, 'chat')).toBe(false);
+    expect(conversationKinds({ category: 'workflow' })).toEqual(['workflow']);
   });
 
   it('filters by the server category, treating a missing one as a chat', () => {
