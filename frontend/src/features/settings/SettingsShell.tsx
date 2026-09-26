@@ -204,7 +204,9 @@ export default function SettingsShell({
           <div className="settings-search-results">
             {pages.length > 0 && (
               <div className="settings-nav-group">
-                <h3 className="settings-nav-label">Pages</h3>
+                <span className="settings-nav-label" aria-hidden>
+                  Pages
+                </span>
                 <ul aria-label="Matching pages">
                   {pages.map((item) => (
                     <li key={item.id}>
@@ -215,7 +217,7 @@ export default function SettingsShell({
                       >
                         <SettingIcon id={item.id} size={16} />
                         <span>{item.label}</span>
-                        <small>{item.category}</small>
+                        <small aria-hidden>{item.category}</small>
                       </Link>
                     </li>
                   ))}
@@ -224,7 +226,9 @@ export default function SettingsShell({
             )}
             {rows.length > 0 && (
               <div className="settings-nav-group">
-                <h3 className="settings-nav-label">Settings</h3>
+                <span className="settings-nav-label" aria-hidden>
+                  Settings
+                </span>
                 <ul aria-label="Matching settings">
                   {rows.map((row) => (
                     <li key={`${row.leaf}:${row.anchor}`}>
@@ -234,7 +238,7 @@ export default function SettingsShell({
                       >
                         <SettingIcon id={row.leaf} size={16} />
                         <span>{row.label}</span>
-                        <small>{leafLabel(row.leaf)}</small>
+                        <small aria-hidden>{leafLabel(row.leaf)}</small>
                       </Link>
                     </li>
                   ))}
@@ -249,13 +253,12 @@ export default function SettingsShell({
           <div className="settings-category-list">
             {settingsGroups.map((group) => (
               <div className="settings-nav-group" key={group.id}>
-                <h3
-                  className="settings-nav-label"
-                  id={`settings-group-${group.id}`}
-                >
+                {/* A label, not a heading: group names ("System", "Models")
+                    repeat page titles. The list carries the name. */}
+                <span className="settings-nav-label" aria-hidden>
                   {group.label}
-                </h3>
-                <ul aria-labelledby={`settings-group-${group.id}`}>
+                </span>
+                <ul aria-label={group.label}>
                   {settingsLeaves
                     .filter((item) => item.group === group.id)
                     .map((item) => (

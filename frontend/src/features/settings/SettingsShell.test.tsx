@@ -81,10 +81,11 @@ it('lists every group with its leaves and marks the open page', () => {
   const navigation = screen.getByRole('navigation', {
     name: 'Settings sections',
   });
+  expect(within(navigation).queryAllByRole('heading')).toHaveLength(0);
   expect(
     within(navigation)
-      .getAllByRole('heading')
-      .map((heading) => heading.textContent),
+      .getAllByRole('list')
+      .map((list) => list.getAttribute('aria-label')),
   ).toEqual(settingsGroups.map((group) => group.label));
   expect(within(navigation).getAllByRole('link')).toHaveLength(
     settingsLeaves.length,
