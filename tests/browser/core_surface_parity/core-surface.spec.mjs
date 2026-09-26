@@ -100,8 +100,9 @@ async function openReact(page, surface) {
     "Connected",
   );
   const tabs = page.getByRole("tablist", { name: "Home capabilities" });
-  await expect(tabs.getByRole("tab")).toHaveCount(4);
+  await expect(tabs.getByRole("tab")).toHaveCount(5);
   expect(await tabs.getByRole("tab").allTextContents()).toEqual([
+    "Overview",
     "Workflows",
     "Knowledge",
     "Monitor",

@@ -55,7 +55,13 @@ test('conversation and Home keep their primary actions readable at every target 
     await page.setViewportSize(viewport);
     for (const theme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-      for (const tab of ['Workflows', 'Knowledge', 'Monitor', 'Insights']) {
+      for (const tab of [
+        'Overview',
+        'Workflows',
+        'Knowledge',
+        'Monitor',
+        'Insights',
+      ]) {
         await page.getByRole('tab', { name: tab }).click();
         await page.locator('.home-view').evaluate((element) => {
           element.scrollTop = 0;

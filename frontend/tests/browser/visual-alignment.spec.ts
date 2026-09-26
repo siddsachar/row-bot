@@ -111,7 +111,7 @@ async function independentPeer(browser: Browser, page: Page) {
   };
 }
 
-test('Home is workflow-focused and New chat creates exactly once without setup', async ({
+test('Home opens on Overview and New chat creates exactly once without setup', async ({
   page,
 }, info) => {
   const creates: string[] = [];
@@ -131,14 +131,20 @@ test('Home is workflow-focused and New chat creates exactly once without setup',
   ).toBeVisible();
   await expect(page.locator('.home-connection-status')).toHaveCount(0);
   await expect(
-    page.getByRole('tab', { name: 'Workflows', exact: true }),
+    page.getByRole('tab', { name: 'Overview', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(
-    page.getByRole('heading', { name: 'Workflows', exact: true }),
+    page.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
   ).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Recent conversations', exact: true }),
   ).toHaveCount(0);
+  await assertNoOverflow(page);
+  await accessibility(page, info, 'home-overview');
+  await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Workflows', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();

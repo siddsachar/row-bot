@@ -1,23 +1,34 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Activity, Brain, GitBranch, Lightbulb, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  Activity,
+  Brain,
+  GitBranch,
+  LayoutGrid,
+  Lightbulb,
+} from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type {
   KnowledgeGraphSnapshot,
-  MonitorLogEntry,
   MonitorSnapshot,
   OnboardingSnapshot,
+  TaskSummaryPage,
 } from '../../api/types';
 import { useClientState, useRuntime } from '../../runtime';
-import { CompactAction, Tabs } from '../../ui/primitives';
+import { Tabs } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import TaskLibrary from '../tasks/TaskLibrary';
 import KnowledgeHome, { type KnowledgeDreamState } from '../home/KnowledgeHome';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
+import OverviewHome from '../home/OverviewHome';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 
-const homeTabs = ['workflows', 'knowledge', 'monitor', 'insights'];
+const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
+/** Snapshots read in the last few seconds are reused when switching tabs. */
+const REUSE_MS = 20_000;
+const GRAPH_DEFAULT_LIMIT = 250;
+const GRAPH_ALL_LIMIT = 1000;
 
 export default function Home() {
   const state = useClientState();
@@ -26,28 +37,22 @@ export default function Home() {
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
   const requestedTab = search.get('tab')?.toLowerCase() ?? '';
-  const [tab, setTab] = useState(
-    homeTabs.includes(requestedTab) ? requestedTab : 'workflows',
-  );
-  useEffect(() => {
-    setTab(homeTabs.includes(requestedTab) ? requestedTab : 'workflows');
-  }, [requestedTab]);
+  const tab = homeTabs.includes(requestedTab) ? requestedTab : 'overview';
   const [knowledge, setKnowledge] = useState<KnowledgeGraphSnapshot | null>(
     null,
   );
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState('');
   const [knowledgeReload, setKnowledgeReload] = useState(0);
+  const [graphLimit, setGraphLimit] = useState(GRAPH_DEFAULT_LIMIT);
+  const knowledgeRead = useRef({ at: 0, key: '' });
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [monitorLoading, setMonitorLoading] = useState(false);
   const [monitorError, setMonitorError] = useState('');
   const [monitorReload, setMonitorReload] = useState(0);
+  const monitorRead = useRef({ at: 0, key: '' });
   const [setup, setSetup] = useState<OnboardingSnapshot | null>(null);
   const [setupDismissError, setSetupDismissError] = useState('');
-  const [fullLogsOpen, setFullLogsOpen] = useState(false);
-  const [fullLogsLoading, setFullLogsLoading] = useState(false);
-  const [fullLogsError, setFullLogsError] = useState('');
-  const [fullLogs, setFullLogs] = useState<MonitorLogEntry[]>([]);
   const [dreamState, setDreamState] = useState<KnowledgeDreamState>({
     available: false,
     enabled: false,
@@ -58,10 +63,8 @@ export default function Home() {
     state.status === 'ready' && state.handshake
       ? `${state.handshake.instance_id}:${state.handshake.client_session_id}`
       : null;
-  const chooseTab = (next: string) => {
-    setTab(next);
-    setSearch({ tab: next });
-  };
+  const chooseTab = (next: string, extra: Record<string, string> = {}) =>
+    setSearch({ tab: next, ...extra });
   async function dismissSetupReminder() {
     if (!setup?.setup_complete) return;
     try {
@@ -91,11 +94,18 @@ export default function Home() {
   }, [controller, identity]);
   useEffect(() => {
     if (tab !== 'knowledge' || !identity) return;
+    const key = `${identity}:${knowledgeReload}:${graphLimit}`;
+    if (
+      knowledgeRead.current.key === key &&
+      Date.now() - knowledgeRead.current.at < REUSE_MS
+    )
+      return;
     const abort = new AbortController();
     setKnowledgeLoading(true);
     setKnowledgeError('');
-    controller.knowledgeGraph(250, abort.signal).then(
+    controller.knowledgeGraph(graphLimit, abort.signal).then(
       (value) => {
+        knowledgeRead.current = { at: Date.now(), key };
         setKnowledge(value);
         setKnowledgeLoading(false);
       },
@@ -106,21 +116,30 @@ export default function Home() {
       },
     );
     return () => abort.abort();
-  }, [controller, identity, knowledgeReload, tab]);
+  }, [controller, graphLimit, identity, knowledgeReload, tab]);
   useEffect(() => {
-    if ((tab !== 'monitor' && tab !== 'knowledge') || !identity) return;
+    if (!['overview', 'monitor', 'knowledge'].includes(tab) || !identity)
+      return;
+    const key = `${identity}:${monitorReload}`;
+    if (
+      monitorRead.current.key === key &&
+      Date.now() - monitorRead.current.at < REUSE_MS
+    )
+      return;
     const abort = new AbortController();
     setMonitorLoading(true);
     setMonitorError('');
     controller.monitorSnapshot(abort.signal).then(
       (value) => {
+        monitorRead.current = { at: Date.now(), key };
         setMonitor(value);
-        setDreamState({
+        // A refresh updates availability; the outcome of a run started
+        // here stays until the next run.
+        setDreamState((current) => ({
+          ...current,
           available: value.dream.availability === 'available',
           enabled: value.dream.enabled,
-          state: 'idle',
-          message: '',
-        });
+        }));
         setMonitorLoading(false);
       },
       (cause: unknown) => {
@@ -135,6 +154,37 @@ export default function Home() {
   const loadKnowledgeDetail = useCallback(
     (id: string) => controller.knowledgeEntityDetail(id),
     [controller],
+  );
+  const loadLogs = useCallback(
+    (signal?: AbortSignal) => controller.monitorLogs(200, signal),
+    [controller],
+  );
+  const refreshConversation = useCallback(
+    (id: string, signal: AbortSignal) =>
+      controller.refreshListedConversation(id, signal),
+    [controller],
+  );
+  // One workflow read shared by Overview and Monitor for a short while.
+  const tasksRead = useRef<{
+    at: number;
+    key: string;
+    value: Promise<TaskSummaryPage>;
+  } | null>(null);
+  const loadTasks = useCallback(
+    // Shared by several readers, so one leaving never aborts the read.
+    () => {
+      const key = identity ?? '';
+      const cached = tasksRead.current;
+      if (cached && cached.key === key && Date.now() - cached.at < REUSE_MS)
+        return cached.value;
+      const value = controller.savedTasks();
+      tasksRead.current = { at: Date.now(), key, value };
+      value.catch(() => {
+        if (tasksRead.current?.value === value) tasksRead.current = null;
+      });
+      return value;
+    },
+    [controller, identity],
   );
 
   async function dream() {
@@ -208,21 +258,86 @@ export default function Home() {
     setDreamState((value) => ({ ...value, state: 'idle', message: '' }));
   }
 
-  async function loadFullLogs() {
-    setFullLogsOpen(true);
-    setFullLogsLoading(true);
-    setFullLogsError('');
+  const openConversation = (id: string) => {
+    void controller.selectConversation(id);
+    navigate(`/conversations/${encodeURIComponent(id)}`);
+  };
+  /** Open the memory in the editor, then its relations and replacement. */
+  const mergeMemory = (id: string) => {
+    const owner = knowledgeOwner?.get();
+    if (!owner) return;
+    owner.open(id);
+    let tries = 0;
+    const attempt = () => {
+      try {
+        owner.openRelations();
+      } catch {
+        return;
+      }
+      if (!owner.relations() && tries++ < 25) window.setTimeout(attempt, 200);
+    };
+    attempt();
+  };
+  /** Review one memory's deletion, confirm it, then delete it. */
+  const deleteMemory = async (id: string, subject: string) => {
+    let review;
     try {
-      const value = await controller.monitorLogs(200);
-      setFullLogs(value.entries);
+      const [catalog, detail] = await Promise.all([
+        controller.savedEntities(),
+        controller.knowledgeEntityDetail(id),
+      ]);
+      review = await controller.reviewKnowledgeMaintenance({
+        action: 'knowledge.delete',
+        catalog_revision: catalog.revision,
+        targets: [{ entity_id: id, revision: detail.revision }],
+      });
     } catch (cause) {
-      setFullLogsError(clientError(cause).message);
-    } finally {
-      setFullLogsLoading(false);
+      overlay.notify(
+        `Could not prepare the deletion: ${clientError(cause).message}`,
+      );
+      return false;
     }
-  }
+    return new Promise<boolean>((resolve) => {
+      overlay.open({
+        kind: 'alert',
+        title: `Delete '${subject}'?`,
+        description:
+          'This permanently removes the memory, its connections and its search entries. It cannot be undone.',
+        confirmLabel: 'Delete memory',
+        onConfirm: () => {
+          void controller
+            .executeKnowledgeMaintenance({
+              command_id: crypto.randomUUID(),
+              type: review.action,
+              payload: {
+                catalog_revision: review.catalog_revision,
+                targets: review.targets,
+                action_digest: review.action_digest,
+                review_id: review.review_id,
+              },
+            })
+            .then(
+              (receipt) => {
+                const done = receipt.status === 'completed';
+                overlay.notify(
+                  done
+                    ? `${subject} deleted.`
+                    : 'The deletion did not complete. Nothing else changed.',
+                );
+                if (done) setKnowledgeReload((value) => value + 1);
+                resolve(done);
+              },
+              (cause: unknown) => {
+                overlay.notify(clientError(cause).message);
+                resolve(false);
+              },
+            );
+        },
+      });
+    });
+  };
   return (
-    <div className="home-view">
+    <div className="home-view" data-home-tab={tab}>
       <h1 className="visually-hidden">Home</h1>
       {!identity && (
         <p role="status" className="home-connection-status">
@@ -231,51 +346,43 @@ export default function Home() {
             : 'Connect to open your workflows.'}
         </p>
       )}
-      {setup &&
-        (!setup.setup_complete ||
-          (!setup.dismissed_home_card &&
-            new Set([...setup.completed_steps, ...setup.skipped_steps]).size <
-              setup.steps.length)) &&
-        (setup.setup_complete ? (
-          <section className="home-setup-reminder" aria-label="Continue setup">
-            <strong>Setup</strong>
-            <span>
-              {new Set([...setup.completed_steps, ...setup.skipped_steps]).size}{' '}
-              of {setup.steps.length} areas complete
-            </span>
-            <Link className="button primary" to="/setup">
-              Continue setup
-            </Link>
-            <CompactAction
-              label="Hide setup reminder"
-              onClick={() => void dismissSetupReminder()}
-            >
-              <X size={17} aria-hidden />
-            </CompactAction>
-            {setupDismissError && <p role="status">{setupDismissError}</p>}
-          </section>
-        ) : (
-          <section
-            className="capability-section stack"
-            aria-label="Continue setup"
-          >
-            <h2>Welcome to Row-Bot</h2>
-            <p>Connect one working model first. Your other choices can wait.</p>
-            <Link className="button primary" to="/setup">
-              Open Setup Center
-            </Link>
-          </section>
-        ))}
       <Tabs
+        className="home-tabs"
         label="Home capabilities"
         value={tab}
-        onChange={chooseTab}
+        onChange={(next) => chooseTab(next)}
         items={[
+          {
+            id: 'overview',
+            label: (
+              <>
+                <LayoutGrid size={16} aria-hidden />
+                Overview
+              </>
+            ),
+            content: (
+              <OverviewHome
+                conversations={state.conversations}
+                setup={setup}
+                monitor={monitor}
+                loadTasks={identity ? loadTasks : undefined}
+                refreshKey={identity ?? ''}
+                onOpenConversation={openConversation}
+                onOpenWorkflows={(taskId) =>
+                  chooseTab('workflows', taskId ? { workflow: taskId } : {})
+                }
+                onOpenTab={(next) => chooseTab(next)}
+                refreshConversation={refreshConversation}
+                onHideSetup={() => void dismissSetupReminder()}
+                setupError={setupDismissError}
+              />
+            ),
+          },
           {
             id: 'workflows',
             label: (
               <>
-                <GitBranch size={17} aria-hidden />
+                <GitBranch size={16} aria-hidden />
                 Workflows
               </>
             ),
@@ -289,7 +396,7 @@ export default function Home() {
             id: 'knowledge',
             label: (
               <>
-                <Brain size={17} aria-hidden />
+                <Brain size={16} aria-hidden />
                 Knowledge
               </>
             ),
@@ -299,9 +406,15 @@ export default function Home() {
                 loading={knowledgeLoading}
                 error={knowledgeError}
                 reload={() => setKnowledgeReload((value) => value + 1)}
+                showingAll={graphLimit > GRAPH_DEFAULT_LIMIT}
+                onShowAll={() => setGraphLimit(GRAPH_ALL_LIMIT)}
                 loadDetail={loadKnowledgeDetail}
                 onEdit={(id) => knowledgeOwner?.get()?.open(id)}
+                onMerge={mergeMemory}
+                onDelete={deleteMemory}
+                onOpenConversation={openConversation}
                 dream={dreamState}
+                dreamLastRun={monitor?.dream.last_run ?? null}
                 onDream={dream}
               />
             ),
@@ -310,7 +423,7 @@ export default function Home() {
             id: 'monitor',
             label: (
               <>
-                <Activity size={17} aria-hidden />
+                <Activity size={16} aria-hidden />
                 Monitor
               </>
             ),
@@ -322,12 +435,8 @@ export default function Home() {
                 error={monitorError}
                 onRefresh={() => setMonitorReload((value) => value + 1)}
                 onRunDiagnosis={() => controller.systemDiagnosis()}
-                onLoadFullLogs={() => void loadFullLogs()}
-                fullLogsOpen={fullLogsOpen}
-                fullLogsLoading={fullLogsLoading}
-                fullLogsError={fullLogsError}
-                fullLogEntries={fullLogs}
-                onCloseFullLogs={() => setFullLogsOpen(false)}
+                loadLogs={loadLogs}
+                loadTasks={identity ? loadTasks : undefined}
               />
             ),
           },
@@ -335,7 +444,7 @@ export default function Home() {
             id: 'insights',
             label: (
               <>
-                <Lightbulb size={17} aria-hidden />
+                <Lightbulb size={16} aria-hidden />
                 Insights
               </>
             ),
@@ -343,10 +452,7 @@ export default function Home() {
               <InsightsHome
                 controller={controller}
                 writeClipboard={platform.writeClipboard}
-                openConversation={(id) => {
-                  void controller.selectConversation(id);
-                  navigate(`/conversations/${id}`);
-                }}
+                openConversation={openConversation}
               />
             ),
           },

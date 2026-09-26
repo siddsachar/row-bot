@@ -29,7 +29,7 @@ async function expectFocusedHome(page: Page) {
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole('tab', { name: 'Workflows', exact: true }),
+    page.getByRole('tab', { name: 'Overview', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
