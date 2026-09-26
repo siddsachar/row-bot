@@ -122,6 +122,20 @@ describe('Buddy shared companion and preferences', () => {
     );
   });
 
+  it('offers Compact Buddy only for the desktop window, where it is saved', () => {
+    const input = props();
+    render(
+      <BuddyControls
+        {...input}
+        snapshot={{ ...input.snapshot, native_placement_retained: false }}
+      />,
+    );
+    fireEvent.click(screen.getByText('Advanced companion'));
+    // A docked Buddy's "collapsed" is always normalized off by the server.
+    expect(screen.queryByLabelText('Compact Buddy')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Buddy name')).toBeVisible();
+  });
+
   it('refreshes looks only after an explicit action', async () => {
     const input = props();
     render(<BuddyControls {...input} />);

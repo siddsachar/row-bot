@@ -404,18 +404,27 @@ export default function BuddyControls(props: BuddyControlsProps) {
               </span>
             </summary>
             <div className="settings-buddy-advanced-content">
-              <label className="checkbox-row">
-                <Toggle
-                  label="Compact Buddy"
-                  checked={draft.collapsed}
-                  disabled={busy}
-                  onChange={(event) => edit('collapsed', event.target.checked)}
-                />
-                <span>
-                  <strong>Compact Buddy</strong>
-                  <small>Hide the status bubble while Buddy is docked.</small>
-                </span>
-              </label>
+              {/* Compact is a desktop-window state: a docked Buddy's saved
+                  "collapsed" is always normalized off, so only offer it
+                  where it takes effect. */}
+              {snapshot.native_placement_retained && (
+                <label className="checkbox-row">
+                  <Toggle
+                    label="Compact Buddy"
+                    checked={draft.collapsed}
+                    disabled={busy}
+                    onChange={(event) =>
+                      edit('collapsed', event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>Compact Buddy</strong>
+                    <small>
+                      Shrink the desktop Buddy window to its avatar.
+                    </small>
+                  </span>
+                </label>
+              )}
               <Field label="Buddy name" layout="row">
                 <Input
                   aria-label="Buddy name"
