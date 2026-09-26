@@ -103,8 +103,9 @@ test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', 
   await expect(
     page.getByText('mark needs review', { exact: true }),
   ).toBeVisible();
+  // The page is titled Memory since the Phase 3 regroup (id stays knowledge).
   await page
-    .getByRole('heading', { name: 'Knowledge', exact: true })
+    .getByRole('heading', { name: 'Memory', exact: true, level: 2 })
     .scrollIntoViewIfNeeded();
 
   for (const appearance of ['light', 'dark'] as const) {
@@ -137,6 +138,11 @@ test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', 
   await page.getByRole('combobox', { name: 'Status' }).selectOption('');
   await page.getByRole('combobox', { name: 'Source' }).selectOption('');
   await page.getByRole('combobox', { name: 'Tier' }).selectOption('');
+  // Store-wide deletion lives in the collapsed Danger zone.
+  const dangerZone = page.locator('.settings-danger-zone details');
+  await expect(dangerZone).not.toHaveAttribute('open', '');
+  await dangerZone.locator('summary').click();
+  await expect(dangerZone).toHaveAttribute('open', '');
   const deleteAll = page.getByRole('button', { name: /Delete all knowledge/ });
   await expect(deleteAll).toBeEnabled();
   await deleteAll.click();

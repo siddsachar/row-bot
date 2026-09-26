@@ -45,12 +45,17 @@ async function findDocumentRow(
   });
   await expect(search).toBeVisible();
   await search.fill(target.name);
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await search.press('Enter');
   const row = page
     .getByRole('listitem')
     .filter({ hasText: target.document_id });
   await expect(row).toBeVisible();
   return row;
+}
+
+async function chooseFromMenu(scope: Locator, trigger: string, item: string) {
+  await scope.getByRole('button', { name: trigger, exact: true }).click();
+  await scope.page().getByRole('menuitem', { name: item, exact: true }).click();
 }
 
 async function openHomeThroughNavigation(page: Page) {
@@ -154,7 +159,7 @@ async function openDocumentsFromHome(page: Page) {
 
 test.use({ serviceWorkers: 'allow' });
 
-test('Owner-review Settings shell keeps all 17 routed owners in one responsive hierarchy', async ({
+test('Owner-review Settings shell keeps every routed owner in one grouped responsive hierarchy', async ({
   context,
   page,
 }, info) => {
@@ -173,26 +178,33 @@ test('Owner-review Settings shell keeps all 17 routed owners in one responsive h
     );
   });
   const leaves = [
+    'preferences',
+    'appearance',
+    'buddy',
     'providers',
     'models',
     'voice',
     'knowledge',
     'documents',
+    'tracker',
     'tools',
     'skills',
-    'mcp',
     'plugins',
+    'mcp',
     'accounts',
     'channels',
-    'buddy',
-    'goals',
-    'tracker',
-    'utilities',
-    'preferences',
+    'profiles',
     'system',
+    'access',
+    'updates',
+    'data',
   ] as const;
-  const label = (id: string) =>
-    id === 'mcp' ? 'MCP' : id[0].toUpperCase() + id.slice(1);
+  const labels: Record<string, string> = {
+    mcp: 'MCP',
+    knowledge: 'Memory',
+    profiles: 'Agent profiles',
+  };
+  const label = (id: string) => labels[id] ?? id[0].toUpperCase() + id.slice(1);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/app-v2/settings');
@@ -203,8 +215,9 @@ test('Owner-review Settings shell keeps all 17 routed owners in one responsive h
   const settingsHeading = page
     .getByRole('region', { name: 'Settings', exact: true })
     .locator('.settings-pane-header h2');
-  await expect(settingsNavigation.getByRole('heading')).toHaveCount(5);
-  await expect(settingsNavigation.getByRole('link')).toHaveCount(3);
+  // Seven named groups, every page listed (no collapsed categories).
+  await expect(settingsNavigation.getByRole('list')).toHaveCount(7);
+  await expect(settingsNavigation.getByRole('link')).toHaveCount(leaves.length);
   for (const id of leaves) {
     await page.goto(`/app-v2/settings/${id}`);
     await expect(settingsHeading).toHaveText(label(id));
@@ -220,10 +233,16 @@ test('Owner-review Settings shell keeps all 17 routed owners in one responsive h
     await accessibility(page, info, `settings-shell-${id}`);
   }
 
+  // Legacy ids and moved pages land on their new page and row.
   await page.goto('/app-v2/settings/google');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts#google$/);
   await page.goto('/app-v2/settings/wiki');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge#wiki-vault$/);
+  await page.goto('/app-v2/settings/utilities');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/tools#built-in-tools$/);
+  await expect(
+    page.getByRole('heading', { name: 'Built-in tools', exact: true }),
+  ).toBeVisible();
   await page.goto('/app-v2/settings/models');
   await page.goto('/app-v2/settings/accounts');
   await page.goBack();
@@ -242,7 +261,7 @@ test('Owner-review Settings shell keeps all 17 routed owners in one responsive h
   expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await picker.selectOption('knowledge');
   await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
-  await expect(settingsHeading).toHaveText('Knowledge');
+  await expect(settingsHeading).toHaveText('Memory');
   await expect(settingsHeading).toBeFocused();
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-shell-narrow-knowledge');
@@ -343,14 +362,13 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     name: 'Plugin Center',
     exact: true,
   });
-  // Search and filters live behind their own disclosure.
-  await plugins
-    .locator('summary', { hasText: 'Search and filter plugins' })
-    .click();
-  await plugins
-    .getByLabel('Search plugins', { exact: true })
-    .fill('Synthetic settings');
-  await plugins.getByRole('button', { name: 'Search', exact: true }).click();
+  // Search is inline; Enter searches at once.
+  const pluginSearch = plugins.getByRole('searchbox', {
+    name: 'Search plugins',
+    exact: true,
+  });
+  await pluginSearch.fill('Synthetic settings');
+  await pluginSearch.press('Enter');
   await plugins
     .getByRole('button', {
       name: 'Manage Synthetic settings plugin',
@@ -427,9 +445,9 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
   };
   await page.goto('/app-v2/');
   await openSettingsRouteFromHome(page, {
-    linkName: 'Knowledge',
+    linkName: 'Memory',
     path: '/app-v2/settings/knowledge',
-    headingName: 'Knowledge',
+    headingName: 'Memory',
   });
   const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
   await expect(wiki.getByText(/Select an authorized vault/)).toBeVisible();
@@ -548,9 +566,10 @@ test('Document processing reviews the selected conversation and runs the admitte
     name: 'Document processing',
     exact: true,
   });
-  await expect(
-    processing.getByText(`Batch: ${batch_id}`, { exact: true }),
-  ).toBeVisible();
+  // Lines read in words; the exact ids stay in their titles.
+  await expect(processing.locator(`p[title="${batch_id}"]`)).toHaveText(
+    /^Batch: Upload · /,
+  );
   // Selecting a batch never starts provider work on its own.
   expect(
     await (
@@ -559,9 +578,9 @@ test('Document processing reviews the selected conversation and runs the admitte
   ).toEqual({ embeddings: 0, source_embeddings: 0, chats: 0, starts: 0 });
   await openHomeThroughNavigation(page);
   await openDocumentsFromHome(page);
-  await expect(
-    processing.getByText(`Conversation: ${conversation_id}`, { exact: true }),
-  ).toBeVisible();
+  await expect(processing.locator(`p[title="${conversation_id}"]`)).toHaveText(
+    /^Conversation: /,
+  );
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -587,7 +606,9 @@ test('Document processing reviews the selected conversation and runs the admitte
   expect(admissionResponse.ok()).toBe(true);
   expect((await admissionResponse.json()).processing).toBe('admitted');
   // The reviewed providers stay disclosed with the admitted command.
-  await expect(processing.getByText(/Chat provider: openai/)).toBeVisible();
+  await expect(
+    processing.getByText(/^Chat model: .* · OpenAI · /),
+  ).toBeVisible();
   await expect(processing.getByRole('status')).toContainText(
     'Processing admitted.',
   );
@@ -641,11 +662,17 @@ test('Document processing reviews the selected conversation and runs the admitte
   await page
     .getByRole('button', { name: 'Refresh queue', exact: true })
     .click();
+  // The row states the batch status in words beside its actions.
   await expect(
     page
-      .getByRole('button', { name: `Inspect batch ${batch_id}`, exact: true })
-      .locator('..')
-      .getByText('Batch · completed', { exact: true }),
+      .locator('.document-batch-row')
+      .filter({
+        has: page.getByRole('button', {
+          name: `Inspect batch ${batch_id}`,
+          exact: true,
+        }),
+      })
+      .getByText('Completed', { exact: true }),
   ).toBeVisible();
   await writeEvidence(info, 'document-processing-result.json', {
     result,
@@ -790,15 +817,11 @@ test('Document queue reviews pause resume cancellation and clearing while preser
     name: 'Confirm document queue action',
     exact: true,
   });
-  await expect(confirmation).toContainText(
-    'Selected action: document.batch.cancel',
-  );
+  await expect(confirmation).toContainText('Cancel the rest of this batch?');
   expect((await saved()).status).not.toBe('cancelled');
   await openHomeThroughNavigation(page);
   await openDocumentsFromHome(page);
-  await expect(confirmation).toContainText(
-    'Selected action: document.batch.cancel',
-  );
+  await expect(confirmation).toContainText('Cancel the rest of this batch?');
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -974,9 +997,9 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
   await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
-    linkName: 'Knowledge',
+    linkName: 'Memory',
     path: '/app-v2/settings/knowledge',
-    headingName: 'Knowledge',
+    headingName: 'Memory',
   });
   await expect(
     page.getByText(/^Showing 25 of \d+ matching entries\.$/),
@@ -1110,9 +1133,9 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
   await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
-    linkName: 'Knowledge',
+    linkName: 'Memory',
     path: '/app-v2/settings/knowledge',
-    headingName: 'Knowledge',
+    headingName: 'Memory',
   });
   const reopenedEntry = page
     .getByRole('listitem')
@@ -2022,7 +2045,7 @@ test('MCP tested tools retain their review and accept the saved catalog without 
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
     path: '/app-v2/settings/mcp',
-    headingName: 'MCP servers',
+    headingName: 'MCP',
   });
   await catalog
     .getByRole('button', { name: 'Accept tools', exact: true })
@@ -2081,7 +2104,7 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
     path: '/app-v2/settings/mcp',
-    headingName: 'MCP servers',
+    headingName: 'MCP',
   });
   await expect(tested).toBeVisible();
   await connection
@@ -2446,7 +2469,7 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
     path: '/app-v2/settings/mcp',
-    headingName: 'MCP servers',
+    headingName: 'MCP',
   });
   await expect(editor.getByLabel('New command', { exact: true })).toHaveValue(
     'synthetic-unused-command',
@@ -2456,16 +2479,15 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
     await editor
       .getByRole('button', { name: 'Save Disabled', exact: true })
       .click();
-    await expect(editor.getByText(/Saved disabled\. Refresh/)).toBeVisible();
-    await editor.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(editor.getByText(/^Saved disabled\./)).toBeVisible();
+    await chooseFromMenu(editor, 'More MCP actions', 'Refresh');
     await expect(
       editor.getByRole('button', { name: 'Save Disabled', exact: true }),
     ).toBeEnabled();
   };
   await save();
-  await editor
-    .getByRole('button', { name: `Edit ${name}`, exact: true })
-    .click();
+  // Row verbs other than Connection sit in the server's ⋯ menu.
+  await chooseFromMenu(editor, `More actions for ${name}`, `Edit ${name}`);
   await expect(editor.getByLabel('New command', { exact: true })).toHaveValue(
     '',
   );
@@ -2476,9 +2498,7 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
     .getByLabel('Additional settings (JSON)', { exact: true })
     .fill('{"output_limit":500}');
   await save();
-  await editor
-    .getByRole('button', { name: `Rename ${name}`, exact: true })
-    .click();
+  await chooseFromMenu(editor, `More actions for ${name}`, `Rename ${name}`);
   await editor.getByLabel('New server name', { exact: true }).fill(renamed);
   await save();
   await expect(

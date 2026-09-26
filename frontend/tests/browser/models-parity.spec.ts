@@ -39,7 +39,7 @@ test('Providers and Models share the contained shell and Models opens without pr
   });
   await page.goto('/app-v2/settings/providers');
   await expect(
-    page.getByRole('heading', { name: 'Connection Status' }),
+    page.getByRole('region', { name: 'Provider connections' }),
   ).toBeVisible();
   const providers = page.locator('.settings-shell');
   await expect(providers).toBeVisible();
@@ -171,6 +171,11 @@ test('Vision, media, context, and delegation controls write local settings', asy
   await expect(models.getByRole('status')).toContainText(
     'Context setting saved',
   );
+  // Agent limits are advanced: open their disclosure first.
+  await models
+    .locator('summary')
+    .filter({ hasText: 'Agent runtime & delegation' })
+    .click();
   await models
     .getByRole('spinbutton', { name: 'Maximum work rounds' })
     .fill('91');

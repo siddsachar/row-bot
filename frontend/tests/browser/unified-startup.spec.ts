@@ -109,7 +109,7 @@ test('twenty actual conversation preference openings and theme changes commit wi
       Object.assign(window, { __QA_PREFERENCE_COMMIT__: null });
       const start = performance.now();
       const committed = () => {
-        if (document.querySelector('.settings-preferences'))
+        if (document.querySelector('.settings-appearance'))
           requestAnimationFrame(() =>
             Object.assign(window, {
               __QA_PREFERENCE_COMMIT__: performance.now() - start,
@@ -117,7 +117,7 @@ test('twenty actual conversation preference openings and theme changes commit wi
           );
         else requestAnimationFrame(committed);
       };
-      history.pushState(history.state, '', '/app-v2/settings/preferences');
+      history.pushState(history.state, '', '/app-v2/settings/appearance');
       dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
       requestAnimationFrame(committed);
     });
@@ -133,11 +133,6 @@ test('twenty actual conversation preference openings and theme changes commit wi
             .__QA_PREFERENCE_COMMIT__,
       ),
     );
-    const local = page.locator('details.settings-supplemental-disclosure');
-    if (
-      !(await local.evaluate((element) => (element as HTMLDetailsElement).open))
-    )
-      await local.locator('summary').click();
     const choice = page.getByRole('combobox', {
       name: 'Appearance',
       exact: true,

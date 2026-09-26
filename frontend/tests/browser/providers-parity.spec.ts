@@ -20,7 +20,7 @@ test('Providers show live NiceGUI connection cards and row actions', async ({
   ).toBe(true);
   await page.goto('/app-v2/settings/providers');
   await expect(
-    page.getByRole('heading', { name: 'Connection Status' }),
+    page.getByRole('region', { name: 'Provider connections' }),
   ).toBeVisible();
   const row = page
     .getByRole('listitem')
@@ -198,8 +198,10 @@ test('xAI OAuth client options save and reset from the provider row', async ({
     .getByRole('listitem')
     .filter({ hasText: 'xAI Grok' })
     .first();
-  await row
-    .getByRole('button', { name: 'Configure xAI OAuth client ID' })
+  // Rarer account actions sit in the row's ⋯ menu.
+  await row.getByRole('button', { name: 'More actions for xAI Grok' }).click();
+  await page
+    .getByRole('menuitem', { name: 'Configure xAI OAuth client ID' })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Account options' });
   await dialog

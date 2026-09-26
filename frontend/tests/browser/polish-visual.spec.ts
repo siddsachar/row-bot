@@ -120,24 +120,31 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
 }, info) => {
   test.setTimeout(180_000);
   const leaves = [
+    'preferences',
+    'appearance',
+    'buddy',
     'providers',
     'models',
-    'knowledge',
-    'buddy',
-    'goals',
     'voice',
-    'system',
-    'tracker',
+    'knowledge',
     'documents',
+    'tracker',
     'tools',
     'skills',
+    'plugins',
+    'mcp',
     'accounts',
     'channels',
-    'utilities',
-    'mcp',
-    'plugins',
-    'preferences',
+    'profiles',
+    'system',
+    'access',
+    'updates',
+    'data',
   ];
+  const headings: Record<string, string> = {
+    knowledge: 'Memory',
+    profiles: 'Agent profiles',
+  };
   for (const viewport of [viewports[0], viewports[3]]) {
     await page.setViewportSize(viewport);
     for (const theme of ['light', 'dark'] as const) {
@@ -147,7 +154,10 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
         await expect(
           page
             .getByRole('heading', {
-              name: leaf === 'mcp' ? 'MCP' : new RegExp(`^${leaf}$`, 'i'),
+              name:
+                leaf === 'mcp'
+                  ? 'MCP'
+                  : new RegExp(`^${headings[leaf] ?? leaf}$`, 'i'),
             })
             .last(),
         ).toBeVisible();

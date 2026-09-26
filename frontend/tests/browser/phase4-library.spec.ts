@@ -437,10 +437,6 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
     .click();
   await page
     .getByRole('navigation', { name: 'Settings sections' })
-    .getByRole('button', { name: 'Tools and integrations' })
-    .click();
-  await page
-    .getByRole('navigation', { name: 'Settings sections' })
     .getByRole('link', { name: 'Tools', exact: true })
     .click();
   await page

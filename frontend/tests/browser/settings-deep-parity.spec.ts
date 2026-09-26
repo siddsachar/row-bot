@@ -9,24 +9,29 @@ import {
 } from './evidence';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 
+// Navigation order: General · Models · Knowledge · Capabilities ·
+// Connections · Agents · System.
 const settingsRoutes = [
+  ['preferences', 'Preferences'],
+  ['appearance', 'Appearance'],
+  ['buddy', 'Buddy'],
   ['providers', 'Providers'],
   ['models', 'Models'],
-  ['knowledge', 'Knowledge'],
-  ['buddy', 'Buddy'],
-  ['goals', 'Goals'],
   ['voice', 'Voice'],
-  ['system', 'System'],
-  ['tracker', 'Tracker'],
+  ['knowledge', 'Memory'],
   ['documents', 'Documents'],
+  ['tracker', 'Tracker'],
   ['tools', 'Tools'],
   ['skills', 'Skills'],
+  ['plugins', 'Plugins'],
+  ['mcp', 'MCP'],
   ['accounts', 'Accounts'],
   ['channels', 'Channels'],
-  ['utilities', 'Utilities'],
-  ['mcp', 'MCP'],
-  ['plugins', 'Plugins'],
-  ['preferences', 'Preferences'],
+  ['profiles', 'Agent profiles'],
+  ['system', 'System'],
+  ['access', 'Access'],
+  ['updates', 'Updates'],
+  ['data', 'Data'],
 ] as const;
 
 const firefoxPhoneRoutes = new Set([
@@ -36,20 +41,30 @@ const firefoxPhoneRoutes = new Set([
   'preferences',
 ]);
 
+// Legacy ids and moved pages redirect to their new page (and row).
 const aliases = [
-  ['wiki', 'knowledge', 'Knowledge'],
+  ['wiki', 'knowledge', 'Memory'],
   ['cloud', 'providers', 'Providers'],
   ['google', 'accounts', 'Accounts'],
   ['gmail', 'accounts', 'Accounts'],
   ['calendar', 'accounts', 'Accounts'],
-  ['migration', 'preferences', 'Preferences'],
+  ['migration', 'data', 'Data'],
   ['search', 'tools', 'Tools'],
-  ['profiles', 'goals', 'Goals'],
-  ['agent-profiles', 'goals', 'Goals'],
+  ['utilities', 'tools', 'Tools'],
+  ['agent-profiles', 'profiles', 'Agent profiles'],
 ] as const;
 
 function settingsPath(id: string): string {
   return `/app-v2/settings/${id}`;
+}
+
+// In-app navigation: every page.goto opens a fixture session, and the gate
+// shares 256 of them, so repeated redirect checks stay in one page load.
+async function navigateInApp(page: Page, path: string): Promise<void> {
+  await page.evaluate((target) => {
+    history.pushState(history.state, '', target);
+    dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+  }, path);
 }
 
 async function useLightBlueCompact(page: Page): Promise<void> {
@@ -158,7 +173,7 @@ async function expectCoarseTargets(page: Page, info: TestInfo): Promise<void> {
 
 test.use({ serviceWorkers: 'allow' });
 
-test('Settings categories expand in place for deep links, search, and keyboard navigation', async ({
+test('Settings groups list every page, and search finds pages and rows', async ({
   browserName,
   context,
   page,
@@ -175,45 +190,46 @@ test('Settings categories expand in place for deep links, search, and keyboard n
     name: 'Settings sections',
     exact: true,
   });
-  const knowledge = navigation.getByRole('button', {
-    name: 'Knowledge and documents',
-  });
-  await expect(knowledge).toHaveAttribute('aria-expanded', 'true');
+  await expect(
+    navigation
+      .getByRole('list', { name: 'Knowledge', exact: true })
+      .getByRole('link'),
+  ).toHaveText(['Memory', 'Documents', 'Tracker']);
   await expect(
     navigation.getByRole('link', { name: 'Documents', exact: true }),
   ).toHaveAttribute('aria-current', 'page');
   await expect(
     navigation.getByRole('link', { name: 'Providers', exact: true }),
-  ).toHaveCount(0);
-  const listFollowsHeading = await navigation
-    .locator('#settings-group-knowledge')
-    .evaluate(
-      (list) =>
-        list.previousElementSibling?.querySelector('button')?.textContent ===
-        'Knowledge and documents',
-    );
-  expect(listFollowsHeading).toBe(true);
+  ).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-category-deep-link-wide');
 
+  // "/" focuses search; a page result navigates, a row result jumps to it.
+  await page.getByRole('heading', { name: 'Documents', level: 2 }).click();
+  await page.keyboard.press('/');
   const search = navigation.getByRole('searchbox', { name: 'Find a setting' });
-  await search.fill('gmail');
   await expect(search).toBeFocused();
-  const integrations = navigation.getByRole('button', {
-    name: 'Tools and integrations',
-  });
-  await expect(integrations).toHaveAttribute('aria-expanded', 'true');
-  const accounts = navigation.getByRole('link', {
-    name: 'Accounts',
-    exact: true,
-  });
+  await search.fill('gmail');
+  const accounts = navigation
+    .getByRole('list', { name: 'Matching pages', exact: true })
+    .getByRole('link', { name: 'Accounts', exact: true });
   await expect(accounts).toBeVisible();
   await accounts.focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`${settingsPath('accounts')}$`));
   await waitForSettings(page, 'Accounts');
-  await search.fill('');
-  await expect(integrations).toHaveAttribute('aria-expanded', 'true');
+  await search.fill('dream');
+  await navigation
+    .getByRole('list', { name: 'Matching settings', exact: true })
+    .getByRole('link', { name: 'Dream Cycle', exact: true })
+    .click();
+  await expect(page).toHaveURL(
+    new RegExp(`${settingsPath('preferences')}#dream-cycle$`),
+  );
+  await waitForSettings(page, 'Preferences');
+  await expect(
+    page.locator('[data-setting-anchor="dream-cycle"]'),
+  ).toBeInViewport();
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-category-search-wide');
 
@@ -253,18 +269,23 @@ test('Settings shell preserves the exact owner order aliases history and reload'
       exact: true,
     });
     await expect(navigation).toBeVisible();
-    await expect(navigation.getByRole('heading')).toHaveText([
-      'Models and input',
-      'Knowledge and documents',
-      'Tools and integrations',
-      'Personal workspace',
-      'System and access',
-    ]);
-    await expect(navigation.getByRole('link')).toHaveText([
-      'Providers',
+    await expect(navigation.getByRole('heading')).toHaveCount(0);
+    const groups = navigation.getByRole('list');
+    await expect(groups).toHaveCount(7);
+    expect(
+      await groups.evaluateAll((lists) =>
+        lists.map((list) => list.getAttribute('aria-label')),
+      ),
+    ).toEqual([
+      'General',
       'Models',
-      'Voice',
+      'Knowledge',
+      'Capabilities',
+      'Connections',
+      'Agents',
+      'System',
     ]);
+    await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
   } else {
     const picker = page.getByRole('combobox', {
       name: 'Settings section',
@@ -274,13 +295,20 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     await expect(picker.locator('option')).toHaveText(expectedLabels);
   }
 
-  for (const [alias, destination, label] of aliases) {
-    await page.goto(settingsPath(alias));
+  // The first alias is a fresh deep link; the rest redirect in the app.
+  for (const [index, [alias, destination, label]] of aliases.entries()) {
+    if (index === 0) await page.goto(settingsPath(alias));
+    else await navigateInApp(page, settingsPath(alias));
     await expect
       .poll(() => new URL(page.url()).pathname)
       .toBe(settingsPath(destination));
     await waitForSettings(page, label);
   }
+  // Goals belong to one conversation: the old page opens a conversation.
+  await navigateInApp(page, settingsPath('goals'));
+  await expect
+    .poll(() => new URL(page.url()).pathname)
+    .not.toContain('/settings');
 
   await page.goto(settingsPath('providers'));
   await page.goto(settingsPath('models'));
@@ -525,26 +553,17 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
   await expect(
     page.getByRole('searchbox', { name: 'Find a setting' }),
   ).toBeFocused();
-  await page.keyboard.press('Tab');
-  const category = page.getByRole('button', {
-    name: 'Models and input',
+  // Every page link follows in navigation order.
+  const nav = page.getByRole('navigation', {
+    name: 'Settings sections',
     exact: true,
   });
-  await expect(category).toBeFocused();
-  await expect(category).toHaveAttribute('aria-expanded', 'true');
-  await page.keyboard.press('Enter');
-  await expect(category).toHaveAttribute('aria-expanded', 'false');
-  await page.keyboard.press(' ');
-  await expect(category).toHaveAttribute('aria-expanded', 'true');
+  for (const name of ['Preferences', 'Appearance', 'Buddy', 'Providers']) {
+    await page.keyboard.press('Tab');
+    await expect(nav.getByRole('link', { name, exact: true })).toBeFocused();
+  }
   await page.keyboard.press('Tab');
-  const providers = page
-    .getByRole('navigation', { name: 'Settings sections', exact: true })
-    .getByRole('link', { name: 'Providers', exact: true });
-  await expect(providers).toBeFocused();
-  await page.keyboard.press('Tab');
-  const models = page
-    .getByRole('navigation', { name: 'Settings sections', exact: true })
-    .getByRole('link', { name: 'Models', exact: true });
+  const models = nav.getByRole('link', { name: 'Models', exact: true });
   await expect(models).toBeFocused();
   await page.keyboard.press('Enter');
   await waitForSettings(page, 'Models');
@@ -562,12 +581,8 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
     expanded === 'true' ? 'false' : 'true',
   );
 
-  await page.goto(settingsPath('preferences'));
-  await waitForSettings(page, 'Preferences');
-  await page
-    .locator('summary')
-    .filter({ hasText: 'Local client controls' })
-    .click();
+  await page.goto(settingsPath('appearance'));
+  await waitForSettings(page, 'Appearance');
   const appearance = page.getByRole('combobox', {
     name: 'Appearance',
     exact: true,

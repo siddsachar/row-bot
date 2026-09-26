@@ -149,7 +149,7 @@ test.beforeEach(async ({ context }) => {
   await blockFixtureServiceWorkers(context);
 });
 
-test('Goals and Agent Profiles use reviewed mutations and survive a reload', async ({
+test('Goals live in the conversation and Agent Profiles in Settings, both reviewed and reload-safe', async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
@@ -158,30 +158,41 @@ test('Goals and Agent Profiles use reviewed mutations and survive a reload', asy
   await expect(
     page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
   ).toBeVisible();
-  await openSettingThroughCommands(page, {
-    label: 'Goals',
-    path: '/app-v2/settings/goals',
-  });
 
-  const owner = page.getByRole('region', {
-    name: 'Goals and Agent Profiles',
-    exact: true,
+  // A goal belongs to this thread: it is set and shown in Context. The
+  // header Context button is a toggle, so reveal the card only when hidden.
+  const context = page.getByRole('complementary', {
+    name: 'Conversation context',
   });
-  const goals = owner.getByRole('region', { name: 'Goals', exact: true });
-  await expect(goals.getByText('0 goals in this conversation.')).toBeVisible();
-  await goals
+  const revealContext = async () => {
+    await expect(composer(page)).toBeVisible();
+    if (!(await context.isVisible()))
+      await page.getByRole('button', { name: 'Context', exact: true }).click();
+    await expect(context).toBeVisible();
+  };
+  await revealContext();
+  await context.locator('summary', { hasText: 'Utilities' }).click();
+  await context
+    .getByRole('button', { name: 'Set a goal', exact: true })
+    .click();
+  const form = context.getByRole('form', { name: 'Set a goal' });
+  await form
     .getByLabel('Goal objective', { exact: true })
     .fill('Verify the isolated Phase 4 capability surfaces');
-  await goals.getByLabel('Maximum turns', { exact: true }).fill('12');
-  await goals.getByRole('button', { name: 'Start goal', exact: true }).click();
-  await expect(goals.getByText(/active · 0 of 12 turns/)).toBeVisible();
+  await form.getByLabel('Turn limit', { exact: true }).fill('12');
+  await form.getByRole('button', { name: 'Start goal', exact: true }).click();
+  const goal = context.locator('.context-goal');
+  await expect(
+    goal.getByText('Verify the isolated Phase 4 capability surfaces'),
+  ).toBeVisible();
+  await expect(goal.getByText(/0 of 12 turns/)).toBeVisible();
   await visualCheck(page, info, 'goal-started');
 
-  await goals
-    .getByLabel('Reason for goal status change', { exact: true })
-    .fill('Pause after the verified browser checkpoint.');
-  await goals.getByRole('button', { name: 'Pause', exact: true }).click();
-  await expect(goals.getByText(/paused · 0 of 12 turns/)).toBeVisible();
+  await goal.getByRole('button', { name: 'Pause goal', exact: true }).click();
+  await expect(
+    goal.getByRole('button', { name: 'Resume goal', exact: true }),
+  ).toBeVisible();
+  await expect(goal.getByText('Paused', { exact: true })).toBeVisible();
 
   const avatar = page.locator('.navigation .buddy-avatar').first();
   if (await avatar.count()) {
@@ -203,8 +214,24 @@ test('Goals and Agent Profiles use reviewed mutations and survive a reload', asy
       .toBe(true);
   }
   await page.reload();
-  await expect(goals.getByText(/paused · 0 of 12 turns/)).toBeVisible();
-  await owner.getByRole('tab', { name: 'Agent Profiles', exact: true }).click();
+  await revealContext();
+  await expect(
+    context
+      .locator('.context-goal')
+      .getByRole('button', { name: 'Resume goal', exact: true }),
+  ).toBeVisible();
+  // The old Settings address opens the thread instead of a Settings page.
+  await page.goto(`/app-v2/settings/goals?conversation=${conversation}`);
+  await expect(page).toHaveURL(`/app-v2/conversations/${conversation}`);
+
+  await openSettingThroughCommands(page, {
+    label: 'Agent profiles',
+    path: '/app-v2/settings/profiles',
+  });
+  const owner = page.getByRole('region', {
+    name: 'Goals and Agent Profiles',
+    exact: true,
+  });
   const profiles = owner.getByRole('region', {
     name: 'Agent Profiles',
     exact: true,
@@ -291,12 +318,13 @@ test('retained settings expose real capability state without leaving the unified
     page.getByRole('heading', { name: 'Tracker Tool', exact: true }),
   ).toBeVisible();
 
+  // Utilities became Tools' built-in tools.
   await openSettingThroughCommands(page, {
-    label: 'Utilities',
-    path: '/app-v2/settings/utilities',
+    label: 'Tools',
+    path: '/app-v2/settings/tools',
   });
   await expect(
-    page.getByRole('heading', { name: 'Utility Tools', exact: true }),
+    page.getByRole('heading', { name: 'Built-in tools', exact: true }),
   ).toBeVisible();
 
   await openSettingThroughCommands(page, {
@@ -325,7 +353,7 @@ test('retained settings expose real capability state without leaving the unified
   ).toEqual([]);
   await writeEvidence(info, 'retained-settings-result.json', {
     conversation,
-    routes: ['voice', 'accounts', 'tracker', 'utilities', 'system'],
+    routes: ['voice', 'accounts', 'tracker', 'tools', 'system'],
     draft_retained: true,
     provider_calls: 0,
   });

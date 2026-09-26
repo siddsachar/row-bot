@@ -52,8 +52,7 @@ test('real tools and media keep one composer through every colour theme and syst
   try {
     for (const appearance of ['light', 'dark']) {
       for (const accent of ['blue', 'teal', 'violet', 'amber']) {
-        await page.goto('/app-v2/settings/preferences');
-        await page.getByText('Local client controls', { exact: true }).click();
+        await page.goto('/app-v2/settings/appearance');
         await page
           .getByRole('combobox', { name: 'Appearance', exact: true })
           .selectOption(appearance);
@@ -95,8 +94,7 @@ test('real tools and media keep one composer through every colour theme and syst
         observations.push({ appearance, accent });
       }
     }
-    await page.goto('/app-v2/settings/preferences');
-    await page.getByText('Local client controls', { exact: true }).click();
+    await page.goto('/app-v2/settings/appearance');
     await page
       .getByRole('combobox', { name: 'Appearance', exact: true })
       .selectOption('system');

@@ -86,8 +86,7 @@ test('all alternative accents retain readable integrated controls in both appear
     'Alternative accent matrix is desktop and phone in both appearances.',
   );
   await openFixture(page);
-  await page.goto('/app-v2/settings/preferences?fixture=normal');
-  await page.getByText('Local client controls', { exact: true }).click();
+  await page.goto('/app-v2/settings/appearance?fixture=normal');
   for (const appearance of ['light', 'dark']) {
     for (const accent of ['teal', 'violet', 'amber']) {
       await page
@@ -132,8 +131,7 @@ test('unavailable or corrupt local storage leaves a usable shell', async ({
   }, size);
   await openFixture(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.goto('/app-v2/settings/preferences?fixture=normal');
-  await page.getByText('Local client controls', { exact: true }).click();
+  await page.goto('/app-v2/settings/appearance?fixture=normal');
   await page
     .getByRole('combobox', { name: 'Appearance', exact: true })
     .selectOption('dark');
@@ -224,11 +222,10 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     );
     expect(control.hit, `${control.name} visible hit target`).toBe(true);
   }
-  await page.goto('/app-v2/settings/preferences?fixture=normal');
+  await page.goto('/app-v2/settings/appearance?fixture=normal');
   await page.evaluate(() => {
     document.documentElement.style.zoom = '2';
   });
-  await page.getByText('Local client controls', { exact: true }).click();
   const appearance = page.getByRole('combobox', {
     name: 'Appearance',
     exact: true,
@@ -287,10 +284,11 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
         opaque: document.documentElement.dataset.opaque,
         zoom: getComputedStyle(document.documentElement).zoom,
         background: getComputedStyle(
-          document.querySelector('.settings-preferences')!,
+          document.querySelector('.settings-page-content')!,
         ).backgroundColor,
-        text: getComputedStyle(document.querySelector('.settings-preferences')!)
-          .color,
+        text: getComputedStyle(
+          document.querySelector('.settings-page-content')!,
+        ).color,
       },
       limitation:
         'Engine media emulation and CSS zoom only; unsupported forced-colors emulation is reported, not counted as operating-system proof.',

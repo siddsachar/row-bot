@@ -160,15 +160,11 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
   await page
     .getByRole('combobox', { name: 'Settings section', exact: true })
-    .selectOption('preferences');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/preferences$/);
+    .selectOption('appearance');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/appearance$/);
   await expect(
-    page.getByRole('heading', { name: 'Preferences', exact: true }),
+    page.getByRole('heading', { name: 'Appearance', exact: true }),
   ).toBeVisible();
-  await page
-    .locator('summary')
-    .filter({ hasText: 'Local client controls' })
-    .click();
   const appearance = page.getByRole('combobox', {
     name: 'Appearance',
     exact: true,
@@ -193,7 +189,7 @@ test('compact themes, accents and accessibility preferences retain one mounted w
     await expect(page.getByTestId('conversation-workspace')).toHaveCount(1);
   }
   await page
-    .getByRole('checkbox', { name: 'Reduce transparency', exact: true })
+    .getByRole('switch', { name: 'Reduce transparency', exact: true })
     .check();
   await expect(page.locator('html')).toHaveAttribute('data-opaque', 'true');
 
