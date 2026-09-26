@@ -14,7 +14,9 @@ export default function ConversationHeader({
   onFind,
   onShare,
   onContext,
+  contextPressed,
   contextDisabled = false,
+  actions,
   children,
 }: {
   title: string;
@@ -23,9 +25,13 @@ export default function ConversationHeader({
   model?: string;
   onFind?: () => void;
   onShare?: () => void;
-  /** Present when the context panel is a sheet (compact layouts). */
+  /** Shows Context: toggles the right region, or opens a sheet when narrow. */
   onContext?: () => void;
+  /** Whether Context is on screen (desktop); undefined for a sheet. */
+  contextPressed?: boolean;
   contextDisabled?: boolean;
+  /** Workspace-owned icon actions (Open panel). */
+  actions?: ReactNode;
   /** Rare, urgent actions such as checking a pending receipt. */
   children?: ReactNode;
 }) {
@@ -121,9 +127,12 @@ export default function ConversationHeader({
             <Share size={16} aria-hidden />
           </IconButton>
         )}
+        {actions}
         {onContext && (
           <IconButton
             label="Context"
+            shortcut={contextPressed === undefined ? undefined : 'Mod+.'}
+            pressed={contextPressed}
             disabled={contextDisabled}
             onClick={onContext}
           >

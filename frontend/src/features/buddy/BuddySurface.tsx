@@ -457,10 +457,17 @@ function GlobalBuddy() {
           Undock
         </Button>
       )}
-      {snapshot.preferences.bubble_verbosity !== 'quiet' &&
-        !snapshot.preferences.collapsed && (
-          <p role="status">{snapshot.status.label || 'Ready when you are.'}</p>
-        )}
+      <span className="buddy-companion-text">
+        <span className="buddy-companion-name">
+          {snapshot.preferences.display_name || 'Buddy'}
+        </span>
+        {snapshot.preferences.bubble_verbosity !== 'quiet' &&
+          !snapshot.preferences.collapsed && (
+            <p role="status">
+              {snapshot.status.label || 'Ready when you are.'}
+            </p>
+          )}
+      </span>
     </aside>
   );
 }

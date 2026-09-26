@@ -127,8 +127,9 @@ test('a command opened on desktop uses the current compact layout after resize',
   await page
     .getByRole('searchbox', { name: 'Find a workspace command', exact: true })
     .fill('Workspace notes');
+  // Palette results are listbox options; the field keeps focus.
   await page
-    .getByRole('button', { name: 'Open Workspace notes', exact: true })
+    .getByRole('option', { name: 'Open Workspace notes', exact: true })
     .click();
   await expect(
     page.getByRole('dialog', { name: 'Workspace notes', exact: true }),

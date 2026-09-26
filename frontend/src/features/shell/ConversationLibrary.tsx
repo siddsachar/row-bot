@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { ClientController } from '../../api/controller';
 import { clientError } from '../../api/errors';
 import type { Command, ConversationView } from '../../api/types';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Select, Skeleton } from '../../ui/primitives';
+import { absoluteTime, relativeTime } from '../../ui/format';
+import { ConversationGlyph } from './ConversationGlyph';
 
 type Category = 'all' | 'chat' | 'designer' | 'code' | 'workflow';
 type FailedDelete = {
@@ -67,9 +69,12 @@ const LABELS: Record<Category, string> = {
 export default function ConversationLibrary({
   controller,
   initialSelectedId,
+  linkRows = false,
 }: {
   controller: ClientController;
   initialSelectedId?: string;
+  /** On the Library page, rows open their conversation. */
+  linkRows?: boolean;
 }) {
   const overlay = useOverlay();
   const navigate = useNavigate();
@@ -531,11 +536,32 @@ export default function ConversationLibrary({
                       />{' '}
                       {row.title || 'Untitled conversation'}
                     </label>
+                  ) : linkRows ? (
+                    <Link
+                      className="library-row-link"
+                      to={`/conversations/${encodeURIComponent(row.id)}`}
+                    >
+                      <ConversationGlyph category={row.category} />
+                      <span className="library-row-title">
+                        {row.title || 'Untitled conversation'}
+                      </span>
+                    </Link>
                   ) : (
                     <span>{row.title || 'Untitled conversation'}</span>
                   )}
-                  <span className="muted">
+                  <span className="muted library-row-meta">
                     {LABELS[row.category ?? 'chat']}
+                    {linkRows && row.updated_at && (
+                      <>
+                        {' · '}
+                        <time
+                          dateTime={row.updated_at}
+                          title={absoluteTime(row.updated_at)}
+                        >
+                          {relativeTime(row.updated_at)}
+                        </time>
+                      </>
+                    )}
                   </span>
                 </li>
               ))}

@@ -5116,7 +5116,6 @@ details[open] > summary > .settings-disclosure-chevron {
     border-radius: 0;
   }
 }
-.nav-conversations,
 .home-resource-card {
   border: 1px solid var(--card-border);
   border-top-color: var(--card-border-top);
@@ -5125,10 +5124,6 @@ details[open] > summary > .settings-disclosure-chevron {
   background: var(--card-tint);
   box-shadow: var(--shadow-card);
 }
-.nav-conversations {
-  padding: 8px 10px;
-}
-.nav-conversations:focus-within,
 .home-resource-card:focus-within {
   border-color: color-mix(in srgb, var(--focus-ring) 58%, var(--border-subtle));
 }
@@ -5487,7 +5482,6 @@ details[open] > summary > .settings-disclosure-chevron {
   }
 }
 @media (forced-colors: active) {
-  .nav-conversations,
   .home-resource-card,
   .conversation-area {
     background: Canvas;
@@ -5498,7 +5492,6 @@ details[open] > summary > .settings-disclosure-chevron {
     color: CanvasText;
   }
 }
-:root[data-opaque='true'] .nav-conversations,
 :root[data-opaque='true'] .home-resource-card {
   background: var(--surface-raised);
 }

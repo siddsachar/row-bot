@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
   await page.setContent(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>
     <main class="surface stack" style="max-width:600px;margin:8px">
       <span class="brand-name">Row-Bot</span>
-      <section class="nav-conversations"><h3>Conversations</h3><p>Saved local conversations</p></section>
+      <section class="home-resource-card"><h3>Conversations</h3><p>Saved local conversations</p></section>
       <label class="field"><span>Workspace name</span><input class="input" value="Reviewed local workspace"></label>
       <div class="actions"><button class="button primary">Review</button><button class="button">Cancel</button></div>
       <div class="transcript"><article class="message message-user"><div class="transcript-content"><small class="message-delivery-state">Paged content</small><p class="message-text">Preserve readable conversation text.</p></div></article></div>
@@ -89,7 +89,7 @@ test('reference chrome density preserves reading size, focus and accessible them
             style('.panel-toolbar .button').lineHeight,
           ],
           composer: [style('textarea').fontSize, style('textarea').lineHeight],
-          cardRadius: style('.nav-conversations').borderRadius,
+          cardRadius: style('.home-resource-card').borderRadius,
           panelRadius: surface.borderRadius,
           controlRadius: button.borderRadius,
           dialogRadius: style('.dialog').borderRadius,
@@ -97,8 +97,8 @@ test('reference chrome density preserves reading size, focus and accessible them
           pillRadius: style('.status-chip').borderRadius,
           borders: {
             card: [
-              style('.nav-conversations').borderTopWidth,
-              style('.nav-conversations').borderTopStyle,
+              style('.home-resource-card').borderTopWidth,
+              style('.home-resource-card').borderTopStyle,
             ],
             panel: [surface.borderTopWidth, surface.borderTopStyle],
             control: [button.borderTopWidth, button.borderTopStyle],
@@ -184,14 +184,16 @@ test('opaque and reduced-motion preferences preserve readable bounded controls',
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await theme(page, { reduce_transparency: true });
-  const measured = await page.locator('.nav-conversations').evaluate((node) => {
-    const style = getComputedStyle(node);
-    return {
-      image: style.backgroundImage,
-      background: style.backgroundColor,
-      animation: style.animationName,
-    };
-  });
+  const measured = await page
+    .locator('.home-resource-card')
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        image: style.backgroundImage,
+        background: style.backgroundColor,
+        animation: style.animationName,
+      };
+    });
   expect(measured.image).toBe('none');
   // Opaque mode keeps the raised dark surface token (#171C25).
   expect(measured.background).toBe('rgb(23, 28, 37)');
@@ -202,7 +204,7 @@ test('opaque and reduced-motion preferences preserve readable bounded controls',
   ) {
     expect(
       await page
-        .locator('.nav-conversations')
+        .locator('.home-resource-card')
         .evaluate((node) => getComputedStyle(node).boxShadow),
     ).toBe('none');
     expect(

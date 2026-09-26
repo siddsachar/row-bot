@@ -6,7 +6,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type {
   ConversationComposer,
@@ -49,6 +51,7 @@ import QueueControls from './QueueControls';
 import ContextUsage from './ContextUsage';
 import DelegatedActivity, { recentReads } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
+import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
   ReceiptStorageError,
@@ -97,6 +100,11 @@ export default function Conversation({
   firstPrompt,
   onFirstPromptConsumed,
   compactContext: compactFromViewport = false,
+  contextPlacement = compactFromViewport ? 'compact' : 'inline',
+  contextHidden = false,
+  contextInRegion = false,
+  onToggleContext,
+  headerActions,
   onStartProfileChat,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
@@ -107,7 +115,21 @@ export default function Conversation({
   onComposerFocused?: () => void;
   firstPrompt?: { conversationId: string; text: string } | null;
   onFirstPromptConsumed?: (conversationId: string) => void;
+  /** Legacy alias for contextPlacement="compact". */
   compactContext?: boolean;
+  /**
+   * Where Context lives: a column beside the chat (inline), the right
+   * region's first tab (region), or a sheet on compact layouts.
+   */
+  contextPlacement?: 'inline' | 'region' | 'compact';
+  /** The person hid the inline Context column. */
+  contextHidden?: boolean;
+  /** The right region currently shows its Context tab. */
+  contextInRegion?: boolean;
+  /** Toggle the right region (desktop). */
+  onToggleContext?: () => void;
+  /** Header icon actions owned by the workspace (Open panel). */
+  headerActions?: ReactNode;
   onStartProfileChat?: (profile: ProfileSummary) => void;
 }) {
   const state = useClientState();
@@ -331,7 +353,19 @@ export default function Conversation({
   const chatContentRef = useRef<HTMLDivElement>(null);
   const chatWorkspaceRef = useRef<HTMLDivElement>(null);
   const [narrowChat, setNarrowChat] = useState(false);
-  const compactContext = compactFromViewport || narrowChat;
+  const contextHost = useContextHost();
+  const compactPlacement = contextPlacement === 'compact';
+  // Without a host (isolated renders) Context renders in place, as before.
+  const hosted = Boolean(contextHost) && !compactPlacement;
+  const inlineContext =
+    Boolean(id) &&
+    contextPlacement === 'inline' &&
+    !narrowChat &&
+    !contextHidden;
+  // The rail is visually single-column wherever it is not the inline column.
+  const compactContext = hosted
+    ? !inlineContext
+    : compactPlacement || narrowChat;
   useEffect(() => {
     const element = chatWorkspaceRef.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
@@ -1901,9 +1935,20 @@ export default function Conversation({
       key: 'conversation-context',
       title: 'Conversation context',
       description: '',
-      content: contextRail,
+      // A hosted rail moves into the sheet instead of mounting a copy.
+      content: hosted ? <ContextSlot active /> : contextRail,
     });
   }
+  function toggleContext() {
+    if (!hosted || (contextPlacement === 'inline' && narrowChat))
+      openContextSheet();
+    else onToggleContext?.();
+  }
+  const contextShown = hosted
+    ? contextPlacement === 'inline'
+      ? inlineContext
+      : contextInRegion
+    : undefined;
   const sendBlocked =
     busy ||
     Boolean(pendingSteering) ||
@@ -1940,8 +1985,12 @@ export default function Conversation({
           model={id ? modelName : undefined}
           onFind={id ? findConversation : undefined}
           onShare={id ? manageConversation : undefined}
-          onContext={id && compactContext ? openContextSheet : undefined}
+          onContext={
+            id && (hosted || compactContext) ? toggleContext : undefined
+          }
+          contextPressed={contextShown}
           contextDisabled={!contextReady}
+          actions={headerActions}
         >
           {missingReceipt &&
             (missingReceipt.key === steeringKey ||
@@ -2783,7 +2832,12 @@ export default function Conversation({
           </div>
         </form>
       )}
-      {!compactContext && contextRail}
+      {hosted && contextRail && createPortal(contextRail, contextHost!.element)}
+      {hosted ? (
+        <ContextSlot active={inlineContext} className="context-column" />
+      ) : (
+        !compactContext && contextRail
+      )}
     </div>
   );
 }

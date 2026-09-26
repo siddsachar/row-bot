@@ -272,10 +272,15 @@ export default function BuddyControls(props: BuddyControlsProps) {
               Undock
             </Button>
           )}
-          {snapshot.preferences.bubble_verbosity !== 'quiet' &&
-            !snapshot.preferences.collapsed && (
-              <p role="status">{snapshot.status.label}</p>
-            )}
+          <span className="buddy-companion-text">
+            <span className="buddy-companion-name">
+              {snapshot.preferences.display_name || 'Buddy'}
+            </span>
+            {snapshot.preferences.bubble_verbosity !== 'quiet' &&
+              !snapshot.preferences.collapsed && (
+                <p role="status">{snapshot.status.label}</p>
+              )}
+          </span>
           {props.currentRunId && (
             <Button disabled={busy} onClick={() => void run('stop')}>
               Stop current run
