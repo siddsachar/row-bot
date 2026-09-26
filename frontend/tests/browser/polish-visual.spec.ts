@@ -34,7 +34,9 @@ test('conversation and Home keep their primary actions readable at every target 
   page,
 }, info) => {
   await newConversation(page);
-  await expect(page.locator('.transcript .empty-state')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'What would you like to work on?' }),
+  ).toBeVisible();
   const notice = page.getByRole('button', { name: 'Dismiss', exact: true });
   if (await notice.isVisible()) await notice.click();
   for (const viewport of viewports) {
