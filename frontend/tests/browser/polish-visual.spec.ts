@@ -88,7 +88,7 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   });
   expect(seed.ok(), await seed.text()).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
   await expect(editor).toBeVisible();
