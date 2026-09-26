@@ -1728,10 +1728,32 @@
   font-size: var(--type-size-metadata);
 }
 .settings-plugin-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: fit-content;
   color: var(--text-muted);
   font-size: var(--type-size-metadata);
+  list-style: none;
   cursor: pointer;
+}
+.settings-plugin-details > summary::-webkit-details-marker {
+  display: none;
+}
+/* The settings chevron, not the native marker. */
+.settings-plugin-details > summary::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.settings-plugin-details[open] > summary::before {
+  transform: rotate(45deg);
 }
 .settings-plugin-details[open] > summary {
   margin-bottom: 4px;
