@@ -167,7 +167,7 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
 - Tool calls are one activity row per turn ("Used 3 tools · 1 failed") with tool
   glyphs; it expands into a step timeline with human verbs and the key
   argument, and step details load their paged result on demand. Live work shows
-  one activity row with shimmer text; an approval card anchors to it and is
+  one activity row with gently pulsing text (opacity only); an approval card anchors to it and is
   never hidden. A step that failed or never ran is never worded as done
   ("Couldn't read a file", "Didn't delete a file"; "1 tool skipped"). Runtime
   errors and interrupted runs are callouts with the cause and a next step

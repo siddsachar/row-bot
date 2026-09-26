@@ -352,8 +352,8 @@ function useElapsed(startedAt: number | undefined, active: boolean) {
 
 /**
  * One quiet line per turn ("Used 3 tools · 8.4s"). While work runs it reads
- * as live shimmer text; expanded it becomes a step timeline with human verbs,
- * the key argument, duration and status. Step details load on demand.
+ * as live, gently pulsing text; expanded it becomes a step timeline with human
+ * verbs, the key argument, duration and status. Step details load on demand.
  */
 export default function TranscriptTrace({
   conversation,

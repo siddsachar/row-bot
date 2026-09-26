@@ -29,9 +29,9 @@
     transform: translateY(2px);
   }
 }
-@keyframes chat-shimmer {
-  to {
-    background-position: -200% 0;
+@keyframes chat-breathe {
+  50% {
+    opacity: 0.55;
   }
 }
 @keyframes chat-spin {
@@ -516,18 +516,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Live work breathes with opacity only: compositor-driven, so it never adds
+   a main-thread paint to every frame of a streaming reply. */
 .activity-summary-text[data-live='true'] {
-  background: linear-gradient(
-    90deg,
-    var(--text-muted) 0%,
-    var(--text-primary) 50%,
-    var(--text-muted) 100%
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: chat-shimmer 1.8s linear infinite;
+  color: var(--text-secondary);
+  animation: chat-breathe 1.6s ease-in-out infinite;
 }
 .activity-glyphs {
   display: inline-flex;
@@ -2536,8 +2529,6 @@
 @media (prefers-reduced-motion: reduce) {
   .activity-summary-text[data-live='true'] {
     animation: none;
-    color: var(--text-secondary);
-    background: none;
   }
   .activity-spinner,
   .message[data-streaming] .message-text > *,
