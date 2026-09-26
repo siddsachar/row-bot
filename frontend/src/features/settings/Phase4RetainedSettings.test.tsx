@@ -966,6 +966,36 @@ it('reviews and saves one retained setting without replaying it', async () => {
   );
 });
 
+it('marks a field that differs from its default and resets it in one step', async () => {
+  mutation.defaults = { 'runtime.talk_model': 'local-whisper' };
+  const { container } = renderSetting('voice');
+  const row = screen
+    .getByLabelText('Talk model')
+    .closest('.settings-saved-control')!;
+  expect(row).toHaveAttribute('data-modified', 'true');
+  expect(row.querySelector('.settings-modified-dot')).not.toBeNull();
+  // The mark never becomes part of the control's name.
+  expect(screen.getByRole('textbox', { name: 'Talk model' })).toBeVisible();
+  // A field already at its default offers no reset.
+  expect(
+    screen.queryByRole('button', { name: 'Reset Talk provider to default' }),
+  ).toBeNull();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Reset Talk model to default' }),
+  );
+  await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
+  expect(mutation.review).toHaveBeenCalledWith(
+    expect.objectContaining({
+      page: 'voice',
+      field: 'runtime.talk_model',
+      value: 'local-whisper',
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(container.querySelectorAll('[data-modified="true"]')).toHaveLength(1);
+  mutation.defaults = undefined;
+});
+
 it('checks the original receipt instead of replaying an uncertain save', async () => {
   const execute = vi.fn().mockRejectedValue({ code: 'operation_uncertain' });
   mutation.execute = execute;

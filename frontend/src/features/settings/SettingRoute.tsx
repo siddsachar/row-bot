@@ -52,12 +52,7 @@ import {
 
 /** Saved defaults for one page, when the server reports them. */
 function settingsDefaults(snapshot: SettingsSnapshot, page: SettingsPage) {
-  const defaults = (
-    snapshot as SettingsSnapshot & {
-      defaults?: Partial<Record<SettingsPage, SettingsMutationIO['defaults']>>;
-    }
-  ).defaults;
-  return defaults?.[page];
+  return snapshot.defaults?.[page];
 }
 
 /** Which saved-settings page each leaf reads and writes. */

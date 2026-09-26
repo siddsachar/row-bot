@@ -1393,3 +1393,30 @@ def test_memory_switch_refreshes_the_existing_tool_registry(api, monkeypatch):
     response = _execute(client, headers, request, _review(client, headers, request))
     assert response.status_code == 200 and response.json()["status"] == "completed"
     assert calls == [True]
+
+
+def test_fresh_profile_reads_back_every_reported_default(tmp_path, monkeypatch):
+    """The defaults a client resets to are exactly what a new profile reads."""
+
+    from row_bot.application.settings_snapshot import (
+        SETTING_DEFAULTS,
+        read_settings_snapshot,
+    )
+
+    data = tmp_path / "fresh"
+    data.mkdir()
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    snapshot = read_settings_snapshot()
+    assert snapshot["defaults"] == SETTING_DEFAULTS
+    SettingsSnapshot.model_validate(snapshot)
+    for page, fields in SETTING_DEFAULTS.items():
+        for field, default in fields.items():
+            value = snapshot[page]
+            for part in field.split("."):
+                value = value[part]
+            assert value == default, f"{page}.{field}"
+    # Defaults are not saved state, so they never move the revision.
+    from row_bot.application import settings_snapshot as module
+
+    monkeypatch.setitem(module.SETTING_DEFAULTS, "tools", {})
+    assert read_settings_snapshot()["revision"] == snapshot["revision"]

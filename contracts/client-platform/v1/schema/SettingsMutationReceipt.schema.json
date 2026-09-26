@@ -1230,6 +1230,51 @@
         "buddy": {
           "$ref": "#/$defs/BuddySettingsSnapshot"
         },
+        "defaults": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "enum": [
+              "voice",
+              "system",
+              "tracker",
+              "knowledge",
+              "documents",
+              "tools",
+              "accounts",
+              "utilities",
+              "preferences"
+            ]
+          },
+          "title": "Defaults",
+          "type": "object"
+        },
         "documents": {
           "$ref": "#/$defs/DocumentSettingsSnapshot"
         },

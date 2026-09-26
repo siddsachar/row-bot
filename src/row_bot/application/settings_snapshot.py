@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+import copy
 import hashlib
 import json
 import os
@@ -1484,6 +1485,57 @@ def _plugins(validate: Callable[[], None]) -> dict[str, Any]:
     }
 
 
+# What a fresh profile reads back for each saved field: the fallbacks the
+# section readers above use. Clients mark a field that differs as modified
+# and offer a one-step reset to this value. A subsystem test keeps these in
+# step with the readers.
+SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
+    "voice": {
+        "runtime.talk_provider": "local",
+        "runtime.talk_model": "local-whisper",
+        "runtime.dictation_provider": "local",
+        "runtime.dictation_model": "local-whisper",
+        "runtime.speech_output_provider": "local",
+        "runtime.speech_output_model": "local-kokoro",
+        "runtime.realtime_voice": "marin",
+        "runtime.captions_enabled": True,
+        "runtime.talk_auto_start": False,
+        "runtime.realtime_fallback_to_local": True,
+        "local.whisper_model": "small",
+        "tts.enabled": False,
+        "tts.voice": "af_heart",
+        "tts.speed": 1.0,
+        "tts.auto_speak": True,
+    },
+    "system": {
+        "remote_access.listen_mode": "local_only",
+        "tunnel.provider": "ngrok",
+        "logging.level": "DEBUG",
+    },
+    "documents": {
+        "embedding.provider": "local",
+        "embedding.local_model": "mxbai-large-v1",
+        "embedding.cloud_model": "openai:text-embedding-3-small",
+        "embedding.dimension": None,
+        "embedding.auto_unload": False,
+    },
+    "tools": {
+        "external_loading_mode": "auto",
+        "compression_mode": "off",
+    },
+    "preferences": {
+        "identity.name": "Row-Bot",
+        "identity.personality": "",
+        "identity.self_improvement_enabled": True,
+        "window_mode": "ask",
+        "dream_cycle.enabled": True,
+        "dream_cycle.window_start": 1,
+        "dream_cycle.window_end": 5,
+        "updates.channel": "stable",
+    },
+}
+
+
 def _revision(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -1516,7 +1568,13 @@ def read_settings_snapshot(
         "preferences": _preferences(root),
     }
     validate()
-    return {"schema_version": 1, "revision": _revision(sections), **sections}
+    return {
+        "schema_version": 1,
+        "revision": _revision(sections),
+        **sections,
+        # Defaults never change the revision: they are not saved state.
+        "defaults": copy.deepcopy(SETTING_DEFAULTS),
+    }
 
 
-__all__ = ["read_settings_snapshot"]
+__all__ = ["SETTING_DEFAULTS", "read_settings_snapshot"]

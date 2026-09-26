@@ -1156,6 +1156,20 @@ class PreferenceSettingsSnapshot(WireModel):
     migration: MigrationSettingsSnapshot
 
 
+SettingsMutationPage = Literal[
+    "voice",
+    "system",
+    "tracker",
+    "knowledge",
+    "documents",
+    "tools",
+    "accounts",
+    "utilities",
+    "preferences",
+]
+SettingsMutationValue = str | bool | int | float | list[str] | None
+
+
 class SettingsSnapshot(WireModel):
     schema_version: Literal[1]
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -1171,20 +1185,13 @@ class SettingsSnapshot(WireModel):
     utilities: UtilitySettingsSnapshot
     plugins: SettingsPluginSummary
     preferences: PreferenceSettingsSnapshot
+    # Per page, what each saved field reads on a fresh profile; clients show
+    # a "modified" mark and a reset for fields that differ.
+    defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(
+        default_factory=dict
+    )
 
 
-SettingsMutationPage = Literal[
-    "voice",
-    "system",
-    "tracker",
-    "knowledge",
-    "documents",
-    "tools",
-    "accounts",
-    "utilities",
-    "preferences",
-]
-SettingsMutationValue = str | bool | int | float | list[str] | None
 
 
 class SettingsMutationRequest(WireModel):
