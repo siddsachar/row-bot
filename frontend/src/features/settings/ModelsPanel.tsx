@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Brain,
-  Camera,
   Eye,
   GitBranch,
   Image,
@@ -26,6 +25,7 @@ import {
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
+import { SettingsSummary, SummaryChip } from './anatomy';
 import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
@@ -502,6 +502,24 @@ export default function ModelsPanel({
         className="settings-model-defaults-group stack"
         aria-label="Defaults"
       >
+        <SettingsSummary>
+          <SummaryChip
+            tone={
+              !state.brain.current_ref || !currentBrain?.available
+                ? 'warning'
+                : 'success'
+            }
+            title="Brain: the default model for chat"
+          >
+            {!state.brain.current_ref
+              ? 'No default model'
+              : !currentBrain?.available
+                ? 'Default unavailable'
+                : state.brain.current_ref.startsWith('model:ollama:')
+                  ? 'Local default'
+                  : 'Provider default'}
+          </SummaryChip>
+        </SettingsSummary>
         <header className="settings-owner-heading">
           <div>
             <h3>Defaults</h3>
@@ -511,35 +529,51 @@ export default function ModelsPanel({
             </p>
           </div>
           <div className="settings-model-heading-actions">
-            <span className="status-chip">Catalog-backed</span>
             <Link
-              className="button ghost"
-              to="/app-v2/settings/providers"
+              className="button ghost icon-action icon-action-sm"
+              to="/settings/providers"
               aria-label="Provider connections"
               title="Provider connections"
             >
               <Network size={16} aria-hidden />
             </Link>
+            <Button
+              variant="ghost"
+              className="icon-action icon-action-sm"
+              aria-label="Refresh model settings"
+              title="Refresh model settings"
+              onClick={() => void reload()}
+            >
+              <RefreshCw size={16} aria-hidden />
+            </Button>
           </div>
         </header>
-        <div className="settings-model-role-heading">
+        <div
+          className="settings-model-role-heading"
+          data-setting-anchor="default-model"
+        >
           <Brain size={18} aria-hidden />
           <div>
             <h4>Brain</h4>
             <p>Conversation, tool use, memory, and workflows.</p>
           </div>
-          <span className="status-chip">
-            {!state.brain.current_ref
-              ? 'Not set'
-              : !currentBrain?.available
-                ? 'Unavailable'
-                : state.brain.current_ref.startsWith('model:ollama:')
-                  ? 'Local'
-                  : 'Provider'}
-          </span>
         </div>
         <div className="settings-model-selector">
-          <Field label="Default model">
+          <Field
+            label="Default model"
+            layout="row"
+            hint={
+              state.context.effective_cap
+                ? `Context: native max ${
+                    state.context.native_max
+                      ? Math.round(state.context.native_max / 1000) + 'K'
+                      : 'unknown'
+                  } · effective ${Math.round(state.context.effective_cap / 1000)}K ${
+                    state.context.selected_cap == null ? 'Auto' : 'cap'
+                  }`
+                : undefined
+            }
+          >
             <Select
               value={state.brain.current_ref}
               disabled={!!busy || !!pending || !!pinPending}
@@ -559,13 +593,6 @@ export default function ModelsPanel({
               ))}
             </Select>
           </Field>
-          <Button
-            variant="ghost"
-            aria-label="Refresh model settings"
-            onClick={() => void reload()}
-          >
-            <RefreshCw size={16} aria-hidden />
-          </Button>
         </div>
         {state.brain.warning && (
           <p className="settings-model-warning">
@@ -583,29 +610,20 @@ export default function ModelsPanel({
           </a>
           , then refresh model settings after it starts.
         </p>
-        {state.context.effective_cap && (
-          <p className="settings-help">
-            Native max{' '}
-            {state.context.native_max
-              ? Math.round(state.context.native_max / 1000) + 'K'
-              : 'unknown'}{' '}
-            · effective {Math.round(state.context.effective_cap / 1000)}K{' '}
-            {state.context.selected_cap == null ? 'Auto' : 'cap'}
-          </p>
-        )}
         {pending && (
           <Button onClick={() => void checkBrainReceipt()}>
             Check original Brain save receipt
           </Button>
         )}
-        <details className="settings-model-context">
-          <summary>Advanced context</summary>
+        <details className="settings-model-context disclosure">
+          <summary className="disclosure-summary">Advanced context</summary>
           <p>
             {contextKind === 'local'
               ? 'Local model context controls the requested Ollama allocation.'
               : 'Provider context caps trim requests; configure the server context separately.'}
           </p>
           <Field
+            layout="row"
             label={
               contextKind === 'local'
                 ? 'Local model context'
@@ -673,6 +691,7 @@ export default function ModelsPanel({
               className="settings-model-surface"
               key={surface}
               aria-label={surface}
+              data-setting-anchor={`${surface}-model`}
             >
               <div className="settings-model-role-heading">
                 <Icon size={18} aria-hidden />
@@ -681,7 +700,6 @@ export default function ModelsPanel({
                   <p>{description}</p>
                 </div>
                 <div className="settings-model-enabled">
-                  <span>Enabled</span>
                   <Toggle
                     label={`Enable ${surface}`}
                     checked={picker.enabled === true}
@@ -693,6 +711,7 @@ export default function ModelsPanel({
                 </div>
               </div>
               <Field
+                layout="row"
                 label={`${surface[0].toUpperCase() + surface.slice(1)} model`}
               >
                 <Select
@@ -721,8 +740,17 @@ export default function ModelsPanel({
               )}
               {surface === 'vision' && (
                 <div className="settings-model-camera">
-                  <Camera size={17} aria-hidden />
-                  <Field label="Camera">
+                  <Field
+                    label="Camera"
+                    layout="row"
+                    hint={
+                      cameras == null
+                        ? 'Camera list not loaded'
+                        : cameras.length
+                          ? `${cameras.length} camera(s) detected`
+                          : 'No cameras detected'
+                    }
+                  >
                     <Select
                       value={state.camera_index}
                       disabled={!!busy}
@@ -743,13 +771,6 @@ export default function ModelsPanel({
                       ))}
                     </Select>
                   </Field>
-                  <span>
-                    {cameras == null
-                      ? 'Camera list not loaded'
-                      : cameras.length
-                        ? `${cameras.length} camera(s) detected`
-                        : 'No cameras detected'}
-                  </span>
                   <Button
                     variant="ghost"
                     aria-label="Refresh camera list"
@@ -763,30 +784,21 @@ export default function ModelsPanel({
           );
         })}
       </section>
-      <details className="settings-model-delegation" open>
-        <summary>
-          <GitBranch size={18} aria-hidden />
+      <details className="settings-model-delegation disclosure">
+        <summary className="disclosure-summary">
+          <GitBranch size={16} aria-hidden />
           <span>Agent runtime &amp; delegation</span>
+          <span className="disclosure-meta">Limits for long work</span>
         </summary>
-        <p>
+        <p className="settings-help">
           Optional limits for long-running work and delegated child agents.
           Changes apply to new runs.
         </p>
         {agents ? (
           <>
-            <div className="settings-model-agent-chips">
-              {agentFields.map(({ key }) => (
-                <span className="status-chip" key={key}>
-                  {agents[key]}{' '}
-                  {key === 'child_timeout_seconds'
-                    ? 'child seconds'
-                    : key.replaceAll('_', ' ')}
-                </span>
-              ))}
-            </div>
             <div className="settings-model-agent-grid">
               {agentFields.map(({ key, label, help }) => (
-                <Field label={label} hint={help} key={key}>
+                <Field label={label} hint={help} key={key} layout="row">
                   <Input
                     type="number"
                     min={key === 'child_timeout_seconds' ? 0 : 1}
@@ -825,8 +837,15 @@ export default function ModelsPanel({
         )}
       </details>
       <section className="settings-catalog-owner stack" aria-label="Catalog">
-        <h3>Catalog</h3>
-        <p>Browse or pin models when you need more choices.</p>
+        <header
+          className="settings-owner-heading"
+          data-setting-anchor="model-catalog"
+        >
+          <div>
+            <h3>Catalog</h3>
+            <p>Browse or pin models when you need more choices.</p>
+          </div>
+        </header>
         <div className="settings-model-catalog-status">
           <span
             className={`status-chip ${state.freshness === 'fresh' ? 'success' : 'warning'}`}

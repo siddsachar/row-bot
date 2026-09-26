@@ -364,3 +364,11 @@ it('keeps only the original receipt action visible while a Brain save is uncerta
   fireEvent.click(button);
   await waitFor(() => expect(button).not.toBeInTheDocument());
 });
+
+it('links to Providers inside the router, never under a doubled basename (B31)', async () => {
+  show();
+  const link = await screen.findByRole('link', {
+    name: 'Provider connections',
+  });
+  expect(link).toHaveAttribute('href', '/settings/providers');
+});
