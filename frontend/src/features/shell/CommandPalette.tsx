@@ -47,6 +47,17 @@ type Item = {
   run: () => void;
 };
 
+/** A one-line snippet: Markdown markers and line breaks removed. */
+export function plainSnippet(text: string): string {
+  return text
+    .replace(/```[a-z]*|`/gi, '')
+    .replace(/(\*\*|__|~~)/g, '')
+    .replace(/^\s*(#{1,6}|>|[-*+]|\d+\.)\s+/gm, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Words people search for that are not in a settings page's name. */
 const SETTINGS_KEYWORDS: Record<string, string> = {
   providers: 'api key credentials ollama openai anthropic cloud connect',
@@ -239,7 +250,7 @@ export default function CommandPalette({
             id: `hit:${hit.conversation_id}:${hit.message_id ?? 'title'}`,
             group: 'Messages',
             label: hit.title || 'Untitled conversation',
-            detail: hit.excerpt,
+            detail: plainSnippet(hit.excerpt),
             icon: <FileText size={16} />,
             score: -index,
             run: () => onOpenSearchHit(hit),

@@ -5,7 +5,10 @@ import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
 import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
-import CommandPalette, { type PaletteCommand } from './CommandPalette';
+import CommandPalette, {
+  plainSnippet,
+  type PaletteCommand,
+} from './CommandPalette';
 
 const clients: ClientController[] = [];
 afterEach(() => {
@@ -122,4 +125,12 @@ it('offers agents by name and searches history after a pause', async () => {
   expect(search).toHaveBeenCalledWith('research');
   fireEvent.change(field(), { target: { value: 'zzzz-no-match' } });
   expect(screen.getByText(/No results for/)).toBeVisible();
+});
+
+it('shows message snippets as one line of plain text', () => {
+  expect(
+    plainSnippet(
+      '## Plan\n\n**local** prospect → `tour` and [pricing](https://example.com)\n- next',
+    ),
+  ).toBe('Plan local prospect → tour and pricing next');
 });
