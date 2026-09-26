@@ -1824,7 +1824,20 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
             "substr(t.schedule, 1, 256) AS schedule, substr(t.at, 1, 80) AS at, "
             "substr(t.last_run, 1, 80) AS last_run, t.persistent_thread_id, "
             "(SELECT substr(r.status, 1, 80) FROM task_runs r WHERE r.task_id=t.id "
-            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status "
+            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status, "
+            # The ten newest saved runs (status and start only), newest first.
+            "(SELECT json_group_array(json_object('status', h.status, "
+            "'started_at', h.started_at)) FROM (SELECT substr(r.status, 1, 80) "
+            "AS status, substr(r.started_at, 1, 80) AS started_at FROM task_runs r "
+            "WHERE r.task_id=t.id ORDER BY r.started_at DESC, r.id DESC LIMIT 10) h"
+            ") AS recent_runs_json, "
+            # The newest run that has not finished, with its saved step progress.
+            "(SELECT json_object('id', r.id, 'status', substr(r.status, 1, 80), "
+            "'started_at', substr(r.started_at, 1, 80), "
+            "'steps_done', r.steps_done, 'steps_total', r.steps_total) "
+            "FROM task_runs r WHERE r.task_id=t.id AND r.status IN "
+            "('starting','running','resuming','paused','waiting_approval','stopping') "
+            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS active_run_json "
             "FROM tasks t ORDER BY t.sort_order, t.created_at, t.id"
         )
         while batch := rows.fetchmany(128):
@@ -5302,6 +5315,72 @@ def _build_trigger(task: dict):
             return None
 
     return None
+
+
+def estimate_next_run(task: Mapping[str, Any], now: datetime | None = None) -> str | None:
+    """Next fire time implied by a saved schedule, as a local ISO timestamp.
+
+    This reads saved metadata only and never asks the scheduler, so list views
+    stay free of runtime probes. Daily, weekly, cron and one-time schedules are
+    exact; interval schedules are estimated from the last run. Disabled,
+    unscheduled, finished or unreadable schedules return None.
+    """
+    if not task.get("enabled"):
+        return None
+    now = (now or datetime.now()).replace(microsecond=0)
+
+    def local(value: object) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(str(value or "").strip())
+        except ValueError:
+            return None
+        return parsed.astimezone().replace(tzinfo=None) if parsed.tzinfo else parsed
+
+    at = str(task.get("at") or "").strip()
+    if at:
+        at_dt = local(at)
+        if at_dt is None:
+            return None
+        if at_dt > now:
+            return at_dt.isoformat(timespec="seconds")
+        last = local(task.get("last_run"))
+        # A past one-time task that never ran is scheduled immediately.
+        return None if last and last >= at_dt else now.isoformat(timespec="seconds")
+    sched = _parse_schedule(task.get("schedule"))
+    if not sched:
+        return None
+    kind = sched["kind"]
+    if kind in ("interval", "interval_minutes"):
+        delta = (
+            timedelta(hours=sched["hours"])
+            if kind == "interval"
+            else timedelta(minutes=int(sched["minutes"]))
+        )
+        last = local(task.get("last_run"))
+        if delta <= timedelta(0) or last is None:
+            return None
+        upcoming = last + delta
+        if upcoming <= now:
+            upcoming = last + delta * (int((now - last) / delta) + 1)
+        return upcoming.isoformat(timespec="seconds")
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+
+        if kind == "daily":
+            trigger = CronTrigger(hour=sched["hour"], minute=sched["minute"])
+        elif kind == "weekly":
+            day = _DAY_MAP.get(sched["day"])
+            if day is None:
+                return None
+            trigger = CronTrigger(
+                day_of_week=_DAY_TO_AP[day], hour=sched["hour"], minute=sched["minute"]
+            )
+        else:
+            trigger = CronTrigger.from_crontab(sched["expr"])
+        fire = trigger.get_next_fire_time(None, now.astimezone())
+    except Exception:
+        return None
+    return fire.astimezone().replace(tzinfo=None).isoformat(timespec="seconds") if fire else None
 
 
 def _job_id(task_id: str) -> str:

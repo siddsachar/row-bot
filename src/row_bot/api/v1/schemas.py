@@ -1240,6 +1240,19 @@ class SettingsMutationReceipt(WireModel):
     action_result: SettingsActionResult | None = None
 
 
+class TaskRunDigest(WireModel):
+    status: str = Field(max_length=80)
+    started_at: str = Field(max_length=80)
+
+
+class TaskActiveRun(WireModel):
+    id: OpaqueId
+    status: str = Field(max_length=80)
+    started_at: str = Field(max_length=80)
+    steps_done: int = Field(ge=0)
+    steps_total: int = Field(ge=0)
+
+
 class TaskSummary(WireModel):
     id: OpaqueId
     name: str = Field(max_length=256)
@@ -1253,6 +1266,10 @@ class TaskSummary(WireModel):
     last_run: str | None = Field(max_length=80)
     last_status: str | None = Field(max_length=80)
     conversation_id: OpaqueId | None
+    # Saved history (newest first) and the saved schedule's next fire time.
+    recent_runs: list[TaskRunDigest] = Field(default_factory=list, max_length=10)
+    active_run: TaskActiveRun | None = None
+    next_run: str | None = Field(default=None, max_length=80)
 
 
 class TaskSummaryPage(WireModel):

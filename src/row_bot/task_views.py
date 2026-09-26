@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import re
@@ -13,6 +13,21 @@ class TaskViewError(ValueError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True)
+class TaskRunDigest:
+    status: str
+    started_at: str
+
+
+@dataclass(frozen=True)
+class TaskActiveRun:
+    id: str
+    status: str
+    started_at: str
+    steps_done: int
+    steps_total: int
 
 
 @dataclass(frozen=True)
@@ -29,6 +44,11 @@ class TaskSummary:
     last_run: str | None
     last_status: str | None
     conversation_id: str | None
+    # Saved run history and schedule, never live probes. `next_run` is derived
+    # from the saved schedule for the returned page only.
+    recent_runs: tuple[TaskRunDigest, ...] = ()
+    active_run: TaskActiveRun | None = None
+    next_run: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +65,39 @@ def _identity(value: object) -> str | None:
         value
         if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", value)
         else None
+    )
+
+
+def _recent_runs(value: object) -> tuple[TaskRunDigest, ...]:
+    try:
+        rows = json.loads(value) if isinstance(value, str) else []
+    except ValueError:
+        return ()
+    if not isinstance(rows, list):
+        return ()
+    return tuple(
+        TaskRunDigest(str(row["status"])[:80], str(row["started_at"])[:80])
+        for row in rows[:10]
+        if isinstance(row, dict)
+        and isinstance(row.get("status"), str)
+        and isinstance(row.get("started_at"), str)
+    )
+
+
+def _active_run(value: object) -> TaskActiveRun | None:
+    try:
+        row = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    if not isinstance(row, dict) or _identity(row.get("id")) is None:
+        return None
+    done, total = row.get("steps_done"), row.get("steps_total")
+    return TaskActiveRun(
+        row["id"],
+        str(row.get("status") or "")[:80],
+        str(row.get("started_at") or "")[:80],
+        done if type(done) is int and done >= 0 else 0,
+        total if type(total) is int and total >= 0 else 0,
     )
 
 
@@ -118,9 +171,15 @@ def list_saved_tasks(
                 row["last_run"] or None,
                 row["last_status"] or None,
                 _identity(row["persistent_thread_id"]),
+                _recent_runs(row.get("recent_runs_json")),
+                _active_run(row.get("active_run_json")),
             )
+            # The page revision covers saved metadata and run history; the
+            # clock-derived next run is left out so paging stays stable.
+            stable = asdict(item)
+            del stable["next_run"]
             digest.update(
-                json.dumps(asdict(item), sort_keys=True, ensure_ascii=True).encode()
+                json.dumps(stable, sort_keys=True, ensure_ascii=True).encode()
             )
             digest.update(b"\n")
             if enabled is not None and item.enabled != enabled:
@@ -128,7 +187,9 @@ def list_saved_tasks(
             if term and term not in (item.name + " " + item.description).casefold():
                 continue
             if offset <= total < offset + limit:
-                items.append(item)
+                items.append(
+                    replace(item, next_run=tasks.estimate_next_run(row))
+                )
             total += 1
     finally:
         rows.close()
