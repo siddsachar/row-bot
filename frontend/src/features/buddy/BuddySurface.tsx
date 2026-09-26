@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -35,6 +36,38 @@ export type BuddyMediaLoader = (
   revision: string,
   signal: AbortSignal,
 ) => Promise<Blob>;
+
+const MEDIA_LIMIT = 16;
+const rememberedMedia = new WeakMap<object, Map<string, Blob>>();
+
+/**
+ * Pack media are the same bytes in every conversation for one pack revision,
+ * so switching conversations reuses them instead of downloading them again
+ * (each download spends the session's view budget). Bounded per owner.
+ */
+export function rememberBuddyMedia(
+  owner: object,
+  load: BuddyMediaLoader,
+): BuddyMediaLoader {
+  return async (conversation, pack, asset, revision, signal) => {
+    let media = rememberedMedia.get(owner);
+    if (!media) rememberedMedia.set(owner, (media = new Map()));
+    const key = `${pack}\u0000${asset}\u0000${revision}`;
+    const known = media.get(key);
+    if (known) {
+      media.delete(key);
+      media.set(key, known);
+      return known;
+    }
+    const blob = await load(conversation, pack, asset, revision, signal);
+    media.set(key, blob);
+    for (const oldest of media.keys()) {
+      if (media.size <= MEDIA_LIMIT) break;
+      media.delete(oldest);
+    }
+    return blob;
+  };
+}
 
 function useReducedMotion() {
   const query = '(prefers-reduced-motion: reduce)';
@@ -326,11 +359,15 @@ export function BuddyAvatar({
 
 function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
   const { controller } = useRuntime();
-  const loadMedia = useCallback<BuddyMediaLoader>(
-    (conversation, pack, asset, revision, signal) =>
-      conversation
-        ? controller.buddyMedia(conversation, pack, asset, revision, signal)
-        : controller.globalBuddyMedia(pack, asset, revision, signal),
+  const loadMedia = useMemo(
+    () =>
+      rememberBuddyMedia(
+        controller,
+        (conversation, pack, asset, revision, signal) =>
+          conversation
+            ? controller.buddyMedia(conversation, pack, asset, revision, signal)
+            : controller.globalBuddyMedia(pack, asset, revision, signal),
+      ),
     [controller],
   );
   return <BuddyAvatar {...props} loadMedia={loadMedia} />;

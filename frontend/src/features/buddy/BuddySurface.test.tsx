@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BuddySurface, {
   BuddyAvatar,
+  rememberBuddyMedia,
   type BuddyMediaLoader,
 } from './BuddySurface';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
@@ -452,4 +453,30 @@ describe('Buddy avatar lifecycle', () => {
       expect(view.container.querySelector('video')).toBeInTheDocument(),
     );
   });
+});
+
+it('reuses pack media across conversations for the same pack revision', async () => {
+  const load = vi.fn<BuddyMediaLoader>(
+    async (_c, _p, asset) => new Blob([asset]),
+  );
+  const owner = {};
+  const remembered = rememberBuddyMedia(owner, load);
+  const signal = new AbortController().signal;
+  await remembered('conversation-a', 'glyph', 'idle', 'r1', signal);
+  // Switching conversations shows the same pack: no second download.
+  await remembered('conversation-b', 'glyph', 'idle', 'r1', signal);
+  expect(load).toHaveBeenCalledTimes(1);
+  // A new pack revision or another asset downloads again.
+  await remembered('conversation-b', 'glyph', 'idle', 'r2', signal);
+  await remembered('conversation-b', 'glyph', 'preview', 'r2', signal);
+  expect(load).toHaveBeenCalledTimes(3);
+  // Another runtime owner keeps its own media.
+  await rememberBuddyMedia({}, load)(
+    'conversation-a',
+    'glyph',
+    'idle',
+    'r1',
+    signal,
+  );
+  expect(load).toHaveBeenCalledTimes(4);
 });
