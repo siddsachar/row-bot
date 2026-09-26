@@ -53,9 +53,17 @@ it('installs on one click after visible disclosure and keeps the package disable
 });
 
 it('requires a confirmation for irreversible uninstall', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-  const review = vi.fn();
-  const execute = vi.fn();
+  const review = vi.fn(async () => ({
+    action: 'remove',
+    plugin_id: 'synthetic-plugin',
+    revision: 'a'.repeat(64),
+  }));
+  const execute = vi.fn(async (command: { action: string }) => ({
+    command_id: 'removed',
+    status: 'completed',
+    action: command.action,
+    message: 'Plugin removed.',
+  }));
   const api = {
     review,
     execute,
@@ -69,8 +77,13 @@ it('requires a confirmation for irreversible uninstall', async () => {
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
-  expect(confirm).toHaveBeenCalledOnce();
+  const dialog = screen.getByRole('dialog', { name: /Uninstall/ });
+  expect(dialog).toHaveTextContent('deletes its files');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(review).not.toHaveBeenCalled();
   expect(execute).not.toHaveBeenCalled();
-  confirm.mockRestore();
+  fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Uninstall plugin' }));
+  await waitFor(() => expect(execute).toHaveBeenCalledOnce());
+  expect(execute.mock.calls[0][0]).toMatchObject({ action: 'remove' });
 });

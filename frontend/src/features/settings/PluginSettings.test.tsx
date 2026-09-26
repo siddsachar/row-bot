@@ -147,23 +147,22 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
   const props = options();
   render(<PluginSettings {...props} />);
   await screen.findByText('1 matching plugins.');
-  expect(screen.getByLabelText('Plugin source')).toHaveValue('installed');
-  expect(screen.getByLabelText('Plugin source')).not.toBeVisible();
+  expect(screen.getByRole('tab', { name: 'Installed' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   expect(screen.queryByText('Cached Plugin')).not.toBeInTheDocument();
-  expect(screen.getByText('1 tools')).toBeVisible();
-  expect(screen.getByText('1 skills')).toBeVisible();
-  expect(screen.getByText('1 loaded / 0 failed')).toBeVisible();
+  expect(screen.getByText(/1 tool · 1 skill/)).toBeVisible();
+  expect(screen.getByText('1 loaded')).toBeVisible();
   expect(props.load).toHaveBeenCalledWith(
     { query: '', source: 'installed' },
     expect.any(AbortSignal),
   );
 
-  fireEvent.click(screen.getByText('Search and filter plugins'));
-  fireEvent.change(screen.getByLabelText('Plugin source'), {
-    target: { value: 'marketplace' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+  // Discover is the saved marketplace; it never fetches over the network.
+  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   expect(await screen.findByText('Cached Plugin')).toBeVisible();
+  expect(screen.getByLabelText('Plugin source')).toHaveValue('marketplace');
   expect(screen.getByText(/Install unavailable/)).toBeVisible();
   expect(props.load).toHaveBeenLastCalledWith(
     { query: '', source: 'marketplace', cursor: undefined },
@@ -176,26 +175,28 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
 it('runs the saved plugin self-test in one click before enablement', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Test Sample Plugin' }),
-  );
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Sample Plugin',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Test Sample Plugin' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0]).toBe('plugin.test');
   expect(props.execute.mock.calls[0][0].type).toBe('plugin.test');
 });
 
-it('prioritizes owner-style marketplace and reload actions above closed filters', async () => {
+it('keeps search inline and rarer actions in one menu', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
   await screen.findByText('1 matching plugins.');
-  expect(
-    screen.getByRole('button', { name: 'Browse saved marketplace' }),
-  ).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Reload plugins' })).toBeVisible();
-  expect(screen.getByLabelText('Search plugins')).not.toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Browse saved marketplace' }),
-  );
+  expect(screen.getAllByLabelText('Search plugins')[0]).toBeVisible();
+  const more = screen.getAllByRole('button', {
+    name: 'More plugin actions',
+  })[0];
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Reload plugins' }));
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   expect(await screen.findByText('Cached Plugin')).toBeVisible();
   expect(props.load).toHaveBeenLastCalledWith(
     { query: '', source: 'marketplace', cursor: undefined },
@@ -345,9 +346,7 @@ it('keeps a newly installed marketplace plugin visible for its next action', asy
   };
   render(<PluginSettings {...props} lifecycle={lifecycle} />);
   await screen.findByText('0 matching plugins.');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Browse saved marketplace' }),
-  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
   await waitFor(() =>
     expect(props.load).toHaveBeenLastCalledWith(
@@ -355,8 +354,12 @@ it('keeps a newly installed marketplace plugin visible for its next action', asy
       expect.any(AbortSignal),
     ),
   );
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Cached Plugin',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
   expect(
-    await screen.findByRole('button', { name: 'Uninstall' }),
+    screen.getByRole('menuitem', { name: 'Uninstall Cached Plugin' }),
   ).toBeVisible();
 });
 

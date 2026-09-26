@@ -6,6 +6,7 @@ import type {
 } from '../../api/types';
 import { readRetainedCommand, retainCommand } from '../../api/retained-command';
 import { Button } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 import type { PluginCatalogItem } from './PluginSettings';
 
 export type PluginLifecycleApi = {
@@ -19,15 +20,17 @@ export type PluginLifecycleApi = {
   receipt: (commandId: string) => Promise<PluginLifecycleReceipt>;
 };
 
-export default function PluginLifecycleActions({
-  plugin,
-  api,
-  onChanged,
-}: {
-  plugin?: PluginCatalogItem;
-  api: PluginLifecycleApi;
-  onChanged: () => void;
-}) {
+/**
+ * Install, update, uninstall and marketplace refresh for one plugin (or the
+ * marketplace when `plugin` is omitted). Each action is reviewed by the
+ * server and applied in one step; uninstall asks first. An unconfirmed
+ * outcome is retained per plugin so it can be checked instead of repeated.
+ */
+export function usePluginLifecycle(
+  plugin: PluginCatalogItem | undefined,
+  api: PluginLifecycleApi,
+  onChanged: () => void,
+) {
   const [busy, setBusy] = useState(false);
   const commandScope = `plugin-lifecycle:${plugin?.plugin_id ?? 'marketplace'}`;
   const [pending, setPending] = useState(() =>
@@ -39,15 +42,9 @@ export default function PluginLifecycleActions({
   };
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const action = async (kind: PluginLifecycleCommand['action']) => {
     if (busy || pending) return;
-    if (
-      kind === 'remove' &&
-      !window.confirm(
-        `Uninstall ${plugin?.name}? This deletes its files, settings, and secret metadata.`,
-      )
-    )
-      return;
     setBusy(true);
     setError('');
     setMessage('');
@@ -89,29 +86,54 @@ export default function PluginLifecycleActions({
       setBusy(false);
     }
   };
-
-  if (!plugin)
-    return (
-      <div className="stack">
-        <p>Fetch the configured plugin marketplace index over the network.</p>
-        <Button
-          disabled={busy || Boolean(pending)}
-          onClick={() => void action('refresh')}
-        >
-          Refresh marketplace
+  const locked = busy || Boolean(pending);
+  const feedback = (
+    <>
+      {message && <p role="status">{message}</p>}
+      {error && <p role="alert">{error}</p>}
+      {pending && (
+        <Button disabled={busy} onClick={() => void recover()}>
+          Check outcome
         </Button>
-        {message && <p role="status">{message}</p>}
-        {error && <p role="alert">{error}</p>}
-        {pending && (
-          <Button disabled={busy} onClick={() => void recover()}>
-            Check outcome
-          </Button>
-        )}
+      )}
+    </>
+  );
+  const confirmation = plugin ? (
+    <ModalTask
+      open={confirmRemove}
+      onOpenChange={setConfirmRemove}
+      title={`Uninstall ${plugin.name}?`}
+      description="This deletes its files, settings, and secret metadata."
+      ariaLabel={`Uninstall ${plugin.name}`}
+    >
+      <div className="button-row">
+        <Button onClick={() => setConfirmRemove(false)}>Cancel</Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            setConfirmRemove(false);
+            void action('remove');
+          }}
+        >
+          Uninstall plugin
+        </Button>
       </div>
-    );
+    </ModalTask>
+  ) : null;
+  return {
+    busy,
+    locked,
+    action,
+    requestRemove: () => setConfirmRemove(true),
+    feedback,
+    confirmation,
+  };
+}
 
+/** Where a plugin comes from and what it may do, before anything runs. */
+export function PluginProvenance({ plugin }: { plugin: PluginCatalogItem }) {
   return (
-    <div className="stack">
+    <div className="stack settings-plugin-provenance">
       <small>
         Third-party plugin code may contact external services when enabled.
         Check its permissions and source before installing. Installation keeps
@@ -126,19 +148,52 @@ export default function PluginLifecycleActions({
         . Checksum: {plugin.checksum || 'not supplied'}. Permissions:{' '}
         {plugin.permissions.join(', ') || 'none listed'}.
       </small>
+    </div>
+  );
+}
+
+export default function PluginLifecycleActions({
+  plugin,
+  api,
+  onChanged,
+}: {
+  plugin?: PluginCatalogItem;
+  api: PluginLifecycleApi;
+  onChanged: () => void;
+}) {
+  const lifecycle = usePluginLifecycle(plugin, api, onChanged);
+  if (!plugin)
+    return (
+      <div className="stack settings-plugin-marketplace-refresh">
+        <p className="settings-help">
+          Fetch the configured plugin marketplace index over the network.
+        </p>
+        <Button
+          disabled={lifecycle.locked}
+          onClick={() => void lifecycle.action('refresh')}
+        >
+          Refresh marketplace
+        </Button>
+        {lifecycle.feedback}
+      </div>
+    );
+
+  return (
+    <div className="stack">
+      <PluginProvenance plugin={plugin} />
       <div className="actions">
         {!plugin.installed && (
           <Button
-            disabled={busy || Boolean(pending)}
-            onClick={() => void action('install')}
+            disabled={lifecycle.locked}
+            onClick={() => void lifecycle.action('install')}
           >
             Install
           </Button>
         )}
         {plugin.installed && plugin.update_version && (
           <Button
-            disabled={busy || Boolean(pending)}
-            onClick={() => void action('update')}
+            disabled={lifecycle.locked}
+            onClick={() => void lifecycle.action('update')}
           >
             Update to {plugin.update_version}
           </Button>
@@ -146,20 +201,15 @@ export default function PluginLifecycleActions({
         {plugin.installed && (
           <Button
             variant="danger"
-            disabled={busy || Boolean(pending)}
-            onClick={() => void action('remove')}
+            disabled={lifecycle.locked}
+            onClick={lifecycle.requestRemove}
           >
             Uninstall
           </Button>
         )}
       </div>
-      {message && <p role="status">{message}</p>}
-      {error && <p role="alert">{error}</p>}
-      {pending && (
-        <Button disabled={busy} onClick={() => void recover()}>
-          Check outcome
-        </Button>
-      )}
+      {lifecycle.feedback}
+      {lifecycle.confirmation}
     </div>
   );
 }

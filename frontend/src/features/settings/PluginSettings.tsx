@@ -1,16 +1,31 @@
-import { useEffect, useSyncExternalStore } from 'react';
-import { FlaskConical } from 'lucide-react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
+import {
+  FlaskConical,
+  MoreHorizontal,
+  Puzzle,
+  RefreshCw,
+  Search,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import {
   Button,
-  CompactAction,
   Field,
   Input,
+  Menu,
   Select,
+  StatusDot,
   Toggle,
+  type MenuAction,
+  type Tone,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 import PluginLifecycleActions, {
+  PluginProvenance,
+  usePluginLifecycle,
   type PluginLifecycleApi,
 } from './PluginLifecycleActions';
+import { SettingsSummary, SettingsTabs, SummaryChip } from './anatomy';
 
 export type PluginCapability = { available: boolean; code: string | null };
 export type PluginCatalogItem = {
@@ -241,7 +256,10 @@ export default function PluginSettings({
     session.update({ busy: 'load', reviewed: null, message: '' });
     try {
       const page = boundedPage(
-        await load({ query: state.query.trim(), source, cursor }, abort.signal),
+        await load(
+          { query: session.getSnapshot().query.trim(), source, cursor },
+          abort.signal,
+        ),
       );
       if (!abort.signal.aborted)
         session.update({
@@ -482,240 +500,178 @@ export default function PluginSettings({
       message: '',
     });
 
-  return (
-    <section aria-label="Plugin Center" className="settings-section">
-      <h2>Plugin Center</h2>
-      <p>
-        Discover, configure, test, enable, update, disable, and uninstall
-        Row-Bot plugins. Passive reads do not install or start anything.
-      </p>
-      {lifecycle && (
-        <PluginLifecycleActions
-          api={lifecycle}
-          onChanged={() => void refresh(undefined, 'all')}
-        />
-      )}
-      <div className="settings-plugin-actions">
-        <Button
-          aria-label="Browse saved marketplace"
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(searchTimer.current), []);
+  const tab = state.source === 'installed' ? 'installed' : 'discover';
+  const installedCount =
+    state.page?.items.filter((plugin) => plugin.installed).length ?? 0;
+  const failedCount =
+    state.page?.items.filter((plugin) =>
+      ['failed', 'error', 'unhealthy'].includes(plugin.health),
+    ).length ?? 0;
+  const toolbar = (
+    <form
+      className="settings-list-toolbar"
+      role="search"
+      aria-label="Search plugins"
+      onSubmit={(event) => {
+        event.preventDefault();
+        clearTimeout(searchTimer.current);
+        void refresh();
+      }}
+    >
+      <label className="settings-inline-search">
+        <span className="visually-hidden">Search plugins</span>
+        <Search size={14} aria-hidden />
+        <Input
+          type="search"
+          maxLength={256}
+          placeholder="Search plugins"
+          value={state.query}
           disabled={locked}
-          onClick={() => {
-            session.update({ source: 'marketplace', reviewed: null });
-            void refresh(undefined, 'marketplace');
+          onChange={(event) => {
+            session.update({ query: event.target.value });
+            clearTimeout(searchTimer.current);
+            searchTimer.current = setTimeout(() => void refresh(), 350);
+          }}
+        />
+      </label>
+      {tab === 'discover' && (
+        <Select
+          aria-label="Plugin source"
+          value={state.source}
+          disabled={locked}
+          onChange={(event) => {
+            const source = event.target.value as State['source'];
+            session.update({ source, reviewed: null });
+            void refresh(undefined, source);
           }}
         >
-          Browse Marketplace
-        </Button>
-        <Button
-          aria-label="Reload plugins"
-          disabled={locked}
-          onClick={() => void refresh()}
-        >
-          Reload
-        </Button>
-        {state.page && (
-          <span className="status-chip" role="status">
-            {state.page.items.filter((plugin) => plugin.installed).length}{' '}
-            loaded /{' '}
-            {
-              state.page.items.filter((plugin) =>
-                ['failed', 'error', 'unhealthy'].includes(plugin.health),
-              ).length
-            }{' '}
-            failed
-          </span>
-        )}
-      </div>
-      <details className="settings-supplemental-disclosure">
-        <summary>
-          <span>
-            <strong>Search and filter plugins</strong>
-            <small>{state.source.replaceAll('_', ' ')}</small>
-          </span>
-        </summary>
-        <div className="field-row settings-supplemental-content">
-          <Field label="Search plugins">
-            <Input
-              type="search"
-              maxLength={256}
-              value={state.query}
-              disabled={locked}
-              onChange={(event) =>
-                session.update({ query: event.target.value })
-              }
-            />
-          </Field>
-          <Field label="Plugin source">
-            <Select
-              value={state.source}
-              disabled={locked}
-              onChange={(event) =>
-                session.update({
-                  source: event.target.value as State['source'],
-                  reviewed: null,
-                })
-              }
-            >
-              <option value="installed">Installed</option>
-              <option value="all">All saved plugins</option>
-              <option value="marketplace">Saved marketplace</option>
-            </Select>
-          </Field>
+          <option value="marketplace">Saved marketplace</option>
+          <option value="all">All saved plugins</option>
+        </Select>
+      )}
+      <Menu
+        label="More plugin actions"
+        iconOnly
+        variant="ghost"
+        className="icon-action icon-action-md"
+        actions={[
+          {
+            label: 'Reload plugins',
+            icon: <RefreshCw size={16} />,
+            disabled: locked,
+            onSelect: () => void refresh(),
+          },
+        ]}
+      >
+        <MoreHorizontal size={18} aria-hidden />
+      </Menu>
+    </form>
+  );
+  const list = state.page && (
+    <>
+      <p role="status" className="settings-list-count">
+        {state.page.total} matching plugins.
+      </p>
+      <ul className="settings-results settings-plugin-list">
+        {state.page.items.map((plugin) => (
+          <PluginRow
+            key={plugin.plugin_id}
+            plugin={plugin}
+            locked={locked}
+            lifecycle={lifecycle}
+            onManage={() => void select(plugin.plugin_id)}
+            onAction={(action) =>
+              void selectForAction(plugin.plugin_id, action)
+            }
+            onChanged={() => void refresh(undefined, 'all')}
+          />
+        ))}
+      </ul>
+      {(state.page.next_cursor || state.source !== 'installed') && (
+        <div className="button-row settings-plugin-pagination">
           <Button disabled={locked} onClick={() => void refresh()}>
-            Search
+            First page
+          </Button>
+          <Button
+            disabled={locked || !state.page.next_cursor}
+            onClick={() => void refresh(state.page?.next_cursor ?? undefined)}
+          >
+            Next page
           </Button>
         </div>
-      </details>
-      {state.page && (
-        <>
-          <p role="status">{state.page.total} matching plugins.</p>
-          <ul className="settings-results settings-plugin-list">
-            {state.page.items.map((plugin) => (
-              <li
-                className="surface settings-plugin-row"
-                key={plugin.plugin_id}
-              >
-                <div className="settings-plugin-summary">
-                  <div className="settings-plugin-title">
-                    <strong>{plugin.name}</strong>
-                    <span className="status-chip">v{plugin.version}</span>
-                    <span
-                      className={`status-chip ${plugin.installed && plugin.enabled ? 'success' : plugin.setup_complete ? '' : 'warning'}`}
-                    >
-                      {plugin.installed
-                        ? plugin.enabled
-                          ? 'Enabled'
-                          : plugin.setup_complete
-                            ? 'Disabled'
-                            : 'Setup needed'
-                        : 'Marketplace'}
-                    </span>
-                  </div>
-                  <p>{plugin.description}</p>
-                  <small>
-                    Source:{' '}
-                    {plugin.source === 'installed'
-                      ? 'Installed locally'
-                      : 'Saved marketplace'}
-                  </small>
-                  <div className="settings-summary-strip">
-                    {(plugin.provides.native_tools ?? 0) > 0 && (
-                      <span className="status-chip">
-                        {plugin.provides.native_tools} tools
-                      </span>
-                    )}
-                    {(plugin.provides.mcp_servers ?? 0) > 0 && (
-                      <span className="status-chip">
-                        {plugin.provides.mcp_servers} MCP servers
-                      </span>
-                    )}
-                    {(plugin.provides.channels ?? 0) > 0 && (
-                      <span className="status-chip">
-                        {plugin.provides.channels} channels
-                      </span>
-                    )}
-                    {(plugin.provides.skills ?? 0) > 0 && (
-                      <span className="status-chip success">
-                        {plugin.provides.skills} skills
-                      </span>
-                    )}
-                    {plugin.permissions.map((permission) => (
-                      <span className="status-chip warning" key={permission}>
-                        {permission}
-                      </span>
-                    ))}
-                    {plugin.update_version && (
-                      <span className="status-chip">
-                        Update {plugin.update_version}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="settings-plugin-row-actions">
-                  {plugin.installed ? (
-                    <>
-                      <CompactAction
-                        label={`Test ${plugin.name}`}
-                        disabled={
-                          locked || !plugin.capabilities.test?.available
-                        }
-                        onClick={() =>
-                          void selectForAction(plugin.plugin_id, 'plugin.test')
-                        }
-                      >
-                        <FlaskConical size={18} aria-hidden="true" />
-                      </CompactAction>
-                      <Button
-                        aria-label={`Manage ${plugin.name}`}
-                        disabled={locked}
-                        onClick={() => void select(plugin.plugin_id)}
-                      >
-                        Configure
-                      </Button>
-                      <Toggle
-                        label={`${plugin.name} enabled`}
-                        checked={plugin.enabled}
-                        disabled={
-                          locked ||
-                          !(plugin.enabled
-                            ? plugin.capabilities.disable?.available
-                            : plugin.capabilities.enable?.available)
-                        }
-                        onChange={(event) =>
-                          void selectForAction(
-                            plugin.plugin_id,
-                            event.target.checked
-                              ? 'plugin.enable'
-                              : 'plugin.disable',
-                          )
-                        }
-                      />
-                    </>
-                  ) : !lifecycle ? (
-                    <span className="status-chip warning" role="status">
-                      Install unavailable
-                    </span>
-                  ) : null}
-                  {lifecycle && (
-                    <PluginLifecycleActions
-                      plugin={plugin}
-                      api={lifecycle}
-                      onChanged={() => void refresh(undefined, 'all')}
-                    />
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-          {(state.page.next_cursor || state.source !== 'installed') && (
-            <div className="button-row settings-plugin-pagination">
-              <Button disabled={locked} onClick={() => void refresh()}>
-                First page
-              </Button>
-              <Button
-                disabled={locked || !state.page.next_cursor}
-                onClick={() =>
-                  void refresh(state.page?.next_cursor ?? undefined)
-                }
-              >
-                Next page
-              </Button>
-            </div>
-          )}
-        </>
       )}
+    </>
+  );
+
+  return (
+    <section
+      aria-label="Plugin Center"
+      className="settings-section settings-plugins-page"
+    >
+      <SettingsSummary>
+        <SummaryChip tone={installedCount ? 'success' : undefined}>
+          {installedCount} loaded
+        </SummaryChip>
+        {failedCount > 0 && (
+          <SummaryChip tone="danger">{failedCount} failed</SummaryChip>
+        )}
+      </SettingsSummary>
+      <SettingsTabs
+        label="Plugins"
+        value={tab}
+        onChange={(next) => {
+          if (next === tab || locked) return;
+          const source = next === 'installed' ? 'installed' : 'marketplace';
+          session.update({ source, reviewed: null });
+          void refresh(undefined, source);
+        }}
+        tabs={[
+          {
+            id: 'installed',
+            label: 'Installed',
+            content: (
+              <div className="stack" data-setting-anchor="installed-plugins">
+                {tab === 'installed' && toolbar}
+                {tab === 'installed' && list}
+              </div>
+            ),
+          },
+          {
+            id: 'discover',
+            label: 'Discover',
+            content: (
+              <div className="stack" data-setting-anchor="plugin-marketplace">
+                {lifecycle && (
+                  <PluginLifecycleActions
+                    api={lifecycle}
+                    onChanged={() => void refresh(undefined, 'all')}
+                  />
+                )}
+                {tab === 'discover' && toolbar}
+                {tab === 'discover' && list}
+              </div>
+            ),
+          },
+        ]}
+      />
       {state.selected && (
         <section aria-label={`Manage ${state.selected.name}`}>
           <h3>{state.selected.name}</h3>
           <p>
-            Health: {state.selected.health.status}. Permissions:{' '}
-            {state.selected.permissions.join(', ') || 'none'}.
+            Health: {humanizeToken(state.selected.health.status).toLowerCase()}.
+            Permissions:{' '}
+            {state.selected.permissions.map(humanizeToken).join(', ') || 'none'}
+            .
           </p>
           {state.selected.health.checks.length > 0 && (
             <ul>
               {state.selected.health.checks.map((check) => (
                 <li key={`${check.label}:${check.status}`}>
-                  {check.label}: {check.status}
+                  {check.label}: {humanizeToken(check.status).toLowerCase()}
                 </li>
               ))}
             </ul>
@@ -870,5 +826,169 @@ export default function PluginSettings({
       )}
       {state.message && <p role="status">{state.message}</p>}
     </section>
+  );
+}
+
+const unavailableLifecycle: PluginLifecycleApi = {
+  review: () => Promise.reject(new Error('Plugin lifecycle is unavailable.')),
+  execute: () => Promise.reject(new Error('Plugin lifecycle is unavailable.')),
+  receipt: () => Promise.reject(new Error('Plugin lifecycle is unavailable.')),
+};
+
+function pluginStatus(plugin: PluginCatalogItem): {
+  tone: Tone;
+  label: string;
+} {
+  if (!plugin.installed) return { tone: 'info', label: 'Marketplace' };
+  if (['failed', 'error', 'unhealthy'].includes(plugin.health))
+    return { tone: 'danger', label: 'Needs attention' };
+  if (plugin.enabled) return { tone: 'success', label: 'Enabled' };
+  if (!plugin.setup_complete) return { tone: 'warning', label: 'Setup needed' };
+  return { tone: 'neutral', label: 'Disabled' };
+}
+
+const providedWords: [string, string, string][] = [
+  ['native_tools', 'tool', 'tools'],
+  ['mcp_servers', 'MCP server', 'MCP servers'],
+  ['channels', 'channel', 'channels'],
+  ['skills', 'skill', 'skills'],
+];
+
+/** One plugin: status, what it adds, one primary action and a ⋯ menu. */
+function PluginRow({
+  plugin,
+  locked,
+  lifecycle,
+  onManage,
+  onAction,
+  onChanged,
+}: {
+  plugin: PluginCatalogItem;
+  locked: boolean;
+  lifecycle?: PluginLifecycleApi;
+  onManage: () => void;
+  onAction: (
+    action: 'plugin.enable' | 'plugin.disable' | 'plugin.test',
+  ) => void;
+  onChanged: () => void;
+}) {
+  const life = usePluginLifecycle(
+    plugin,
+    lifecycle ?? unavailableLifecycle,
+    onChanged,
+  );
+  const status = pluginStatus(plugin);
+  const provided = providedWords
+    .map(([key, one, many]) => {
+      const count = plugin.provides[key] ?? 0;
+      return count ? `${count} ${count === 1 ? one : many}` : '';
+    })
+    .filter(Boolean);
+  const meta = [
+    `v${plugin.version}`,
+    plugin.source === 'installed' ? 'Installed locally' : 'Saved marketplace',
+    ...provided,
+    plugin.permissions.length
+      ? `Uses ${plugin.permissions.map((item) => humanizeToken(item).toLowerCase()).join(', ')}`
+      : '',
+    plugin.update_version ? `Update ${plugin.update_version}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const busy = locked || life.locked;
+  const menu: MenuAction[] = [];
+  if (plugin.installed)
+    menu.push({
+      label: `Test ${plugin.name}`,
+      icon: <FlaskConical size={16} />,
+      disabled: busy || !plugin.capabilities.test?.available,
+      onSelect: () => onAction('plugin.test'),
+    });
+  if (lifecycle && plugin.installed && plugin.update_version)
+    menu.push({
+      label: `Update to ${plugin.update_version}`,
+      icon: <Upload size={16} />,
+      disabled: busy,
+      onSelect: () => void life.action('update'),
+    });
+  if (lifecycle && plugin.installed)
+    menu.push({
+      label: `Uninstall ${plugin.name}`,
+      icon: <Trash2 size={16} />,
+      danger: true,
+      disabled: busy,
+      onSelect: life.requestRemove,
+    });
+  return (
+    <li className="settings-plugin-row">
+      <span className="settings-row-list-icon" aria-hidden>
+        <Puzzle size={15} aria-hidden />
+      </span>
+      <div className="settings-plugin-summary">
+        <div className="settings-plugin-title">
+          <strong>{plugin.name}</strong>
+          <StatusDot tone={status.tone} label={status.label} showLabel />
+        </div>
+        <p>{plugin.description}</p>
+        <small>{meta}</small>
+        <details className="settings-plugin-details">
+          <summary>Source and permissions</summary>
+          <PluginProvenance plugin={plugin} />
+        </details>
+      </div>
+      <div className="settings-plugin-row-actions">
+        {plugin.installed ? (
+          <>
+            <Button
+              aria-label={`Manage ${plugin.name}`}
+              disabled={locked}
+              onClick={onManage}
+            >
+              Configure
+            </Button>
+            <Toggle
+              label={`${plugin.name} enabled`}
+              checked={plugin.enabled}
+              disabled={
+                locked ||
+                !(plugin.enabled
+                  ? plugin.capabilities.disable?.available
+                  : plugin.capabilities.enable?.available)
+              }
+              onChange={(event) =>
+                onAction(
+                  event.target.checked ? 'plugin.enable' : 'plugin.disable',
+                )
+              }
+            />
+          </>
+        ) : lifecycle ? (
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void life.action('install')}
+          >
+            Install
+          </Button>
+        ) : (
+          <span className="status-chip warning" role="status">
+            Install unavailable
+          </span>
+        )}
+        {menu.length > 0 && (
+          <Menu
+            label={`More actions for ${plugin.name}`}
+            actions={menu}
+            iconOnly
+            variant="ghost"
+            className="icon-action icon-action-sm"
+          >
+            <MoreHorizontal size={16} aria-hidden />
+          </Menu>
+        )}
+      </div>
+      <div className="settings-plugin-feedback">{life.feedback}</div>
+      {life.confirmation}
+    </li>
   );
 }
