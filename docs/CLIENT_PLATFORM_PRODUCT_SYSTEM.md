@@ -112,8 +112,9 @@ screenshot can include controls that a scroll-locked user cannot reach.
 The sidebar is one tone darker than the main surface, which has no frame or
 gutter; splitters are hairlines with a widened hit target. Its header holds the
 logo and icon actions (New chat, Workspace commands, collapse); Home and Agents
-are the only destination rows; the footer holds Buddy (a 30px avatar, name and
-status, whose button opens Buddy settings) and the Settings gear. The collapsed
+are the only destination rows; the footer holds Buddy (a 44px avatar in an
+activity ring, name and status, whose button opens Buddy settings) and the
+Settings gear. The collapsed
 48px rail keeps expand, commands, New chat, Home, Agents, Settings and Buddy as
 labelled icons. A compact icon `Segmented` filters conversations by the server
 `category` (All, Chats, Designs, Code, Workflows) and persists per device.
@@ -136,17 +137,26 @@ Compact fine-pointer desktop rows may be 34px; comfortable and touch rows stay 4
 The conversation library (`/library`) holds full-text search with snippets, the
 type filter and bulk actions; quick switching belongs to the sidebar and palette.
 
-The right region unifies Context and panels. Context renders once, through a
-portal, into a persistent host element that moves between the chat's Context
-column (no side panels), the side region's first tab (`Context`, beside the
-panel tabs) and the compact sheet; opening, closing or collapsing a panel never
-remounts it or re-reads its sources. The header `Context` button and Mod+.
-toggle the region. The side region is labelled `Side panels` only while it holds
-panels. Exactly one `Close all panels` is visible: in the side region, else the
-bottom region, else a floating rail that lists panels whose region is hidden.
-Open panel lives in the conversation header on desktop and in the compact
-controls below 1024px. Live delegated agents open and promote Context's Agents
-section by CSS order, never by remounting it.
+Context is a small floating glass card: content height, rounded, with a
+frosted translucent fill that turns opaque under reduced transparency, forced
+colours or missing backdrop-filter support. It renders once, through a portal,
+into a persistent host element, so opening, closing or collapsing a panel never
+remounts it or re-reads its sources. A wide chat gives the card a column of its
+own (hidden only on request, remembered per device); when a panel narrows the
+chat, the header `Context` button or Mod+. floats it over the conversation and
+Escape or an outside click closes it; compact layouts use a sheet. Design,
+Workspace and Terminal panels keep the full-height right region, labelled
+`Side panels` only while it holds panels. Exactly one `Close all panels` is
+visible: in the side region, else the bottom region, else a floating rail that
+lists panels whose region is hidden. Open panel lives in the conversation header
+on desktop and in the compact controls below 1024px. Live delegated agents open
+and promote Context's Agents section by CSS order, never by remounting it.
+
+A conversation's type comes from its bindings as well as the server's single
+category, so a unified thread holding a design and a code folder matches both
+the Designs and the Code filters (and the palette's "design"/"code" words);
+Chats are threads with neither. Its glyph shows the first kind with the second
+as a small badge.
 
 Tooltip portals use a noninteractive, transformed viewport layer so floating
 placement can measure the containing block's scale at page zoom. Content uses
