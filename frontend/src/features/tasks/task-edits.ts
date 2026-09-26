@@ -109,17 +109,29 @@ export function taskMutation<T>(
       }
       authorize();
       if (receipt?.status !== 'completed' && receipt?.status !== 'rejected') {
-        receipt = replay
-          ? await controller.retryCommand(
-              null,
-              attempt.command,
-              attempt.command.command_id,
-            )
-          : await controller.command(
-              null,
-              attempt.command,
-              attempt.command.command_id,
-            );
+        try {
+          receipt = replay
+            ? await controller.retryCommand(
+                null,
+                attempt.command,
+                attempt.command.command_id,
+              )
+            : await controller.command(
+                null,
+                attempt.command,
+                attempt.command.command_id,
+              );
+        } catch (cause) {
+          // Only the command's own refusal is definite: it applied nothing,
+          // so the corrected draft is a new command, not a retry of this one.
+          // A failed receipt or follow-up read proves nothing either way.
+          if (
+            owner.pending === attempt &&
+            DEFINITE_TASK_REFUSALS.has(clientError(cause).code)
+          )
+            owner.pending = null;
+          throw cause;
+        }
       }
       authorize();
       if (
@@ -143,20 +155,9 @@ export function taskMutation<T>(
       owner.pending = null;
       return current;
     };
-    attempt.result = perform()
-      .catch((cause: unknown) => {
-        // A definite refusal applied nothing: release it so the corrected
-        // draft is a new command, not a retry of the refused one.
-        if (
-          owner.pending === attempt &&
-          DEFINITE_TASK_REFUSALS.has(clientError(cause).code)
-        )
-          owner.pending = null;
-        throw cause;
-      })
-      .finally(() => {
-        attempt.result = undefined;
-      });
+    attempt.result = perform().finally(() => {
+      attempt.result = undefined;
+    });
     return attempt.result;
   };
 }
