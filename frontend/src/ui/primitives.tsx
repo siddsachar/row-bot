@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  Fragment,
   useEffect,
   useId,
   useMemo,
@@ -224,9 +225,25 @@ export type MenuAction = {
   label: string;
   onSelect: (opener: HTMLButtonElement | null) => void;
   disabled?: boolean;
+  /** Destructive actions render last, in red, after a separator. */
   danger?: boolean;
   selected?: boolean;
+  /** A 16px monochrome glyph shown before the label. */
+  icon?: ReactNode;
+  /** A shortcut such as "Mod+K", shown as keycaps at the end of the row. */
+  shortcut?: string;
+  /** Start a new group: a separator is drawn above this item. */
+  separatorBefore?: boolean;
 };
+
+/** One order for every menu: groups as given, destructive actions last. */
+export function orderMenuActions(actions: MenuAction[]): MenuAction[] {
+  const safe = actions.filter((action) => !action.danger);
+  const danger = actions.filter((action) => action.danger);
+  return safe.length && danger.length
+    ? [...safe, { ...danger[0], separatorBefore: true }, ...danger.slice(1)]
+    : actions;
+}
 export function Menu({
   label,
   actions,
@@ -294,21 +311,40 @@ export function Menu({
             if (target?.isConnected) target.focus({ preventScroll: true });
           }}
         >
-          {actions.map((action) => (
-            <Dropdown.Item
-              key={action.label}
-              className={`menu-item ${action.danger ? 'danger-text' : ''}`}
-              disabled={action.disabled}
-              aria-current={action.selected ? true : undefined}
-              onSelect={() => {
-                // A modal menu can trap focus until it unmounts. Pass the
-                // connected trigger explicitly to any task opened by an item.
-                action.onSelect(opener.current);
-              }}
-            >
-              <span className="menu-item-label">{action.label}</span>
-              {action.selected && <Check size={16} aria-hidden />}
-            </Dropdown.Item>
+          {orderMenuActions(actions).map((action, index) => (
+            <Fragment key={action.label}>
+              {action.separatorBefore && index > 0 && (
+                <Dropdown.Separator className="menu-separator" />
+              )}
+              <Dropdown.Item
+                className={`menu-item ${action.icon || action.shortcut ? 'menu-item-rich' : ''} ${action.danger ? 'danger-text' : ''}`}
+                disabled={action.disabled}
+                aria-current={action.selected ? true : undefined}
+                aria-keyshortcuts={
+                  action.shortcut ? ariaKeyShortcut(action.shortcut) : undefined
+                }
+                onSelect={() => {
+                  // A modal menu can trap focus until it unmounts. Pass the
+                  // connected trigger explicitly to any task opened by an item.
+                  action.onSelect(opener.current);
+                }}
+              >
+                {action.icon && (
+                  <span className="menu-item-icon" aria-hidden>
+                    {action.icon}
+                  </span>
+                )}
+                <span className="menu-item-label">{action.label}</span>
+                {action.shortcut && (
+                  // Announced through aria-keyshortcuts; the keycaps stay
+                  // out of the item's accessible name.
+                  <span className="menu-item-kbd" aria-hidden>
+                    <Kbd keys={action.shortcut} />
+                  </span>
+                )}
+                {action.selected && <Check size={16} aria-hidden />}
+              </Dropdown.Item>
+            </Fragment>
           ))}
         </Dropdown.Content>
       </Dropdown.Portal>

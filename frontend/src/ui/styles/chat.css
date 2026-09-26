@@ -2336,6 +2336,29 @@
   margin: 4px 6px;
   background: var(--border-hairline);
 }
+/* One menu style: glyph, label, then keycaps or a check at the end. */
+.menu .menu-item-rich {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.menu-item-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-muted);
+}
+.menu-item.danger-text .menu-item-icon {
+  color: inherit;
+}
+.menu-item-rich > .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.menu-item-kbd {
+  display: inline-flex;
+  flex: none;
+  margin-inline-start: 16px;
+  color: var(--text-muted);
+}
 .skills-menu {
   display: grid;
   gap: 8px;
