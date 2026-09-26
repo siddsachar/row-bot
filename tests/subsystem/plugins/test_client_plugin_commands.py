@@ -476,3 +476,31 @@ def test_reviewed_local_self_test_unlocks_enablement_without_loading_plugin(
     current = commands.read_plugin_detail("sample-plugin", validate=_valid)
     assert current["health"]["status"] == "passed"
     assert current["capabilities"]["enable"]["available"] is True
+
+
+def test_enabled_plugin_that_failed_to_load_is_not_reported_passed(
+    plugin_modules, monkeypatch
+):
+    # A plugin can pass its last explicit test and still fail to load (for
+    # example an unprepared worker environment); the catalog says so.
+    _installed(plugin_modules)
+    state, loader = plugin_modules["state"], plugin_modules["loader"]
+    state.set_plugin_health_result(
+        "sample-plugin", ok=True, checks=[{"label": "Setup", "status": "ok"}]
+    )
+    state.set_plugin_enabled("sample-plugin", True)
+
+    class Failed:
+        plugin_id = "sample-plugin"
+        success = False
+        stale = False
+
+    monkeypatch.setattr(loader, "get_load_results", lambda: [Failed()])
+    item = commands.read_plugin_catalog(validate=_valid)["items"][0]
+    assert item["enabled"] is True
+    assert item["health"] == "load_failed"
+    detail = commands.read_plugin_detail("sample-plugin", validate=_valid)
+    assert detail["health"]["status"] == "load_failed"
+
+    monkeypatch.setattr(loader, "get_load_results", lambda: [])
+    assert commands.read_plugin_catalog(validate=_valid)["items"][0]["health"] == "passed"

@@ -278,6 +278,20 @@ def _newer(candidate: object, installed: object) -> bool:
     return bool(parts(candidate)) and parts(candidate) > parts(installed)
 
 
+def _failed_to_load() -> set[str]:
+    """Plugins whose latest runtime load failed (health only reflects tests)."""
+    try:
+        from row_bot.plugins.loader import get_load_results
+
+        return {
+            result.plugin_id
+            for result in get_load_results()
+            if not result.success and not result.stale
+        }
+    except Exception:
+        return set()
+
+
 def _health(record: dict[str, Any]) -> dict[str, Any]:
     value = record.get("health", {})
     if type(value) is not dict or not value:
@@ -353,6 +367,7 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
         _safe_component(component, directory=True)
     state, secrets = _state_documents(root)
     cached = _marketplace(root)
+    failed_to_load = _failed_to_load()
     items: list[dict[str, Any]] = []
     seen = set()
     for manifest, _raw, manifest_revision in _installed(root):
@@ -379,6 +394,9 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
         health = _health(record)
         enabled = record.get("enabled") is True
         market = cached.get(manifest.id)
+        # An enabled plugin that did not load is not "passed", whatever its
+        # last explicit test said.
+        load_failed = enabled and manifest.id in failed_to_load
         item = {
             "plugin_id": manifest.id,
             "name": str(manifest.name)[:256],
@@ -388,7 +406,7 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
             "installed": True,
             "enabled": enabled,
             "setup_complete": setup,
-            "health": health["status"],
+            "health": "load_failed" if load_failed else health["status"],
             "update_version": market["version"]
             if market and _newer(market["version"], manifest.version)
             else None,
@@ -576,7 +594,12 @@ def read_plugin_detail(
         "enabled": enabled,
         "settings": fields,
         "secrets": secret_fields,
-        "health": health,
+        "health": {
+            **health,
+            "status": "load_failed"
+            if enabled and plugin_id in _failed_to_load()
+            else health["status"],
+        },
         "permissions": [str(value)[:64] for value in manifest.permissions[:64]],
         "capabilities": _capabilities(
             installed=True,

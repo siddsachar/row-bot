@@ -508,9 +508,8 @@ export default function PluginSettings({
   const installedCount =
     state.page?.items.filter((plugin) => plugin.installed).length ?? 0;
   const failedCount =
-    state.page?.items.filter((plugin) =>
-      ['failed', 'error', 'unhealthy'].includes(plugin.health),
-    ).length ?? 0;
+    state.page?.items.filter((plugin) => UNHEALTHY.has(plugin.health)).length ??
+    0;
   const toolbar = (
     <form
       className="settings-list-toolbar"
@@ -613,11 +612,11 @@ export default function PluginSettings({
       className="settings-section settings-plugins-page"
     >
       <SettingsSummary>
-        <SummaryChip tone={installedCount ? 'success' : undefined}>
-          {installedCount} loaded
-        </SummaryChip>
+        <SummaryChip>{installedCount} installed</SummaryChip>
         {failedCount > 0 && (
-          <SummaryChip tone="danger">{failedCount} failed</SummaryChip>
+          <SummaryChip tone="danger">
+            {failedCount} need{failedCount === 1 ? 's' : ''} attention
+          </SummaryChip>
         )}
       </SettingsSummary>
       <SettingsTabs
@@ -837,12 +836,18 @@ const unavailableLifecycle: PluginLifecycleApi = {
   receipt: () => Promise.reject(new Error('Plugin lifecycle is unavailable.')),
 };
 
+const UNHEALTHY = new Set(['failed', 'error', 'unhealthy', 'load_failed']);
+
 function pluginStatus(plugin: PluginCatalogItem): {
   tone: Tone;
   label: string;
 } {
   if (!plugin.installed) return { tone: 'info', label: 'Marketplace' };
-  if (['failed', 'error', 'unhealthy'].includes(plugin.health))
+  // Enabled but not running: the last load failed (e.g. its environment is
+  // not prepared), whatever its last explicit test said.
+  if (plugin.health === 'load_failed')
+    return { tone: 'danger', label: 'Failed to load' };
+  if (UNHEALTHY.has(plugin.health))
     return { tone: 'danger', label: 'Needs attention' };
   if (plugin.enabled) return { tone: 'success', label: 'Enabled' };
   if (!plugin.setup_complete) return { tone: 'warning', label: 'Setup needed' };

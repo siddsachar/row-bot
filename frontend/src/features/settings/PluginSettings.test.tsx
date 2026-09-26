@@ -153,7 +153,7 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
   );
   expect(screen.queryByText('Cached Plugin')).not.toBeInTheDocument();
   expect(screen.getByText(/1 tool · 1 skill/)).toBeVisible();
-  expect(screen.getByText('1 loaded')).toBeVisible();
+  expect(screen.getByText('1 installed')).toBeVisible();
   expect(props.load).toHaveBeenCalledWith(
     { query: '', source: 'installed' },
     expect.any(AbortSignal),
@@ -419,4 +419,18 @@ it('rejects oversized pages and detail records from the client boundary', async 
   await screen.findByText(/Saved plugin information is unavailable/);
   expect(screen.queryByText('2 matching plugins.')).not.toBeInTheDocument();
   await waitFor(() => expect(props.open).not.toHaveBeenCalled());
+});
+
+it('says an enabled plugin failed to load instead of calling it enabled', async () => {
+  const props = options();
+  props.load.mockResolvedValue({
+    ...page,
+    total: 1,
+    items: [{ ...page.items[0], enabled: true, health: 'load_failed' }],
+  });
+  render(<PluginSettings {...props} />);
+  await screen.findByText('1 matching plugins.');
+  expect(screen.getByText('Failed to load')).toBeVisible();
+  expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
+  expect(screen.getByText('1 needs attention')).toBeVisible();
 });
