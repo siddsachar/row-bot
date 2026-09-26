@@ -67,6 +67,16 @@ const RECENCY_LABELS = {
   older: 'Older',
 } as const;
 
+/** The footer dot's tooltip; the status itself is announced in the chat. */
+const CONNECTION_LABELS: Record<string, string> = {
+  ready: 'Connected',
+  loading: 'Connecting…',
+  reconnecting: 'Reconnecting…',
+  disconnected: 'Disconnected',
+  unauthorized: 'Sign-in needed',
+  incompatible: 'Update needed',
+};
+
 const TYPE_ICONS: Record<ConversationType, ReactNode> = {
   all: <Layers size={14} aria-hidden />,
   chat: <MessageSquare size={14} aria-hidden />,
@@ -890,6 +900,12 @@ export default function Navigation({
           ) : (
             <span className="nav-footer-spacer" />
           )}
+          <span
+            className="nav-connection"
+            data-state={state.status}
+            title={CONNECTION_LABELS[state.status] ?? state.status}
+            aria-hidden
+          />
           <Hint label="Settings">
             <Link
               className="button ghost icon-button nav-settings"
