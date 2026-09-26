@@ -127,7 +127,7 @@ describe('Buddy shared companion and preferences', () => {
     render(
       <BuddyControls
         {...input}
-        snapshot={{ ...input.snapshot, native_placement_retained: false }}
+        snapshot={{ ...snapshot, native_placement_retained: false }}
       />,
     );
     fireEvent.click(screen.getByText('Advanced companion'));
