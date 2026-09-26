@@ -6,7 +6,11 @@ import type {
   TaskSettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { taskEdits, type TaskCommandOwner } from './task-edits';
+import {
+  DEFINITE_TASK_REFUSALS,
+  taskEdits,
+  type TaskCommandOwner,
+} from './task-edits';
 import { taskGraphs } from './task-graphs';
 import { taskSettings } from './task-settings';
 
@@ -127,16 +131,7 @@ export class TaskEditSession {
         },
         (cause: unknown) => {
           if (this.meta.active) {
-            const known = [
-              'task_revision_conflict',
-              'task_settings_profile_conflict',
-              'invalid_task_fields',
-              'invalid_task_schedule',
-              'invalid_task_graph',
-              'invalid_task_settings',
-              'task_not_found',
-              'action_denied',
-            ].includes(clientError(cause).code);
+            const known = DEFINITE_TASK_REFUSALS.has(clientError(cause).code);
             const uncertain =
               !readOnly && (this.hasPending ? this.hasPending() : !known);
             if (!uncertain) this.retry = null;

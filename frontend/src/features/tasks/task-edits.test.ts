@@ -101,3 +101,34 @@ it('retains the receipt identity after saved-state read failure and rejects a di
   await edits.create(fields);
   expect(controller.command).toHaveBeenCalledOnce();
 });
+
+it('releases a definite refusal so the corrected draft is a new command', async () => {
+  const { controller, edits, saved } = setup();
+  controller.command.mockRejectedValueOnce({
+    code: 'task_graph_missing_subtask',
+  });
+  await expect(edits.save(saved.id, saved.revision, fields)).rejects.toEqual(
+    expect.objectContaining({ code: 'task_graph_missing_subtask' }),
+  );
+  const corrected = { ...fields, name: 'Corrected workflow' };
+  await edits.save(saved.id, saved.revision, corrected);
+  expect(controller.retryCommand).not.toHaveBeenCalled();
+  expect(controller.command).toHaveBeenCalledTimes(2);
+  expect(controller.command.mock.calls[1][1]).toEqual(
+    expect.objectContaining({
+      payload: expect.objectContaining({ fields: corrected }),
+    }),
+  );
+});
+
+it('keeps an uncertain failure for its receipt instead of sending a new intent', async () => {
+  const { controller, edits, saved } = setup();
+  controller.command.mockRejectedValueOnce({ code: 'operation_uncertain' });
+  await expect(edits.save(saved.id, saved.revision, fields)).rejects.toEqual(
+    expect.objectContaining({ code: 'operation_uncertain' }),
+  );
+  await expect(
+    edits.save(saved.id, saved.revision, { ...fields, name: 'Other' }),
+  ).rejects.toEqual(expect.objectContaining({ code: 'operation_uncertain' }));
+  expect(controller.command).toHaveBeenCalledTimes(1);
+});

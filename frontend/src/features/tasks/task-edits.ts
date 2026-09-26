@@ -15,6 +15,37 @@ export type TaskCommandAttempt<T> = {
 };
 export type TaskCommandOwner<T> = { pending: TaskCommandAttempt<T> | null };
 
+/**
+ * Refusals the server returns before it changes anything (validation and
+ * conflicts). They are definite, so the draft stays editable; anything else
+ * (network, timeouts, "unconfirmed") keeps the original command for its
+ * receipt.
+ */
+export const DEFINITE_TASK_REFUSALS: ReadonlySet<string> = new Set([
+  'action_denied',
+  'invalid_task_fields',
+  'invalid_task_graph',
+  'invalid_task_schedule',
+  'invalid_task_settings',
+  'task_advanced_edit_required',
+  'task_delivery_review_required',
+  'task_graph_cycle',
+  'task_graph_invalid_reference',
+  'task_graph_missing_subtask',
+  'task_graph_too_large',
+  'task_has_no_steps',
+  'task_metadata_too_large',
+  'task_not_found',
+  'task_review_unsupported_fields',
+  'task_revision_conflict',
+  'task_settings_model_unavailable',
+  'task_settings_profile_conflict',
+  'task_settings_profile_unavailable',
+  'task_settings_too_large',
+  'task_trigger_cycle',
+  'task_trigger_target_unavailable',
+]);
+
 /** Shared task mutation receipt boundary; each editor owns its own bounded holder. */
 export function taskMutation<T>(
   controller: ClientController,
@@ -112,9 +143,20 @@ export function taskMutation<T>(
       owner.pending = null;
       return current;
     };
-    attempt.result = perform().finally(() => {
-      attempt.result = undefined;
-    });
+    attempt.result = perform()
+      .catch((cause: unknown) => {
+        // A definite refusal applied nothing: release it so the corrected
+        // draft is a new command, not a retry of the refused one.
+        if (
+          owner.pending === attempt &&
+          DEFINITE_TASK_REFUSALS.has(clientError(cause).code)
+        )
+          owner.pending = null;
+        throw cause;
+      })
+      .finally(() => {
+        attempt.result = undefined;
+      });
     return attempt.result;
   };
 }
