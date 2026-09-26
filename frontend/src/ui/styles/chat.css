@@ -273,6 +273,12 @@
   line-height: var(--type-line-reading);
   overflow-wrap: anywhere;
 }
+/* A paged slice of a large message is shown exactly as sent. */
+.message-text[data-paged] {
+  font: var(--text-14) / 22px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .message-text > :first-child {
   margin-top: 0;
 }

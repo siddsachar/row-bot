@@ -13,7 +13,6 @@ import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { Button, IconButton } from '../../ui/primitives';
-import SafeMarkdown from './chat-parity-markdown';
 import { MediaPreview } from './MediaPreview';
 import {
   speak,
@@ -240,10 +239,13 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           </div>
         )}
         {hasText && !failure && (
-          <div className="message-text">
-            {expanded ? (
-              <SafeMarkdown text={expanded} copyText={copyCode} />
-            ) : (
+          <div
+            className="message-text"
+            data-paged={expanded ? 'true' : undefined}
+          >
+            {/* A page is an arbitrary text/plain slice of a large message: it
+                can cut through Markdown, so it is shown exactly as sent. */}
+            {expanded || (
               <TranscriptBlocks blocks={shown} copyText={copyCode} />
             )}
           </div>
