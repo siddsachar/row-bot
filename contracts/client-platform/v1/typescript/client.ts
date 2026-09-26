@@ -1718,7 +1718,7 @@ export async function sendConversationCommand(baseUrl: string, conversationId: s
   const suffix = command.type === 'approval.resolve' ? `/approvals/${id(conversationId || '')}/commands`
     : command.type.startsWith('provider.') ? '/settings/providers/commands'
     : command.type.startsWith('mcp.') ? '/settings/mcp/commands'
-    : ['task.create', 'task.update', 'task.graph.update', 'task.settings.update', 'task.webhook.rotate', 'task.run', 'task.stop', 'task.approval'].includes(command.type) ? '/tasks/commands'
+    : command.type.startsWith('task.') ? '/tasks/commands'
     : conversationId === null && (command.type === 'resource.setup' || command.type === 'resource.continue') ? '/resources/commands'
     : conversationId === null ? '/conversations/commands'
     : `/conversations/${encodeURIComponent(conversationId)}/commands`;
