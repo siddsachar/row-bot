@@ -1377,9 +1377,13 @@
   height: auto;
   background: none;
 }
+/* The earlier explorer hid its canvas on phones and in forced colours
+   (styles.css); the stage keeps the graph there: touch pans and zooms, and
+   List is one tap away. */
 .knowledge-stage .knowledge-network-canvas {
   position: absolute;
   inset: 0;
+  display: block;
 }
 .knowledge-graph-status,
 .knowledge-stage-message {
@@ -1800,10 +1804,11 @@
   gap: 7px;
 }
 @container knowledge (max-width: 700px) {
+  /* Above the stats caption, which can wrap to two lines here. */
   .knowledge-legend {
     top: auto;
     right: 12px;
-    bottom: 50px;
+    bottom: 88px;
     left: 12px;
     display: flex;
     max-height: none;
@@ -1813,16 +1818,23 @@
     min-width: max-content;
   }
   .knowledge-home[data-view='list'] .knowledge-list-frame {
-    inset: 104px 0 96px;
+    inset: 104px 0 132px;
   }
   .knowledge-search-input {
     width: 150px;
   }
+  /* Collapse (not display: none): the fixed layout and the virtual spacer
+     rows still count five columns, so hidden cells would keep their width. */
   .knowledge-list th:nth-child(3),
   .knowledge-list td:nth-child(3),
   .knowledge-list th:nth-child(5),
   .knowledge-list td:nth-child(5) {
-    display: none;
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    font-size: 0;
+    visibility: hidden;
   }
 }
 .drawer-panel.knowledge-inspector {
