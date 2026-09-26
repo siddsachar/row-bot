@@ -11,7 +11,7 @@ import {
 } from './SettingsSnapshotPanels';
 
 export type Phase4RetainedSetting =
-  'voice' | 'accounts' | 'tracker' | 'utilities' | 'system';
+  'voice' | 'accounts' | 'tracker' | 'utilities' | 'system' | 'access';
 
 export default function Phase4RetainedSettings({
   setting,
@@ -63,6 +63,7 @@ export default function Phase4RetainedSettings({
       mutation={mutation}
       pickFolder={pickFolder}
       writeClipboard={writeClipboard}
+      part={setting === 'access' ? 'access' : 'system'}
     />
   );
 }

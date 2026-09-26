@@ -379,7 +379,8 @@ beforeEach(() => {
 });
 
 function renderSetting(setting: Phase4RetainedSetting) {
-  mutation.page = setting;
+  // Access reads and writes the System snapshot page.
+  mutation.page = setting === 'access' ? 'system' : setting;
   return render(
     <MemoryRouter>
       <Phase4RetainedSettings
@@ -405,7 +406,7 @@ it('renders real voice controls without probing a device or provider', () => {
   expect(screen.queryByLabelText('Start automatically')).toBeNull();
   expect(screen.queryByLabelText('Provider voice')).toBeNull();
   expect(screen.getByLabelText('Enable text-to-speech')).toBeChecked();
-  fireEvent.click(screen.getByText('Models & setup'));
+  fireEvent.click(screen.getByText('Advanced'));
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
   expect(screen.getByText('Kokoro')).toBeVisible();
@@ -478,7 +479,7 @@ it('reviews local voice output and SenseVoice setup only after explicit actions'
       expect.any(AbortSignal),
     ),
   );
-  fireEvent.click(screen.getByText('Models & setup'));
+  fireEvent.click(screen.getByText('Advanced'));
   fireEvent.click(
     screen.getByRole('button', { name: 'Install SenseVoice Small' }),
   );
@@ -694,7 +695,7 @@ it('requires confirmation only for removing the managed Computer Use runtime', a
   render(
     <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
   );
-  fireEvent.click(screen.getByText('Manage Computer Use runtime'));
+  fireEvent.click(screen.getByText('Danger zone'));
   fireEvent.click(
     screen.getByRole('button', { name: 'Remove managed Cua runtime' }),
   );
@@ -768,7 +769,7 @@ it('keeps System install network tunnel and OS actions explicit and reviewed', a
 });
 
 it('shows ngrok setup links only after opening the guide without a tunnel action', () => {
-  renderSetting('system');
+  renderSetting('access');
   expect(mutation.review).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Tunnel setup'));
   const provider = screen.getByRole('link', { name: 'ngrok.com' });
@@ -805,6 +806,7 @@ it('shows the saved webhook exposure choice and an active local-owner URL', asyn
         },
       }}
       mutation={mutation}
+      part="access"
     />,
   );
   expect(
@@ -837,6 +839,7 @@ it('shows remote tunnel availability without exposing the URL or owner controls'
         },
       }}
       mutation={mutation}
+      part="access"
     />,
   );
   expect(
@@ -863,7 +866,11 @@ it('recovers an interrupted tunnel command from its original receipt after remou
   }));
   mutation.refreshSnapshot = vi.fn(async () => snapshot);
   const first = render(
-    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+    <SystemSnapshotPanel
+      snapshot={snapshot.system}
+      mutation={mutation}
+      part="access"
+    />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Start app tunnel' }));
   expect(
@@ -872,7 +879,11 @@ it('recovers an interrupted tunnel command from its original receipt after remou
   const priorReviews = vi.mocked(mutation.review).mock.calls.length;
   first.unmount();
   render(
-    <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
+    <SystemSnapshotPanel
+      snapshot={snapshot.system}
+      mutation={mutation}
+      part="access"
+    />,
   );
   expect(
     screen.getByRole('button', { name: 'Check original receipt' }),
@@ -983,6 +994,9 @@ it('checks the original receipt instead of replaying an uncertain save', async (
 
 it('reviews and cancels tracker deletion without executing it', async () => {
   renderSetting('tracker');
+  const danger = screen.getByText('Danger zone').closest('details')!;
+  expect(danger).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByText('Danger zone'));
 
   fireEvent.click(
     screen.getByRole('button', { name: 'Delete All Tracker Data' }),
@@ -1012,6 +1026,7 @@ it('retires a tracker deletion review when the Settings revision changes', async
   const view = render(
     <TrackerSnapshotPanel snapshot={snapshot.tracker} mutation={mutation} />,
   );
+  fireEvent.click(screen.getByText('Danger zone'));
   fireEvent.click(
     screen.getByRole('button', { name: 'Delete All Tracker Data' }),
   );
@@ -1112,13 +1127,21 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   expect(screen.queryByDisplayValue(/D:\/Workspace/)).toBeNull();
   expect(screen.getByLabelText('File log level')).toHaveValue('INFO');
   expect(screen.queryByRole('heading', { name: 'Mobile Access' })).toBeNull();
-  expect(screen.getByText('Connected devices')).toBeVisible();
+  // Remote reach moved to Access.
+  expect(screen.queryByText('Connected devices')).toBeNull();
   system.unmount();
+  const access = renderSetting('access');
+  expect(screen.getByText('Connected devices')).toBeVisible();
+  expect(screen.getByLabelText('Listen mode')).toBeVisible();
+  access.unmount();
 
   const tracker = renderSetting('tracker');
   expect(screen.getByLabelText('Enable Habit Tracker')).toBeChecked();
   expect(screen.getByText(/Water/)).toBeVisible();
-  expect(screen.getByText(/Last 2026-09-14/)).toBeVisible();
+  // Last entries read as relative time with the full date on hover.
+  expect(
+    tracker.container.querySelector('time[datetime^="2026-09-14"]'),
+  ).not.toBeNull();
   tracker.unmount();
 
   const accounts = renderSetting('accounts');
@@ -1150,7 +1173,7 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   renderSetting('utilities');
   expect(screen.getByLabelText('Enable Calculator')).toBeChecked();
   expect(screen.getByText('Evaluate calculations locally.')).toBeVisible();
-  expect(screen.getByText('2 available')).toBeVisible();
+  expect(screen.getByText(/of 2 on\./)).toBeVisible();
   expect(screen.queryByText('Timer')).not.toBeInTheDocument();
 });
 
@@ -1167,14 +1190,15 @@ it('renders editable document, tool, and preference owners', async () => {
   expect(screen.queryByLabelText('Cloud model')).toBeNull();
   expect(screen.getByLabelText('Dimension override')).toHaveValue(null);
   expect(screen.getByText('12 indexed')).toBeVisible();
-  expect(screen.getByText('Qwen3 0.6B (local)')).toBeVisible();
+  expect(screen.getByText(/Active: Qwen3 0\.6B \(local\)/)).toBeVisible();
   expect(screen.getByText('Vectors current')).toBeVisible();
+  // Index health and maintenance sit under Advanced.
+  expect(screen.getByText('Advanced').closest('details')).not.toHaveAttribute(
+    'open',
+  );
+  fireEvent.click(screen.getByText('Advanced'));
   expect(screen.getByText(/Local model: cached/)).toBeVisible();
   expect(screen.getByText(/Memory index: pending/)).toBeVisible();
-  expect(
-    screen.getByText('Index & model maintenance').closest('details'),
-  ).not.toHaveAttribute('open');
-  fireEvent.click(screen.getByText('Index & model maintenance'));
   expect(
     screen.getByRole('button', { name: 'rebuild document vectors' }),
   ).toBeEnabled();
@@ -1214,7 +1238,7 @@ it('renders editable document, tool, and preference owners', async () => {
     }),
   ).toBeChecked();
   expect(screen.getByLabelText('Enable Web Search')).toBeChecked();
-  expect(screen.getByText('Search the live web with Tavily.')).toBeVisible();
+  expect(screen.getByText(/Search the live web with Tavily\./)).toBeVisible();
   expect(screen.getByLabelText('Search research tools')).toBeVisible();
   expect(screen.queryByLabelText('Search API key')).not.toBeInTheDocument();
   fireEvent.click(screen.getByText('Credentials & setup'));
@@ -1228,7 +1252,7 @@ it('renders editable document, tool, and preference owners', async () => {
   tools.unmount();
 
   mutation.page = 'preferences';
-  render(
+  const preferences = render(
     <PreferencesSnapshotPanel
       snapshot={snapshot.preferences}
       mutation={mutation}
@@ -1236,16 +1260,26 @@ it('renders editable document, tool, and preference owners', async () => {
   );
   expect(screen.getByLabelText('Name')).toHaveValue('Row-Bot');
   expect(screen.getByRole('textbox', { name: 'Personality' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Preview' })).toBeVisible();
+  expect(screen.getByText('Preview')).toBeVisible();
   expect(screen.getByLabelText('Window mode')).toHaveValue('ask');
   expect(screen.getByLabelText('Start hour')).toHaveValue(1);
-  expect(screen.getByText('01:00–05:00 idle window')).toBeVisible();
-  expect(screen.getByText('v1.0.0')).toBeVisible();
+  expect(screen.getByLabelText('End hour')).toHaveValue(5);
   expect(screen.getByRole('option', { name: 'Ask on Launch' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'System Browser' })).toBeVisible();
-  expect(
-    screen.getByText('Cached update details').closest('details'),
-  ).not.toHaveAttribute('open');
+  // Updates and migration moved to their own System pages.
+  expect(screen.queryByText(/Cached release state/)).toBeNull();
+  preferences.unmount();
+  render(
+    <PreferencesSnapshotPanel
+      snapshot={snapshot.preferences}
+      mutation={mutation}
+      part="updates"
+    />,
+  );
+  expect(screen.getAllByText('v1.0.0')[0]).toBeVisible();
+  expect(screen.getByText('Advanced').closest('details')).not.toHaveAttribute(
+    'open',
+  );
   expect(screen.getByText(/Cached release state/)).toBeVisible();
 });
 

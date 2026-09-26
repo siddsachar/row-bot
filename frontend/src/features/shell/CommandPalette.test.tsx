@@ -71,11 +71,22 @@ it('starts with recent conversations and commands, then ranks one search across 
   expect(screen.getByRole('option', { name: 'New chat' })).toBeVisible();
 
   fireEvent.change(field(), { target: { value: 'Open Knowledge settings' } });
-  // The legacy "Open … settings" phrasing still reaches the page first.
-  expect(options()[0]).toHaveAccessibleName(/^Knowledge settings/);
+  // A former page name still reaches its new page (Knowledge → Memory) first.
+  expect(options()[0]).toHaveAccessibleName(/^Memory settings/);
   expect(field()).toHaveAttribute('aria-activedescendant', options()[0].id);
   fireEvent.keyDown(field(), { key: 'Enter' });
   expect(onOpenSetting).toHaveBeenCalledWith('/settings/knowledge');
+
+  fireEvent.change(field(), { target: { value: 'Open Utilities settings' } });
+  expect(options()[0]).toHaveAccessibleName(/^Tools settings/);
+
+  // Individual settings rows open their page at that row.
+  fireEvent.change(field(), { target: { value: 'dream cycle' } });
+  const row = screen.getByRole('option', { name: /^Dream Cycle/ });
+  fireEvent.click(row);
+  expect(onOpenSetting).toHaveBeenLastCalledWith(
+    '/settings/preferences#dream-cycle',
+  );
 
   fireEvent.change(field(), { target: { value: 'landing' } });
   const landing = screen.getByRole('option', { name: 'Landing page review' });
@@ -90,14 +101,14 @@ it('moves the active result with the arrow keys and runs it with Enter', async (
   const first = vi.fn();
   const second = vi.fn();
   await setup([
-    { id: 'reset', label: 'Reset layout', run: first },
-    { id: 'rename', label: 'Reset zoom', run: second },
+    { id: 'rename-file', label: 'Rename file here', run: first },
+    { id: 'rename-chat', label: 'Rename chat', run: second },
   ]);
-  fireEvent.change(field(), { target: { value: 'reset' } });
+  fireEvent.change(field(), { target: { value: 'rename' } });
   // Only literal matches show once one exists; shorter labels rank first.
   expect(options().map((option) => option.textContent)).toEqual([
-    'Reset zoom',
-    'Reset layout',
+    'Rename chat',
+    'Rename file here',
   ]);
   fireEvent.keyDown(field(), { key: 'ArrowDown' });
   expect(options()[1]).toHaveAttribute('aria-selected', 'true');

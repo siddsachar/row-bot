@@ -548,25 +548,21 @@ function OwnedBuddy({
 export default function BuddySurface({
   settings = false,
   initialPrompt,
+  conversationId,
 }: {
   settings?: boolean;
   initialPrompt?: string;
+  /** Settings: the conversation whose profile and approvals Buddy uses. */
+  conversationId?: string | null;
 }) {
   const { buddyOwner } = useRuntime();
   const state = useClientState();
   // Buddy's reads wait until the open conversation is confirmed (B29).
   const shellSettled = useShellSettled();
-  const [search, setSearch] = useSearchParams();
+  const [search] = useSearchParams();
   const conversation =
-    (settings ? search.get('conversation') : null) ||
+    (settings ? (search.get('conversation') ?? conversationId) : null) ||
     state.selectedConversationId;
-  useEffect(() => {
-    if (settings && conversation && !search.has('conversation')) {
-      const next = new URLSearchParams(search);
-      next.set('conversation', conversation);
-      setSearch(next, { replace: true });
-    }
-  }, [settings, conversation, search, setSearch]);
   const [, refresh] = useState(0);
   if (!conversation)
     return settings ? (

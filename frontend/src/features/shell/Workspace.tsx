@@ -1554,7 +1554,11 @@ export default function Workspace() {
                       )}
                       <Suspense fallback={<Skeleton label="Opening view" />}>
                         <WorkspaceActionsContext.Provider
-                          value={{ resetLayout: () => update(resetLayout) }}
+                          value={{
+                            resetLayout: () => update(resetLayout),
+                            startProfileChat: (profile) =>
+                              void creation.newChat('', profile),
+                          }}
                         >
                           <Outlet />
                         </WorkspaceActionsContext.Provider>

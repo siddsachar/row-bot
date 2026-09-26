@@ -31,7 +31,13 @@ const KIND_WORDS: Record<ConversationKind, string> = {
   code: 'code coding workspace',
   workflow: 'workflow workflows',
 };
-import { settingsLeaves } from '../settings/model';
+import {
+  settingsKeywords,
+  settingsLeaves,
+  settingsRedirects,
+  settingsRowHref,
+  settingsRows,
+} from '../settings/model';
 
 export type PaletteGroup =
   'Conversations' | 'Messages' | 'Commands' | 'Settings' | 'Agents';
@@ -70,24 +76,12 @@ export function plainSnippet(text: string): string {
 }
 
 /** Words people search for that are not in a settings page's name. */
-const SETTINGS_KEYWORDS: Record<string, string> = {
-  providers: 'api key credentials ollama openai anthropic cloud connect',
-  models: 'default model thinking reasoning catalog pin',
-  knowledge: 'memory memories wiki graph dream cycle',
-  buddy: 'companion avatar pack desktop',
-  goals: 'agent profiles objectives',
-  voice: 'dictation talk speech microphone tts',
-  system: 'shell browser computer use tunnel remote access logging',
-  tracker: 'habits tracking',
-  documents: 'files upload pdf library',
-  tools: 'utilities search web built-in',
-  skills: 'hub install',
-  accounts: 'google gmail calendar oauth subscription',
-  channels: 'telegram discord slack messaging',
-  utilities: 'built-in helpers',
-  mcp: 'servers model context protocol connectors',
-  plugins: 'extensions install',
-  preferences: 'appearance theme dark light density language migration',
+/** Former page names still find their page ("Open Utilities settings"). */
+const LEGACY_SETTING_NAMES: Record<string, string> = {
+  knowledge: 'Knowledge',
+  tools: 'Utilities',
+  profiles: 'Profiles',
+  data: 'Migration',
 };
 
 const GROUP_ORDER: readonly PaletteGroup[] = [
@@ -226,11 +220,17 @@ export default function CommandPalette({
           });
       }
       for (const leaf of settingsLeaves) {
+        const legacy = LEGACY_SETTING_NAMES[leaf.id];
+        const aliases = Object.entries(settingsRedirects)
+          .filter(([, target]) => target.leaf === leaf.id)
+          .map(([alias]) => alias)
+          .join(' ');
         const score = fuzzyScore(
           trimmed,
           leaf.label,
           `Open ${leaf.label} settings`,
-          `${leaf.category} ${SETTINGS_KEYWORDS[leaf.id] ?? ''}`,
+          legacy ? `Open ${legacy} settings` : undefined,
+          `${leaf.category} ${settingsKeywords[leaf.id]} ${aliases}`,
         );
         if (score !== null)
           results.push({
@@ -242,6 +242,22 @@ export default function CommandPalette({
             score,
             run: () => onOpenSetting(leaf.href),
           });
+      }
+      // Individual settings rows, below pages that match as well.
+      for (const row of settingsRows) {
+        const score = fuzzyScore(trimmed, row.label, row.keywords);
+        if (score !== null && score >= LITERAL_SCORE) {
+          const page = settingsLeaves.find((leaf) => leaf.id === row.leaf);
+          results.push({
+            id: `setting-row:${row.leaf}:${row.anchor}`,
+            group: 'Settings',
+            label: row.label,
+            detail: page ? `${page.label} settings` : 'Settings',
+            icon: <Settings size={16} />,
+            score: score - 60,
+            run: () => onOpenSetting(settingsRowHref(row)),
+          });
+        }
       }
       if (onStartAgent)
         for (const agent of agents) {

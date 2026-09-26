@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import {
+  Activity,
+  UserRound,
   BarChart3,
   BookOpen,
   Bot,
@@ -30,7 +32,6 @@ import {
   SquareTerminal,
   Square,
   Play,
-  Trash2,
   Volume2,
   Wrench,
 } from 'lucide-react';
@@ -61,10 +62,25 @@ import {
   Button,
   CompactAction,
   Field,
+  IconButton,
   Input,
   Select,
   Toggle,
 } from '../../ui/primitives';
+import {
+  absoluteTime,
+  credentialSourceLabel,
+  humanizeToken,
+  maskedTail,
+  relativeTime,
+} from '../../ui/format';
+import {
+  DangerAction,
+  SettingsAdvanced,
+  SettingsDangerZone,
+  SettingsSummary,
+  SummaryChip,
+} from './anatomy';
 
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
 export type SettingsPage = SettingsMutationRequest['page'];
@@ -117,6 +133,8 @@ export type SettingsMutationIO = {
   refreshSnapshot?: () => Promise<SettingsSnapshot>;
   drafts: SettingsDraftOwner;
   onSnapshot: (snapshot: SettingsSnapshot) => void;
+  /** Saved defaults for this page's fields, when the server reports them. */
+  defaults?: Partial<Record<string, SettingsValue>>;
 };
 export type SettingsFolderGrant = {
   status: 'selected' | 'cancelled' | 'unavailable';
@@ -150,19 +168,24 @@ function Section({
   description,
   icon: Icon,
   tone = '',
+  anchor,
   children,
 }: {
   title: string;
   description: string;
   icon: Icon;
   tone?: 'warning' | 'danger' | '';
+  /** Row-search target; defaults to the title as a slug. */
+  anchor?: string;
   children: ReactNode;
 }) {
-  const id = `settings-snapshot-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const id = `settings-snapshot-${slug}`;
   return (
     <section
       className={`settings-snapshot-section stack ${tone ? `is-${tone}` : ''}`}
       aria-labelledby={id}
+      data-setting-anchor={anchor ?? slug}
     >
       <header className="settings-snapshot-heading">
         <Icon size={18} aria-hidden />
@@ -242,11 +265,6 @@ function accountStateLabel(value: string) {
       unavailable: 'Unavailable',
     }[value] ?? savedStateLabel(value)
   );
-}
-function dateOnly(value: string | null) {
-  if (!value) return 'never';
-  const date = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
-  return date ?? value;
 }
 function formattedDateTime(value: string | null) {
   if (!value) return 'Never';
@@ -349,6 +367,7 @@ function SavedSetting({
   validate,
   group = false,
   autoSave = false,
+  layout = 'row',
   onDraftChange,
   children,
 }: {
@@ -359,6 +378,11 @@ function SavedSetting({
   hint?: string;
   group?: boolean;
   autoSave?: boolean;
+  /**
+   * "row" puts the control beside its label, "stack" below it; "bare" shows
+   * only the control (its own accessible name) inside a row that names it.
+   */
+  layout?: 'row' | 'stack' | 'bare';
   validate?: (value: SettingsValue) => string;
   onDraftChange?: (value: SettingsValue) => void;
   children: (state: {
@@ -379,6 +403,9 @@ function SavedSetting({
   const abort = useRef<AbortController | null>(null);
   const running = useRef(false);
   const dirty = !sameValue(draft, value);
+  const defaultValue = mutation.defaults?.[field];
+  const modified =
+    defaultValue !== undefined && !sameValue(value, defaultValue);
 
   useEffect(() => {
     if (!dirty && !busy) {
@@ -493,11 +520,26 @@ function SavedSetting({
       setBusy('');
     }
   }
+  const modifiedDot = modified ? (
+    <span
+      className="settings-modified-dot"
+      aria-hidden
+      title="Changed from default"
+    />
+  ) : null;
   return (
-    <div className="settings-saved-control" aria-busy={!!busy}>
+    <div
+      className="settings-saved-control"
+      aria-busy={!!busy}
+      data-setting-anchor={field}
+      data-modified={modified ? 'true' : undefined}
+    >
       {group ? (
         <fieldset className="field settings-choice-field">
-          <legend>{label}</legend>
+          <legend>
+            {label}
+            {modifiedDot}
+          </legend>
           {children({
             value: draft,
             setValue: change,
@@ -505,8 +547,19 @@ function SavedSetting({
           })}
           {hint && <small>{hint}</small>}
         </fieldset>
+      ) : layout === 'bare' ? (
+        children({
+          value: draft,
+          setValue: change,
+          disabled: !!busy || !!pendingCommand,
+        })
       ) : (
-        <Field label={label} hint={hint}>
+        <Field
+          label={label}
+          hint={hint}
+          layout={layout}
+          labelAddon={modifiedDot}
+        >
           {children({
             value: draft,
             setValue: change,
@@ -515,6 +568,19 @@ function SavedSetting({
         </Field>
       )}
       <div className="settings-control-actions">
+        {modified && !dirty && !pendingCommand && (
+          <IconButton
+            size="sm"
+            label={`Reset ${label} to default`}
+            disabled={!!busy}
+            onClick={() => {
+              setDraft(defaultValue as SettingsValue);
+              void saveChange(defaultValue as SettingsValue);
+            }}
+          >
+            <RotateCcw size={14} aria-hidden />
+          </IconButton>
+        )}
         {dirty && autoSave && error && !pendingCommand && (
           <Button onClick={() => void saveChange()} disabled={!!busy}>
             Retry
@@ -814,6 +880,7 @@ function TextSetting({
       label={label}
       value={value}
       hint={hint}
+      layout={multiline ? 'stack' : 'row'}
     >
       {({ value: draft, setValue, disabled }) =>
         multiline ? (
@@ -931,12 +998,15 @@ function SwitchSetting({
   label,
   value,
   hint,
+  bare = false,
 }: {
   mutation: SettingsMutationIO;
   field: string;
   label: string;
   value: boolean;
   hint?: string;
+  /** Only the switch, for rows that already show the name beside it. */
+  bare?: boolean;
 }) {
   return (
     <SavedSetting
@@ -945,6 +1015,7 @@ function SwitchSetting({
       label={label}
       value={value}
       hint={hint}
+      layout={bare ? 'bare' : 'row'}
       autoSave
     >
       {({ value: draft, setValue, disabled }) => (
@@ -968,6 +1039,7 @@ function NumberSetting({
   max,
   step = 1,
   optional = false,
+  hint,
 }: {
   mutation: SettingsMutationIO;
   field: string;
@@ -977,6 +1049,7 @@ function NumberSetting({
   max: number;
   step?: number;
   optional?: boolean;
+  hint?: string;
 }) {
   return (
     <SavedSetting
@@ -984,6 +1057,7 @@ function NumberSetting({
       field={field}
       label={label}
       value={value}
+      hint={hint}
       validate={(draft) =>
         draft == null ||
         (typeof draft === 'number' && draft >= min && draft <= max)
@@ -1195,28 +1269,52 @@ function SecretSetting({
   label,
   configured,
   source,
+  fingerprint,
 }: {
   mutation: SettingsMutationIO;
   field: string;
   label: string;
   configured: boolean;
   source?: string | null;
+  fingerprint?: string | null;
 }) {
   const [editing, setEditing] = useState(() =>
     mutation.drafts.has(mutation.page, field),
   );
+  const tail = maskedTail(fingerprint);
+  const where = credentialSourceLabel(source);
+  const saved = /key|token|credential/i.test(label) ? 'Key saved' : 'Saved';
   return (
-    <div className="settings-secret-control">
+    <div className="settings-secret-control" data-setting-anchor={field}>
       <div className="settings-secret-summary">
-        <div className="settings-summary-strip">
-          <StateChip active={configured} warning={!configured}>
-            {configured ? 'Saved · masked' : 'Not configured'}
-          </StateChip>
-          {source && <StateChip>{source}</StateChip>}
+        <div className="settings-secret-text">
+          <span className="settings-secret-label">{label}</span>
+          <span className="settings-secret-state">
+            {configured ? (
+              <>
+                {saved}
+                {tail && (
+                  <>
+                    {' · '}
+                    <span className="settings-secret-tail">{tail}</span>
+                  </>
+                )}
+                {where && ` · ${where}`}
+              </>
+            ) : (
+              'Not set'
+            )}
+          </span>
         </div>
         {!editing && (
-          <Button variant="ghost" onClick={() => setEditing(true)}>
-            {configured ? `Replace or remove ${label}` : `Add ${label}`}
+          <Button
+            variant={configured ? 'ghost' : 'secondary'}
+            aria-label={
+              configured ? `Replace or remove ${label}` : `Add ${label}`
+            }
+            onClick={() => setEditing(true)}
+          >
+            {configured ? 'Replace' : 'Add'}
           </Button>
         )}
       </div>
@@ -1287,8 +1385,17 @@ export function VoiceSnapshotPanel({
     if (!mutation.drafts.has(mutation.page, 'runtime.talk_provider'))
       setTalkProvider(snapshot.runtime.talk_provider);
   }, [mutation.drafts, mutation.page, snapshot.runtime.talk_provider]);
+  const readAloudOn = snapshot.tts.installed && snapshot.tts.enabled;
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
+      <SettingsSummary>
+        <SummaryChip>
+          {talkProvider === 'openai_realtime' ? 'Realtime Talk' : 'Local Talk'}
+        </SummaryChip>
+        <SummaryChip tone={readAloudOn ? 'success' : undefined}>
+          {readAloudOn ? 'Read aloud on' : 'Read aloud off'}
+        </SummaryChip>
+      </SettingsSummary>
       <Section
         title="Talk"
         description="Continuous voice conversation through the normal chat and approval path."
@@ -1326,17 +1433,19 @@ export function VoiceSnapshotPanel({
             />
           )}
         </div>
-        <p className="settings-help">
-          {talkProvider === 'local'
-            ? 'Local Talk keeps microphone transcription on this machine, then sends finished text through normal chat.'
-            : 'Realtime Talk sends live microphone audio only while an explicitly started session is active.'}
-        </p>
-        <Link
-          className="button"
-          to={conversationId ? `/conversations/${conversationId}` : '/'}
-        >
-          {conversationId ? 'Open conversation voice' : 'Open a conversation'}
-        </Link>
+        <div className="settings-inline-row">
+          <p className="settings-help">
+            {talkProvider === 'local'
+              ? 'Local Talk keeps microphone transcription on this machine, then sends finished text through normal chat.'
+              : 'Realtime Talk sends live microphone audio only while an explicitly started session is active.'}
+          </p>
+          <Link
+            className="button ghost"
+            to={conversationId ? `/conversations/${conversationId}` : '/'}
+          >
+            {conversationId ? 'Open conversation voice' : 'Open a conversation'}
+          </Link>
+        </div>
       </Section>
       {talkProvider === 'openai_realtime' && (
         <Section
@@ -1385,9 +1494,10 @@ export function VoiceSnapshotPanel({
         </div>
       </Section>
       <Section
-        title="Normal Read-Aloud"
-        description="Hear non-Realtime responses using the configured speech output."
+        title="Read aloud"
+        description="Hear responses spoken with the configured speech output."
         icon={Volume2}
+        anchor="read-aloud"
       >
         <div className="settings-control-grid">
           <SelectSetting
@@ -1455,8 +1565,7 @@ export function VoiceSnapshotPanel({
           />
         )}
       </Section>
-      <details className="settings-snapshot-disclosure">
-        <summary>Models &amp; setup</summary>
+      <SettingsAdvanced meta="Voice models, setup and diagnostics">
         <Section
           title="Voice Models"
           description="Saved runtime choices and masked provider configuration."
@@ -1521,13 +1630,10 @@ export function VoiceSnapshotPanel({
               />
             </>
           )}
-          <Link className="button" to="/settings/providers">
+          <Link className="button ghost" to="/settings/providers">
             Open Providers
           </Link>
         </Section>
-      </details>
-      <details className="settings-snapshot-disclosure">
-        <summary>Diagnostics</summary>
         <Section
           title="Diagnostics"
           description="Cached audio configuration; no device or provider was probed."
@@ -1542,7 +1648,7 @@ export function VoiceSnapshotPanel({
             cost while active.
           </p>
         </Section>
-      </details>
+      </SettingsAdvanced>
     </div>
   );
 }
@@ -1579,77 +1685,235 @@ export function SystemSnapshotPanel({
   mutation,
   pickFolder,
   writeClipboard,
+  part = 'system',
 }: {
   snapshot: SettingsSnapshot['system'];
   mutation: SettingsMutationIO;
   pickFolder?: SettingsFolderPicker;
   writeClipboard?: ClientPlatform['writeClipboard'];
+  /** System: this machine's capabilities. Access: reaching it from elsewhere. */
+  part?: 'system' | 'access';
 }) {
   const appAvailability = useSyncExternalStore(
     appPwaClient.subscribe,
     appPwaClient.getSnapshot,
   );
+  if (part === 'access')
+    return (
+      <div className="stack settings-snapshot-page settings-access-page">
+        <SettingsSummary>
+          <SummaryChip
+            tone={
+              snapshot.remote_access.listen_mode === 'local_only'
+                ? 'success'
+                : 'warning'
+            }
+          >
+            {snapshot.remote_access.listen_mode === 'local_only'
+              ? 'This device only'
+              : 'Local network'}
+          </SummaryChip>
+          <SummaryChip>
+            {snapshot.mobile_access.active_sessions === 1
+              ? '1 session'
+              : `${snapshot.mobile_access.active_sessions} sessions`}
+          </SummaryChip>
+        </SettingsSummary>
+        <Section
+          title="Remote access"
+          description="Every non-local device needs a revocable authenticated session."
+          icon={ShieldCheck}
+          anchor="remote-access"
+        >
+          <SelectSetting
+            mutation={mutation}
+            field="remote_access.listen_mode"
+            label="Listen mode"
+            value={snapshot.remote_access.listen_mode}
+            options={[
+              { value: 'local_only', label: 'This device only' },
+              { value: 'local_network', label: 'Local network' },
+            ]}
+          />
+          <DelimitedListSetting
+            mutation={mutation}
+            field="remote_access.configured_origins"
+            label="Allowed origins"
+            value={snapshot.remote_access.configured_origins}
+            hint="Comma-separated exact origins."
+          />
+          <p className="settings-help">
+            Tailscale and host admission: not checked.
+          </p>
+          <Facts>
+            <Fact
+              label="Remote access availability"
+              value={savedStateLabel(snapshot.mobile_access.availability)}
+            />
+            <Fact
+              label="Connected devices"
+              value={snapshot.mobile_access.active_devices}
+            />
+            <Fact
+              label="Authenticated sessions"
+              value={snapshot.mobile_access.active_sessions}
+            />
+          </Facts>
+        </Section>
+        <Section
+          title="Tunnel"
+          description="Expose the app through ngrok. Checks and starts are always explicit."
+          icon={Network}
+          anchor="tunnel"
+        >
+          <details>
+            <summary>Tunnel setup</summary>
+            <p className="settings-help">
+              Create an ngrok account at{' '}
+              <a
+                href="https://ngrok.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                ngrok.com
+              </a>
+              , then copy your authtoken from the{' '}
+              <a
+                href="https://dashboard.ngrok.com/get-started/your-authtoken"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                ngrok dashboard
+              </a>
+              . Save it below before checking or starting a tunnel.
+            </p>
+          </details>
+          <SelectSetting
+            mutation={mutation}
+            field="tunnel.provider"
+            label="Tunnel provider"
+            value={snapshot.tunnel.provider}
+            options={[{ value: 'ngrok', label: 'ngrok' }]}
+          />
+          <SecretSetting
+            mutation={mutation}
+            field="tunnel.credential"
+            label="Tunnel credential"
+            configured={snapshot.tunnel.credential.configured}
+            source={snapshot.tunnel.credential.source}
+            fingerprint={snapshot.tunnel.credential.fingerprint}
+          />
+          <p className="settings-help">
+            Runtime status: {savedStateLabel(snapshot.tunnel.runtime_state)}.{' '}
+            {snapshot.tunnel.active_count == null
+              ? 'Active tunnel count not checked.'
+              : `${snapshot.tunnel.active_count} active tunnels.`}{' '}
+            Opening Settings never starts or exposes a tunnel.
+          </p>
+          <Facts>
+            <Fact
+              label="Expose task webhook endpoint after restart"
+              value={enabledLabel(snapshot.tunnel.main_app_enabled)}
+            />
+            <Fact
+              label="Current app tunnel"
+              value={snapshot.tunnel.main_app_url ? 'Active' : 'Not active'}
+            />
+          </Facts>
+          {snapshot.tunnel.main_app_url &&
+            snapshot.tunnel.local_owner_control_available && (
+              <TaskWebhookUrl
+                baseUrl={snapshot.tunnel.main_app_url}
+                writeClipboard={writeClipboard}
+              />
+            )}
+          {snapshot.tunnel.local_owner_control_available ? (
+            <div className="settings-action-grid">
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="tunnel.check"
+                label="Check tunnel setup"
+                description="Checks saved local configuration without opening a tunnel."
+              />
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="tunnel.start_main"
+                label="Start app tunnel"
+                description="Exposes the local app and task webhook endpoint through ngrok and saves this choice for restart."
+              />
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="tunnel.stop_main"
+                label="Stop app tunnel"
+                description="Stops the Row-Bot app tunnel and disables its restart preference."
+              />
+            </div>
+          ) : (
+            <p className="settings-help">
+              Tunnel controls are available in the local owner session.
+            </p>
+          )}
+        </Section>
+      </div>
+    );
+  const cu = snapshot.computer_use;
   return (
     <div className="stack settings-snapshot-page settings-system-page">
-      <Section
-        title="App availability"
-        description="Install and offline support for this browser."
-        icon={AppWindow}
-      >
-        <p role="status">
+      <SettingsSummary>
+        <SummaryChip tone={snapshot.workspace.exists ? 'success' : 'warning'}>
+          {snapshot.workspace.exists
+            ? 'Workspace folder ready'
+            : 'Workspace folder missing'}
+        </SummaryChip>
+        <SummaryChip
+          tone={
+            appAvailability.phase === 'ready'
+              ? 'success'
+              : appAvailability.phase === 'error'
+                ? 'danger'
+                : undefined
+          }
+          title="Install and offline support for this browser"
+        >
           {appAvailability.phase === 'offline'
-            ? 'Offline. Unsent drafts remain on this device.'
-            : appAvailability.phase === 'error'
-              ? 'Install and offline support are unavailable. Check browser storage and service worker permissions.'
+            ? 'Offline'
+            : appAvailability.phase === 'ready'
+              ? 'Offline ready'
               : appAvailability.phase === 'unsupported'
-                ? 'This browser does not support install and offline mode.'
-                : appAvailability.updateAvailable
-                  ? 'An update is ready to apply from the app notice.'
-                  : appAvailability.phase === 'ready'
-                    ? 'Install and offline support are ready.'
-                    : 'Checking install and offline support.'}
-        </p>
-      </Section>
+                ? 'No offline mode'
+                : appAvailability.phase === 'error'
+                  ? 'Offline unavailable'
+                  : 'Checking offline'}
+        </SummaryChip>
+      </SettingsSummary>
       <Section
-        title="Workspace Folder"
+        title="Workspace folder"
         description="The filesystem tool is sandboxed to this folder."
         icon={HardDrive}
+        anchor="workspace-folder"
       >
         <WorkspaceFolderSetting
           key={mutation.revision}
           mutation={mutation}
           configured={snapshot.workspace.configured}
           currentName={snapshot.workspace.label}
+          exists={snapshot.workspace.exists}
           pickFolder={pickFolder}
         />
-        <StateChip
-          active={snapshot.workspace.exists}
-          warning={!snapshot.workspace.exists}
-        >
-          {snapshot.workspace.exists ? 'Folder available' : 'Folder not found'}
-        </StateChip>
       </Section>
       <Section
-        title="Shell Access"
+        title="Shell access"
         description="Shell commands run directly on the host inside saved boundaries."
         icon={SquareTerminal}
-        tone="warning"
+        anchor="shell"
       >
         {snapshot.shell.available && snapshot.shell.enabled != null ? (
-          <>
-            <SwitchSetting
-              mutation={mutation}
-              field="shell.enabled"
-              label="Enable Shell tool"
-              value={snapshot.shell.enabled}
-            />
-            <TextSetting
-              mutation={mutation}
-              field="shell.blocked_patterns"
-              label="Additional blocked patterns (comma-separated)"
-              value={snapshot.shell.blocked_patterns}
-            />
-          </>
+          <SwitchSetting
+            mutation={mutation}
+            field="shell.enabled"
+            label="Enable Shell tool"
+            value={snapshot.shell.enabled}
+          />
         ) : (
           <StateChip warning>Shell tool not found</StateChip>
         )}
@@ -1658,6 +1922,7 @@ export function SystemSnapshotPanel({
         title="Browser & Computer Use"
         description="Web and native-app automation keep separate setup and authority."
         icon={AppWindow}
+        anchor="browser-computer-use"
       >
         <div className="settings-system-runtime-list">
           {snapshot.browser.available && snapshot.browser.enabled != null ? (
@@ -1789,17 +2054,6 @@ export function SystemSnapshotPanel({
                       />
                     )}
                   </details>
-                  <details>
-                    <summary>Manage Computer Use runtime</summary>
-                    <ReviewedSettingsAction
-                      mutation={mutation}
-                      field="computer_use.remove"
-                      label="Remove managed Cua runtime"
-                      description="Remove Row-Bot's managed Cua Driver and disable Computer Use."
-                      variant="danger"
-                      confirm="This deletes the managed runtime files. You can install the reviewed runtime again later."
-                    />
-                  </details>
                 </div>
               )}
             <details className="settings-system-detail">
@@ -1835,9 +2089,10 @@ export function SystemSnapshotPanel({
           )}
       </Section>
       <Section
-        title="File Operations"
-        description="Saved read, write, and destructive filesystem operations."
+        title="File operations"
+        description="Which read, write and destructive filesystem operations are allowed."
         icon={FileText}
+        anchor="file-operations"
       >
         {snapshot.file_operations.available &&
         snapshot.file_operations.enabled != null ? (
@@ -1861,147 +2116,20 @@ export function SystemSnapshotPanel({
         )}
       </Section>
       <Section
-        title="Tunnel Settings"
-        description="Credentials remain masked; tunnel checks require an explicit action."
-        icon={Network}
-      >
-        <details>
-          <summary>Tunnel setup</summary>
-          <p className="settings-help">
-            Create an ngrok account at{' '}
-            <a
-              href="https://ngrok.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              ngrok.com
-            </a>
-            , then copy your authtoken from the{' '}
-            <a
-              href="https://dashboard.ngrok.com/get-started/your-authtoken"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              ngrok dashboard
-            </a>
-            . Save it below before checking or starting a tunnel.
-          </p>
-        </details>
-        <SelectSetting
-          mutation={mutation}
-          field="tunnel.provider"
-          label="Tunnel provider"
-          value={snapshot.tunnel.provider}
-          options={[{ value: 'ngrok', label: 'ngrok' }]}
-        />
-        <SecretSetting
-          mutation={mutation}
-          field="tunnel.credential"
-          label="Tunnel credential"
-          configured={snapshot.tunnel.credential.configured}
-          source={snapshot.tunnel.credential.source}
-        />
-        <p className="settings-help">
-          Runtime status: {savedStateLabel(snapshot.tunnel.runtime_state)}.{' '}
-          {snapshot.tunnel.active_count == null
-            ? 'Active tunnel count not checked.'
-            : `${snapshot.tunnel.active_count} active tunnels.`}{' '}
-          Opening Settings never starts or exposes a tunnel.
-        </p>
-        <Facts>
-          <Fact
-            label="Expose task webhook endpoint after restart"
-            value={enabledLabel(snapshot.tunnel.main_app_enabled)}
-          />
-          <Fact
-            label="Current app tunnel"
-            value={snapshot.tunnel.main_app_url ? 'Active' : 'Not active'}
-          />
-        </Facts>
-        {snapshot.tunnel.main_app_url &&
-          snapshot.tunnel.local_owner_control_available && (
-            <TaskWebhookUrl
-              baseUrl={snapshot.tunnel.main_app_url}
-              writeClipboard={writeClipboard}
-            />
-          )}
-        {snapshot.tunnel.local_owner_control_available ? (
-          <div className="settings-action-grid">
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="tunnel.check"
-              label="Check tunnel setup"
-              description="Checks saved local configuration without opening a tunnel."
-            />
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="tunnel.start_main"
-              label="Start app tunnel"
-              description="Exposes the local app and task webhook endpoint through ngrok and saves this choice for restart."
-            />
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="tunnel.stop_main"
-              label="Stop app tunnel"
-              description="Stops the Row-Bot app tunnel and disables its restart preference."
-            />
-          </div>
-        ) : (
-          <p className="settings-help">
-            Tunnel controls are available in the local owner session.
-          </p>
-        )}
-      </Section>
-      <Section
-        title="Remote Access"
-        description="Every non-local device needs a revocable authenticated session."
-        icon={ShieldCheck}
-        tone="warning"
-      >
-        <SelectSetting
-          mutation={mutation}
-          field="remote_access.listen_mode"
-          label="Listen mode"
-          value={snapshot.remote_access.listen_mode}
-          options={[
-            { value: 'local_only', label: 'This device only' },
-            { value: 'local_network', label: 'Local network' },
-          ]}
-        />
-        <DelimitedListSetting
-          mutation={mutation}
-          field="remote_access.configured_origins"
-          label="Allowed origins"
-          value={snapshot.remote_access.configured_origins}
-          hint="Comma-separated exact origins."
-        />
-        <p className="settings-help">
-          Tailscale and host admission: not checked.
-        </p>
-        <Facts>
-          <Fact
-            label="Remote access availability"
-            value={savedStateLabel(snapshot.mobile_access.availability)}
-          />
-          <Fact
-            label="Connected devices"
-            value={snapshot.mobile_access.active_devices}
-          />
-          <Fact
-            label="Authenticated sessions"
-            value={snapshot.mobile_access.active_sessions}
-          />
-        </Facts>
-      </Section>
-      <Section
-        title="Logging & Diagnostics"
-        description="Local diagnostic level and output directory."
+        title="Logging"
+        description="Local diagnostic level and output folder."
         icon={ListChecks}
+        anchor="logging"
       >
         <SelectSetting
           mutation={mutation}
           field="logging.level"
           label="File log level"
+          hint={
+            snapshot.logging.directory_available
+              ? 'Logs are written to a local folder.'
+              : 'The log folder is created when logging starts.'
+          }
           value={snapshot.logging.level}
           options={[
             { value: 'DEBUG', label: 'Debug' },
@@ -2010,16 +2138,6 @@ export function SystemSnapshotPanel({
             { value: 'ERROR', label: 'Error' },
           ]}
         />
-        <Facts>
-          <Fact
-            label="Log directory"
-            value={
-              snapshot.logging.directory_available
-                ? 'Available locally'
-                : 'Created when logging starts'
-            }
-          />
-        </Facts>
         <ReviewedSettingsAction
           mutation={mutation}
           field="logging.open"
@@ -2027,6 +2145,53 @@ export function SystemSnapshotPanel({
           description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
         />
       </Section>
+      <SettingsAdvanced meta="Blocked commands, offline support">
+        {snapshot.shell.available && snapshot.shell.enabled != null && (
+          <TextSetting
+            mutation={mutation}
+            field="shell.blocked_patterns"
+            label="Additional blocked patterns (comma-separated)"
+            value={snapshot.shell.blocked_patterns}
+          />
+        )}
+        <div className="settings-inline-row">
+          <div>
+            <strong>App availability</strong>
+            <p role="status">
+              {appAvailability.phase === 'offline'
+                ? 'Offline. Unsent drafts remain on this device.'
+                : appAvailability.phase === 'error'
+                  ? 'Install and offline support are unavailable. Check browser storage and service worker permissions.'
+                  : appAvailability.phase === 'unsupported'
+                    ? 'This browser does not support install and offline mode.'
+                    : appAvailability.updateAvailable
+                      ? 'An update is ready to apply from the app notice.'
+                      : appAvailability.phase === 'ready'
+                        ? 'Install and offline support are ready.'
+                        : 'Checking install and offline support.'}
+            </p>
+          </div>
+        </div>
+      </SettingsAdvanced>
+      {cu.available &&
+        cu.local_owner_control_available &&
+        cu.disclosure_acknowledged && (
+          <SettingsDangerZone>
+            <DangerAction
+              title="Remove the managed Computer Use runtime"
+              description="Deletes Row-Bot's managed Cua Driver and turns Computer Use off. You can install it again later."
+            >
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="computer_use.remove"
+                label="Remove managed Cua runtime"
+                description=""
+                variant="danger"
+                confirm="This deletes the managed runtime files. You can install the reviewed runtime again later."
+              />
+            </DangerAction>
+          </SettingsDangerZone>
+        )}
     </div>
   );
 }
@@ -2035,11 +2200,13 @@ function WorkspaceFolderSetting({
   mutation,
   configured,
   currentName,
+  exists,
   pickFolder,
 }: {
   mutation: SettingsMutationIO;
   configured: boolean;
   currentName: string;
+  exists?: boolean;
   pickFolder?: SettingsFolderPicker;
 }) {
   const [selectedName, setSelectedName] = useState('');
@@ -2056,13 +2223,18 @@ function WorkspaceFolderSetting({
       group
     >
       {({ setValue, disabled }) => (
-        <div className="stack">
-          <p className="settings-help">
-            {configured
-              ? `Current folder: ${currentName || 'Selected local folder'}.`
-              : 'No workspace folder selected.'}{' '}
-            The full local path is never sent to the renderer.
-          </p>
+        <div className="settings-inline-row settings-folder-row">
+          <div>
+            <strong>
+              {configured
+                ? `Current folder: ${currentName || 'Selected local folder'}`
+                : 'No workspace folder selected'}
+            </strong>
+            <p>
+              {exists === false && configured ? 'Folder not found. ' : ''}
+              The full local path is never sent to the renderer.
+            </p>
+          </div>
           <Button
             disabled={disabled || picking || !pickFolder}
             onClick={() => {
@@ -2098,19 +2270,44 @@ function WorkspaceFolderSetting({
   );
 }
 
+const trackerKinds: Record<string, string> = {
+  boolean: 'Yes or no',
+  duration: 'Duration',
+  count: 'Count',
+  numeric: 'Number',
+  number: 'Number',
+  scale: 'Scale',
+  text: 'Note',
+};
+
 export function TrackerSnapshotPanel({
   snapshot,
   mutation,
+  showDanger = true,
 }: {
   snapshot: SettingsSnapshot['tracker'];
   mutation: SettingsMutationIO;
+  showDanger?: boolean;
 }) {
   return (
     <div className="stack settings-snapshot-page">
+      <SettingsSummary>
+        <SummaryChip>
+          {snapshot.items.length === 1
+            ? '1 tracker'
+            : `${snapshot.items.length} trackers`}
+        </SummaryChip>
+        <SummaryChip>
+          {snapshot.total_entries === 1
+            ? '1 entry'
+            : `${snapshot.total_entries.toLocaleString()} entries`}
+        </SummaryChip>
+      </SettingsSummary>
       <Section
         title="Tracker Tool"
-        description="Enable the tool and review locally stored tracker data."
+        description="Lets the assistant log and review habits, symptoms and health events."
         icon={ListChecks}
+        anchor="tracker.enabled"
       >
         {snapshot.tool_available && snapshot.enabled != null ? (
           <SwitchSetting
@@ -2123,48 +2320,73 @@ export function TrackerSnapshotPanel({
           <StateChip warning>Tracker tool not found</StateChip>
         )}
       </Section>
-      <div
-        className="settings-summary-strip"
-        role="group"
-        aria-label="Tracker totals"
+      <Section
+        title="Trackers"
+        description="Stored on this device."
+        icon={CalendarClock}
+        anchor="trackers"
       >
-        <StateChip>{snapshot.items.length} active trackers</StateChip>
-        <StateChip>{snapshot.total_entries} entries</StateChip>
-      </div>
-      {snapshot.items.length ? (
-        <>
-          <ul className="settings-compact-list" aria-label="Saved trackers">
+        {snapshot.items.length ? (
+          <ul className="settings-row-list" aria-label="Saved trackers">
             {snapshot.items.map((tracker) => (
               <li key={tracker.tracker_id}>
-                <strong>
-                  {tracker.icon} {tracker.name}
-                </strong>
-                <span>
-                  {tracker.kind}
-                  {tracker.unit ? ` · ${tracker.unit}` : ''}
-                  {tracker.last_event_at
-                    ? ` · Last ${dateOnly(tracker.last_event_at)}`
-                    : ''}
+                <span className="settings-row-list-icon" aria-hidden>
+                  {tracker.icon || <Activity size={15} aria-hidden />}
                 </span>
-                <StateChip>{tracker.entry_count} entries</StateChip>
+                <div className="settings-row-list-text">
+                  <strong>{tracker.name}</strong>
+                  <small>
+                    {trackerKinds[tracker.kind] ?? humanizeToken(tracker.kind)}
+                    {tracker.unit ? ` · ${tracker.unit}` : ''}
+                    {tracker.last_event_at ? (
+                      <>
+                        {' · Last '}
+                        <time
+                          dateTime={tracker.last_event_at}
+                          title={absoluteTime(tracker.last_event_at)}
+                        >
+                          {relativeTime(tracker.last_event_at)}
+                        </time>
+                      </>
+                    ) : (
+                      ' · No entries yet'
+                    )}
+                  </small>
+                </div>
+                <span className="settings-row-list-meta">
+                  {tracker.entry_count === 1
+                    ? '1 entry'
+                    : `${tracker.entry_count} entries`}
+                </span>
               </li>
             ))}
           </ul>
-          <div className="settings-tracker-danger">
-            <Section
-              title="Danger Zone"
-              description="Delete all habit and health tracker rows."
-              icon={Trash2}
-              tone="danger"
-            >
-              <TrackerDeleteAll mutation={mutation} />
-            </Section>
-          </div>
-        </>
-      ) : (
-        <p className="muted">No trackers yet.</p>
+        ) : (
+          <p className="muted">No trackers yet.</p>
+        )}
+      </Section>
+      {showDanger && snapshot.items.length > 0 && (
+        <SettingsDangerZone>
+          <TrackerDangerAction mutation={mutation} />
+        </SettingsDangerZone>
       )}
     </div>
+  );
+}
+
+/** Delete every tracker row: a reviewed deletion with its own confirmation. */
+export function TrackerDangerAction({
+  mutation,
+}: {
+  mutation: SettingsMutationIO;
+}) {
+  return (
+    <DangerAction
+      title="Delete all tracker data"
+      description="Removes every habit and health tracker and all their entries. This cannot be undone."
+    >
+      <TrackerDeleteAll mutation={mutation} />
+    </DangerAction>
   );
 }
 
@@ -2354,7 +2576,7 @@ function AccountPanel({
       ? 'Not connected'
       : accountStateLabel(account.authentication_state);
   return (
-    <details className="settings-account-panel">
+    <details className="settings-account-panel" data-setting-anchor={prefix}>
       <summary>
         <Icon size={18} aria-hidden />
         <strong>{label}</strong>
@@ -2395,6 +2617,7 @@ function AccountPanel({
             label="GitHub token"
             configured={account.credential?.configured ?? false}
             source={account.credential?.source}
+            fingerprint={account.credential?.fingerprint}
           />
         )}
         {prefix === 'github' && showActions && (
@@ -2418,6 +2641,7 @@ function AccountPanel({
               label="X client secret"
               configured={account.credential?.configured ?? false}
               source={account.credential?.source}
+              fingerprint={account.credential?.fingerprint}
             />
             <ChoiceListSetting
               mutation={mutation}
@@ -2482,7 +2706,7 @@ function GoogleAccountPanel({
         : accountStateLabel(gmail.authentication_state)
       : `Gmail: ${accountStateLabel(gmail.authentication_state)} · Calendar: ${accountStateLabel(calendar.authentication_state)}`;
   return (
-    <details className="settings-account-panel">
+    <details className="settings-account-panel" data-setting-anchor="google">
       <summary>
         <FileKey size={18} aria-hidden />
         <strong>Google (Gmail &amp; Calendar)</strong>
@@ -2587,8 +2811,19 @@ export function AccountsSnapshotPanel({
         <StateChip warning>Account settings unavailable</StateChip>
       </Section>
     );
+  const connected = [
+    snapshot.github,
+    snapshot.gmail,
+    snapshot.calendar,
+    snapshot.x,
+  ].filter((account) => account.configured).length;
   return (
-    <div className="stack settings-snapshot-page">
+    <div className="stack settings-snapshot-page settings-accounts-page">
+      <SettingsSummary>
+        <SummaryChip tone={connected ? 'success' : undefined}>
+          {connected} configured
+        </SummaryChip>
+      </SettingsSummary>
       <AccountPanel
         label="GitHub"
         icon={GitBranch}
@@ -2641,61 +2876,54 @@ export function UtilitiesSnapshotPanel({
   if (snapshot.availability !== 'available')
     return (
       <Section
-        title="Utility Tools"
-        description="Saved utility settings are unavailable."
+        title="Built-in tools"
+        description="Saved built-in tool settings are unavailable."
         icon={Wrench}
+        anchor="built-in-tools"
       >
-        <StateChip warning>Utility settings unavailable</StateChip>
+        <StateChip warning>Built-in tool settings unavailable</StateChip>
       </Section>
     );
   return (
-    <div className="stack settings-snapshot-page">
-      <div
-        className="settings-summary-strip"
-        role="group"
-        aria-label="Utility totals"
-      >
-        <StateChip>
-          {utilities.filter((item) => item.enabled).length} enabled
-        </StateChip>
-        <StateChip>{availableUtilities.length} available</StateChip>
-      </div>
-      <Section
-        title="Utility Tools"
-        description="Toggle small tools used for everyday tasks."
-        icon={Wrench}
-      >
-        <ul className="settings-toggle-list settings-utility-list">
-          {utilities.map((utility) => {
-            const UtilityIcon = icons[utility.utility_id] ?? Wrench;
-            const presentation = utilityPresentation[utility.utility_id] ?? {
-              label: utility.label,
-              description: utility.description,
-            };
-            return (
-              <li key={utility.utility_id}>
-                <div className="settings-utility-toggle">
-                  <SwitchSetting
-                    mutation={mutation}
-                    field={`${utility.utility_id}.enabled`}
-                    label={`Enable ${presentation.label}`}
-                    value={Boolean(utility.enabled)}
-                  />
-                </div>
-                <UtilityIcon size={18} aria-hidden />
-                <div>
-                  <strong>{presentation.label}</strong>
-                  <small>{presentation.description}</small>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        {!utilities.length && (
-          <p className="settings-help">No utility tools are available.</p>
-        )}
-      </Section>
-    </div>
+    <Section
+      title="Built-in tools"
+      description={`Small tools for everyday tasks · ${utilities.filter((item) => item.enabled).length} of ${availableUtilities.length} on.`}
+      icon={Wrench}
+      anchor="built-in-tools"
+    >
+      <ul className="settings-row-list settings-utility-list">
+        {utilities.map((utility) => {
+          const UtilityIcon = icons[utility.utility_id] ?? Wrench;
+          const presentation = utilityPresentation[utility.utility_id] ?? {
+            label: utility.label,
+            description: utility.description,
+          };
+          return (
+            <li key={utility.utility_id}>
+              <span className="settings-row-list-icon" aria-hidden>
+                <UtilityIcon size={16} aria-hidden />
+              </span>
+              <div className="settings-row-list-text">
+                <strong>{presentation.label}</strong>
+                <small>{presentation.description}</small>
+              </div>
+              <div className="settings-utility-toggle">
+                <SwitchSetting
+                  mutation={mutation}
+                  field={`${utility.utility_id}.enabled`}
+                  label={`Enable ${presentation.label}`}
+                  value={Boolean(utility.enabled)}
+                  bare
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {!utilities.length && (
+        <p className="settings-help">No built-in tools are available.</p>
+      )}
+    </Section>
   );
 }
 
@@ -2745,28 +2973,26 @@ export function DocumentEmbeddingSnapshot({
   };
   return (
     <div className="stack settings-document-embedding-owner">
-      <div
-        className="settings-summary-strip settings-document-status-strip"
-        role="group"
-        aria-label="Document index status"
-      >
-        <StateChip>
+      <SettingsSummary>
+        <SummaryChip>
           {snapshot.indexed_documents == null
             ? 'Indexed count unavailable'
             : `${snapshot.indexed_documents.toLocaleString()} indexed`}
-        </StateChip>
-        <StateChip>{activeEmbedding}</StateChip>
-        <StateChip
-          active={vectors.state === 'current'}
-          warning={vectors.state !== 'current'}
+        </SummaryChip>
+        <SummaryChip
+          tone={vectors.state === 'current' ? 'success' : 'warning'}
+          title={vectors.detail}
         >
-          Vectors {vectors.state}
-        </StateChip>
-      </div>
+          {vectors.state === 'current'
+            ? 'Vectors current'
+            : `Vectors ${humanizeToken(vectors.state).toLowerCase()}`}
+        </SummaryChip>
+      </SettingsSummary>
       <Section
         title="Embedding Engine"
-        description="Local models stay private; cloud models send admitted text to the provider."
+        description={`Local models stay private; cloud models send admitted text to the provider. Active: ${activeEmbedding}.`}
         icon={Network}
+        anchor="embedding"
       >
         <div className="settings-control-grid">
           <SelectSetting
@@ -2815,6 +3041,8 @@ export function DocumentEmbeddingSnapshot({
             value={embedding.auto_unload}
           />
         </div>
+      </Section>
+      <SettingsAdvanced meta="Index health and maintenance">
         <div className="settings-document-runtime" role="status">
           {provider === 'local' && (
             <p>
@@ -2837,8 +3065,7 @@ export function DocumentEmbeddingSnapshot({
             rebuild either index.
           </p>
         </div>
-        <details className="settings-snapshot-disclosure">
-          <summary>Index &amp; model maintenance</summary>
+        <div className="settings-document-maintenance-wrap">
           <div
             className="settings-document-maintenance"
             role="group"
@@ -2880,8 +3107,8 @@ export function DocumentEmbeddingSnapshot({
               </>
             )}
           </div>
-        </details>
-      </Section>
+        </div>
+      </SettingsAdvanced>
     </div>
   );
 }
@@ -2966,10 +3193,20 @@ export function ToolConfigurationSnapshot({
     );
   return (
     <div className="stack settings-snapshot-page">
+      <SettingsSummary>
+        <SummaryChip>
+          {
+            snapshot.items.filter((tool) => tool.available && tool.enabled)
+              .length
+          }{' '}
+          research tools on
+        </SummaryChip>
+      </SettingsSummary>
       <Section
         title="Capability loading"
         description="Choose how enabled external capabilities are exposed to the model."
         icon={SlidersHorizontal}
+        anchor="capability-loading"
       >
         <RadioSetting
           mutation={mutation}
@@ -2990,9 +3227,10 @@ export function ToolConfigurationSnapshot({
         </p>
       </Section>
       <Section
-        title="Retrieval Compression"
+        title="Retrieval compression"
         description="Controls how search results are filtered before reaching the model."
         icon={Search}
+        anchor="retrieval-compression"
       >
         <SelectSetting
           mutation={mutation}
@@ -3007,25 +3245,28 @@ export function ToolConfigurationSnapshot({
       </Section>
       <Section
         title="Search & Knowledge Tools"
-        description="Saved enablement and masked configuration for research tools."
+        description="Research tools the assistant can use, with masked credentials."
         icon={BookOpen}
+        anchor="search-tools"
       >
-        <Field label="Search research tools">
+        <label className="settings-inline-search">
+          <span className="visually-hidden">Search research tools</span>
+          <Search size={14} aria-hidden />
           <Input
             type="search"
             value={toolQuery}
             onChange={(event) => setToolQuery(event.target.value)}
-            placeholder="Name or purpose"
+            placeholder="Filter by name or purpose"
           />
-        </Field>
-        <ul className="settings-toggle-list">
+        </label>
+        <ul className="settings-toggle-list settings-row-list">
           {tools.map((tool) => (
             <li key={tool.tool_id}>
-              <div>
+              <div className="settings-row-list-text">
                 <strong>{tool.displayLabel}</strong>
-                <small>{tool.description}</small>
                 <small>
-                  {tool.available ? 'Available' : 'Unavailable'}
+                  {tool.description}
+                  {!tool.available ? ' · Unavailable' : ''}
                   {tool.configured_fields.length
                     ? ` · ${tool.configured_fields.length} configured fields`
                     : ''}
@@ -3037,6 +3278,7 @@ export function ToolConfigurationSnapshot({
                   field={`${tool.tool_id}.enabled`}
                   label={`Enable ${tool.displayLabel}`}
                   value={tool.enabled}
+                  bare
                 />
               ) : (
                 <StateChip warning>Unavailable</StateChip>
@@ -3064,21 +3306,23 @@ export function ToolConfigurationSnapshot({
                         label={credential.label}
                         configured={credential.configured}
                         source={credential.source}
+                        fingerprint={credential.fingerprint}
                       />
                     ) : (
                       <div
-                        className="settings-summary-strip"
+                        className="settings-secret-summary"
                         key={credential.name}
                       >
-                        <strong>{credential.label}</strong>
-                        <StateChip
-                          active={credential.configured}
-                          warning={!credential.configured}
-                        >
-                          {credential.configured
-                            ? 'Saved · masked'
-                            : 'Not configured'}
-                        </StateChip>
+                        <div className="settings-secret-text">
+                          <span className="settings-secret-label">
+                            {credential.label}
+                          </span>
+                          <span className="settings-secret-state">
+                            {credential.configured
+                              ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
+                              : 'Not set'}
+                          </span>
+                        </div>
                       </div>
                     ),
                   )}
@@ -3099,167 +3343,67 @@ export function PreferencesSnapshotPanel({
   snapshot,
   mutation,
   showUpdateControls = false,
+  part = 'preferences',
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
   showUpdateControls?: boolean;
+  /** Preferences, or the Updates / Data pages that share its snapshot. */
+  part?: 'preferences' | 'updates' | 'data';
 }) {
-  return (
-    <div className="stack settings-snapshot-page">
-      <section
-        className="settings-preferences-identity stack"
-        aria-label="Assistant identity"
-      >
-        <div className="settings-preferences-block">
-          <h3>Assistant name</h3>
-          <TextSetting
-            mutation={mutation}
-            field="identity.name"
-            label="Name"
-            value={snapshot.identity.name}
-            maxLength={80}
-          />
-        </div>
-        <div className="settings-preferences-block">
-          <h3>Personality</h3>
-          <p className="settings-help">
-            Optional behaviour guidance, up to{' '}
-            {snapshot.identity.personality_max_length} characters.
-          </p>
-          <TextSetting
-            mutation={mutation}
-            field="identity.personality"
-            label="Personality"
-            value={snapshot.identity.personality}
-            maxLength={snapshot.identity.personality_max_length}
-            multiline
-          />
-          <p className="settings-help">
-            {snapshot.identity.personality.length} /{' '}
-            {snapshot.identity.personality_max_length}
-          </p>
-        </div>
-        <div className="settings-preferences-block">
-          <h3>Preview</h3>
-          <p className="settings-help settings-preferences-preview">
-            You are {snapshot.identity.name}, a knowledgeable personal assistant
-            with access to tools.
-            {snapshot.identity.personality
-              ? ` ${snapshot.identity.personality}`
-              : ''}
-          </p>
-        </div>
-        <div className="settings-preferences-block">
-          <h3>Self-Improvement</h3>
-          <p className="settings-help">
-            Allows the assistant to create and improve skills over time.
-          </p>
-          <SwitchSetting
-            mutation={mutation}
-            field="identity.self_improvement_enabled"
-            label="Enable self-improvement"
-            value={snapshot.identity.self_improvement_enabled}
-          />
-        </div>
-      </section>
-      <Section
-        title="Window Mode"
-        description="Controls how Row-Bot opens on the next launch."
-        icon={AppWindow}
-      >
-        <SelectSetting
-          mutation={mutation}
-          field="window_mode"
-          label="Window mode"
-          value={snapshot.window_mode}
-          options={[
-            { value: 'ask', label: 'Ask on Launch' },
-            { value: 'native', label: 'Native Window' },
-            { value: 'browser', label: 'System Browser' },
-          ]}
-        />
-        <p className="settings-help">
-          Native Window gives Row-Bot its own app window. System Browser uses
-          your default browser.
-        </p>
-      </Section>
-      <Section
-        title="Dream Cycle"
-        description="Idle background cleanup for memory and sparse knowledge."
-        icon={Moon}
-      >
-        <div className="settings-summary-strip">
-          <StateChip active={snapshot.dream_cycle.enabled}>
-            {enabledLabel(snapshot.dream_cycle.enabled)}
-          </StateChip>
-          <StateChip>
-            {String(snapshot.dream_cycle.window_start).padStart(2, '0')}:00–
-            {String(snapshot.dream_cycle.window_end).padStart(2, '0')}:00 idle
-            window
-          </StateChip>
-          <StateChip>
-            {formattedDateTime(snapshot.dream_cycle.last_run)} last run
-          </StateChip>
-        </div>
-        <div className="settings-control-grid">
-          <SwitchSetting
-            mutation={mutation}
-            field="dream_cycle.enabled"
-            label="Enable Dream Cycle"
-            value={snapshot.dream_cycle.enabled}
-          />
-          <NumberSetting
-            mutation={mutation}
-            field="dream_cycle.window_start"
-            label="Start hour"
-            value={snapshot.dream_cycle.window_start}
-            min={0}
-            max={23}
-          />
-          <NumberSetting
-            mutation={mutation}
-            field="dream_cycle.window_end"
-            label="End hour"
-            value={snapshot.dream_cycle.window_end}
-            min={0}
-            max={23}
-          />
-        </div>
-        {snapshot.dream_cycle.last_summary && (
-          <Facts>
-            <Fact
-              label="Last summary"
-              value={snapshot.dream_cycle.last_summary}
-            />
-          </Facts>
-        )}
-      </Section>
-      <Section
-        title="Updates"
-        description="Cached release state; no update check runs when Settings opens."
-        icon={RefreshCw}
-      >
-        <div className="settings-control-grid settings-update-primary">
+  if (part === 'updates')
+    return (
+      <div className="stack settings-snapshot-page settings-updates-page">
+        <SettingsSummary>
+          <SummaryChip tone="success">
+            {versionLabel(snapshot.updates.current_version)}
+          </SummaryChip>
+          <SummaryChip>
+            {snapshot.updates.channel === 'beta' ? 'Beta channel' : 'Stable'}
+          </SummaryChip>
+        </SettingsSummary>
+        <Section
+          title="Updates"
+          description="Cached release state; no update check runs when Settings opens."
+          icon={RefreshCw}
+          anchor="updates"
+        >
           <SelectSetting
             mutation={mutation}
             field="updates.channel"
             label="Update channel"
+            hint="Beta gets new features first and may be less stable."
             value={snapshot.updates.channel}
             options={[
               { value: 'stable', label: 'Stable' },
               { value: 'beta', label: 'Beta' },
             ]}
           />
+          <div className="settings-inline-row">
+            <div>
+              <strong>Last check</strong>
+              <p>
+                {snapshot.updates.last_check ? (
+                  <time
+                    dateTime={snapshot.updates.last_check}
+                    title={absoluteTime(snapshot.updates.last_check)}
+                  >
+                    {relativeTime(snapshot.updates.last_check)}
+                  </time>
+                ) : (
+                  'Never checked'
+                )}
+              </p>
+            </div>
+          </div>
+          {showUpdateControls && <ConnectedUpdateControls />}
+        </Section>
+        <SettingsAdvanced meta="Cached update details">
           <Facts>
             <Fact
               label="Current version"
               value={versionLabel(snapshot.updates.current_version)}
             />
-          </Facts>
-        </div>
-        <details className="settings-update-details">
-          <summary>Cached update details</summary>
-          <Facts>
             <Fact
               label="Last check"
               value={formattedDateTime(snapshot.updates.last_check)}
@@ -3277,25 +3421,155 @@ export function PreferencesSnapshotPanel({
               }
             />
           </Facts>
-        </details>
-        {showUpdateControls && <ConnectedUpdateControls />}
+        </SettingsAdvanced>
+      </div>
+    );
+  if (part === 'data')
+    return (
+      <div className="stack settings-snapshot-page settings-data-page">
+        <Section
+          title="Import from another assistant"
+          description="Scan and select data from Hermes Agent or OpenClaw. Nothing is written until you confirm."
+          icon={Import}
+          anchor="migration"
+        >
+          <div className="settings-inline-row">
+            <div>
+              <strong>Sources</strong>
+              <p>
+                {snapshot.migration.available
+                  ? snapshot.migration.sources.join(', ') || 'None detected'
+                  : 'Migration is unavailable on this installation.'}
+              </p>
+            </div>
+          </div>
+          {showUpdateControls && <ConnectedMigrationControls />}
+        </Section>
+      </div>
+    );
+  return (
+    <div className="stack settings-snapshot-page">
+      <SettingsSummary>
+        <SummaryChip>{snapshot.identity.name}</SummaryChip>
+        <SummaryChip
+          tone={snapshot.dream_cycle.enabled ? 'success' : undefined}
+        >
+          {snapshot.dream_cycle.enabled ? 'Dream Cycle on' : 'Dream Cycle off'}
+        </SummaryChip>
+      </SettingsSummary>
+      <section
+        className="settings-preferences-identity settings-snapshot-section stack"
+        aria-label="Assistant identity"
+        data-setting-anchor="identity"
+      >
+        <header className="settings-snapshot-heading">
+          <UserRound size={18} aria-hidden />
+          <div>
+            <h3>Identity</h3>
+            <p>How the assistant introduces itself and behaves.</p>
+          </div>
+        </header>
+        <TextSetting
+          mutation={mutation}
+          field="identity.name"
+          label="Name"
+          hint="Shown in chat and used in the system prompt."
+          value={snapshot.identity.name}
+          maxLength={80}
+        />
+        <div className="settings-preferences-personality">
+          <TextSetting
+            mutation={mutation}
+            field="identity.personality"
+            label="Personality"
+            value={snapshot.identity.personality}
+            maxLength={snapshot.identity.personality_max_length}
+            multiline
+          />
+          <p className="settings-help">
+            Optional behaviour guidance, up to{' '}
+            {snapshot.identity.personality_max_length} characters ·{' '}
+            {snapshot.identity.personality.length} /{' '}
+            {snapshot.identity.personality_max_length}
+          </p>
+          <p className="settings-preferences-preview">
+            <span>Preview</span>
+            You are {snapshot.identity.name}, a knowledgeable personal assistant
+            with access to tools.
+            {snapshot.identity.personality
+              ? ` ${snapshot.identity.personality}`
+              : ''}
+          </p>
+        </div>
+        <SwitchSetting
+          mutation={mutation}
+          field="identity.self_improvement_enabled"
+          label="Enable self-improvement"
+          hint="Lets the assistant create and improve skills over time."
+          value={snapshot.identity.self_improvement_enabled}
+        />
+      </section>
+      <Section
+        title="Launch"
+        description="How Row-Bot opens on the next launch."
+        icon={AppWindow}
+        anchor="window-mode"
+      >
+        <SelectSetting
+          mutation={mutation}
+          field="window_mode"
+          label="Window mode"
+          hint="Native Window gives Row-Bot its own app window. System Browser uses your default browser."
+          value={snapshot.window_mode}
+          options={[
+            { value: 'ask', label: 'Ask on Launch' },
+            { value: 'native', label: 'Native Window' },
+            { value: 'browser', label: 'System Browser' },
+          ]}
+        />
       </Section>
       <Section
-        title="Migration"
-        description="Scan and select data from Hermes Agent or OpenClaw. Confirm before writing files."
-        icon={Import}
+        title="Dream Cycle"
+        description="Idle background clean-up for memory and sparse knowledge."
+        icon={Moon}
+        anchor="dream-cycle"
       >
-        <Facts>
-          <Fact
-            label="Available"
-            value={enabledLabel(snapshot.migration.available)}
-          />
-          <Fact
-            label="Available sources"
-            value={snapshot.migration.sources.join(', ') || 'None detected'}
-          />
-        </Facts>
-        {showUpdateControls && <ConnectedMigrationControls />}
+        <SwitchSetting
+          mutation={mutation}
+          field="dream_cycle.enabled"
+          label="Enable Dream Cycle"
+          hint={
+            snapshot.dream_cycle.last_run
+              ? `Last run ${relativeTime(snapshot.dream_cycle.last_run)}.`
+              : 'Has not run yet.'
+          }
+          value={snapshot.dream_cycle.enabled}
+        />
+        <NumberSetting
+          mutation={mutation}
+          field="dream_cycle.window_start"
+          label="Start hour"
+          hint="Local time, 0–23. Runs only while Row-Bot is idle."
+          value={snapshot.dream_cycle.window_start}
+          min={0}
+          max={23}
+        />
+        <NumberSetting
+          mutation={mutation}
+          field="dream_cycle.window_end"
+          label="End hour"
+          value={snapshot.dream_cycle.window_end}
+          min={0}
+          max={23}
+        />
+        {snapshot.dream_cycle.last_summary && (
+          <div className="settings-inline-row">
+            <div>
+              <strong>Last summary</strong>
+              <p>{snapshot.dream_cycle.last_summary}</p>
+            </div>
+          </div>
+        )}
       </Section>
     </div>
   );

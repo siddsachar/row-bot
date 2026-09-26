@@ -402,6 +402,10 @@ export type GoalProfileSettingsSession = ReturnType<
 export type GoalProfileSettingsProps = {
   conversationId?: string;
   profilesOnly?: boolean;
+  /** Goals for one conversation only (Settings › Goals). */
+  goalsOnly?: boolean;
+  /** Shown with goalsOnly so it is clear whose goals these are. */
+  conversationTitle?: string;
   onStartProfileChat?: (profile: ProfileSummary) => void;
   session: GoalProfileSettingsSession;
   loadGoals?: (
@@ -483,6 +487,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   const {
     conversationId,
     profilesOnly = false,
+    goalsOnly = false,
+    conversationTitle,
     onStartProfileChat,
     session,
     loadGoals,
@@ -521,7 +527,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     if (
       !current.active ||
       profilesOnly ||
-      current.tab !== 'goals' ||
+      (!goalsOnly && current.tab !== 'goals') ||
       current.busy ||
       !loadGoalsRef.current ||
       !conversationId
@@ -549,13 +555,21 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           });
       })
       .finally(() => session.endRead(abort));
-  }, [conversationId, profilesOnly, session, state.goalsRefresh, state.tab]);
+  }, [
+    conversationId,
+    goalsOnly,
+    profilesOnly,
+    session,
+    state.goalsRefresh,
+    state.tab,
+  ]);
 
   useEffect(() => {
     const current = session.getSnapshot();
     const key = `${profilesOnly}:${current.tab}:${current.profilesRefresh}`;
     if (
       !current.active ||
+      goalsOnly ||
       (!profilesOnly && current.tab !== 'profiles') ||
       current.busy ||
       profilesLoadKey.current === key
@@ -584,7 +598,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           });
       })
       .finally(() => session.endRead(abort));
-  }, [profilesOnly, session, state.profilesRefresh, state.tab, state.busy]);
+  }, [
+    goalsOnly,
+    profilesOnly,
+    session,
+    state.profilesRefresh,
+    state.tab,
+    state.busy,
+  ]);
 
   const loadMoreProfiles = async () => {
     const current = session.getSnapshot();
@@ -895,6 +916,9 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     <section aria-label="Goals" className="settings-section stack">
       <h2>Conversation goals</h2>
       <p>
+        {goalsOnly && conversationTitle
+          ? `Goals for “${conversationTitle.trim() || 'Untitled conversation'}”. `
+          : ''}
         Goals belong to this conversation. Starting a new one replaces its
         current goal after review.
       </p>
@@ -1504,11 +1528,13 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
 
   return (
     <section
-      aria-label="Goals and Agent Profiles"
+      aria-label={goalsOnly ? 'Goal settings' : 'Goals and Agent Profiles'}
       className="settings-section stack"
     >
       {profilesOnly ? (
         profiles
+      ) : goalsOnly ? (
+        goals
       ) : (
         <Tabs
           label="Goal and profile settings"

@@ -1,14 +1,14 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
-import { resolveSetting } from './model';
+import { resolveSetting, settingsHref } from './model';
 import Preferences from './Preferences';
+import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
 import KnowledgeCatalog from './KnowledgeCatalog';
@@ -30,12 +30,12 @@ import ChannelSettings from './ChannelSettings';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
 import GoalProfileSettings from './GoalProfileSettings';
-import SettingsConversationPicker, {
-  resolveSettingsConversation,
-} from './SettingsConversationPicker';
+import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
+import { SettingsAdvanced, SettingsDangerZone, DangerAction } from './anatomy';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 import SettingsShell from './SettingsShell';
 import AccessSessions from './AccessSessions';
 import AccessInvitations from './AccessInvitations';
@@ -43,14 +43,41 @@ import AccessTailscale from './AccessTailscale';
 import {
   DocumentEmbeddingSnapshot,
   ToolConfigurationSnapshot,
+  TrackerDangerAction,
+  UtilitiesSnapshotPanel,
   type SettingsMutationIO,
   type SettingsPage,
   SettingsDraftOwner,
 } from './SettingsSnapshotPanels';
 
+/** Saved defaults for one page, when the server reports them. */
+function settingsDefaults(snapshot: SettingsSnapshot, page: SettingsPage) {
+  const defaults = (
+    snapshot as SettingsSnapshot & {
+      defaults?: Partial<Record<SettingsPage, SettingsMutationIO['defaults']>>;
+    }
+  ).defaults;
+  return defaults?.[page];
+}
+
+/** Which saved-settings page each leaf reads and writes. */
+const snapshotPages: Partial<Record<string, SettingsPage>> = {
+  voice: 'voice',
+  system: 'system',
+  access: 'system',
+  tracker: 'tracker',
+  documents: 'documents',
+  tools: 'tools',
+  accounts: 'accounts',
+  preferences: 'preferences',
+  updates: 'preferences',
+  data: 'preferences',
+  knowledge: 'knowledge',
+};
+
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
-  const [search, setSearch] = useSearchParams();
+  const [search] = useSearchParams();
   const leaf = resolveSetting(setting);
   const {
     controller,
@@ -74,6 +101,7 @@ export default function SettingRoute() {
     knowledgeOwner,
   } = useRuntime();
   const state = useClientState();
+  const workspaceActions = useWorkspaceActions();
   const session = state.handshake?.client_session_id ?? '';
   const settingsDrafts = useRef({
     session,
@@ -140,51 +168,27 @@ export default function SettingRoute() {
     settingsSnapshotReload,
     state.handshake?.server_epoch,
   ]);
-  useEffect(() => {
-    if (
-      !leaf ||
-      !['buddy', 'goals'].includes(leaf.id) ||
-      !settingsConversationId ||
-      requestedConversationId === settingsConversationId
-    )
-      return;
-    const next = new URLSearchParams(search);
-    next.set('conversation', settingsConversationId);
-    setSearch(next, { replace: true });
-  }, [
-    leaf,
-    requestedConversationId,
-    search,
-    setSearch,
-    settingsConversationId,
-  ]);
   if (!leaf) return <Navigate to="/settings/providers" replace />;
-  if (leaf.id !== setting.toLowerCase())
+  if (leaf.id !== setting.toLowerCase()) {
+    // Legacy ids and moved pages land on their new home (and row).
+    const target = settingsHref(setting) ?? leaf.href;
+    const [path, hash] = target.split('#');
     return (
       <Navigate
-        to={`${leaf.href}${search.size ? `?${search.toString()}` : ''}`}
+        to={{
+          pathname: path,
+          search: search.size ? `?${search.toString()}` : '',
+          hash: hash ? `#${hash}` : '',
+        }}
         replace
       />
     );
-  const settingsPages: SettingsPage[] = [
-    'voice',
-    'system',
-    'tracker',
-    'documents',
-    'tools',
-    'accounts',
-    'utilities',
-    'preferences',
-    'knowledge',
-  ];
-  const snapshotPage = settingsPages.includes(leaf.id as SettingsPage)
-    ? (leaf.id as SettingsPage)
-    : null;
-  const mutation: SettingsMutationIO | null =
-    settingsSnapshot && snapshotPage
-      ? {
+  }
+  const mutationFor = (page: SettingsPage | undefined) =>
+    settingsSnapshot && page
+      ? ({
           revision: settingsSnapshot.revision,
-          page: snapshotPage,
+          page,
           sessionId: session,
           review: controller.reviewSettingsMutation,
           execute: controller.executeSettingsMutation,
@@ -193,8 +197,12 @@ export default function SettingRoute() {
           drafts: settingsDrafts.current.owner,
           onSnapshot: (snapshot) =>
             setLoadedSettingsSnapshot({ session, snapshot }),
-        }
+          defaults: settingsDefaults(settingsSnapshot, page),
+        } satisfies SettingsMutationIO)
       : null;
+  const mutation: SettingsMutationIO | null = mutationFor(
+    snapshotPages[leaf.id],
+  );
   const snapshotState = !settingsSnapshot ? (
     settingsSnapshotLoading || loadedSettingsSnapshot?.session !== session ? (
       <Skeleton label="Loading saved Settings" />
@@ -220,36 +228,39 @@ export default function SettingRoute() {
         className="route-surface stack capability-page"
         aria-label={leaf.label}
       >
-        {leaf?.id === 'buddy' ? (
+        {leaf.id === 'buddy' ? (
           settingsConversationId ? (
-            <>
-              <SettingsConversationPicker
-                conversations={state.conversations}
-                conversationId={settingsConversationId}
-                onChange={(conversationId) => {
-                  const next = new URLSearchParams(search);
-                  next.set('conversation', conversationId);
-                  setSearch(next, { replace: true });
-                }}
-              />
-              <BuddySurface
-                key={settingsConversationId}
-                settings
-                initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
-              />
-            </>
+            <BuddySurface
+              key={settingsConversationId}
+              settings
+              conversationId={settingsConversationId}
+              initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
+            />
           ) : (
             <EmptyState title="Open a conversation for Buddy">
               Buddy uses that conversation’s current profile and approvals.
             </EmptyState>
           )
-        ) : leaf?.id === 'preferences' ? (
-          <Preferences
-            snapshot={settingsSnapshot?.preferences}
-            mutation={mutation}
-            snapshotState={snapshotState}
-            showUpdateControls
-          />
+        ) : leaf.id === 'appearance' ? (
+          <AppearanceSettings />
+        ) : leaf.id === 'preferences' ||
+          leaf.id === 'updates' ||
+          leaf.id === 'data' ? (
+          <>
+            <Preferences
+              snapshot={settingsSnapshot?.preferences}
+              mutation={mutation}
+              snapshotState={snapshotState}
+              showUpdateControls
+              part={leaf.id}
+            />
+            {leaf.id === 'data' && settingsSnapshot && (
+              <DataDangerZone
+                snapshot={settingsSnapshot}
+                mutation={mutationFor('tracker')}
+              />
+            )}
+          </>
         ) : leaf.id === 'providers' ? (
           <>
             <ProviderStatus
@@ -441,14 +452,26 @@ export default function SettingRoute() {
         ) : leaf.id === 'tools' ? (
           <>
             {settingsSnapshot && mutation ? (
-              <ToolConfigurationSnapshot
-                snapshot={settingsSnapshot.tools}
-                mutation={mutation}
-              />
+              <>
+                <ToolConfigurationSnapshot
+                  snapshot={settingsSnapshot.tools}
+                  mutation={mutation}
+                />
+                <UtilitiesSnapshotPanel
+                  snapshot={settingsSnapshot.utilities}
+                  mutation={mutationFor('utilities')!}
+                />
+              </>
             ) : (
               snapshotState
             )}
-            <ToolCatalog key={session} load={controller.cachedTools} />
+            <SettingsAdvanced
+              summary="Tool catalogue"
+              meta="Every tool the assistant can load"
+              anchor="tool-catalogue"
+            >
+              <ToolCatalog key={session} load={controller.cachedTools} />
+            </SettingsAdvanced>
           </>
         ) : leaf.id === 'knowledge' ? (
           <>
@@ -600,78 +623,75 @@ export default function SettingRoute() {
               receipt: controller.skillReceipt,
             }}
           />
+        ) : leaf.id === 'profiles' && goalProfileOwner?.get() ? (
+          <div data-setting-anchor="profile-library">
+            <GoalProfileSettings
+              profilesOnly
+              session={goalProfileOwner.get()!}
+              loadProfiles={({ query, scope, cursor }, signal) =>
+                controller.profiles(query, scope, cursor, signal)
+              }
+              loadProfile={controller.profile}
+              reviewProfile={controller.reviewProfile}
+              executeProfile={(command, review) =>
+                controller.executeProfile({
+                  ...command,
+                  payload: {
+                    ...command.payload,
+                    review_id: review.review_id,
+                  },
+                })
+              }
+              onStartProfileChat={workspaceActions?.startProfileChat}
+            />
+          </div>
         ) : leaf.id === 'goals' && goalProfileOwner?.get() ? (
           settingsConversationId ? (
-            <>
-              <SettingsConversationPicker
-                conversations={state.conversations}
-                conversationId={settingsConversationId}
-                onChange={(conversationId) => {
-                  const next = new URLSearchParams(search);
-                  next.set('conversation', conversationId);
-                  setSearch(next, { replace: true });
-                }}
-              />
-              <GoalProfileSettings
-                key={settingsConversationId}
-                conversationId={settingsConversationId}
-                session={goalProfileOwner.get()!}
-                loadGoals={({ conversation_id, query, cursor }, signal) =>
-                  controller.goals(conversation_id, query, cursor, signal)
-                }
-                loadProfiles={({ query, scope, cursor }, signal) =>
-                  controller.profiles(query, scope, cursor, signal)
-                }
-                loadProfile={controller.profile}
-                reviewGoal={(payload, signal) =>
-                  controller.reviewGoal(settingsConversationId, payload, signal)
-                }
-                executeGoal={(command, review) =>
-                  controller.executeGoal(settingsConversationId, {
-                    ...command,
-                    payload: {
-                      ...command.payload,
-                      review_id: review.review_id,
-                    },
-                  })
-                }
-                reviewProfile={controller.reviewProfile}
-                executeProfile={(command, review) =>
-                  controller.executeProfile({
-                    ...command,
-                    payload: {
-                      ...command.payload,
-                      review_id: review.review_id,
-                    },
-                  })
-                }
-              />
-            </>
+            <GoalProfileSettings
+              key={settingsConversationId}
+              goalsOnly
+              conversationId={settingsConversationId}
+              conversationTitle={
+                state.conversations.find(
+                  (item) => item.id === settingsConversationId,
+                )?.title
+              }
+              session={goalProfileOwner.get()!}
+              loadGoals={({ conversation_id, query, cursor }, signal) =>
+                controller.goals(conversation_id, query, cursor, signal)
+              }
+              loadProfiles={({ query, scope, cursor }, signal) =>
+                controller.profiles(query, scope, cursor, signal)
+              }
+              loadProfile={controller.profile}
+              reviewGoal={(payload, signal) =>
+                controller.reviewGoal(settingsConversationId, payload, signal)
+              }
+              executeGoal={(command, review) =>
+                controller.executeGoal(settingsConversationId, {
+                  ...command,
+                  payload: {
+                    ...command.payload,
+                    review_id: review.review_id,
+                  },
+                })
+              }
+              reviewProfile={controller.reviewProfile}
+              executeProfile={(command, review) =>
+                controller.executeProfile({
+                  ...command,
+                  payload: {
+                    ...command.payload,
+                    review_id: review.review_id,
+                  },
+                })
+              }
+            />
           ) : (
-            <div className="stack">
-              <EmptyState title="Open a conversation">
-                Goals belong to one conversation. Open or create a conversation
-                to manage goals.
-              </EmptyState>
-              <GoalProfileSettings
-                profilesOnly
-                session={goalProfileOwner.get()!}
-                loadProfiles={({ query, scope, cursor }, signal) =>
-                  controller.profiles(query, scope, cursor, signal)
-                }
-                loadProfile={controller.profile}
-                reviewProfile={controller.reviewProfile}
-                executeProfile={(command, review) =>
-                  controller.executeProfile({
-                    ...command,
-                    payload: {
-                      ...command.payload,
-                      review_id: review.review_id,
-                    },
-                  })
-                }
-              />
-            </div>
+            <EmptyState title="Open a conversation">
+              Goals belong to one conversation. Open or create a conversation,
+              then set its goal from Context or here.
+            </EmptyState>
           )
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-documents-flow">
@@ -745,25 +765,18 @@ export default function SettingRoute() {
               }
             />
             {documentRemovalsOwner?.get() && (
-              <section
-                className="settings-snapshot-section stack is-danger settings-document-danger"
-                aria-labelledby="settings-document-danger"
-              >
-                <header className="settings-snapshot-heading">
-                  <Trash2 size={18} aria-hidden />
-                  <div>
-                    <h3 id="settings-document-danger">Danger Zone</h3>
-                    <p>
-                      Remove indexed source material through reviewed,
-                      receipt-backed commands.
-                    </p>
-                  </div>
-                </header>
-                <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
-              </section>
+              <SettingsDangerZone meta="Remove indexed documents">
+                <div className="settings-document-danger">
+                  <p className="settings-help">
+                    Remove indexed source material through reviewed,
+                    receipt-backed commands.
+                  </p>
+                  <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
+                </div>
+              </SettingsDangerZone>
             )}
           </div>
-        ) : ['voice', 'accounts', 'tracker', 'utilities', 'system'].includes(
+        ) : ['voice', 'accounts', 'tracker', 'system', 'access'].includes(
             leaf.id,
           ) ? (
           settingsSnapshot && mutation ? (
@@ -777,13 +790,21 @@ export default function SettingRoute() {
                 showAccountActions
                 writeClipboard={platform.writeClipboard}
               />
-              {leaf.id === 'system' ? (
+              {leaf.id === 'access' ? (
                 <>
-                  <AccessInvitations writeClipboard={platform.writeClipboard} />
-                  <AccessTailscale />
-                  <AccessSessions
-                    currentSessionId={state.handshake?.client_session_id}
-                  />
+                  <div data-setting-anchor="invitations">
+                    <AccessInvitations
+                      writeClipboard={platform.writeClipboard}
+                    />
+                  </div>
+                  <div data-setting-anchor="tailscale">
+                    <AccessTailscale />
+                  </div>
+                  <div data-setting-anchor="sessions">
+                    <AccessSessions
+                      currentSessionId={state.handshake?.client_session_id}
+                    />
+                  </div>
                 </>
               ) : null}
             </>
@@ -804,5 +825,30 @@ export default function SettingRoute() {
         )}
       </section>
     </SettingsShell>
+  );
+}
+
+/** Data › Danger zone: every irreversible clean-up in one place. */
+function DataDangerZone({
+  snapshot,
+  mutation,
+}: {
+  snapshot: SettingsSnapshot;
+  mutation: SettingsMutationIO | null;
+}) {
+  return (
+    <SettingsDangerZone meta="Irreversible clean-up">
+      <DangerAction
+        title="Remove documents"
+        description="Removing indexed documents is reviewed per document on the Documents page."
+      >
+        <Link className="button danger" to="/settings/documents#danger-zone">
+          Open Documents
+        </Link>
+      </DangerAction>
+      {mutation && snapshot.tracker.items.length > 0 ? (
+        <TrackerDangerAction mutation={mutation} />
+      ) : null}
+    </SettingsDangerZone>
   );
 }

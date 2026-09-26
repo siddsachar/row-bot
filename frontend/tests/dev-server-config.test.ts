@@ -41,5 +41,6 @@ it('loads bundled Geist fonts from local package files, never a remote origin', 
     './primitives.css',
     './chat.css',
     './shell.css',
+    './settings.css',
   ]);
 });
