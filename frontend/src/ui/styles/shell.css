@@ -1061,7 +1061,7 @@
   margin-inline-start: auto;
 }
 @media (max-width: 640px) {
-  .command-palette-hint {
+  .command-palette-footer > .command-palette-hint {
     display: none;
   }
 }
