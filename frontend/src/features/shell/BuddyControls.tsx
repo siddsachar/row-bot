@@ -12,6 +12,7 @@ import {
   Select,
   Toggle,
 } from '../../ui/primitives';
+import { SettingsSummary, SummaryChip } from '../settings/anatomy';
 import { PictureInPicture2 } from 'lucide-react';
 
 export type BuddyPreferences = {
@@ -296,26 +297,28 @@ export default function BuddyControls(props: BuddyControlsProps) {
           aria-label="Buddy preferences"
           aria-busy={busy}
         >
-          <div className="settings-buddy-intro">
-            <p>Companion behavior, look, and generated motion.</p>
-            <div
-              className="settings-summary-strip"
+          <SettingsSummary>
+            <span
+              className="settings-summary-group"
               role="group"
               aria-label="Buddy status"
             >
-              <span className="status-chip">
+              <SummaryChip tone={draft.visible ? 'success' : undefined}>
                 {draft.visible ? 'Enabled' : 'Hidden'}
-              </span>
-              <span className="status-chip">
+              </SummaryChip>
+              <SummaryChip
+                tone={selectedPack?.available ? undefined : 'warning'}
+              >
                 {selectedPack?.available
                   ? 'Motion pack ready'
                   : 'Motion pack unavailable'}
-              </span>
-            </div>
-          </div>
+              </SummaryChip>
+            </span>
+          </SettingsSummary>
           <section
             className="settings-buddy-section"
             aria-labelledby="settings-buddy-visibility"
+            data-setting-anchor="buddy-visibility"
           >
             <div className="settings-buddy-section-heading">
               <div>
@@ -352,10 +355,9 @@ export default function BuddyControls(props: BuddyControlsProps) {
                 <h3 id="settings-buddy-behavior">Behavior</h3>
                 <p>Bubble tone and runtime personality for status text.</p>
               </div>
-              <span className="status-chip">Runtime</span>
             </div>
             <div className="settings-buddy-behavior-grid">
-              <Field label="Companion personality">
+              <Field label="Companion personality" layout="row">
                 <Select
                   aria-label="Companion personality"
                   value={draft.personality}
@@ -369,7 +371,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   ))}
                 </Select>
               </Field>
-              <Field label="Bubble style">
+              <Field label="Bubble style" layout="row">
                 <Select
                   aria-label="Bubble style"
                   value={draft.bubble_verbosity}
@@ -414,7 +416,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   <small>Hide the status bubble while Buddy is docked.</small>
                 </span>
               </label>
-              <Field label="Buddy name">
+              <Field label="Buddy name" layout="row">
                 <Input
                   aria-label="Buddy name"
                   value={draft.display_name}
@@ -423,7 +425,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   onChange={(event) => edit('display_name', event.target.value)}
                 />
               </Field>
-              <Field label="Animation intensity">
+              <Field label="Animation intensity" layout="row">
                 <Select
                   aria-label="Animation intensity"
                   value={draft.animation_intensity}
@@ -457,6 +459,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
           <section
             className="settings-buddy-section"
             aria-labelledby="settings-buddy-look"
+            data-setting-anchor="buddy-look"
           >
             <div className="settings-buddy-section-heading">
               <div>

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button, Field, Input } from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
+import { SettingsSummary, SummaryChip } from './anatomy';
 
 export type ChannelFieldStatus = {
   key: string;
@@ -445,29 +446,45 @@ export default function ChannelSettings({
   return (
     <section aria-label="Channels" className="stack settings-channel-page">
       {state.page && (
-        <div className="settings-summary-strip" aria-live="polite">
-          <div
-            className="settings-summary-strip"
-            role="group"
-            aria-label="Channel totals"
-          >
-            <span className="status-chip">
-              {channels.filter((channel) => channel.configured === true).length}{' '}
-              configured
+        <>
+          <SettingsSummary>
+            <span
+              className="settings-summary-group"
+              role="group"
+              aria-label="Channel totals"
+              aria-live="polite"
+            >
+              <SummaryChip>
+                {
+                  channels.filter((channel) => channel.configured === true)
+                    .length
+                }{' '}
+                configured
+              </SummaryChip>
+              <SummaryChip
+                tone={
+                  channels.some((channel) => channel.running === true)
+                    ? 'success'
+                    : undefined
+                }
+              >
+                {runtimeKnown
+                  ? `${channels.filter((channel) => channel.running === true).length} running`
+                  : 'Runtime status not loaded'}
+              </SummaryChip>
             </span>
-            <span className="status-chip">
-              {runtimeKnown
-                ? `${channels.filter((channel) => channel.running === true).length} running`
-                : 'Runtime status not loaded'}
-            </span>
-          </div>
-          <AppLink
-            className="settings-inline-action"
-            to="/settings/access#tunnel"
-          >
-            Tunnel credentials are in Access
-          </AppLink>
-        </div>
+          </SettingsSummary>
+          <p className="settings-help">
+            Messages only go out through channels you configure and start.{' '}
+            <AppLink
+              className="settings-inline-action"
+              to="/settings/access#tunnel"
+            >
+              Tunnel credentials are in Access
+            </AppLink>
+            .
+          </p>
+        </>
       )}
       {passiveChannels.length > 0 && (
         <div role="group" aria-label="Bundled channel summaries">

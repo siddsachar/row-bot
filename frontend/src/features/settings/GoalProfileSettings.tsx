@@ -20,6 +20,7 @@ import {
   Palette,
   Pencil,
   Power,
+  RefreshCw,
   Route,
   Search,
   Shield,
@@ -511,6 +512,10 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   const profileDetailsRef = useRef<HTMLElement>(null);
   const profileReturnFocus = useRef<HTMLElement | null>(null);
   const previousProfileMode = useRef(state.profileMode);
+  const profileSearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(profileSearchTimer.current), []);
   loadGoalsRef.current = loadGoals;
   loadProfilesRef.current = loadProfiles;
   useEffect(() => {
@@ -1402,16 +1407,47 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         </>
       )}
       {profilesOnly ? (
-        <div className="profile-library-toolbar">
-          <Button disabled={locked} onClick={beginCreate}>
+        <div className="profile-library-toolbar settings-list-toolbar">
+          <label className="settings-inline-search">
+            <span className="visually-hidden">Search profiles</span>
+            <Search size={14} aria-hidden />
+            <Input
+              type="search"
+              maxLength={256}
+              placeholder="Search profiles"
+              value={state.profileQuery}
+              disabled={locked}
+              onChange={(event) => {
+                session.update({
+                  profileQuery: event.target.value,
+                  reviewed: null,
+                });
+                clearTimeout(profileSearchTimer.current);
+                profileSearchTimer.current = setTimeout(
+                  () => session.refreshProfiles(),
+                  350,
+                );
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                clearTimeout(profileSearchTimer.current);
+                session.refreshProfiles();
+              }}
+            />
+          </label>
+          <Button variant="primary" disabled={locked} onClick={beginCreate}>
             Create profile
           </Button>
           <Button
             disabled={locked}
             variant="ghost"
+            iconOnly
+            aria-label="Refresh"
+            title="Refresh profiles"
             onClick={() => session.refreshProfiles()}
           >
-            Refresh
+            <RefreshCw size={16} aria-hidden />
           </Button>
         </div>
       ) : (

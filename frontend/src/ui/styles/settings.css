@@ -1910,3 +1910,423 @@
   color: var(--text-secondary);
   font-weight: var(--weight-medium);
 }
+
+/* Documents: drop zone, queue and library. ------------------------------ */
+.settings-page-content .settings-documents-flow {
+  gap: 28px;
+}
+.document-uploads {
+  display: grid;
+  gap: 8px;
+}
+.document-uploads > h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.document-dropzone {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 22px 20px;
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-secondary);
+  text-align: center;
+  transition:
+    border-color var(--motion-popover) var(--ease-out),
+    background var(--motion-popover) var(--ease-out);
+}
+.document-dropzone > svg {
+  color: var(--text-muted);
+}
+.document-dropzone p {
+  margin: 4px 0 0;
+  font-size: var(--text-14);
+}
+.document-dropzone small {
+  max-width: 52ch;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.document-dropzone[data-dragging='true'] {
+  border-color: var(--accent-solid);
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+}
+.document-dropzone[data-disabled='true'] {
+  opacity: 0.7;
+}
+.document-dropzone-choose {
+  color: var(--text-link);
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.document-dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.document-dropzone:has(.document-dropzone-input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.document-staged-files {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--type-size-label);
+}
+.document-uploads > .button {
+  justify-self: start;
+}
+.document-queue {
+  display: grid;
+  gap: 6px;
+}
+.document-queue > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.document-batch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-hairline);
+}
+.document-batch-row > p {
+  flex: 1 1 160px;
+  margin: 0;
+  color: var(--text-primary);
+}
+.settings-saved-catalog {
+  gap: 8px;
+}
+.settings-page-content .settings-saved-catalog .settings-results {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  list-style: none;
+}
+.settings-page-content .settings-saved-catalog .settings-results > li {
+  border: 0;
+  border-top: 1px solid var(--border-hairline);
+  border-radius: 0;
+  background: none;
+}
+.settings-page-content
+  .settings-saved-catalog
+  .settings-results
+  > li:first-child {
+  border-top: 0;
+}
+.settings-page-content .settings-document-result {
+  padding: 6px 8px 6px 14px;
+}
+.settings-page-content .settings-document-result summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.settings-page-content .settings-document-result summary > span {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-page-content .settings-document-result summary > small {
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  white-space: nowrap;
+}
+.settings-page-content .settings-saved-catalog > [role='status'] {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+
+/* Memory, Wiki vault, Buddy, accounts and agent pages: flat sections. -- */
+.settings-page-content .settings-knowledge-page {
+  gap: 28px;
+}
+.settings-page-content .settings-knowledge-page > .settings-snapshot-section,
+.settings-page-content
+  .settings-knowledge-page
+  > .settings-knowledge-wiki-panel,
+.settings-page-content .settings-knowledge-catalog,
+.settings-page-content .settings-knowledge-danger {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.settings-page-content .settings-knowledge-graph h2,
+.settings-page-content .settings-knowledge-wiki-panel h2,
+.settings-page-content .settings-saved-catalog h2,
+.settings-page-content .settings-knowledge-catalog h2,
+.settings-page-content .settings-knowledge-page h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+  font-weight: var(--weight-semibold);
+}
+.settings-page-content .settings-knowledge-switch {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-weight: var(--weight-regular);
+}
+.settings-page-content .settings-knowledge-switch.settings-inline-row {
+  display: grid;
+  width: 100%;
+  padding: 11px 0;
+}
+.settings-page-content .settings-knowledge-switch.settings-inline-row > span {
+  display: grid;
+  gap: 1px;
+}
+.settings-page-content .settings-knowledge-switch.settings-inline-row small {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-regular);
+}
+.settings-page-content .settings-knowledge-types {
+  margin: 0;
+}
+.settings-page-content
+  .settings-knowledge-wiki-panel
+  > .settings-snapshot-heading {
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+.settings-page-content .settings-wiki-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+.settings-page-content .settings-wiki-actions .button {
+  min-height: 30px;
+}
+.settings-page-content .settings-knowledge-lifecycle .status-chip {
+  background: none;
+}
+
+/* Buddy. */
+.settings-page-content .settings-buddy-preferences {
+  gap: 28px;
+}
+.settings-page-content .settings-buddy-section {
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.settings-page-content .settings-buddy-section-heading h3 {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.settings-page-content .settings-buddy-section-heading p {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.settings-page-content .settings-buddy-visibility-grid,
+.settings-page-content .settings-buddy-behavior-grid,
+.settings-page-content .settings-buddy-advanced-content {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.settings-page-content .settings-buddy-advanced-content {
+  padding: 0 0 8px 20px;
+}
+.settings-page-content .checkbox-row:has(> .toggle-control) {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+}
+.settings-page-content .checkbox-row:has(> .toggle-control) strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.settings-page-content .checkbox-row:has(> .toggle-control) small {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.settings-page-content .settings-buddy-advanced {
+  border-block: 0;
+  border-top: 1px solid var(--border-hairline);
+}
+.settings-page-content .settings-buddy-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 0;
+  list-style: none;
+}
+.settings-page-content
+  .settings-buddy-advanced
+  > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-page-content .settings-buddy-advanced > summary::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.settings-page-content .settings-buddy-advanced[open] > summary::before {
+  transform: rotate(45deg);
+}
+.settings-page-content .settings-buddy-advanced > summary strong {
+  color: var(--text-secondary);
+  font-size: var(--type-size-label);
+  font-weight: var(--weight-medium);
+}
+.settings-page-content .settings-buddy-advanced > summary > span {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin: 0;
+}
+.settings-page-content .buddy-look {
+  border-color: var(--border-hairline);
+  background: var(--surface);
+}
+.settings-page-content .buddy-look[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+  box-shadow: inset 0 0 0 1px var(--accent-solid);
+}
+.settings-page-content .buddy-preference-actions {
+  position: sticky;
+  bottom: -64px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 0;
+  background: linear-gradient(to top, var(--canvas) 70%, transparent);
+}
+
+/* Accounts and channels: one row per account, expanding in place. */
+.settings-page-content .settings-account-panel {
+  border-bottom: 1px solid var(--border-hairline);
+}
+.settings-page-content .settings-account-panel > summary {
+  min-height: 52px;
+  padding: 8px 4px;
+  list-style: none;
+}
+.settings-page-content
+  .settings-account-panel
+  > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-page-content .settings-account-panel > summary > strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.settings-page-content .settings-account-panel > summary > span {
+  text-transform: none;
+  color: var(--text-muted);
+}
+.settings-page-content .settings-account-content {
+  padding: 0 4px 14px 36px;
+}
+
+/* Agent profiles and goals. */
+.settings-page-content .profile-library-toolbar {
+  margin-bottom: 4px;
+}
+.settings-page-content section[aria-label='Goals and Agent Profiles'],
+.settings-page-content section[aria-label='Goal settings'],
+.settings-page-content section[aria-label='Agent Profiles'],
+.settings-page-content section[aria-label='Goals'] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.settings-page-content section[aria-label='Goals'] > h2 {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.settings-page-content section[aria-label='Goals'] fieldset {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.settings-page-content .profile-library-group {
+  border: 0;
+  border-top: 1px solid var(--border-hairline);
+  border-radius: 0;
+  background: none;
+}
+.settings-page-content .profile-library-group > summary {
+  min-height: 40px;
+  padding: 8px 2px;
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+/* Page-level owners render flat inside a settings page; only nested
+   editors and detail panes (.surface) keep a raised card. */
+.settings-page-content .settings-section,
+.settings-page-content .capability-section {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.settings-page-content .capability-header {
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+.settings-page-content .capability-page {
+  width: 100%;
+}
+.settings-page-content .surface {
+  padding: 14px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
