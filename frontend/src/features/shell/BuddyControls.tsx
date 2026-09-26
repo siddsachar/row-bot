@@ -7,10 +7,12 @@ import {
   Button,
   ErrorState,
   Field,
+  IconButton,
   Input,
   Select,
   Toggle,
 } from '../../ui/primitives';
+import { PictureInPicture2 } from 'lucide-react';
 
 export type BuddyPreferences = {
   visible: boolean;
@@ -262,16 +264,6 @@ export default function BuddyControls(props: BuddyControlsProps) {
               <span aria-hidden="true">✦</span>
             )}
           </Button>
-          {props.onUndock && (
-            <Button
-              className="buddy-undock"
-              variant="ghost"
-              aria-label="Undock Buddy"
-              onClick={props.onUndock}
-            >
-              Undock
-            </Button>
-          )}
           <span className="buddy-companion-text">
             <span className="buddy-companion-name">
               {snapshot.preferences.display_name || 'Buddy'}
@@ -281,6 +273,16 @@ export default function BuddyControls(props: BuddyControlsProps) {
                 <p role="status">{snapshot.status.label}</p>
               )}
           </span>
+          {props.onUndock && (
+            <IconButton
+              size="sm"
+              className="buddy-undock"
+              label="Undock Buddy"
+              onClick={props.onUndock}
+            >
+              <PictureInPicture2 size={15} aria-hidden />
+            </IconButton>
+          )}
           {props.currentRunId && (
             <Button disabled={busy} onClick={() => void run('stop')}>
               Stop current run

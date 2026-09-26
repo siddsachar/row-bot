@@ -10,7 +10,8 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
-import { Button, EmptyState } from '../../ui/primitives';
+import { Button, EmptyState, IconButton } from '../../ui/primitives';
+import { PictureInPicture2 } from 'lucide-react';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
 import {
@@ -453,16 +454,6 @@ function GlobalBuddy() {
           <Avatar conversation={null} pack={pack} snapshot={snapshot} />
         </BuddyDragHandle>
       </Button>
-      {buddyPlacement.supported && (
-        <Button
-          className="buddy-undock"
-          variant="ghost"
-          aria-label="Undock Buddy"
-          onClick={() => void buddyPlacement.tearOff()}
-        >
-          Undock
-        </Button>
-      )}
       <span className="buddy-companion-text">
         <span className="buddy-companion-name">
           {snapshot.preferences.display_name || 'Buddy'}
@@ -474,6 +465,16 @@ function GlobalBuddy() {
             </p>
           )}
       </span>
+      {buddyPlacement.supported && (
+        <IconButton
+          size="sm"
+          className="buddy-undock"
+          label="Undock Buddy"
+          onClick={() => void buddyPlacement.tearOff()}
+        >
+          <PictureInPicture2 size={15} aria-hidden />
+        </IconButton>
+      )}
     </aside>
   );
 }
