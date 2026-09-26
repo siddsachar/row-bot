@@ -621,7 +621,14 @@ test('explicit saved-folder selection reuses its real identity without editing f
       name: 'Context',
       exact: true,
     });
-    if (await contextToggle.isVisible()) await contextToggle.click();
+    // The header button toggles the right region; reveal Context only when
+    // it is not already on screen.
+    if (
+      !(await page
+        .getByRole('complementary', { name: 'Conversation context' })
+        .isVisible())
+    )
+      await contextToggle.click();
     await expect
       .poll(
         async () =>

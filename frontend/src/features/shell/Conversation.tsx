@@ -1573,6 +1573,10 @@ export default function Conversation({
       agents={delegatedActivity}
       agentsEmpty={agentsEmpty}
       agentsLive={liveAgents}
+      childConversation={Boolean(
+        state.conversation?.id === id &&
+        state.conversation.parent_conversation_id,
+      )}
       outputs={outputs}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}

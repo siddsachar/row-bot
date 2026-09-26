@@ -409,6 +409,28 @@ it('opens and promotes the Agents section while delegated agents are live (B30)'
     />,
   );
   expect(details().open).toBe(true);
+
+  // The reader's choice carries across conversations, but a child
+  // conversation opens it for its way back to the parent.
+  fireEvent.click(details().querySelector('summary')!);
+  fireEvent(details(), new Event('toggle'));
+  view.rerender(
+    <ConversationContextRail
+      {...props}
+      conversationId="conversation-c"
+      agentsLive={0}
+    />,
+  );
+  expect(details().open).toBe(false);
+  view.rerender(
+    <ConversationContextRail
+      {...props}
+      conversationId="child-d"
+      agentsLive={0}
+      childConversation
+    />,
+  );
+  expect(details().open).toBe(true);
 });
 
 it('names each suggested panel action after its panel', () => {

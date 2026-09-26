@@ -47,6 +47,8 @@ type Props = {
   agentsEmpty?: boolean;
   /** Delegated agents queued, running or waiting; they are never hidden (B30). */
   agentsLive?: number;
+  /** A child conversation keeps its way back to the parent (in Agents) open. */
+  childConversation?: boolean;
   outputs?: { id: string; reference: string; mime: string }[];
   completedDesignId?: string;
   writerQueued?: boolean;
@@ -80,6 +82,7 @@ export default function ConversationContextRail({
   agents,
   agentsEmpty = false,
   agentsLive = 0,
+  childConversation = false,
   outputs = [],
   completedDesignId,
   writerQueued = false,
@@ -105,12 +108,12 @@ export default function ConversationContextRail({
   const [outputError, setOutputError] = useState('');
   const [savedOutputs, setSavedOutputs] = useState<Record<string, string>>({});
   const [writerStatus, setWriterStatus] = useState('');
-  // Live agents open the Agents section (B30). Once open it stays under the
-  // reader's control until work settles and starts again.
-  const [agentsOpen, setAgentsOpen] = useState({
-    conversation: conversationId,
-    open: agentsLive > 0,
-  });
+  // Live agents open the Agents section (B30), and a child conversation opens
+  // it for its way back to the parent. Otherwise the reader's choice carries
+  // across conversations; it reopens when work starts after settling.
+  const [agentsExpanded, setAgentsExpanded] = useState(
+    agentsLive > 0 || childConversation,
+  );
   const liveBefore = useRef({ conversation: conversationId, live: 0 });
   useEffect(() => {
     const previous = liveBefore.current;
@@ -119,10 +122,11 @@ export default function ConversationContextRail({
       agentsLive > 0 &&
       (previous.conversation !== conversationId || previous.live === 0)
     )
-      setAgentsOpen({ conversation: conversationId, open: true });
+      setAgentsExpanded(true);
   }, [agentsLive, conversationId]);
-  const agentsExpanded =
-    agentsOpen.conversation === conversationId && agentsOpen.open;
+  useEffect(() => {
+    if (childConversation) setAgentsExpanded(true);
+  }, [childConversation, conversationId]);
   const hasWorkspace = resources.some(
     (resource) => resource.binding.kind === 'workspace',
   );
@@ -555,9 +559,7 @@ export default function ConversationContextRail({
               ) : undefined
             }
             open={agentsExpanded}
-            onOpenChange={(open) =>
-              setAgentsOpen({ conversation: conversationId, open })
-            }
+            onOpenChange={setAgentsExpanded}
           >
             {agents}
           </Disclosure>
