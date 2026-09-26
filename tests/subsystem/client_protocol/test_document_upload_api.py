@@ -81,6 +81,20 @@ def test_two_file_upload_is_paused_with_exact_bytes_and_original_receipt(service
         assert "_document_upload" not in result.text and "staged_path" not in result.text
 
 
+def test_upload_keeps_newline_and_control_bytes_exact(service, queue):
+    # Text-mode descriptors on Windows turned each \n into \r\n, so any file
+    # with a newline byte (every PDF) failed staging as "changed".
+    data = b"line\nnext\r\nctrl-z\x1aend\x00\n"
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        _, command = reviewed(client, headers, [{"name": "notes.md", "size_bytes": len(data)}])
+        result = send(client, headers, command, (data,))
+        assert result.status_code == 200, result.text
+        assert result.json()["status"] == "completed", result.text
+        rows = queue.service.list_jobs(batch_id(command))
+        assert [Path(row.staged_path).read_bytes() for row in rows] == [data]
+
+
 def test_review_is_passive_with_no_service_or_body_effects(service, tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "get_document_job_service", lambda: pytest.fail("Review initialized service"))
     with _client(service) as client:

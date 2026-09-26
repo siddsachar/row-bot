@@ -366,13 +366,13 @@ class DocumentJobService:
                 except FileNotFoundError:
                     with guard_directory(source.parent,directory_identity(source.parent,parent=True)) as source_parent:
                         source_leaf = leaf(source.parent,source.name,source_parent)
-                        source_fd = os.open(source_leaf,os.O_RDONLY | getattr(os,"O_NOFOLLOW",0) | getattr(os,"O_NONBLOCK",0),dir_fd=source_parent)
+                        source_fd = os.open(source_leaf,os.O_RDONLY | getattr(os,"O_BINARY",0) | getattr(os,"O_NOFOLLOW",0) | getattr(os,"O_NONBLOCK",0),dir_fd=source_parent)
                         try:
                             before = os.fstat(source_fd)
                             if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size != job.size_bytes or not 0 < before.st_size <= MAX_UPLOAD_BYTES:
                                 raise DocumentJobError("Document source changed before parsing")
                             validate()
-                            fd = os.open(candidate,os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600,dir_fd=work_fd)
+                            fd = os.open(candidate,os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os,"O_BINARY",0),0o600,dir_fd=work_fd)
                             try:
                                 digest,total = hashlib.sha256(),0
                                 while chunk := os.read(source_fd,UPLOAD_CHUNK_BYTES):
