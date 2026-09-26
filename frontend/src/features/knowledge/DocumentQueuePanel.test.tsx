@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
@@ -230,4 +231,18 @@ it('disposal aborts a passive read and late data cannot repopulate the queue', a
   expect(f.owner.session.getSnapshot().batches).toBeNull();
   expect(f.listeners.size).toBe(0);
   view.unmount();
+});
+
+it('names batches in words and keeps the exact id in each action name', async () => {
+  const f = fixture();
+  render(<DocumentQueuePanel owner={f.owner} />);
+  const inspect = await screen.findByRole('button', {
+    name: 'Inspect batch batch',
+  });
+  expect(inspect).toHaveTextContent(/^Inspect$/);
+  const row = inspect.closest('.document-batch-row') as HTMLElement;
+  expect(within(row).getByText('Batch · batch')).toBeVisible();
+  expect(within(row).getByText('Queued')).toBeVisible();
+  expect(within(row).queryByText(/Batch · queued/)).not.toBeInTheDocument();
+  f.owner.dispose();
 });

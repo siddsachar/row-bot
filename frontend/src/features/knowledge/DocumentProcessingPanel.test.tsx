@@ -123,7 +123,10 @@ it('retains exact review and original across remount and conversation navigation
   f.state.selectedConversationId = 'other';
   f.notify();
   render(<DocumentProcessingPanel owner={f.owner} />);
-  expect(screen.getByText('Conversation: chat')).toBeVisible();
+  // The line names the conversation in words and keeps its id on hover.
+  expect(
+    screen.getByText('Conversation: Selected conversation'),
+  ).toHaveAttribute('title', 'chat');
   let running!: Promise<void>;
   act(() => {
     running = f.owner.confirm();

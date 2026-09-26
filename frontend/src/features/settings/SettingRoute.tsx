@@ -715,6 +715,11 @@ export default function SettingRoute() {
             {documentProcessingOwner?.get() && (
               <DocumentProcessingPanel
                 owner={documentProcessingOwner.get()!}
+                conversationTitle={(id) =>
+                  state.conversations
+                    .find((conversation) => conversation.id === id)
+                    ?.title.trim() || undefined
+                }
                 onAdmitted={() => {
                   const queue = documentQueueOwner?.get();
                   if (queue && !queue.hasRetained())

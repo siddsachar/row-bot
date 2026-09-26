@@ -77,6 +77,9 @@ const TOKEN_LABELS: Record<string, string> = {
   id: 'ID',
   ai: 'AI',
   llm: 'LLM',
+  openai: 'OpenAI',
+  codex: 'ChatGPT / Codex',
+  ollama: 'Ollama',
 };
 
 /** Translate an internal enum or identifier into sentence-case words. */

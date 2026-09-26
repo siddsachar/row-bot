@@ -18,6 +18,28 @@ export type DocumentQueueItem = {
   error_code: string | null;
   revision: string;
 };
+// Batches have no name or time: an upload reads "Upload · 8ecb2a25" and the
+// full id stays in each action's accessible name.
+function batchTitle(item: DocumentQueueItem) {
+  if (item.name) return item.name;
+  return item.id.startsWith('client_')
+    ? `Upload · ${item.id.slice(7, 15)}`
+    : `Batch · ${item.id.slice(0, 8)}`;
+}
+const BATCH_STATUS: Record<string, string> = {
+  staging: 'Upload not finished',
+  queued: 'Queued',
+  running: 'Processing',
+  paused: 'Paused',
+  completed: 'Completed',
+  completed_with_errors: 'Completed with errors',
+  cancelled: 'Cancelled',
+};
+function batchStatus(item: DocumentQueueItem) {
+  const status = BATCH_STATUS[item.status] ?? item.status;
+  return item.cancel_requested ? `${status} · cancelling` : status;
+}
+
 export type DocumentQueuePage = {
   revision: string;
   items: DocumentQueueItem[];
@@ -385,60 +407,73 @@ export function DocumentJobs({
       {state.batches && <p>{state.batches.total ?? 'Unknown'} saved batches</p>}
       {state.batches?.items.map((item) => (
         <div key={item.id} className="document-batch-row">
-          <p>Batch · {item.status}</p>
-          {onProcess &&
-            item.id.startsWith('client_') &&
-            item.status === 'paused' &&
-            !item.cancel_requested && (
-              <Button disabled={disabled} onClick={() => onProcess(item)}>
-                Process {item.id}
-              </Button>
+          <div className="document-batch-summary">
+            <strong>{batchTitle(item)}</strong>
+            <small>{batchStatus(item)}</small>
+          </div>
+          <div className="document-batch-actions">
+            {onProcess &&
+              item.id.startsWith('client_') &&
+              item.status === 'paused' &&
+              !item.cancel_requested && (
+                <Button
+                  variant="primary"
+                  disabled={disabled}
+                  aria-label={`Process ${item.id}`}
+                  onClick={() => onProcess(item)}
+                >
+                  Process
+                </Button>
+              )}
+            <Button
+              disabled={disabled}
+              aria-label={`Inspect batch ${item.id}`}
+              onClick={() => invoke(() => session.openBatch(item.id))}
+            >
+              Inspect
+            </Button>
+            {terminal.has(item.status) ? (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={state.selected.includes(item.id)}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    session.selectFinished(item.id, event.target.checked)
+                  }
+                />
+                Select finished batch {item.id}
+              </label>
+            ) : (
+              <>
+                <Button
+                  disabled={disabled}
+                  onClick={() =>
+                    invoke(() =>
+                      session.start(
+                        item.pause_requested
+                          ? 'document.batch.resume'
+                          : 'document.batch.pause',
+                        item.id,
+                      ),
+                    )
+                  }
+                >
+                  {item.pause_requested ? 'Resume' : 'Pause'}
+                </Button>
+                <Button
+                  disabled={disabled}
+                  onClick={() =>
+                    invoke(() =>
+                      session.review('document.batch.cancel', item.id),
+                    )
+                  }
+                >
+                  Cancel remaining
+                </Button>
+              </>
             )}
-          <Button
-            disabled={disabled}
-            onClick={() => invoke(() => session.openBatch(item.id))}
-          >
-            Inspect batch {item.id}
-          </Button>
-          {terminal.has(item.status) ? (
-            <label>
-              <input
-                type="checkbox"
-                checked={state.selected.includes(item.id)}
-                disabled={disabled}
-                onChange={(event) =>
-                  session.selectFinished(item.id, event.target.checked)
-                }
-              />
-              Select finished batch {item.id}
-            </label>
-          ) : (
-            <>
-              <Button
-                disabled={disabled}
-                onClick={() =>
-                  invoke(() =>
-                    session.start(
-                      item.pause_requested
-                        ? 'document.batch.resume'
-                        : 'document.batch.pause',
-                      item.id,
-                    ),
-                  )
-                }
-              >
-                {item.pause_requested ? 'Resume' : 'Pause'}
-              </Button>
-              <Button
-                disabled={disabled}
-                onClick={() =>
-                  invoke(() => session.review('document.batch.cancel', item.id))
-                }
-              >
-                Cancel remaining
-              </Button>
-            </>
-          )}
+          </div>
         </div>
       ))}
       {state.batches?.next_cursor && (

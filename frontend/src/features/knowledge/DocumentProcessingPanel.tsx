@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { humanizeToken } from '../../ui/format';
 import type { ClientController } from '../../api/controller';
 import { Button, ErrorState } from '../../ui/primitives';
 
@@ -265,12 +266,27 @@ export type DocumentProcessingOwner = ReturnType<
   typeof createDocumentProcessingSession
 >;
 
+// Stable ids stay in the review; people read titles, models and places.
+const LOCATION: Record<string, string> = {
+  local: 'on this device',
+  remote: 'cloud',
+};
+function modelName(ref: string) {
+  return ref.replace(/^model:[^:]+:/, '');
+}
+function batchName(id: string) {
+  return id.startsWith('client_') ? `Upload · ${id.slice(7, 15)}` : id;
+}
+
 export function DocumentProcessingPanel({
   owner,
   onAdmitted,
+  conversationTitle,
 }: {
   owner: DocumentProcessingOwner;
   onAdmitted?: () => void;
+  /** The conversation's title, when the caller knows it. */
+  conversationTitle?: (id: string) => string | undefined;
 }) {
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
   useEffect(() => {
@@ -286,8 +302,14 @@ export function DocumentProcessingPanel({
   return (
     <section aria-label="Document processing">
       <h3>Process saved documents</h3>
-      <p>Conversation: {state.selection.conversationId}</p>
-      <p>Batch: {state.selection.batchId}</p>
+      <p title={state.selection.conversationId}>
+        Conversation:{' '}
+        {conversationTitle?.(state.selection.conversationId) ||
+          'Selected conversation'}
+      </p>
+      <p title={state.selection.batchId}>
+        Batch: {batchName(state.selection.batchId)}
+      </p>
       <p>
         This selection remains attached to its original conversation when you
         navigate to another chat.
@@ -307,14 +329,16 @@ export function DocumentProcessingPanel({
       )}
       {state.review && (
         <div>
-          <p>
-            Chat provider: {state.review.chat.provider_id} ·{' '}
-            {state.review.chat.model_ref} ·{' '}
-            {state.review.chat.execution_location}
+          <p title={state.review.chat.model_ref}>
+            Chat model: {modelName(state.review.chat.model_ref)} ·{' '}
+            {humanizeToken(state.review.chat.provider_id)} ·{' '}
+            {LOCATION[state.review.chat.execution_location] ??
+              state.review.chat.execution_location}
           </p>
           <p>
-            Embedding provider: {state.review.embedding.provider} ·{' '}
-            {state.review.embedding.execution_location}
+            Embeddings: {humanizeToken(state.review.embedding.provider)} ·{' '}
+            {LOCATION[state.review.embedding.execution_location] ??
+              state.review.embedding.execution_location}
           </p>
           <p>
             Processing reads the saved document sources and may send their
