@@ -306,6 +306,8 @@ type ModalTaskProps = {
   dismissible?: boolean;
   returnFocusTo?: HTMLElement | null;
   fallbackFocusTo?: HTMLElement | null;
+  /** Extra class on the dialog, e.g. a wider task such as the workflow builder. */
+  className?: string;
 };
 
 /** Declarative settings/setup task using the same Radix/back/focus contract. */
@@ -320,6 +322,7 @@ export function ModalTask({
   dismissible = true,
   returnFocusTo,
   fallbackFocusTo,
+  className = '',
 }: ModalTaskProps) {
   const opener = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -357,7 +360,7 @@ export function ModalTask({
         <Dialog.Overlay className="overlay-backdrop" />
         <Dialog.Content
           ref={contentRef}
-          className={`dialog shared-dialog-task ${kind === 'sheet' ? 'sheet' : ''}`}
+          className={`dialog shared-dialog-task ${kind === 'sheet' ? 'sheet' : ''} ${className}`}
           aria-label={ariaLabel}
           aria-modal="true"
           data-testid="shared-dialog-task"

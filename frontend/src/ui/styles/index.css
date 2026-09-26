@@ -2,7 +2,7 @@
  * Stylesheet entry. Order is the cascade: bundled fonts, non-palette tokens,
  * the legacy per-surface rules (split into per-surface layers as surfaces are
  * reworked), then shared primitives, which may refine legacy rules, then the
- * reworked surfaces (chat, the shell, then settings).
+ * reworked surfaces (chat, the shell, settings, then Home).
  */
 @import './fonts.css';
 @import './tokens.css';
@@ -11,3 +11,4 @@
 @import './chat.css';
 @import './shell.css';
 @import './settings.css';
+@import './home.css';

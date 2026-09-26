@@ -406,6 +406,20 @@ time {
   line-height: var(--type-line-label);
 }
 
+.button.icon-action.danger {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--status-danger-text);
+}
+.button.icon-action.danger:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--status-danger-background) 70%,
+    transparent
+  );
+}
+
 /* Stat ------------------------------------------------------------------ */
 .stat-group {
   display: grid;

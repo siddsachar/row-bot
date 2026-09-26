@@ -417,14 +417,21 @@ export function Tabs({
   value,
   onChange,
   items,
+  className,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   items: { id: string; label: ReactNode; content: ReactNode }[];
+  /** Root class, for surfaces that lay the tabs out themselves (Home). */
+  className?: string;
 }) {
   return (
-    <TabsPrimitive.Root value={value} onValueChange={onChange}>
+    <TabsPrimitive.Root
+      className={className}
+      value={value}
+      onValueChange={onChange}
+    >
       <TabsPrimitive.List className="tabs" aria-label={label}>
         {items.map((item) => (
           <TabsPrimitive.Trigger className="tab" key={item.id} value={item.id}>
