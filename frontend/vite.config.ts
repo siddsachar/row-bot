@@ -21,6 +21,12 @@ if (
 const SYNTAX_MODULES =
   /\/node_modules\/(?:shiki|@shikijs|oniguruma-to-es|oniguruma-parser|regex|regex-recursion|regex-utilities|hast-util-to-html|hast-util-whitespace|html-void-elements|mdast-util-to-hast|micromark-util-[\w-]+|unist-util-[\w-]+|vfile|vfile-message|property-information|space-separated-tokens|comma-separated-tokens|ccount|character-entities-html4|character-entities-legacy|stringify-entities|zwitch|trim-lines|devlop|@ungap\/structured-clone)\//;
 
+// The knowledge graph renderer (sigma.js, graphology, the ForceAtlas2 layout
+// and sigma's EventEmitter polyfill): a lazy `graph` chunk loaded by Home ›
+// Knowledge only.
+const GRAPH_MODULES =
+  /\/node_modules\/(?:sigma|graphology|graphology-[\w-]+|events)\//;
+
 // Dev-only same-loopback proxy. Production access policy is untouched.
 const loopbackProxy: ProxyOptions = {
   target: backend.origin,
@@ -75,6 +81,7 @@ export default defineConfig({
           )
             return undefined;
           if (SYNTAX_MODULES.test(id)) return 'syntax';
+          if (GRAPH_MODULES.test(id)) return 'graph';
           if (id.includes('/node_modules/')) return 'vendor';
           if (id.includes('/contracts/client-platform/')) return 'protocol';
         },
