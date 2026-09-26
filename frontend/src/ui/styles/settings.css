@@ -970,9 +970,10 @@
   border-radius: 4px;
   background: var(--surface-hover);
 }
+/* Like the real sidebar: the current row is a stronger fill, no stripe
+   (a stripe on a rounded pill read as a stray "("). */
 .appearance-mini-nav.is-current {
-  background: var(--surface-raised);
-  box-shadow: inset 2px 0 var(--accent-solid);
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
 }
 .appearance-mini-nav.short {
   width: 60%;
@@ -1301,6 +1302,56 @@
 }
 .settings-page-content .settings-snapshot-disclosure[open] > summary {
   border-bottom: 0;
+}
+/* The same small chevron as every other settings disclosure, not the
+   native ▶ marker. */
+.settings-page-content .settings-snapshot-disclosure > summary,
+.settings-page-content .settings-system-detail > summary,
+.settings-page-content
+  .settings-snapshot-section
+  details:not(.disclosure):not(.settings-supplemental-disclosure)
+  > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: pointer;
+}
+.settings-page-content
+  .settings-snapshot-disclosure
+  > summary::-webkit-details-marker,
+.settings-page-content
+  .settings-system-detail
+  > summary::-webkit-details-marker,
+.settings-page-content
+  .settings-snapshot-section
+  details:not(.disclosure):not(.settings-supplemental-disclosure)
+  > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-page-content .settings-snapshot-disclosure > summary::before,
+.settings-page-content .settings-system-detail > summary::before,
+.settings-page-content
+  .settings-snapshot-section
+  details:not(.disclosure):not(.settings-supplemental-disclosure)
+  > summary::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.settings-page-content .settings-snapshot-disclosure[open] > summary::before,
+.settings-page-content .settings-system-detail[open] > summary::before,
+.settings-page-content
+  .settings-snapshot-section
+  details[open]:not(.disclosure):not(.settings-supplemental-disclosure)
+  > summary::before {
+  transform: rotate(45deg);
 }
 .settings-page-content .settings-facts {
   gap: 10px 24px;

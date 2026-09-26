@@ -2141,7 +2141,7 @@ export function SystemSnapshotPanel({
         <ReviewedSettingsAction
           mutation={mutation}
           field="logging.open"
-          label="Open Log Folder"
+          label="Open log folder"
           description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
         />
       </Section>
