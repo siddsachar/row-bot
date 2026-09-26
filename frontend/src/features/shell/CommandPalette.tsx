@@ -76,6 +76,9 @@ const GROUP_ORDER: readonly PaletteGroup[] = [
   'Messages',
 ];
 
+/** fuzzyMatch scores a literal substring at 1000 or more (less field weight). */
+const LITERAL_SCORE = 850;
+
 const LIMITS: Record<PaletteGroup, number> = {
   Conversations: 8,
   Messages: 6,
@@ -243,8 +246,17 @@ export default function CommandPalette({
           }),
         );
     }
+    // Scattered letter matches only show when nothing matches literally.
+    const literal = results.some(
+      (item) => item.group !== 'Messages' && item.score >= LITERAL_SCORE,
+    );
+    const relevant = literal
+      ? results.filter(
+          (item) => item.group === 'Messages' || item.score >= LITERAL_SCORE,
+        )
+      : results;
     const grouped = GROUP_ORDER.map((group) =>
-      results
+      relevant
         .filter((item) => item.group === group)
         .sort((left, right) => right.score - left.score)
         .slice(0, LIMITS[group]),

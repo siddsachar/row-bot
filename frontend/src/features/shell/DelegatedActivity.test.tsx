@@ -391,3 +391,47 @@ it('keeps recent reads for several conversations and evicts the oldest', () => {
   expect(reads.get('a')?.key).toBe('a');
   expect(reads.get('c')?.key).toBe('c');
 });
+
+it('reports how many delegated agents are live once each page settles', async () => {
+  const onLiveChange = vi.fn();
+  const next = deferred<DelegatedActivityView>();
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ...page,
+      items: [
+        { ...run, run_id: 'run-a', status: 'running' },
+        { ...run, run_id: 'run-b', status: 'waiting_approval' },
+        { ...run, run_id: 'run-c', status: 'completed' },
+      ],
+    })
+    .mockReturnValueOnce(next.promise);
+  const props = {
+    conversationId: 'parent-a',
+    loadPage: load,
+    loadRun: async () => run,
+    openConversation: vi.fn().mockResolvedValue(undefined),
+    onLiveChange,
+  };
+  const view = render(
+    <OverlayProvider>
+      <DelegatedActivity {...props} refreshKey="1" />
+    </OverlayProvider>,
+  );
+  await waitFor(() => expect(onLiveChange).toHaveBeenLastCalledWith(2));
+  // A refresh in flight keeps the last count instead of reporting zero.
+  view.rerender(
+    <OverlayProvider>
+      <DelegatedActivity {...props} refreshKey="2" />
+    </OverlayProvider>,
+  );
+  await act(async () => {});
+  expect(onLiveChange).toHaveBeenCalledTimes(1);
+  await act(async () =>
+    next.resolve({
+      ...page,
+      items: [{ ...run, run_id: 'run-a', status: 'completed' }],
+    }),
+  );
+  await waitFor(() => expect(onLiveChange).toHaveBeenLastCalledWith(0));
+});

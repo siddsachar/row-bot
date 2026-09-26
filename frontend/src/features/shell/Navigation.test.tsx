@@ -13,13 +13,14 @@ import { FixtureTransport } from '../../api/fixtures';
 import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
-import Navigation from './Navigation';
+import Navigation, { NavigationRail } from './Navigation';
 import { createAuthenticatedEditorOwner } from '../settings/authenticated-editor-owner';
 import { createGoalProfileSettingsSession } from '../settings/GoalProfileSettings';
 
 const clients: ClientController[] = [];
 afterEach(() => {
   clients.splice(0).forEach((controller) => controller.dispose());
+  localStorage.removeItem('row-bot.sidebar-type.v1');
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -584,4 +585,98 @@ it('rechecks background work without resetting the list and marks failed reads s
   ).toBeNull();
   expect(controller.getSnapshot().hasMoreConversations).toBe(true);
   expect(list).toHaveBeenCalledTimes(listReads);
+});
+
+it('filters by conversation type and labels recency runs inside the recent list', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 8, 26, 12));
+  const { controller, transport } = await setup(6);
+  const days = [0, 0, 1, 3, 9, 9];
+  const categories = [
+    'chat',
+    'designer',
+    'code',
+    'workflow',
+    'designer',
+    'chat',
+  ] as const;
+  transport.conversations.forEach((row, index) => {
+    row.pinned = false;
+    row.updated_at = new Date(2026, 8, 26 - days[index], 10).toISOString();
+    row.category = categories[index];
+  });
+  const titles = transport.conversations.map((row) => row.title);
+  await act(async () => controller.loadMoreConversations(true));
+  const recent = screen.getByRole('list', { name: 'Recent conversations' });
+  // Headings sit inside the first row of each run, so the list still has
+  // exactly one item per conversation, in server order.
+  expect(within(recent).getAllByRole('listitem')).toHaveLength(6);
+  expect(
+    within(recent)
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent),
+  ).toEqual(['Today', 'Yesterday', 'This week', 'Older']);
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(titles);
+  expect(
+    screen.getByRole('radiogroup', { name: 'Conversation type' }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('radio', { name: 'Designs' }));
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual([
+    titles[1],
+    titles[4],
+  ]);
+  expect(localStorage.getItem('row-bot.sidebar-type.v1')).toBe('designer');
+  fireEvent.click(screen.getByRole('radio', { name: 'Chats' }));
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual([
+    titles[0],
+    titles[5],
+  ]);
+  fireEvent.click(screen.getByRole('radio', { name: 'All' }));
+  expect(rows()).toHaveLength(6);
+});
+
+it('keeps Home, New chat, commands and Settings reachable on the collapsed rail (B11)', async () => {
+  const transport = new FixtureTransport({ conversationCount: 3 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  const onNewChat = vi.fn();
+  const onCommands = vi.fn();
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <CurrentRoute />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <NavigationRail
+            onNewChat={onNewChat}
+            railActions={
+              <button type="button" onClick={onCommands}>
+                Workspace commands
+              </button>
+            }
+          />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const rail = screen.getByRole('navigation', { name: 'Collapsed navigation' });
+  expect(
+    screen.queryByRole('navigation', { name: 'Workspace navigation' }),
+  ).toBeNull();
+  fireEvent.click(within(rail).getByRole('button', { name: 'New chat' }));
+  expect(onNewChat).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    within(rail).getByRole('button', { name: 'Workspace commands' }),
+  );
+  expect(onCommands).toHaveBeenCalledTimes(1);
+  expect(within(rail).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+    'href',
+    '/settings/providers',
+  );
+  fireEvent.click(within(rail).getByRole('link', { name: 'Home' }));
+  expect(
+    screen.getByRole('status', { name: 'Current route' }),
+  ).toHaveTextContent('/');
 });
