@@ -34,7 +34,7 @@ import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
-import { SettingsAdvanced, SettingsDangerZone, DangerAction } from './anatomy';
+import { SettingsDangerZone, DangerAction } from './anatomy';
 import { useWorkspaceActions } from '../shell/workspace-actions';
 import SettingsShell from './SettingsShell';
 import AccessSessions from './AccessSessions';
@@ -484,13 +484,7 @@ export default function SettingRoute() {
             ) : (
               snapshotState
             )}
-            <SettingsAdvanced
-              summary="Tool catalogue"
-              meta="Every tool the assistant can load"
-              anchor="tool-catalogue"
-            >
-              <ToolCatalog key={session} load={controller.cachedTools} />
-            </SettingsAdvanced>
+            <ToolCatalog key={session} load={controller.cachedTools} />
           </>
         ) : leaf.id === 'knowledge' ? (
           <>

@@ -148,8 +148,9 @@ export default function ToolCatalog({
 
   return (
     <details
-      className="stack settings-tool-catalog"
+      className="stack settings-tool-catalog settings-supplemental-disclosure"
       aria-busy={loading || loadingMore}
+      data-setting-anchor="tool-catalogue"
     >
       <summary>
         <span>

@@ -2330,3 +2330,43 @@
   border-radius: var(--radius-panel);
   background: var(--surface);
 }
+
+/* Touch: every settings control keeps a 44px target. -------------------- */
+@media (pointer: coarse) {
+  .settings-shell .toggle-control {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .settings-shell .settings-tab {
+    min-height: 44px;
+  }
+  .settings-page-content .settings-provider-actions .compact-action,
+  .settings-page-content .settings-provider-actions .icon-action,
+  .settings-page-content .settings-model-heading-actions .icon-action,
+  .settings-page-content .settings-owner-heading .compact-action,
+  .settings-page-content .settings-section-actions .icon-action,
+  .settings-shell .settings-refresh {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+  .settings-page-content .settings-inline-search .input,
+  .settings-page-content .settings-list-toolbar > .select,
+  .settings-page-content .settings-list-toolbar > .button,
+  .settings-navigation-search .input {
+    min-height: 44px;
+  }
+  .settings-page-content .settings-plugin-details > summary,
+  .settings-page-content .settings-supplemental-disclosure > summary,
+  .settings-page-content .context-goal-history > summary,
+  .settings-page-content .settings-tool-detail > summary {
+    min-height: 44px;
+  }
+  .document-dropzone-choose {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
