@@ -18,7 +18,8 @@ type Overlay = {
   title: string;
   description: string;
   content?: ReactNode;
-  kind?: 'dialog' | 'sheet' | 'drawer' | 'alert';
+  /** A palette has no header or footer chrome; Escape closes it. */
+  kind?: 'dialog' | 'sheet' | 'drawer' | 'alert' | 'palette';
   confirmLabel?: string;
   onConfirm?: () => void;
   returnFocusTo?: HTMLElement | null;
@@ -101,6 +102,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const resumeFocus = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const current = confirmation ?? task;
+  const palette = !confirmation && task?.kind === 'palette';
   const level = confirmation ? 2 : task ? 1 : 0;
   const activeElement = () =>
     document.activeElement instanceof HTMLElement
@@ -173,7 +175,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Dialog.Content
                 aria-modal="true"
                 role={confirmation ? 'alertdialog' : 'dialog'}
-                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : ''} ${current?.className ?? ''}`}
+                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : task?.kind === 'palette' ? 'palette' : ''} ${current?.className ?? ''}`}
                 onOpenAutoFocus={(event) => {
                   const search = document.querySelector<HTMLElement>(
                     '[role="dialog"] [data-initial-focus]',
@@ -192,7 +194,9 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     returningTo.current.focus();
                 }}
               >
-                <header className="dialog-header">
+                <header
+                  className={`dialog-header ${palette ? 'visually-hidden' : ''}`}
+                >
                   <div>
                     <Dialog.Title className="dialog-title">
                       {current?.title}
@@ -201,7 +205,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                       {current?.description}
                     </Dialog.Description>
                   </div>
-                  {!confirmation && (
+                  {!confirmation && !palette && (
                     <Button
                       iconOnly={task?.kind !== 'drawer'}
                       variant="ghost"
@@ -230,7 +234,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                 {confirmation && (
                   <div className="dialog-body">{confirmation.content}</div>
                 )}
-                {(confirmation || task?.kind !== 'sheet') && (
+                {(confirmation || (task?.kind !== 'sheet' && !palette)) && (
                   <footer className="dialog-footer">
                     {confirmation ? (
                       <>
