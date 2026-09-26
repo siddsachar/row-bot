@@ -14,6 +14,17 @@ import type {
   ProviderEndpointFields,
 } from '../../api/types';
 
+/** Compact endpoint rows keep Refresh visible; the rest is in their ⋯. */
+async function chooseEndpoint(item: string) {
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Synthetic endpoint',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: item })),
+  );
+}
+
 const fields: ProviderEndpointFields = {
   endpoint_id: 'synthetic',
   display_name: 'Synthetic endpoint',
@@ -77,9 +88,7 @@ it('runs a custom endpoint probe from its compact row action and reloads the res
     ],
   });
   render(<ProviderConfiguration {...props} compact />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Probe Synthetic endpoint' }),
-  );
+  await chooseEndpoint('Probe Synthetic endpoint');
   await waitFor(() =>
     expect(props.apply).toHaveBeenCalledWith(
       'provider.endpoint.probe',
@@ -89,12 +98,8 @@ it('runs a custom endpoint probe from its compact row action and reloads the res
       expect.objectContaining({ nonce: 'original-session-nonce' }),
     ),
   );
-  expect(await screen.findByText('agent ready')).toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', {
-      name: 'Show Synthetic endpoint probe details',
-    }),
-  );
+  expect(await screen.findByText('Agent ready')).toBeVisible();
+  await chooseEndpoint('Show Synthetic endpoint probe details');
   expect(screen.getByText('Tool round trip: ok')).toBeVisible();
   expect(
     screen.queryByRole('button', { name: 'Review configuration' }),
@@ -103,9 +108,7 @@ it('runs a custom endpoint probe from its compact row action and reloads the res
 it('refreshes a saved no-key endpoint using the reviewed endpoint operation', async () => {
   const props = options();
   render(<ProviderConfiguration {...props} compact />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Edit Synthetic endpoint' }),
-  );
+  await chooseEndpoint('Edit Synthetic endpoint');
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(2));
   expect(vi.mocked(props.apply).mock.calls.map((call) => call[0])).toEqual([

@@ -9,6 +9,7 @@ import {
   Trash2,
   ListChecks,
   KeyRound,
+  MoreHorizontal,
 } from 'lucide-react';
 import type {
   ProviderConfigurationPage,
@@ -17,12 +18,17 @@ import type {
 import { clientError } from '../../api/errors';
 import {
   Button,
+  CompactAction,
   Field,
   Input,
+  Menu,
   Select,
   Skeleton,
+  StatusDot,
   Toggle,
+  type MenuAction,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 import { ModalTask } from '../../ui/overlays';
 
 type Operation =
@@ -193,6 +199,9 @@ export default function ProviderConfiguration(
   const session = props.session ?? local.current;
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [probeDetails, setProbeDetails] = useState<
+    ProviderConfigurationPage['items'][number] | null
+  >(null);
+  const [removing, setRemoving] = useState<
     ProviderConfigurationPage['items'][number] | null
   >(null);
   const epoch = useRef(0);
@@ -544,76 +553,37 @@ export default function ProviderConfiguration(
         aria-label="Custom / Self-Hosted Endpoints"
         aria-busy={!!state.busy}
       >
-        <h3>Custom / Self-Hosted Endpoints</h3>
+        <h3 className="settings-provider-group-heading">Custom endpoints</h3>
         {state.busy === 'load' && <Skeleton label="Loading custom endpoints" />}
         {state.error && <p role="alert">{state.error}</p>}
         {state.notice && <p role="status">{state.notice}</p>}
-        {page && (
-          <ul className="settings-custom-endpoint-list">
-            {page.items.map((item) => (
-              <li key={item.provider_id}>
-                <Network size={19} aria-hidden />
-                <span className="settings-provider-copy">
-                  <strong>{item.fields.display_name}</strong>
-                  <small>{item.fields.base_url}</small>
-                </span>
-                <span className="settings-provider-row-meta">
-                  <span className="status-chip">
-                    {item.fields.execution_location}
-                  </span>
-                  <span className="status-chip">{item.fields.profile}</span>
-                  <span className="status-chip">
-                    {item.transport ?? 'openai_chat'}
-                  </span>
-                  {item.probe_state !== 'unknown' && (
-                    <span className="status-chip">
-                      {probeLabels[item.probe_state].toLowerCase()}
-                    </span>
-                  )}
-                  {!!item.probe_components?.length && (
-                    <Button
-                      className="settings-endpoint-icon"
-                      aria-label={`Show ${item.fields.display_name} probe details`}
-                      onClick={() => setProbeDetails(item)}
-                    >
-                      <ListChecks size={16} aria-hidden />
-                    </Button>
-                  )}
-                  {item.model_count !== null && (
-                    <span className="status-chip">
-                      {item.model_count} models
-                    </span>
-                  )}
-                </span>
-                <Button
-                  className="settings-endpoint-icon"
-                  aria-label={`Refresh ${item.fields.display_name} models`}
-                  disabled={locked}
-                  onClick={() =>
-                    void performDirect('provider.endpoint.refresh', {
-                      endpoint_id: item.fields.endpoint_id,
-                    })
-                  }
-                >
-                  <RefreshCw size={16} aria-hidden />
-                </Button>
-                <Button
-                  className="settings-endpoint-icon"
-                  aria-label={`Probe ${item.fields.display_name}`}
-                  disabled={locked}
-                  onClick={() =>
+        {page && page.items.length > 0 && (
+          <ul className="settings-provider-list settings-custom-endpoint-list">
+            {page.items.map((item) => {
+              const menu: MenuAction[] = [
+                {
+                  label: `Probe ${item.fields.display_name}`,
+                  icon: <FlaskConical size={16} />,
+                  disabled: locked,
+                  onSelect: () =>
                     void performDirect('provider.endpoint.probe', {
                       endpoint_id: item.fields.endpoint_id,
-                    })
-                  }
-                >
-                  <FlaskConical size={16} aria-hidden />
-                </Button>
-                <Button
-                  className="settings-endpoint-icon"
-                  aria-label={`Edit ${item.fields.display_name}`}
-                  disabled={locked}
-                  onClick={() =>
+                    }),
+                },
+                ...(item.probe_components?.length
+                  ? [
+                      {
+                        label: `Show ${item.fields.display_name} probe details`,
+                        icon: <ListChecks size={16} />,
+                        onSelect: () => setProbeDetails(item),
+                      },
+                    ]
+                  : []),
+                {
+                  label: `Edit ${item.fields.display_name}`,
+                  icon: <Pencil size={16} />,
+                  disabled: locked,
+                  onSelect: () =>
                     session.update({
                       fields: structuredClone(item.fields),
                       revision: page.revision,
@@ -621,37 +591,115 @@ export default function ProviderConfiguration(
                       editing: true,
                       operation: 'provider.endpoint.save',
                       reviewed: null,
-                    })
-                  }
-                >
-                  <Pencil size={16} aria-hidden />
-                </Button>
-                {item.fields.auth_required && (
-                  <Button
-                    className="settings-endpoint-icon"
-                    aria-label={`Manage ${item.fields.display_name} API key`}
-                    disabled={locked}
-                    onClick={() => props.onCredentials(item.provider_id)}
-                  >
-                    <KeyRound size={16} aria-hidden />
-                  </Button>
-                )}
-                <Button
-                  className="settings-endpoint-icon is-danger"
-                  aria-label={`Remove ${item.fields.display_name}`}
-                  disabled={locked}
-                  onClick={() => {
-                    if (window.confirm(`Remove ${item.fields.display_name}?`))
-                      void performDirect('provider.endpoint.delete', {
-                        endpoint_id: item.fields.endpoint_id,
-                      });
-                  }}
-                >
-                  <Trash2 size={16} aria-hidden />
-                </Button>
-              </li>
-            ))}
+                    }),
+                },
+                ...(item.fields.auth_required
+                  ? [
+                      {
+                        label: `Manage ${item.fields.display_name} API key`,
+                        icon: <KeyRound size={16} />,
+                        disabled: locked,
+                        onSelect: () => props.onCredentials(item.provider_id),
+                      },
+                    ]
+                  : []),
+                {
+                  label: `Remove ${item.fields.display_name}`,
+                  icon: <Trash2 size={16} />,
+                  danger: true,
+                  disabled: locked,
+                  onSelect: () => setRemoving(item),
+                },
+              ];
+              const tone =
+                item.probe_state === 'agent_ready'
+                  ? 'success'
+                  : item.probe_state === 'chat_only'
+                    ? 'info'
+                    : item.probe_state === 'unavailable'
+                      ? 'danger'
+                      : 'neutral';
+              const meta = [
+                item.fields.base_url,
+                humanizeToken(item.fields.execution_location),
+                humanizeToken(item.fields.profile),
+                item.model_count !== null ? `${item.model_count} models` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <li key={item.provider_id} className="settings-provider-row">
+                  <span className="settings-provider-mark" aria-hidden>
+                    <Network size={16} aria-hidden />
+                  </span>
+                  <span className="settings-provider-copy">
+                    <span className="settings-provider-title">
+                      <strong>{item.fields.display_name}</strong>
+                      <StatusDot
+                        tone={tone}
+                        label={probeLabels[item.probe_state]}
+                        showLabel
+                      />
+                    </span>
+                    <small title={meta}>{meta}</small>
+                  </span>
+                  <span className="settings-provider-risk">
+                    {humanizeToken(item.transport ?? 'openai_chat')}
+                  </span>
+                  <span className="settings-provider-actions">
+                    <CompactAction
+                      label={`Refresh ${item.fields.display_name} models`}
+                      disabled={locked}
+                      onClick={() =>
+                        void performDirect('provider.endpoint.refresh', {
+                          endpoint_id: item.fields.endpoint_id,
+                        })
+                      }
+                    >
+                      <RefreshCw size={16} aria-hidden />
+                    </CompactAction>
+                    <Menu
+                      label={`More actions for ${item.fields.display_name}`}
+                      actions={menu}
+                      iconOnly
+                      variant="ghost"
+                      className="icon-action icon-action-sm"
+                    >
+                      <MoreHorizontal size={16} aria-hidden />
+                    </Menu>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
+        )}
+        {removing && (
+          <ModalTask
+            open
+            title={`Remove ${removing.fields.display_name}?`}
+            description="Row-Bot forgets this endpoint and its saved key. Models it served disappear from pickers."
+            ariaLabel={`Remove ${removing.fields.display_name}`}
+            onOpenChange={(open) => {
+              if (!open) setRemoving(null);
+            }}
+          >
+            <div className="button-row">
+              <Button onClick={() => setRemoving(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={locked}
+                onClick={() => {
+                  const target = removing;
+                  setRemoving(null);
+                  void performDirect('provider.endpoint.delete', {
+                    endpoint_id: target.fields.endpoint_id,
+                  });
+                }}
+              >
+                Remove endpoint
+              </Button>
+            </div>
+          </ModalTask>
         )}
         {page?.next_cursor && !state.editing && (
           <Button
@@ -663,6 +711,7 @@ export default function ProviderConfiguration(
         )}
         {!state.editing && (
           <button
+            type="button"
             className="settings-add-endpoint"
             disabled={locked || !page}
             onClick={() =>
@@ -676,7 +725,7 @@ export default function ProviderConfiguration(
               })
             }
           >
-            <Plus size={20} aria-hidden /> Add custom endpoint
+            <Plus size={16} aria-hidden /> Add custom endpoint
           </button>
         )}
         {state.editing && (

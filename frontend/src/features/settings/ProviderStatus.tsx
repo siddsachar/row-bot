@@ -3,6 +3,7 @@ import {
   KeyRound,
   Link2Off,
   LogIn,
+  MoreHorizontal,
   RefreshCw,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -15,20 +16,33 @@ import type {
 import { clientError } from '../../api/errors';
 import {
   CompactAction,
+  Disclosure,
   EmptyState,
   ErrorState,
+  Menu,
   Skeleton,
+  StatusDot,
+  type MenuAction,
+  type Tone,
 } from '../../ui/primitives';
+import { humanizeToken, maskedTail } from '../../ui/format';
+import { SettingsRefresh, SettingsSummary, SummaryChip } from './anatomy';
 import { ModalTask } from '../../ui/overlays';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import type { createProviderSettingsSessions } from './provider-settings-sessions';
 
 const groups = {
-  local: 'Local',
-  subscription: 'Subscription Accounts',
-  api: 'API Providers',
-  custom: 'Custom Endpoints',
+  local: 'On this device',
+  subscription: 'Subscriptions',
+  api: 'API providers',
+  custom: 'Custom endpoints',
 } as const;
+const stateTones: Record<string, Tone> = {
+  enabled: 'success',
+  saved: 'info',
+  warning: 'warning',
+  unknown: 'neutral',
+};
 const sourceLabels: Record<string, string> = {
   keyring: 'Saved in keyring',
   encrypted_file: 'Saved in encrypted server storage',
@@ -105,6 +119,10 @@ function cardDetail(card: ProviderLiveCard) {
     details.push('catalog count unknown');
   if (card.chat_count) details.push(`${card.chat_count} chat`);
   if (card.media_count) details.push(`${card.media_count} media`);
+  if (card.last_runtime_probe_ok != null)
+    details.push(card.last_runtime_probe_ok ? 'runtime ok' : 'runtime failed');
+  if (card.group === 'api' && card.configured && card.fingerprint)
+    details.push(`key ${maskedTail(card.fingerprint)}`);
   return details.join(' · ');
 }
 
@@ -116,6 +134,7 @@ export default function ProviderStatus({
   owner,
   onSubscription,
   onSubscriptionOption,
+  hideCustom = false,
 }: {
   load: (signal?: AbortSignal) => Promise<ProviderLiveSnapshot>;
   refresh: (provider: string) => Promise<ProviderCatalogRefresh>;
@@ -127,6 +146,8 @@ export default function ProviderStatus({
     action: 'connect' | 'manage' | 'disconnect',
   ) => void;
   onSubscriptionOption?: (provider: string) => void;
+  /** Custom endpoints listed by their own editor below. */
+  hideCustom?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
   const [selected, setSelected] = useState('');
@@ -215,20 +236,164 @@ export default function ProviderStatus({
       setTesting('');
     }
   }
+  const cards = snapshot?.providers ?? [];
+  const connected = cards.filter((card) => card.configured).length;
+  const renderRow = (card: ProviderLiveCard) => {
+    const state = cardState(card);
+    const detail = cardDetail(card);
+    const menu: MenuAction[] = [];
+    if (
+      card.group === 'subscription' &&
+      card.provider_id === 'claude_subscription' &&
+      onSubscription
+    )
+      menu.push({
+        label: 'Import Claude setup token',
+        icon: <KeyRound size={16} />,
+        onSelect: () => onSubscription(card.provider_id, 'manage'),
+      });
+    if (
+      card.group === 'subscription' &&
+      card.provider_id === 'xai_oauth' &&
+      onSubscriptionOption
+    )
+      menu.push({
+        label: 'Configure xAI OAuth client ID',
+        icon: <KeyRound size={16} />,
+        onSelect: () => onSubscriptionOption(card.provider_id),
+      });
+    if (
+      card.group === 'subscription' &&
+      ['codex', 'claude_subscription'].includes(card.provider_id) &&
+      card.external_reference_exists &&
+      !card.configured &&
+      onSubscriptionOption
+    )
+      menu.push({
+        label: `Reference ${card.display_name} CLI login`,
+        icon: <KeyRound size={16} />,
+        onSelect: () => onSubscriptionOption(card.provider_id),
+      });
+    if (
+      card.group === 'subscription' &&
+      card.runtime_enabled &&
+      card.configured &&
+      testRuntime &&
+      ['claude_subscription', 'xai_oauth'].includes(card.provider_id)
+    )
+      menu.push({
+        label: `Test ${card.display_name} runtime`,
+        icon: <FlaskConical size={16} />,
+        disabled: !!testing,
+        onSelect: () => void runtimeTest(card),
+      });
+    if (card.group === 'subscription' && canDisconnect(card) && onSubscription)
+      menu.push({
+        label: `Disconnect ${card.display_name}`,
+        icon: <Link2Off size={16} />,
+        danger: true,
+        onSelect: () => onSubscription(card.provider_id, 'disconnect'),
+      });
+    return (
+      <li key={card.provider_id} className="settings-provider-row">
+        <span className="settings-provider-mark" aria-hidden>
+          {card.icon}
+        </span>
+        <span className="settings-provider-copy">
+          <span className="settings-provider-title">
+            <strong>{card.display_name}</strong>
+            <StatusDot
+              tone={stateTones[state.tone] ?? 'neutral'}
+              label={state.label}
+              showLabel
+            />
+          </span>
+          <small title={detail}>{detail}</small>
+        </span>
+        <span className="settings-provider-risk">
+          {card.group === 'subscription' ? '' : humanizeToken(card.risk_label)}
+        </span>
+        <span className="settings-provider-actions">
+          {card.group === 'api' && owner && (
+            <CompactAction
+              label={`Manage ${card.display_name} API key`}
+              onClick={() => setSelected(card.provider_id)}
+            >
+              <KeyRound size={16} aria-hidden />
+            </CompactAction>
+          )}
+          {card.group === 'subscription' &&
+            onSubscription &&
+            canConnect(card) && (
+              <CompactAction
+                label={`${card.configured ? 'Reconnect' : 'Connect'} ${card.display_name}`}
+                onClick={() => onSubscription(card.provider_id, 'connect')}
+              >
+                <LogIn size={16} aria-hidden />
+              </CompactAction>
+            )}
+          <CompactAction
+            label={`Refresh ${card.display_name} provider status and catalog`}
+            disabled={!!refreshing}
+            onClick={() => void refreshProvider(card)}
+          >
+            <RefreshCw
+              size={16}
+              aria-hidden
+              data-spinning={refreshing === card.provider_id || undefined}
+            />
+          </CompactAction>
+          {menu.length > 0 && (
+            <Menu
+              label={`More actions for ${card.display_name}`}
+              actions={menu}
+              iconOnly
+              variant="ghost"
+              className="icon-action icon-action-sm"
+            >
+              <MoreHorizontal size={16} aria-hidden />
+            </Menu>
+          )}
+        </span>
+      </li>
+    );
+  };
   return (
     <section
       className="stack settings-provider-status"
       id="provider-saved-status"
-      aria-labelledby="provider-connections-heading"
+      aria-label="Provider connections"
       aria-busy={loading}
     >
-      <h3 id="provider-connections-heading">Connection Status</h3>
+      <SettingsSummary>
+        {snapshot && (
+          <span
+            className="settings-summary-group"
+            role="group"
+            aria-label="Provider summary"
+          >
+            <SummaryChip tone={connected ? 'success' : 'warning'}>
+              {connected} connected
+            </SummaryChip>
+            <SummaryChip>
+              {cards.filter((card) => card.media_count > 0).length} with media
+            </SummaryChip>
+          </span>
+        )}
+        <SettingsRefresh
+          label="Reload provider status"
+          busy={loading}
+          onRefresh={() => setReload((value) => value + 1)}
+        />
+      </SettingsSummary>
       {notice && (
         <p className="settings-provider-notice" role="status">
           {notice}
         </p>
       )}
-      {loading && <Skeleton label="Checking provider connections" />}
+      {loading && !snapshot && (
+        <Skeleton label="Checking provider connections" />
+      )}
       {error && (
         <ErrorState title="Provider information unavailable">
           {error}
@@ -236,206 +401,54 @@ export default function ProviderStatus({
       )}
       {snapshot && (
         <>
-          <div
-            className="settings-summary-strip"
-            role="group"
-            aria-label="Provider summary"
-          >
-            <span className="status-chip">
-              {snapshot.providers.filter((card) => card.configured).length}{' '}
-              connected
-            </span>
-            <span className="status-chip">
-              {
-                snapshot.providers.filter((card) => card.group === 'local')
-                  .length
-              }{' '}
-              local
-            </span>
-            <span className="status-chip">
-              {snapshot.providers.filter((card) => card.group === 'api').length}{' '}
-              API
-            </span>
-            <span className="status-chip">
-              {
-                snapshot.providers.filter(
-                  (card) => card.group === 'subscription',
-                ).length
-              }{' '}
-              subscription
-            </span>
-            <span className="status-chip">
-              {snapshot.providers.filter((card) => card.media_count > 0).length}{' '}
-              media-capable
-            </span>
-          </div>
           {!snapshot.providers.length && (
             <EmptyState title="No providers">
               No provider definitions are available.
             </EmptyState>
           )}
           {(Object.keys(groups) as Array<keyof typeof groups>).map((group) => {
-            const cards = snapshot.providers.filter(
-              (card) => card.group === group,
-            );
-            return cards.length ? (
+            const members = cards.filter((card) => card.group === group);
+            if (!members.length || (group === 'custom' && hideCustom))
+              return null;
+            const shown =
+              group === 'api'
+                ? members.filter((card) => card.configured)
+                : members;
+            const folded =
+              group === 'api' ? members.filter((card) => !card.configured) : [];
+            return (
               <section
                 className="settings-provider-group"
                 aria-label={groups[group]}
                 key={group}
+                data-setting-anchor={`providers-${group}`}
               >
-                <h4>{groups[group]}</h4>
-                <ul className="settings-provider-list">
-                  {cards.map((card) => (
-                    <li key={card.provider_id}>
-                      <span className="settings-provider-mark" aria-hidden>
-                        {card.icon}
-                      </span>
-                      <span className="settings-provider-copy">
-                        <span className="settings-provider-title">
-                          <span
-                            className={`settings-provider-readiness-dot is-${cardState(card).tone}`}
-                            aria-hidden
-                          />
-                          <strong>{card.display_name}</strong>
-                          <span>{cardState(card).label}</span>
-                        </span>
-                        <small title={cardDetail(card)}>
-                          {cardDetail(card)}
-                        </small>
-                      </span>
-                      <span className="settings-provider-row-meta">
-                        {card.fingerprint && (
-                          <span
-                            className="status-chip"
-                            title="Credential fingerprint"
-                          >
-                            {card.fingerprint}
-                          </span>
-                        )}
-                        {card.oauth_client_id_fingerprint && (
-                          <span
-                            className="status-chip"
-                            title="OAuth client ID fingerprint"
-                          >
-                            {card.oauth_client_id_fingerprint}
-                          </span>
-                        )}
-                        {(card.account_id_hash || card.user_hash) && (
-                          <span
-                            className="status-chip"
-                            title="Account fingerprint"
-                          >
-                            {card.account_id_hash || card.user_hash}
-                          </span>
-                        )}
-                        <span className="status-chip">{card.risk_label}</span>
-                        {card.last_runtime_probe_ok !== null && (
-                          <span className="status-chip">
-                            runtime{' '}
-                            {card.last_runtime_probe_ok ? 'ok' : 'failed'}
-                          </span>
-                        )}
-                      </span>
-                      {card.group === 'api' && owner && (
-                        <CompactAction
-                          label={`Manage ${card.display_name} API key`}
-                          onClick={() => setSelected(card.provider_id)}
-                        >
-                          <KeyRound size={17} aria-hidden />
-                        </CompactAction>
-                      )}
-                      {card.group === 'subscription' &&
-                        onSubscription &&
-                        canConnect(card) && (
-                          <CompactAction
-                            label={`${card.configured ? 'Reconnect' : 'Connect'} ${card.display_name}`}
-                            onClick={() =>
-                              onSubscription(card.provider_id, 'connect')
-                            }
-                          >
-                            <LogIn size={17} aria-hidden />
-                          </CompactAction>
-                        )}
-                      {card.group === 'subscription' &&
-                        card.provider_id === 'claude_subscription' &&
-                        onSubscription && (
-                          <CompactAction
-                            label="Import Claude setup token"
-                            onClick={() =>
-                              onSubscription(card.provider_id, 'manage')
-                            }
-                          >
-                            <KeyRound size={17} aria-hidden />
-                          </CompactAction>
-                        )}
-                      {card.group === 'subscription' &&
-                        card.provider_id === 'xai_oauth' &&
-                        onSubscriptionOption && (
-                          <CompactAction
-                            label="Configure xAI OAuth client ID"
-                            onClick={() =>
-                              onSubscriptionOption(card.provider_id)
-                            }
-                          >
-                            <KeyRound size={17} aria-hidden />
-                          </CompactAction>
-                        )}
-                      {card.group === 'subscription' &&
-                        ['codex', 'claude_subscription'].includes(
-                          card.provider_id,
-                        ) &&
-                        card.external_reference_exists &&
-                        !card.configured &&
-                        onSubscriptionOption && (
-                          <CompactAction
-                            label={`Reference ${card.display_name} CLI login`}
-                            onClick={() =>
-                              onSubscriptionOption(card.provider_id)
-                            }
-                          >
-                            <KeyRound size={17} aria-hidden />
-                          </CompactAction>
-                        )}
-                      {card.group === 'subscription' &&
-                        card.runtime_enabled &&
-                        card.configured &&
-                        testRuntime &&
-                        ['claude_subscription', 'xai_oauth'].includes(
-                          card.provider_id,
-                        ) && (
-                          <CompactAction
-                            label={`Test ${card.display_name} runtime`}
-                            disabled={!!testing}
-                            onClick={() => void runtimeTest(card)}
-                          >
-                            <FlaskConical size={17} aria-hidden />
-                          </CompactAction>
-                        )}
-                      {card.group === 'subscription' &&
-                        canDisconnect(card) &&
-                        onSubscription && (
-                          <CompactAction
-                            label={`Disconnect ${card.display_name}`}
-                            onClick={() =>
-                              onSubscription(card.provider_id, 'disconnect')
-                            }
-                          >
-                            <Link2Off size={17} aria-hidden />
-                          </CompactAction>
-                        )}
-                      <CompactAction
-                        label={`Refresh ${card.display_name} provider status and catalog`}
-                        disabled={!!refreshing}
-                        onClick={() => void refreshProvider(card)}
-                      >
-                        <RefreshCw size={17} aria-hidden />
-                      </CompactAction>
-                    </li>
-                  ))}
-                </ul>
+                <h3 className="settings-provider-group-heading">
+                  {groups[group]}
+                </h3>
+                {shown.length > 0 && (
+                  <ul className="settings-provider-list">
+                    {shown.map(renderRow)}
+                  </ul>
+                )}
+                {folded.length > 0 && (
+                  <Disclosure
+                    className="settings-provider-more"
+                    summary={
+                      shown.length
+                        ? 'More API providers'
+                        : 'Connect an API provider'
+                    }
+                    meta={`${folded.length} available`}
+                    defaultOpen={!shown.length && !connected}
+                  >
+                    <ul className="settings-provider-list">
+                      {folded.map(renderRow)}
+                    </ul>
+                  </Disclosure>
+                )}
               </section>
-            ) : null;
+            );
           })}
         </>
       )}

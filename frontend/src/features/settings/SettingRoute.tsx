@@ -274,6 +274,7 @@ export default function SettingRoute() {
                 setSelectedSubscription({ provider, action })
               }
               onSubscriptionOption={setSelectedSubscriptionOption}
+              hideCustom={Boolean(providerConfigurationOwner?.get())}
             />
             {selectedSubscription && subscriptionAccountsOwner?.get() && (
               <ModalTask
