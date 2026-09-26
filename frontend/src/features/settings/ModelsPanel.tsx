@@ -509,15 +509,18 @@ export default function ModelsPanel({
                 ? 'warning'
                 : 'success'
             }
-            title="Brain: the default model for chat"
+            title={
+              currentBrain
+                ? `Default model: ${currentBrain.label}`
+                : 'Brain: the default model for chat'
+            }
           >
             {!state.brain.current_ref
               ? 'No default model'
               : !currentBrain?.available
                 ? 'Default unavailable'
-                : state.brain.current_ref.startsWith('model:ollama:')
-                  ? 'Local default'
-                  : 'Provider default'}
+                : // "GPT-5.6 Sol (ChatGPT) - ChatGPT / Codex" → the model name.
+                  currentBrain.label.replace(/ - [^-]+$/, '')}
           </SummaryChip>
         </SettingsSummary>
         <header className="settings-owner-heading">

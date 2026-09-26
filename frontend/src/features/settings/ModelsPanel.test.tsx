@@ -372,3 +372,18 @@ it('links to Providers inside the router, never under a doubled basename (B31)',
   });
   expect(link).toHaveAttribute('href', '/settings/providers');
 });
+
+it('names the default model in the page summary and follows a saved change', async () => {
+  show();
+  const chip = await screen.findByTitle(
+    'Default model: GPT-6-Astra - ChatGPT / Codex',
+  );
+  expect(chip).toHaveTextContent('GPT-6-Astra');
+  expect(chip).not.toHaveTextContent('ChatGPT / Codex');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Default model' }), {
+    target: { value: 'model:codex:gpt-5.5' },
+  });
+  expect(
+    await screen.findByTitle('Default model: GPT-5.5 - ChatGPT / Codex'),
+  ).toHaveTextContent('GPT-5.5');
+});
