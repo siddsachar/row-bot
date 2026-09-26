@@ -12,6 +12,26 @@ import CapabilitySettings, {
   type McpConfigurationReceipt,
 } from './CapabilitySettings';
 
+/** Rows keep Connection visible; Edit, Rename and Delete sit in their ⋯. */
+async function rowMenu(server: string) {
+  return screen.findByRole('button', { name: `More actions for ${server}` });
+}
+async function chooseRow(server: string, item: string) {
+  const more = await rowMenu(server);
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: item })),
+  );
+}
+/** Import config, Refresh and diagnostics sit in the page's ⋯. */
+async function choosePage(item: string | RegExp) {
+  const more = await screen.findByRole('button', { name: 'More MCP actions' });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: item })),
+  );
+}
+
 const page: McpConfigurationPage = {
   schema_version: 1,
   revision: 'a'.repeat(64),
@@ -58,7 +78,7 @@ function options() {
   };
 }
 async function enterDraft() {
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
   fireEvent.change(screen.getByLabelText('Server name'), {
     target: { value: 'New synthetic' },
@@ -74,13 +94,13 @@ async function enterDraft() {
 it('does passive reads only and keeps saved launch values write-only', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   expect(props.execute).not.toHaveBeenCalled();
   expect(props.review).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Synthetic' }));
+  await chooseRow('Synthetic', 'Edit Synthetic');
   expect(screen.getByLabelText('New command')).toHaveValue('');
   expect(screen.getByLabelText('Additional settings (JSON)')).toHaveValue('');
-  expect(screen.getByText(/Runtime status unknown/)).toBeVisible();
+  expect(screen.getByText(/runtime status unknown/)).toBeVisible();
 });
 
 it('shows a missing per-server runtime and opens existing installation controls', async () => {
@@ -144,7 +164,7 @@ it('searches the MCP directory only on click and imports the chosen template dis
   const { container } = render(
     <CapabilitySettings {...props} searchDirectory={searchDirectory} />,
   );
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   expect(searchDirectory).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Browse MCP servers'));
   fireEvent.change(screen.getByLabelText('Search MCP directory'), {
@@ -167,9 +187,7 @@ it('searches the MCP directory only on click and imports the chosen template dis
 it('confirms configured-server deletion, then removes the row after the original command succeeds', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Delete Synthetic' }),
-  );
+  await chooseRow('Synthetic', 'Delete Synthetic');
   expect(props.review).not.toHaveBeenCalled();
   expect(screen.getByText('Delete MCP server')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Delete server' }));
@@ -184,9 +202,7 @@ it('confirms configured-server deletion, then removes the row after the original
 it('opens path-free MCP diagnostics from the passive saved snapshot', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'MCP diagnostics' }),
-  );
+  await choosePage('MCP diagnostics');
   expect(
     screen.getByRole('region', { name: 'MCP diagnostics' }),
   ).toHaveTextContent(
@@ -199,14 +215,13 @@ it('opens path-free MCP diagnostics from the passive saved snapshot', async () =
 it('uses a compact owner-style server summary and keeps editors closed at rest', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   expect(screen.getByText('MCP enabled')).toBeVisible();
   expect(screen.getByText('0 connected')).toBeVisible();
   expect(screen.getByText('0 enabled tools')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Add server' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Import config' })).toBeVisible();
   expect(screen.getByLabelText('Server name')).not.toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Import config' }));
+  await choosePage('Import config');
   expect(screen.getByLabelText('Server import JSON')).toBeVisible();
 });
 
@@ -245,7 +260,7 @@ it('retains uncertain originals and only reconciles their exact request after re
     revision: 'e'.repeat(64),
     availability: 'recovery_required',
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  await choosePage('Refresh');
   await screen.findByText(/interrupted save requires recovery/);
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
   await screen.findByText(/Saved disabled. Refresh/);
@@ -339,14 +354,14 @@ it('replaces bounded pages and preserves search on First and Next', async () => 
       ],
     });
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-  await screen.findByRole('button', { name: 'Edit Last synthetic' });
+  await rowMenu('Last synthetic');
   expect(
-    screen.queryByRole('button', { name: 'Edit Synthetic' }),
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
   ).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'First page' }));
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   expect(props.load.mock.calls[1][0]).toEqual({
     query: '',
     cursor: 'cursor-1',
@@ -357,9 +372,7 @@ it('replaces bounded pages and preserves search on First and Next', async () => 
 it('supports explicit rename and import without launch activity', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Rename Synthetic' }),
-  );
+  await chooseRow('Synthetic', 'Rename Synthetic');
   fireEvent.change(screen.getByLabelText('New server name'), {
     target: { value: 'Renamed synthetic' },
   });
@@ -371,8 +384,8 @@ it('supports explicit rename and import without launch activity', async () => {
     fields: { name: 'Renamed synthetic' },
   });
   await screen.findByText(/Saved disabled. Refresh/);
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await choosePage('Refresh');
+  await rowMenu('Synthetic');
   fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {
     target: { value: 'import' },
   });
@@ -394,7 +407,7 @@ it('aborts cold reads on authentication disposal and ignores late saved rows', a
   expect(props.load.mock.calls[0][1].aborted).toBe(true);
   await act(async () => pending.resolve(page));
   expect(
-    screen.queryByRole('button', { name: 'Edit Synthetic' }),
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
   ).not.toBeInTheDocument();
   expect(props.session.getSnapshot().page).toBeNull();
 });
@@ -418,7 +431,7 @@ it('admits one save during synchronous repeated clicks', async () => {
 it('rejects malformed and oversized drafts before review or execution', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
   fireEvent.change(screen.getByLabelText('New arguments (JSON array)'), {
     target: { value: '"not-an-array"' },
@@ -451,6 +464,6 @@ it('refuses an oversized loaded page without retaining unlimited rows', async ()
   await screen.findByText(/Saved MCP settings are unavailable/);
   expect(props.session.getSnapshot().page).toBeNull();
   expect(
-    screen.queryByRole('button', { name: 'Edit Synthetic' }),
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
   ).not.toBeInTheDocument();
 });

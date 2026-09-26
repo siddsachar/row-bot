@@ -1,14 +1,27 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Bug, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  Bug,
+  FileJson,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  TextCursorInput,
+  Trash2,
+} from 'lucide-react';
 import { ModalTask } from '../../ui/overlays';
 import { clientError } from '../../api/errors';
 import {
   Button,
-  CompactAction,
   Field,
   Input,
+  Menu,
   Select,
+  StatusDot,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
+import { SettingsSummary, SummaryChip } from './anatomy';
 
 export type McpConfigurationPage = {
   schema_version: 1;
@@ -269,6 +282,10 @@ export default function CapabilitySettings({
     name: string;
   } | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(searchTimer.current), []);
   const { page, draft, busy, pending } = state;
   const locked = Boolean(busy || pending || !state.active);
   const canSave =
@@ -474,54 +491,81 @@ export default function CapabilitySettings({
       aria-label="MCP configuration"
       className="settings-section capability-page"
     >
-      <header className="capability-header">
-        <div>
-          <p className="eyebrow">Model Context Protocol</p>
-          <h2 aria-label="MCP servers">External MCP Tools</h2>
-          <p>
-            Connect external Model Context Protocol servers without letting one
-            bad server affect Row-Bot. Launch details and credentials are
-            write-only.
-          </p>
-        </div>
-      </header>
       {page && (
         <>
-          <div className="settings-summary-strip" role="status">
-            <span className={`status-chip ${page.enabled ? 'success' : ''}`}>
-              MCP{' '}
-              {page.enabled === null
-                ? 'status unknown'
-                : page.enabled
-                  ? 'enabled'
-                  : 'disabled'}
+          <SettingsSummary>
+            <span
+              className="settings-summary-group"
+              role="status"
+              aria-label="MCP summary"
+            >
+              <SummaryChip tone={page.enabled ? 'success' : undefined}>
+                MCP{' '}
+                {page.enabled === null
+                  ? 'status unknown'
+                  : page.enabled
+                    ? 'enabled'
+                    : 'disabled'}
+              </SummaryChip>
+              <SummaryChip>
+                {
+                  page.items.filter((server) => server.connection_present)
+                    .length
+                }{' '}
+                connected
+              </SummaryChip>
+              <SummaryChip>
+                {page.items.reduce(
+                  (total, server) =>
+                    total +
+                    (server.enabled && server.connection_present
+                      ? (server.tool_count ?? 0)
+                      : 0),
+                  0,
+                )}{' '}
+                enabled tools
+              </SummaryChip>
+              <SummaryChip>{page.total ?? 'Unknown'} saved servers</SummaryChip>
             </span>
-            <span className="status-chip">
-              {page.items.filter((server) => server.connection_present).length}{' '}
-              connected
-            </span>
-            <span className="status-chip">
-              {page.items.reduce(
-                (total, server) =>
-                  total +
-                  (server.enabled && server.connection_present
-                    ? (server.tool_count ?? 0)
-                    : 0),
-                0,
-              )}{' '}
-              enabled tools
-            </span>
-            <span className="status-chip">
-              {page.total ?? 'Unknown'} saved servers
-            </span>
-          </div>
+          </SettingsSummary>
           {page.availability === 'recovery_required' && (
             <p role="status">
               An interrupted save requires recovery before new changes.
             </p>
           )}
-          <div className="settings-mcp-primary-actions">
+          <form
+            className="settings-list-toolbar settings-mcp-primary-actions"
+            role="search"
+            aria-label="Search saved servers"
+            data-setting-anchor="mcp-servers"
+            onSubmit={(event) => {
+              event.preventDefault();
+              clearTimeout(searchTimer.current);
+              void refresh(state.query);
+            }}
+          >
+            <label className="settings-inline-search">
+              <span className="visually-hidden">Search saved servers</span>
+              <Search size={14} aria-hidden />
+              <Input
+                type="search"
+                placeholder="Search saved servers"
+                value={state.query}
+                disabled={locked}
+                maxLength={128}
+                onChange={(event) => {
+                  const query = event.target.value;
+                  session.update({ query });
+                  clearTimeout(searchTimer.current);
+                  searchTimer.current = setTimeout(
+                    () => void refresh(query),
+                    350,
+                  );
+                }}
+              />
+            </label>
             <Button
+              variant="primary"
               disabled={locked}
               onClick={() => {
                 session.update({
@@ -532,35 +576,46 @@ export default function CapabilitySettings({
                 setEditorOpen(true);
               }}
             >
+              <Plus size={15} aria-hidden />
               Add server
             </Button>
-            <Button
-              disabled={locked}
-              onClick={() => {
-                session.update({
-                  draft: { ...emptyDraft(), operation: 'import' },
-                  reviewed: null,
-                  message: '',
-                });
-                setEditorOpen(true);
-              }}
+            <Menu
+              label="More MCP actions"
+              iconOnly
+              variant="ghost"
+              className="icon-action icon-action-md"
+              actions={[
+                {
+                  label: 'Import config',
+                  icon: <FileJson size={16} />,
+                  disabled: locked,
+                  onSelect: () => {
+                    session.update({
+                      draft: { ...emptyDraft(), operation: 'import' },
+                      reviewed: null,
+                      message: '',
+                    });
+                    setEditorOpen(true);
+                  },
+                },
+                {
+                  label: 'Refresh',
+                  icon: <RefreshCw size={16} />,
+                  disabled: Boolean(busy) || !state.active,
+                  onSelect: () => void refresh(),
+                },
+                {
+                  label: diagnosticsOpen
+                    ? 'Hide MCP diagnostics'
+                    : 'MCP diagnostics',
+                  icon: <Bug size={16} />,
+                  onSelect: () => setDiagnosticsOpen((value) => !value),
+                },
+              ]}
             >
-              Import config
-            </Button>
-            <Button
-              disabled={Boolean(busy) || !state.active}
-              onClick={() => void refresh()}
-            >
-              Refresh
-            </Button>
-            <CompactAction
-              label="MCP diagnostics"
-              aria-expanded={diagnosticsOpen}
-              onClick={() => setDiagnosticsOpen((value) => !value)}
-            >
-              <Bug size={18} aria-hidden="true" />
-            </CompactAction>
-          </div>
+              <MoreHorizontal size={18} aria-hidden />
+            </Menu>
+          </form>
           {diagnosticsOpen && (
             <section className="card stack" aria-label="MCP diagnostics">
               <h3>MCP diagnostics</h3>
@@ -639,7 +694,10 @@ export default function CapabilitySettings({
                     <p>{entry.description || 'No description provided.'}</p>
                     <small>
                       {entry.source} · {entry.publisher || 'Publisher unknown'}{' '}
-                      · {entry.transport} · {entry.risk_level || 'Risk unknown'}
+                      · {humanizeToken(entry.transport)} ·{' '}
+                      {entry.risk_level
+                        ? `${humanizeToken(entry.risk_level).toLowerCase()} risk`
+                        : 'Risk unknown'}
                       {entry.requires_auth ? ' · Account required' : ''}
                     </small>
                     <details>
@@ -668,57 +726,43 @@ export default function CapabilitySettings({
               </div>
             </details>
           )}
-          <details className="settings-supplemental-disclosure">
-            <summary>
-              <span>
-                <strong>Search saved servers</strong>
-                <small>{state.filter || 'All configured servers'}</small>
-              </span>
-            </summary>
-            <div className="settings-supplemental-content" role="search">
-              <Field label="Search saved servers">
-                <Input
-                  value={state.query}
-                  disabled={locked}
-                  onChange={(event) =>
-                    session.update({ query: event.target.value })
-                  }
-                  maxLength={128}
-                />
-              </Field>
-              <Button
-                disabled={locked}
-                onClick={() => void refresh(state.query)}
-              >
-                Search
-              </Button>
-            </div>
-          </details>
           <ul className="settings-results settings-mcp-server-list">
             {page.items.map((server) => (
               <li className="settings-mcp-server-row" key={server.server_id}>
                 <div className="settings-mcp-server-summary">
-                  <strong>{server.name}</strong>
-                  <div className="settings-summary-strip">
-                    <span
-                      className={`status-chip ${server.enabled ? 'success' : ''}`}
-                    >
-                      {server.enabled === null
-                        ? 'Enablement unknown'
-                        : server.enabled
-                          ? 'Enabled'
-                          : 'Disabled'}
-                    </span>
-                    <span className="status-chip">{server.transport}</span>
-                    <span className="status-chip">
-                      {server.tool_count == null
-                        ? 'Tool count unknown'
-                        : `${server.tool_count} tools`}
-                    </span>
-                  </div>
+                  <span className="settings-provider-title">
+                    <strong>{server.name}</strong>
+                    <StatusDot
+                      tone={
+                        server.connection_present
+                          ? 'success'
+                          : server.enabled
+                            ? 'info'
+                            : 'neutral'
+                      }
+                      label={
+                        server.enabled === null
+                          ? 'Enablement unknown'
+                          : server.connection_present
+                            ? 'Connected'
+                            : server.enabled
+                              ? 'Enabled'
+                              : 'Disabled'
+                      }
+                      showLabel
+                    />
+                  </span>
                   <small>
-                    {server.runtime_status ?? 'Runtime status unknown'} ·
-                    Configured: {server.configured_fields.join(', ') || 'none'}
+                    {[
+                      humanizeToken(server.transport),
+                      server.tool_count == null
+                        ? 'tool count unknown'
+                        : `${server.tool_count} ${server.tool_count === 1 ? 'tool' : 'tools'}`,
+                      server.runtime_status
+                        ? humanizeToken(server.runtime_status).toLowerCase()
+                        : 'runtime status unknown',
+                      `configured: ${server.configured_fields.join(', ') || 'none'}`,
+                    ].join(' · ')}
                   </small>
                   {server.requirements && server.requirements.length > 0 && (
                     <div
@@ -777,57 +821,64 @@ export default function CapabilitySettings({
                       Connection
                     </Button>
                   )}
-                  <Button
-                    aria-label={`Edit ${server.name}`}
-                    disabled={locked}
-                    onClick={() => {
-                      session.update({
-                        draft: {
-                          ...emptyDraft(),
-                          operation: 'edit',
-                          serverId: server.server_id,
-                          transport:
-                            server.transport === 'unknown'
-                              ? 'stdio'
-                              : server.transport,
+                  <Menu
+                    label={`More actions for ${server.name}`}
+                    iconOnly
+                    variant="ghost"
+                    className="icon-action icon-action-sm"
+                    actions={[
+                      {
+                        label: `Edit ${server.name}`,
+                        icon: <Pencil size={16} />,
+                        disabled: locked,
+                        onSelect: () => {
+                          session.update({
+                            draft: {
+                              ...emptyDraft(),
+                              operation: 'edit',
+                              serverId: server.server_id,
+                              transport:
+                                server.transport === 'unknown'
+                                  ? 'stdio'
+                                  : server.transport,
+                            },
+                            reviewed: null,
+                          });
+                          setEditorOpen(true);
                         },
-                        reviewed: null,
-                      });
-                      setEditorOpen(true);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    aria-label={`Rename ${server.name}`}
-                    disabled={locked}
-                    onClick={() => {
-                      session.update({
-                        draft: {
-                          ...emptyDraft(),
-                          operation: 'rename',
-                          serverId: server.server_id,
-                          name: server.name,
+                      },
+                      {
+                        label: `Rename ${server.name}`,
+                        icon: <TextCursorInput size={16} />,
+                        disabled: locked,
+                        onSelect: () => {
+                          session.update({
+                            draft: {
+                              ...emptyDraft(),
+                              operation: 'rename',
+                              serverId: server.server_id,
+                              name: server.name,
+                            },
+                            reviewed: null,
+                          });
+                          setEditorOpen(true);
                         },
-                        reviewed: null,
-                      });
-                      setEditorOpen(true);
-                    }}
+                      },
+                      {
+                        label: `Delete ${server.name}`,
+                        icon: <Trash2 size={16} />,
+                        danger: true,
+                        disabled: locked || !canSave,
+                        onSelect: () =>
+                          setDeleteTarget({
+                            server_id: server.server_id,
+                            name: server.name,
+                          }),
+                      },
+                    ]}
                   >
-                    Rename
-                  </Button>
-                  <CompactAction
-                    label={`Delete ${server.name}`}
-                    disabled={locked || !canSave}
-                    onClick={() =>
-                      setDeleteTarget({
-                        server_id: server.server_id,
-                        name: server.name,
-                      })
-                    }
-                  >
-                    <Trash2 size={18} aria-hidden="true" />
-                  </CompactAction>
+                    <MoreHorizontal size={16} aria-hidden />
+                  </Menu>
                 </div>
               </li>
             ))}
