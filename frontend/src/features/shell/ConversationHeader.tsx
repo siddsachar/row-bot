@@ -39,6 +39,10 @@ export default function ConversationHeader({
   const [value, setValue] = useState(title);
   const [saving, setSaving] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // Enter commits and disables the input, and disabling a focused input
+  // blurs it: without this guard the blur renamed a second time with the
+  // same revision and the server answered 409.
+  const committing = useRef(false);
   useEffect(() => {
     if (!editing) setValue(title);
   }, [editing, title]);
@@ -46,16 +50,19 @@ export default function ConversationHeader({
     if (editing) input.current?.select();
   }, [editing]);
   async function commit() {
+    if (committing.current) return;
     const next = value.trim().slice(0, 160);
     if (!next || next === title) {
       setEditing(false);
       return;
     }
+    committing.current = true;
     setSaving(true);
     try {
       await onRename(next);
       setEditing(false);
     } finally {
+      committing.current = false;
       setSaving(false);
     }
   }
