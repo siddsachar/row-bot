@@ -416,8 +416,10 @@ export default function Conversation({
   useLayoutEffect(() => {
     const element = chatWorkspaceRef.current;
     if (!element) return;
-    const measure = (width: number) =>
-      setNarrowChat((narrow) => isNarrowChat(width, narrow));
+    // A hidden section (Home, a route) measures 0: keep the last mode.
+    const measure = (width: number) => {
+      if (width > 0) setNarrowChat((narrow) => isNarrowChat(width, narrow));
+    };
     measure(element.getBoundingClientRect().width);
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(([entry]) =>
@@ -2001,8 +2003,7 @@ export default function Conversation({
     // Act on the width now, not the last render: layout can still be
     // settling right after a load or a panel change.
     const width = chatWorkspaceRef.current?.getBoundingClientRect().width;
-    const narrowNow =
-      width === undefined ? narrowChat : isNarrowChat(width, narrowChat);
+    const narrowNow = width ? isNarrowChat(width, narrowChat) : narrowChat;
     if (narrowNow !== narrowChat) setNarrowChat(narrowNow);
     if (narrowNow) setFloatingOpen((open) => (floatingContext ? !open : true));
     else {
