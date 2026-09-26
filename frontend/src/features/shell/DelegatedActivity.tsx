@@ -16,11 +16,8 @@ type Props = {
   compact?: boolean;
   /** Reports whether there is anything to show once a load settles. */
   onContentChange?: (hasContent: boolean) => void;
-  /** Keeps the last first-page read across remounts of this section. */
-  recentRead?: {
-    get: () => DelegatedRead | null;
-    set: (read: DelegatedRead) => void;
-  };
+  /** Keeps recent first-page reads across remounts of this section. */
+  recentRead?: RecentReads;
 };
 
 export type DelegatedRead = {
@@ -30,9 +27,32 @@ export type DelegatedRead = {
 };
 
 // A remount with the same activity state (the context rail unmounts while an
-// open panel narrows the chat) reuses a recent read instead of reading again.
-// New agent activity changes the key, and Retry always reads.
+// open panel narrows the chat, or the reader switches back to a conversation)
+// reuses a recent read instead of reading again. New agent activity changes
+// the key, and Retry always reads.
 const RECENT_READ_MS = 30_000;
+
+export type RecentReads = {
+  get: (key: string) => DelegatedRead | null;
+  set: (read: DelegatedRead) => void;
+};
+
+/** Recent reads for the last few conversations, so switching back and forth
+ * does not spend a view request each time. */
+export function recentReads(limit = 8): RecentReads {
+  const reads = new Map<string, DelegatedRead>();
+  return {
+    get: (key) => reads.get(key) ?? null,
+    set: (read) => {
+      reads.delete(read.key);
+      reads.set(read.key, read);
+      for (const key of reads.keys()) {
+        if (reads.size <= limit) break;
+        reads.delete(key);
+      }
+    },
+  };
+}
 
 const ACTIVE_STATES = new Set([
   'queued',
@@ -165,7 +185,8 @@ export default function DelegatedActivity(props: Props) {
       return;
     }
     const readKey = `${props.conversationId}\u0000${props.refreshKey}`;
-    const recent = attempt === 0 ? callbacks.current.recentRead?.get() : null;
+    const recent =
+      attempt === 0 ? callbacks.current.recentRead?.get(readKey) : null;
     if (
       recent &&
       recent.key === readKey &&

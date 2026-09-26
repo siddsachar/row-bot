@@ -47,7 +47,7 @@ import ConversationActions from '../settings/ConversationActions';
 import DraftConflict from './DraftConflict';
 import QueueControls from './QueueControls';
 import ContextUsage from './ContextUsage';
-import DelegatedActivity, { type DelegatedRead } from './DelegatedActivity';
+import DelegatedActivity, { recentReads } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
 import {
   commandReceipts,
@@ -123,13 +123,7 @@ export default function Conversation({
   }>({ conversation: null, present: false });
   const agentsEmpty =
     agentsContent.conversation !== id || !agentsContent.present;
-  const delegatedRead = useRef<DelegatedRead | null>(null);
-  const [recentDelegatedRead] = useState(() => ({
-    get: () => delegatedRead.current,
-    set: (read: DelegatedRead) => {
-      delegatedRead.current = read;
-    },
-  }));
+  const [recentDelegatedRead] = useState(() => recentReads());
   const terminalAdvertised = Boolean(
     state.handshake?.application_capabilities?.includes('native:terminal'),
   );

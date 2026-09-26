@@ -9,7 +9,10 @@ import {
 import { expect, it, vi } from 'vitest';
 import type { DelegatedActivityView, DelegatedRun } from '../../api/types';
 import { OverlayProvider } from '../../ui/overlays';
-import DelegatedActivity, { type DelegatedRead } from './DelegatedActivity';
+import DelegatedActivity, {
+  recentReads,
+  type DelegatedRead,
+} from './DelegatedActivity';
 
 const run: DelegatedRun = {
   run_id: 'run-a',
@@ -373,4 +376,18 @@ it('reuses a recent read when the section remounts with the same activity', asyn
   show('event-2');
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
   expect(await screen.findByText('Research task')).toBeVisible();
+});
+
+it('keeps recent reads for several conversations and evicts the oldest', () => {
+  const reads = recentReads(2);
+  const read = (key: string) => ({ key, page, at: 1 });
+  reads.set(read('a'));
+  reads.set(read('b'));
+  // Switching back to "a" finds its read; a third conversation evicts "b".
+  expect(reads.get('a')?.key).toBe('a');
+  reads.set(read('a'));
+  reads.set(read('c'));
+  expect(reads.get('b')).toBeNull();
+  expect(reads.get('a')?.key).toBe('a');
+  expect(reads.get('c')?.key).toBe('c');
 });
