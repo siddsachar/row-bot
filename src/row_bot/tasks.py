@@ -89,7 +89,7 @@ _CREATE_TABLE_SQL = {
             id                  TEXT PRIMARY KEY,
             name                TEXT NOT NULL,
             description         TEXT DEFAULT '',
-            icon                TEXT DEFAULT 'âš¡',
+            icon                TEXT DEFAULT '⚡',
             prompts             TEXT NOT NULL,
             schedule            TEXT,
             at                  TEXT,
@@ -224,7 +224,7 @@ _CREATE_TABLE_SQL = {
 _COLUMN_MIGRATIONS = {
     "tasks": [
         ("description", "TEXT DEFAULT ''"),
-        ("icon", "TEXT DEFAULT 'âš¡'"),
+        ("icon", "TEXT DEFAULT '⚡'"),
         ("prompts", "TEXT DEFAULT '[]'"),
         ("schedule", "TEXT"),
         ("at", "TEXT"),
@@ -895,7 +895,7 @@ def _migrate_from_workflows() -> None:
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         d["id"], d["name"], d.get("description", ""),
-                        d.get("icon", "âš¡"), d["prompts"],
+                        d.get("icon", "⚡"), d["prompts"],
                         d.get("schedule"), d.get("enabled", 1),
                         d.get("last_run"), d["created_at"],
                         d.get("sort_order", 0),
@@ -5020,7 +5020,7 @@ def run_task_background(
                         error=failure_message,
                     )
                     if _thread_exists(thread_id):
-                        thread_name = (f"âš¡ {task['name']} (failed) â€” "
+                        thread_name = (f"⚡ {task['name']} (failed) — "
                                        f"{datetime.now().strftime('%b %d, %I:%M %p')}")
                         _save_thread_meta(thread_id, thread_name)
                     return
