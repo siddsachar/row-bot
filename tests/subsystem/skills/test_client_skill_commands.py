@@ -734,3 +734,77 @@ def test_invalid_fields_fail_before_admission(library, bad_fields):
                 "fields": bad_fields,
             },
         )
+
+
+@pytest.mark.parametrize(
+    "display_name",
+    ["[draft] Weekly review", "#triage", "Review: weekly", "yes", "a #b", "{x}"],
+)
+def test_create_keeps_display_names_yaml_would_misread(library, display_name):
+    # Frontmatter values are quoted when YAML would read them differently, so
+    # the reviewed round-trip check accepts names like "[draft] …" or "#tag".
+    snapshot = library.read_client_skills()
+    create, review = prepare(
+        "skill.create",
+        {
+            "revision": snapshot["revision"],
+            "name": "awkward_name",
+            "fields": fields(
+                display_name=display_name,
+                description=f"About {display_name}",
+                tags=["#tag", "yes"],
+                activation={"keywords": ["[k]"], "phrases": ["note: this"]},
+            ),
+        },
+    )
+    assert execute(create, review)["status"] == "completed"
+    saved = library.read_client_skills()["items"]["awkward_name"]["skill"]
+    assert saved.display_name == display_name
+    assert saved.description == f"About {display_name}"
+    assert list(saved.tags) == ["#tag", "yes"]
+    assert saved.activation == {"keywords": ["[k]"], "phrases": ["note: this"]}
+
+
+def test_created_edited_and_deleted_skills_reach_the_runtime_library(library):
+    # The agent injects skills from the in-memory library, so a reviewed
+    # change must reach it without a restart.
+    def runtime(name):
+        return next(
+            (skill for skill in library.get_enabled_manual_skills() if skill.name == name),
+            None,
+        )
+
+    library.load_skills()
+    assert runtime("runtime_skill") is None
+    snapshot = library.read_client_skills()
+    create, review = prepare(
+        "skill.create",
+        {"revision": snapshot["revision"], "name": "runtime_skill", "fields": fields()},
+    )
+    assert execute(create, review)["status"] == "completed"
+    assert runtime("runtime_skill").instructions == "Use only the explicitly approved inputs."
+
+    snapshot = library.read_client_skills()
+    edit, edit_review = prepare(
+        "skill.edit",
+        {
+            "revision": snapshot["revision"],
+            "name": "runtime_skill",
+            "skill_revision": snapshot["items"]["runtime_skill"]["revision"],
+            "fields": {"instructions": "Edited instructions reach the next run."},
+        },
+    )
+    assert execute(edit, edit_review)["status"] == "completed"
+    assert runtime("runtime_skill").instructions == "Edited instructions reach the next run."
+
+    snapshot = library.read_client_skills()
+    delete, delete_review = prepare(
+        "skill.delete",
+        {
+            "revision": snapshot["revision"],
+            "name": "runtime_skill",
+            "skill_revision": snapshot["items"]["runtime_skill"]["revision"],
+        },
+    )
+    assert execute(delete, delete_review)["status"] == "completed"
+    assert runtime("runtime_skill") is None

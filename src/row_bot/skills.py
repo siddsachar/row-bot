@@ -627,6 +627,24 @@ def estimate_skill_tokens(name: str) -> int:
 # ── Skill CRUD ───────────────────────────────────────────────────────────────
 
 
+def _yaml_scalar(value: object) -> object:
+    """Return *value* as YAML that reads back unchanged.
+
+    Plain strings stay plain. Anything YAML would read differently
+    ("[draft] name", "#tag", "a #b", "yes", "null", "{x}", a colon, a
+    newline, surrounding spaces) is written double-quoted; JSON string
+    escapes are valid inside YAML double quotes.
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        if yaml.safe_load(f"k: {value}") == {"k": value}:
+            return value
+    except yaml.YAMLError:
+        pass
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _build_ordered_frontmatter(meta: dict) -> str:
     """Serialize skill metadata as YAML with canonical field order."""
     _FIELD_ORDER = [
@@ -641,28 +659,25 @@ def _build_ordered_frontmatter(meta: dict) -> str:
         if isinstance(val, list):
             lines.append(f"{key}:")
             for item in val:
-                lines.append(f"  - {item}")
+                lines.append(f"  - {_yaml_scalar(item)}")
         elif isinstance(val, dict):
             lines.append(f"{key}:")
             for subkey, subval in val.items():
                 if isinstance(subval, list):
                     lines.append(f"  {subkey}:")
                     for item in subval:
-                        lines.append(f"    - {item}")
+                        lines.append(f"    - {_yaml_scalar(item)}")
                 else:
-                    lines.append(f"  {subkey}: {subval}")
+                    lines.append(f"  {subkey}: {_yaml_scalar(subval)}")
         elif isinstance(val, bool):
             lines.append(f"{key}: {'true' if val else 'false'}")
-        elif isinstance(val, str) and ('\n' in val or ':' in val or '"' in val):
-            escaped = val.replace('"', '\\"')
-            lines.append(f'{key}: "{escaped}"')
         else:
-            lines.append(f"{key}: {val}")
+            lines.append(f"{key}: {_yaml_scalar(val)}")
     # Include any extra keys not in _FIELD_ORDER
     for key in meta:
         if key not in _FIELD_ORDER:
             val = meta[key]
-            lines.append(f"{key}: {val}")
+            lines.append(f"{key}: {_yaml_scalar(val)}")
     return "\n".join(lines) + "\n"
 
 

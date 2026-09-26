@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import asdict
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 import threading
@@ -23,7 +24,17 @@ from row_bot.application.client_platform import ClientPlatformError
 from row_bot.file_publication import publish_bytes, read_recovery
 from row_bot.runtime import admissions
 
+logger = logging.getLogger(__name__)
+
 _LOCK = threading.RLock()
+# Effects that write SKILL.md directly; the agent reads the in-memory library.
+_LIBRARY_EFFECTS = {
+    "skill.create",
+    "skill.import",
+    "skill.edit",
+    "skill.duplicate",
+    "skill.delete",
+}
 _ACTIONS = {
     "skill.preference",
     "skill.create",
@@ -81,6 +92,18 @@ def _scope(owner_id: str, authority_id: str, *, read_only: bool = False) -> str:
     return admissions.keyed_digest(
         {"skill_owner": owner_id, "authority": authority_id}, read_only=read_only
     )
+
+
+def _refresh_runtime_library() -> None:
+    """Let the next agent run use a created, edited or deleted skill.
+
+    The file effect is already published; a failed reload only delays it
+    until the next start, so it never fails the command.
+    """
+    try:
+        skills.load_skills()
+    except Exception:
+        logger.warning("Skill library reload after a completed change failed", exc_info=True)
 
 
 def _name(value: object) -> str:
@@ -851,6 +874,8 @@ def execute_skill_command(
             authority()
             result.update(status="completed", revision=revision, code=None)
             progress["status"] = "completed"
+            if action in _LIBRARY_EFFECTS:
+                _refresh_runtime_library()
             admissions.complete_command(owner_id, key, progress)
         except Exception:
             if private["recovery"] is not None:
