@@ -289,6 +289,76 @@ data when they open (GET only); anything that touches the network or another
 system (catalog refresh, marketplace refresh, public skill search) stays an
 explicit action. Controls keep 44px targets on coarse pointers.
 
+### Home
+
+Home is five tabs under one `Home capabilities` tablist, addressed by
+`?tab=`: **Overview** (the default) · Workflows · Knowledge · Monitor ·
+Insights. `?tab=workflows&workflow=<id>` opens one workflow's runs and then
+drops only the `workflow` parameter. Home shares its reads: the knowledge graph,
+the monitor snapshot and the first workflow page are reused for 20 s across
+tabs, and nothing is read before the workspace is connected.
+
+- **Overview** answers "what needs me?" in five sections: *Needs you*
+  (setup to finish, conversations waiting on an approval, workflows waiting on
+  one, failed workflow runs), *Running now* (live conversations and delegated
+  agents), *Recent threads*, *Upcoming* (the next scheduled runs, in words) and
+  *Since yesterday evening* (runs and maintenance since 18:00 yesterday). Rows
+  open their conversation or workflow. Live rows are re-read when Overview
+  opens and every 15 s while it stays open, so an approval that is resolved
+  elsewhere clears here too. A conversation paused on its own approval reports
+  `attention`/`waiting_approval` in the list, including after a restart.
+- **Workflows** has a one-line header: title, inline search (as you type after
+  350 ms; Enter at once), All · Enabled · Scheduled · Failed, a count, ↻, the
+  delivery defaults behind a paper-plane icon, ⋯ and a small New workflow.
+  Scheduled and Failed filter on the client over at most 20 pages and say
+  "N matching in the first M" when more remained unread. Rows are
+  Linear-style: glyph, name and a muted description, one meta line
+  ("2 steps · Ran 3 minutes ago · Every Monday, Wednesday, Friday at 7:30"),
+  the next run, a last-10 run sparkline, an enable switch, and Run, Edit and a
+  named ⋯ (Run history, Edit workflow steps, Workflow settings, Open
+  conversation, Delete workflow) that appear on hover or focus. A running row
+  replaces the sparkline with "Step 2/4", which opens the run drawer. Run opens
+  the same drawer (Run now, progress, stop, history) rather than starting at
+  once. The editor is a builder: a step list with drag handles (keyboard: the
+  handle with ↑/↓) and a right rail with the schedule builder (Manual · Once ·
+  Repeats; days, time, every N hours/minutes or a cron expression) and its
+  plain-language preview with the next run, delivery ("Send results to"), and
+  model and approvals. The graph editor is a toggle in the same frame. The
+  scheduler counts cron weekday numbers from Monday = 0, so the builder writes
+  day names and describes numbered days as they actually fire. Every `task.*`
+  command goes to `/tasks/commands`.
+- **Knowledge** is a full-bleed sigma.js/graphology canvas (loaded as its own
+  `graph` chunk; without WebGL the List view is shown with a note). Nodes are
+  circles sized by their number of links and coloured by type from a fixed,
+  nine-hue palette plus a neutral Other (`--graph-1`…`--graph-9`,
+  `--graph-other`), validated per theme for colour-vision-deficiency separation
+  and the normal-vision floor on the canvas (#F3F5F7 light, #0B0E13 dark); a
+  type keeps its colour when filters change. WebGL blends
+  premultiplied colours, so canvas colours go through `glAlpha`. Labels thin
+  out by zoom; edges are hairlines. Glass controls float over the canvas: a
+  typeahead search (choosing a memory focuses it, highlights its neighbours,
+  dims the rest and eases the camera; instant under reduced motion), Graph |
+  List, filters (user hub, orphans, source), Dream Cycle and ↻; the type legend
+  filters; zoom and fit sit bottom-right. Stats are one caption ("658 memories ·
+  1,016 links · showing 250 · Show all"). When only part of the graph is loaded
+  and the search finds nothing, it offers "Search all N memories". List is a
+  dense, sortable, virtualized table. The inspector is a drawer inside the
+  stage: summary, facts, tags, the source conversation and connections grouped
+  by relation, with Edit, Merge or replace, and Delete (reviewed, then
+  confirmed).
+- **Monitor** opens with a health strip of tiles grouped from the diagnosis
+  checks (Model runtime, Channels, MCP and tools, Scheduler, Knowledge,
+  System); a tile opens a detail drawer with Run diagnosis. Below: a 24 h /
+  7 d swimlane (Extraction, Dream Cycle, Workflow runs, Channel events),
+  maintenance metrics with deltas and sparklines, Dream Cycle and extraction
+  history tables, and a log console (12 px mono, a level stripe, level chips,
+  search, follow new lines, collapse repeats, copy visible lines). The console
+  keeps the full log it read when the snapshot refreshes.
+- **Insights** is a feed: severity icon, one-line title with its category, a
+  two-line summary, an expandable Why, one suggested action, and pin and
+  dismiss icons; All | Pinned filters it. The skill library report renders as
+  rows, never raw JSON.
+
 ## Accessibility, effects and visual regression
 
 The `/app-v2/primitives` route exercises every public primitive and token family.
