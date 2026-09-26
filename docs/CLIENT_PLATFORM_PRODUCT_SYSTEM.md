@@ -74,7 +74,7 @@ receive focus for assistive technology but draw the ring only when
 | `StatusDot` | Status as shape, then word. The label is always present, visually hidden unless `showLabel`. Tones: neutral, accent, info, success, warning, danger. |
 | `Segmented` | Single-choice radio group with one tab stop and arrow/Home/End keys that skip disabled options. Icon-only options keep their label as accessible name and tooltip. |
 | `Disclosure` | Native `details`/`summary` with a rotating chevron and optional meta, for "Advanced" sections and quiet rail groups. Pass a plain string summary so the summary text stays queryable. |
-| `SettingRow` | Label and help on the left, one control on the right; a labelled/described group. `htmlFor` ties the visible label to a native control; `modified` shows an accent dot. |
+| `SettingRow`, `Field` | Label and help on the left, one control on the right; a labelled/described group. `htmlFor` ties the visible label to a native control; `modified` shows an accent dot. `Field layout="row"` gives a saved field the same row: the label names the control by id and the hint becomes its description. `Toggle` is a switch with no On/Off text. |
 | `EntityList`, `EntityRow` | Logo, name, status plus meta, one primary action, a named ⋯ menu (`More actions for …`) and optional inline details behind an expand control. |
 | `StatGroup`, `Stat` | A definition list of metrics with tabular values, optional unit and toned delta. |
 | `InlineEmpty` | A one-line muted empty state with an optional action for dense sections. Prefer hiding an empty section entirely when nothing is actionable. |
@@ -222,10 +222,72 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   composer menus (slash commands, model picker, Skills) open above the field
   and stay inside the viewport.
 
-`features/settings/model.ts` is the one navigation/search/label/deep-link map.
-It preserves 16 existing leaves in five categories and their legacy aliases.
-Unknown setting links return the index. Domain settings remain typed capability
-forms; this metadata is not a form schema or another backend settings store.
+### Settings
+
+`features/settings/model.ts` is the one navigation/search/label/deep-link map:
+seven groups ordered by how often people visit them — General (Preferences,
+Appearance, Buddy) · Models (Providers, Models, Voice) · Knowledge (Memory,
+Documents, Tracker) · Capabilities (Tools with the built-in tools, Skills,
+Plugins, MCP) · Connections (Accounts, Channels) · Agents (Agent profiles) ·
+System (System, Access, Updates, Data). Leaf ids are stable deep links.
+Legacy ids and moved pages redirect to their new page and, when useful, to one
+row (`/settings/utilities` → `/settings/tools#built-in-tools`,
+`migration` → `data#migration`, `wiki` → `knowledge#wiki-vault`). Goals belong
+to one conversation, so they live in its Context card; `/settings/goals`
+opens the conversation. Unknown setting links return the index. Domain
+settings remain typed capability forms; this metadata is not a form schema or
+another backend settings store.
+
+The shell is one canvas: a 232px navigation column (the `Settings` h1 and
+Close, a `/`-focused search, then every group as a small label over its page
+links) beside one scrolling page column capped at 840px. Below 900px of window,
+or 640px of settings area (sidebar open, 200% zoom; a container query), a native
+grouped picker (`Settings section`) replaces the column, and below 560px rows
+stack their control under the label. Search lists matching
+pages and individual settings (`settingsRows`); choosing a setting navigates
+to `…#anchor`, and the shell opens any collapsed section or tab around the
+element with that `data-setting-anchor`, scrolls it into view and highlights it
+briefly (an outline instead under reduced motion). The ⌘K palette offers the
+same pages and rows and still finds former page names.
+
+Every page follows one anatomy (`features/settings/anatomy.tsx`):
+
+1. **Header** — icon tile, title (`h2`, focused on navigation without a ring
+   for pointer users), one line, and the page's summary chips plus an optional
+   ↻, which the page portals in with `SettingsSummary`/`SettingsRefresh`.
+2. **Essentials** — flat `SettingsSection`s of rows. Saved fields render as
+   rows (`Field layout="row"`: label and help on the left, the control on the
+   right; the help describes the control rather than naming it). Switches carry
+   no On/Off text. A switch saves when flipped; selects, choices and text
+   fields keep an explicit Save and Revert. Either way the save is one
+   reviewed step (review and execute together). A row's Reset, Save and
+   Revert sit beside its control.
+3. **Lists** — entity rows: icon tile, name with a `StatusDot` in words, one
+   meta line, one primary action and a named ⋯ menu (`More actions for …`) for
+   rarer verbs. Lists search inline as you type (Enter searches at once)
+   instead of per-verb Search/Reload buttons; a reload that is meaningful sits
+   in ⋯ or the header. Pages with a local library and a public catalogue use
+   kept-mounted `SettingsTabs` (Installed | Discover).
+4. **Advanced** — `SettingsAdvanced`, collapsed, for diagnostics, maintenance
+   and rarely changed options. Forms inside a page (profile editor, MCP
+   server settings) are one raised surface with the settings inputs, never a
+   browser fieldset.
+5. **Danger zone** — `SettingsDangerZone`, collapsed and outlined in the danger
+   tone, never a filled button in the main flow; each `DangerAction` states
+   what is lost and still asks for confirmation. A flow that starts from a row
+   (e.g. removing a document) opens its Danger zone. Lists re-read after a
+   confirmed change (document queue, MCP servers, skills), so a row never needs
+   a manual refresh to show what just happened.
+
+Values speak human: enums are translated (`humanizeToken`: "Router",
+"Private · on device", "HTTP", "Local process"), times are relative with the
+full date on hover, and secrets read "Key saved · ····c99 · in keychain ·
+Replace" (`maskedTail`, `credentialSourceLabel`) — never the value. The
+settings snapshot reports each saved field's default; a field that differs
+shows a small accent mark and a "Reset … to default" action. Pages read their
+data when they open (GET only); anything that touches the network or another
+system (catalog refresh, marketplace refresh, public skill search) stays an
+explicit action. Controls keep 44px targets on coarse pointers.
 
 ## Accessibility, effects and visual regression
 
