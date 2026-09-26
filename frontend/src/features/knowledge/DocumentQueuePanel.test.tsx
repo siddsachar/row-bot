@@ -246,3 +246,19 @@ it('names batches in words and keeps the exact id in each action name', async ()
   expect(within(row).queryByText(/Batch · queued/)).not.toBeInTheDocument();
   f.owner.dispose();
 });
+
+it('shows the queue as it is after a confirmed action, without a manual refresh', async () => {
+  const f = fixture();
+  render(<DocumentQueuePanel owner={f.owner} />);
+  await screen.findByText('Queued');
+  f.controller.documentQueue.mockResolvedValueOnce({
+    ...page,
+    revision: 'after',
+    items: [{ ...page.items[0], status: 'paused', pause_requested: true }],
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+  expect(await screen.findByText('Paused')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeVisible();
+  expect(f.controller.documentQueue).toHaveBeenCalledTimes(2);
+  f.owner.dispose();
+});

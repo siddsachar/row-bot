@@ -37,7 +37,9 @@ const BATCH_STATUS: Record<string, string> = {
 };
 function batchStatus(item: DocumentQueueItem) {
   const status = BATCH_STATUS[item.status] ?? item.status;
-  return item.cancel_requested ? `${status} · cancelling` : status;
+  return item.cancel_requested && !terminal.has(item.status)
+    ? `${status} · cancelling`
+    : status;
 }
 
 export type DocumentQueuePage = {
@@ -111,6 +113,15 @@ const outcomes: Record<DocumentJobAction, DocumentControlReceipt['outcome']> = {
   'document.job.cancel': 'cancellation_requested',
   'document.job.retry': 'retried',
   'document.jobs.clear_finished': 'cleared',
+};
+
+const ACTION_QUESTIONS: Record<DocumentJobAction, string> = {
+  'document.batch.pause': 'Pause this batch?',
+  'document.batch.resume': 'Resume this batch?',
+  'document.batch.cancel': 'Cancel the rest of this batch?',
+  'document.job.cancel': 'Cancel this document?',
+  'document.job.retry': 'Retry this document?',
+  'document.jobs.clear_finished': 'Clear the selected finished batches?',
 };
 
 /** Root retains this session for the authenticated lifetime, never browser storage. */
@@ -203,6 +214,21 @@ export function createDocumentJobsSession(
       pending: value.status === 'partial',
       review: value.status === 'partial' ? state.review : null,
     });
+  }
+  // A completed action changed the queue: read it again so the rows show
+  // the new state (cancelled, paused, cleared) without a manual refresh.
+  // Receipt recovery stays receipt-only.
+  async function showCompleted() {
+    if (state.receipt?.status !== 'completed') return;
+    const batches = page(await read(() => transport.batches()));
+    const batchId =
+      state.batchId && batches.items.some((item) => item.id === state.batchId)
+        ? state.batchId
+        : null;
+    const jobs = batchId
+      ? page(await read(() => transport.jobs(batchId)))
+      : null;
+    emit({ batches, batchId, jobs, selected: [] });
   }
   const session = {
     getSnapshot: () => state,
@@ -335,6 +361,7 @@ export function createDocumentJobsSession(
         attempt = { command, review: structuredClone(state.review) };
         emit({ pending: true });
         accept(await read(() => transport.execute(structuredClone(command))));
+        await showCompleted();
       }),
     async start(action: DocumentJobAction, id?: string) {
       await this.review(action, id);
@@ -436,13 +463,14 @@ export function DocumentJobs({
               <label>
                 <input
                   type="checkbox"
+                  aria-label={`Select finished batch ${item.id}`}
                   checked={state.selected.includes(item.id)}
                   disabled={disabled}
                   onChange={(event) =>
                     session.selectFinished(item.id, event.target.checked)
                   }
                 />
-                Select finished batch {item.id}
+                Select
               </label>
             ) : (
               <>
@@ -547,7 +575,9 @@ export function DocumentJobs({
       )}
       {state.review && (
         <div role="group" aria-label="Confirm document queue action">
-          <p>Selected action: {state.review.action}</p>
+          <p>
+            <strong>{ACTION_QUESTIONS[state.review.action]}</strong>
+          </p>
           {state.review.provider_work && (
             <p>
               This explicitly resumes queued parsing, embedding or knowledge
