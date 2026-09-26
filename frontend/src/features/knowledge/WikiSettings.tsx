@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { ClientController } from '../../api';
 import type { WikiSettingsSnapshot } from '../../api/types';
 import { Button, Field, Input, Toggle } from '../../ui/primitives';
+import { AppLink } from '../../ui/app-link';
 
 export type WikiAction =
   | 'wiki.configure'
@@ -593,9 +594,9 @@ export default function WikiSettings({
           Open vault folder
         </Button>
         {!compact && (
-          <a className="button secondary" href="/settings/knowledge">
+          <AppLink className="button secondary" to="/settings/knowledge">
             Browse or create knowledge
-          </a>
+          </AppLink>
         )}
       </div>
       {state.openStatus && <p role="status">{state.openStatus}</p>}

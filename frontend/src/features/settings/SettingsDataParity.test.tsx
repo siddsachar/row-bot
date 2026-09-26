@@ -157,7 +157,7 @@ it('shows the saved wiki vault and counts without authorizing or mutating it', a
   ).toBeDisabled();
   expect(
     screen.getByRole('link', { name: 'Browse or create knowledge' }),
-  ).toHaveAttribute('href', '/settings/knowledge');
+  ).toHaveAttribute('href', '/app-v2/settings/knowledge');
 });
 
 it('renders five unloaded core channels as compact passive disclosures', async () => {

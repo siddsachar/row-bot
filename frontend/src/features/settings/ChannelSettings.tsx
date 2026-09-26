@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button, Field, Input } from '../../ui/primitives';
+import { AppLink } from '../../ui/app-link';
 
 export type ChannelFieldStatus = {
   key: string;
@@ -460,9 +461,12 @@ export default function ChannelSettings({
                 : 'Runtime status not loaded'}
             </span>
           </div>
-          <a className="settings-inline-action" href="/settings/system">
-            Tunnel credentials are in System
-          </a>
+          <AppLink
+            className="settings-inline-action"
+            to="/settings/access#tunnel"
+          >
+            Tunnel credentials are in Access
+          </AppLink>
         </div>
       )}
       {passiveChannels.length > 0 && (
