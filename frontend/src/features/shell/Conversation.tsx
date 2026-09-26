@@ -81,6 +81,11 @@ import { modelRefName, splitModelLabel } from './model-choices';
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
 
+/** Below 740px Context floats; a floating chat docks it again from 780px. */
+export function isNarrowChat(width: number, narrow: boolean): boolean {
+  return narrow ? width < 780 : width < 740;
+}
+
 function readContextHidden(): boolean {
   try {
     return localStorage.getItem(CONTEXT_HIDDEN_KEY) === '1';
@@ -379,7 +384,7 @@ export default function Conversation({
   const compactContext = hosted
     ? !inlineContext
     : compactPlacement || narrowChat;
-  useEffect(() => setFloatingOpen(false), [id, floatingContext]);
+  useEffect(() => setFloatingOpen(false), [id]);
   useEffect(() => {
     if (!floatingContext || !floatingOpen) return;
     const close = () => setFloatingOpen(false);
@@ -406,12 +411,18 @@ export default function Conversation({
       document.removeEventListener('pointerdown', pointerdown, true);
     };
   }, [floatingContext, floatingOpen]);
-  useEffect(() => {
+  // Measured before paint, with hysteresis: a chat that sits near the
+  // threshold (a side panel at default sizes) must not flip modes.
+  useLayoutEffect(() => {
     const element = chatWorkspaceRef.current;
-    if (!element || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(([entry]) => {
-      setNarrowChat(entry.contentRect.width < 720);
-    });
+    if (!element) return;
+    const measure = (width: number) =>
+      setNarrowChat((narrow) => isNarrowChat(width, narrow));
+    measure(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) =>
+      measure(entry.contentRect.width),
+    );
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -1983,8 +1994,17 @@ export default function Conversation({
     });
   }
   function toggleContext() {
-    if (!hosted) openContextSheet();
-    else if (floatingContext) setFloatingOpen((open) => !open);
+    if (!hosted) {
+      openContextSheet();
+      return;
+    }
+    // Act on the width now, not the last render: layout can still be
+    // settling right after a load or a panel change.
+    const width = chatWorkspaceRef.current?.getBoundingClientRect().width;
+    const narrowNow =
+      width === undefined ? narrowChat : isNarrowChat(width, narrowChat);
+    if (narrowNow !== narrowChat) setNarrowChat(narrowNow);
+    if (narrowNow) setFloatingOpen((open) => (floatingContext ? !open : true));
     else {
       const hidden = !contextHidden;
       setContextHiddenState(hidden);

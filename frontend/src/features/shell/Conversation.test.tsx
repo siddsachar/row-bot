@@ -20,7 +20,7 @@ import type {
   TranscriptRow,
 } from '../../api/types';
 import { commandReceipts } from './command-receipts';
-import ConversationView, { Media } from './Conversation';
+import ConversationView, { isNarrowChat, Media } from './Conversation';
 import useNewChat from './useNewChat';
 import SearchConversations from './SearchConversations';
 
@@ -2036,4 +2036,12 @@ it('renders a folded create_chart result with its parent message (B4)', async ()
   expect(
     screen.queryByRole('article', { name: 'Tool result message' }),
   ).toBeNull();
+});
+
+it('floats Context below 740px and docks it again only from 780px', () => {
+  expect(isNarrowChat(718, false)).toBe(true);
+  expect(isNarrowChat(760, false)).toBe(false);
+  // Hysteresis: a floating chat stays floating until it is clearly wide.
+  expect(isNarrowChat(760, true)).toBe(true);
+  expect(isNarrowChat(780, true)).toBe(false);
 });
