@@ -1283,3 +1283,47 @@
   position: static;
   background: transparent;
 }
+
+/* Delegated agents in Context: dense rows, name left, status right. */
+.context-agents .delegated-run-list {
+  gap: 2px;
+}
+.context-agents .delegated-run-item {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.context-agents .delegated-run-item > .button {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  text-align: start;
+  white-space: normal;
+}
+.context-agents .delegated-run-item > .button:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+.context-agents .delegated-run-name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-medium);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.context-agents .delegated-run-state {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-13);
+}
