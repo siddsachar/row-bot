@@ -147,156 +147,165 @@ export default function SettingsShell({
   const leafLabel = (id: string) =>
     settingsLeaves.find((item) => item.id === id)?.label ?? id;
   return (
-    <section className="settings-shell" aria-label="Settings">
-      <header className="settings-shell-header">
-        <h1>Settings</h1>
-        <Link className="icon-button" to="/" aria-label="Close settings">
-          <X size={18} aria-hidden />
-        </Link>
-      </header>
-      <div className="settings-compact-picker">
-        <Field label="Settings section">
-          <select
-            className="input select"
-            value={leaf.id}
-            onChange={(event) =>
-              navigate(`/settings/${encodeURIComponent(event.target.value)}`)
-            }
-          >
-            {settingsGroups.map((group) => (
-              <optgroup key={group.id} label={group.label}>
-                {settingsLeaves
-                  .filter((item) => item.group === group.id)
-                  .map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
-        </Field>
-      </div>
-      <nav className="settings-side-navigation" aria-label="Settings sections">
-        <label className="settings-navigation-search">
-          <span className="visually-hidden">Find a setting</span>
-          <Search size={14} aria-hidden className="settings-search-icon" />
-          <Input
-            ref={search}
-            type="search"
-            placeholder="Search settings"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && query) {
-                event.preventDefault();
-                setQuery('');
+    // The frame is a size container, so the shell also compacts when the
+    // settings area is narrow in a wide window (sidebar open, 200% zoom).
+    <div className="settings-shell-frame">
+      <section className="settings-shell" aria-label="Settings">
+        <header className="settings-shell-header">
+          <h1>Settings</h1>
+          <Link className="icon-button" to="/" aria-label="Close settings">
+            <X size={18} aria-hidden />
+          </Link>
+        </header>
+        <div className="settings-compact-picker">
+          <Field label="Settings section">
+            <select
+              className="input select"
+              value={leaf.id}
+              onChange={(event) =>
+                navigate(`/settings/${encodeURIComponent(event.target.value)}`)
               }
-            }}
-          />
-          {!query && (
-            <span className="settings-search-kbd" aria-hidden>
-              <Kbd keys="/" />
-            </span>
-          )}
-        </label>
-        {searching ? (
-          <div className="settings-search-results">
-            {pages.length > 0 && (
-              <div className="settings-nav-group">
-                <span className="settings-nav-label" aria-hidden>
-                  Pages
-                </span>
-                <ul aria-label="Matching pages">
-                  {pages.map((item) => (
-                    <li key={item.id}>
-                      <Link
-                        to={item.href}
-                        aria-current={item.id === leaf.id ? 'page' : undefined}
-                        onClick={() => setQuery('')}
-                      >
-                        <SettingIcon id={item.id} size={16} />
-                        <span>{item.label}</span>
-                        <small aria-hidden>{item.category}</small>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {rows.length > 0 && (
-              <div className="settings-nav-group">
-                <span className="settings-nav-label" aria-hidden>
-                  Settings
-                </span>
-                <ul aria-label="Matching settings">
-                  {rows.map((row) => (
-                    <li key={`${row.leaf}:${row.anchor}`}>
-                      <Link
-                        to={settingsRowHref(row)}
-                        onClick={() => setQuery('')}
-                      >
-                        <SettingIcon id={row.leaf} size={16} />
-                        <span>{row.label}</span>
-                        <small aria-hidden>{leafLabel(row.leaf)}</small>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {!pages.length && !rows.length && (
-              <p className="muted settings-no-results">No settings found.</p>
-            )}
-          </div>
-        ) : (
-          <div className="settings-category-list">
-            {settingsGroups.map((group) => (
-              <div className="settings-nav-group" key={group.id}>
-                {/* A label, not a heading: group names ("System", "Models")
-                    repeat page titles. The list carries the name. */}
-                <span className="settings-nav-label" aria-hidden>
-                  {group.label}
-                </span>
-                <ul aria-label={group.label}>
+            >
+              {settingsGroups.map((group) => (
+                <optgroup key={group.id} label={group.label}>
                   {settingsLeaves
                     .filter((item) => item.group === group.id)
                     .map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <nav
+          className="settings-side-navigation"
+          aria-label="Settings sections"
+        >
+          <label className="settings-navigation-search">
+            <span className="visually-hidden">Find a setting</span>
+            <Search size={14} aria-hidden className="settings-search-icon" />
+            <Input
+              ref={search}
+              type="search"
+              placeholder="Search settings"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query) {
+                  event.preventDefault();
+                  setQuery('');
+                }
+              }}
+            />
+            {!query && (
+              <span className="settings-search-kbd" aria-hidden>
+                <Kbd keys="/" />
+              </span>
+            )}
+          </label>
+          {searching ? (
+            <div className="settings-search-results">
+              {pages.length > 0 && (
+                <div className="settings-nav-group">
+                  <span className="settings-nav-label" aria-hidden>
+                    Pages
+                  </span>
+                  <ul aria-label="Matching pages">
+                    {pages.map((item) => (
                       <li key={item.id}>
                         <Link
                           to={item.href}
                           aria-current={
                             item.id === leaf.id ? 'page' : undefined
                           }
+                          onClick={() => setQuery('')}
                         >
                           <SettingIcon id={item.id} size={16} />
                           <span>{item.label}</span>
+                          <small aria-hidden>{item.category}</small>
                         </Link>
                       </li>
                     ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-      </nav>
-      <div className="settings-page-content" ref={setContent}>
-        <header className="settings-pane-header">
-          <span className="settings-pane-icon" aria-hidden>
-            <SettingIcon id={leaf.id} size={18} />
-          </span>
-          <div className="settings-pane-title">
-            <h2 ref={heading} tabIndex={-1}>
-              {leaf.label}
-            </h2>
-            <p>{descriptions[leaf.id]}</p>
-          </div>
-          <div className="settings-pane-summary" ref={setSlot} />
-        </header>
-        <SettingsHeaderSlot.Provider value={slot}>
-          {children}
-        </SettingsHeaderSlot.Provider>
-      </div>
-    </section>
+                  </ul>
+                </div>
+              )}
+              {rows.length > 0 && (
+                <div className="settings-nav-group">
+                  <span className="settings-nav-label" aria-hidden>
+                    Settings
+                  </span>
+                  <ul aria-label="Matching settings">
+                    {rows.map((row) => (
+                      <li key={`${row.leaf}:${row.anchor}`}>
+                        <Link
+                          to={settingsRowHref(row)}
+                          onClick={() => setQuery('')}
+                        >
+                          <SettingIcon id={row.leaf} size={16} />
+                          <span>{row.label}</span>
+                          <small aria-hidden>{leafLabel(row.leaf)}</small>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!pages.length && !rows.length && (
+                <p className="muted settings-no-results">No settings found.</p>
+              )}
+            </div>
+          ) : (
+            <div className="settings-category-list">
+              {settingsGroups.map((group) => (
+                <div className="settings-nav-group" key={group.id}>
+                  {/* A label, not a heading: group names ("System", "Models")
+                    repeat page titles. The list carries the name. */}
+                  <span className="settings-nav-label" aria-hidden>
+                    {group.label}
+                  </span>
+                  <ul aria-label={group.label}>
+                    {settingsLeaves
+                      .filter((item) => item.group === group.id)
+                      .map((item) => (
+                        <li key={item.id}>
+                          <Link
+                            to={item.href}
+                            aria-current={
+                              item.id === leaf.id ? 'page' : undefined
+                            }
+                          >
+                            <SettingIcon id={item.id} size={16} />
+                            <span>{item.label}</span>
+                          </Link>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </nav>
+        <div className="settings-page-content" ref={setContent}>
+          <header className="settings-pane-header">
+            <span className="settings-pane-icon" aria-hidden>
+              <SettingIcon id={leaf.id} size={18} />
+            </span>
+            <div className="settings-pane-title">
+              <h2 ref={heading} tabIndex={-1}>
+                {leaf.label}
+              </h2>
+              <p>{descriptions[leaf.id]}</p>
+            </div>
+            <div className="settings-pane-summary" ref={setSlot} />
+          </header>
+          <SettingsHeaderSlot.Provider value={slot}>
+            {children}
+          </SettingsHeaderSlot.Provider>
+        </div>
+      </section>
+    </div>
   );
 }
