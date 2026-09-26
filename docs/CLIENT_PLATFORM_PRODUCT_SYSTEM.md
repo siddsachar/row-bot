@@ -65,8 +65,8 @@ receive focus for assistive technology but draw the ring only when
 | Surface | Contribution contract |
 | --- | --- |
 | `Button`, `Input`, `Select`, `Field` | Native semantics and labels; primary/secondary/ghost/danger actions; disabled states and named icon buttons. Select stays a native browser control. |
-| `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
-| `OverlayProvider`, `useOverlay` | One Radix modal scope with title/description; dialogs, short sheets, navigation drawers and alert-dialog semantics share it. |
+| `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Menu actions may carry a 16px monochrome `icon`, a keycap `shortcut` (announced through `aria-keyshortcuts`, kept out of the item's name) and `separatorBefore`; destructive actions always render last, in red, after a separator. Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
+| `OverlayProvider`, `useOverlay` | One Radix modal scope with title/description; dialogs, short sheets, navigation drawers, the command palette (`kind: 'palette'`: no header or footer chrome, title kept for assistive tech) and alert-dialog semantics share it. |
 | Notifications | `notify` coalesces duplicate text and retains at most three notices. Notices wait while a modal is open, so they cannot cover its footer or consume Escape; Radix pauses dismissal on focus/hover after display. Errors also need a persistent inline recovery action. |
 | `Skeleton`, `EmptyState`, `ErrorState`, `Progress` | Name the operation; delay skeleton visuals 150ms with cancellation; never invent percentage progress. Empty states explain a useful next step. |
 | `Surface` | Opaque by default. The optional elevated effect has a 94% overlay backing and bounded blur only with supporting CSS and appropriate preferences. |
@@ -81,7 +81,7 @@ receive focus for assistive technology but draw the ring only when
 | `Combobox` | Searchable single-choice picker for large sets (models, conversations): trigger named by `label` and described by the current value, a `combobox` input with `aria-activedescendant`, grouped `listbox` options, disabled options skipped, Enter chooses and focus returns to the trigger. Native `Select` stays for short enums. |
 | `Toolbar`, `ToolbarSeparator` | `role="toolbar"` with arrow/Home/End focus movement; `floating` adds the glass canvas treatment with placements. Segmented groups and text fields keep their own keys. |
 | `Drawer` | Side inspector on the overlay layer. Non-modal by default: the canvas stays interactive, focus moves to the drawer heading and Escape or Close dismisses it. `container` renders it inside a positioned surface; `modal` adds the scrim and focus trap. Becomes a bottom sheet on phones. |
-| Workspace commands | A labeled button at every width and Ctrl/Cmd+K open searchable native controls with keyboard hints and initial search focus. Modified/reserved chords and IME composition pass through. |
+| Workspace commands | A labeled button at every width and Ctrl/Cmd+K open the palette: one searchbox (`Find a workspace command`) driving a grouped `listbox` through `aria-activedescendant` across conversations, commands, settings pages and agents, plus a debounced full-text history search with snippets. Scattered letter matches show only when nothing matches literally; the group holding the best match comes first so Enter runs it. Mod+Shift+O starts a new chat (browsers reserve Mod+N) and Mod+. toggles the right region. Modified/reserved chords and IME composition pass through. |
 | Pane groups | `react-resizable-panels` supplies pointer/touch capture and separator semantics; the typed layout model owns bounds/persistence. |
 
 Do not mount a domain modal inside another modal. `open` replaces a task;
@@ -109,7 +109,20 @@ screenshot can include controls that a scroll-locked user cannot reach.
 
 ## Layout and settings contributions
 
-The foundation sidebar previews ten conversations in server order. Show more
+The sidebar is one tone darker than the main surface, which has no frame or
+gutter; splitters are hairlines with a widened hit target. Its header holds the
+logo and icon actions (New chat, Workspace commands, collapse); Home and Agents
+are the only destination rows; the footer holds Buddy (a 30px avatar, name and
+status, whose button opens Buddy settings) and the Settings gear. The collapsed
+48px rail keeps expand, commands, New chat, Home, Agents, Settings and Buddy as
+labelled icons. A compact icon `Segmented` filters conversations by the server
+`category` (All, Chats, Designs, Code, Workflows) and persists per device.
+Rows keep server order; Pinned comes first, and a Today / Yesterday / This week
+/ Older label starts each recency run inside the `Recent conversations` list, so
+the list still holds one item per conversation. Rows show a monochrome type
+glyph, a short time, and pin/⋯ over the time on hover or focus.
+
+The sidebar previews ten conversations in server order. Show more
 reveals the loaded page; Load more keeps the existing cursor continuation. Show
 less and section collapse retain the current conversation, including a confirmed
 selection outside the loaded page. Expansion is session presentation state and
@@ -119,8 +132,21 @@ ellipsis while keeping their full accessible name and hover/focus hint. Compact
 selection also reveals the conversation through the existing layout focus owner;
 panel registrations remain available to reopen and desktop docks stay in place.
 Ordinary root-view selections preserve the current browser history and query.
-Compact fine-pointer desktop rows may be 36px; comfortable and touch rows stay 44px.
-Complete search, pins, grouping and conversation mutations belong to Phase 3.
+Compact fine-pointer desktop rows may be 34px; comfortable and touch rows stay 44px.
+The conversation library (`/library`) holds full-text search with snippets, the
+type filter and bulk actions; quick switching belongs to the sidebar and palette.
+
+The right region unifies Context and panels. Context renders once, through a
+portal, into a persistent host element that moves between the chat's Context
+column (no side panels), the side region's first tab (`Context`, beside the
+panel tabs) and the compact sheet; opening, closing or collapsing a panel never
+remounts it or re-reads its sources. The header `Context` button and Mod+.
+toggle the region. The side region is labelled `Side panels` only while it holds
+panels. Exactly one `Close all panels` is visible: in the side region, else the
+bottom region, else a floating rail that lists panels whose region is hidden.
+Open panel lives in the conversation header on desktop and in the compact
+controls below 1024px. Live delegated agents open and promote Context's Agents
+section by CSS order, never by remounting it.
 
 Tooltip portals use a noninteractive, transformed viewport layer so floating
 placement can measure the containing block's scale at page zoom. Content uses
