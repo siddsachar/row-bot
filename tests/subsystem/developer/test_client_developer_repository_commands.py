@@ -269,3 +269,30 @@ def test_canonical_effect_refuses_repository_change_after_admission(tmp_path, mo
             str(uuid4()),
         )
     assert checks == [None]
+
+
+def test_canonical_repository_read_lists_local_branches_for_the_switcher(tmp_path, monkeypatch):
+    from row_bot.developer import review as repository_review
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        *args], check=True, capture_output=True, text=True, timeout=10)
+
+    root = tmp_path / "branches-repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "--initial-branch=main", str(root)], check=True,
+                   capture_output=True, text=True, timeout=10)
+    git("commit", "--allow-empty", "-m", "Initial")
+    git("branch", "feature/switcher")
+    monkeypatch.setattr(repository_review, "workspace_has_custom_read_hooks", lambda _path: False)
+    backend = commands.CanonicalDeveloperRepositoryBackend()
+    public, private = backend.repository(SimpleNamespace(path=str(root)))
+    assert sorted(public["branches"]) == ["feature/switcher", "main"]
+    # The list is part of the reviewed proof, so a new branch changes the revision.
+    assert private["branches"] == public["branches"]
+
+    plain = tmp_path / "plain-folder"
+    plain.mkdir()
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    public, _private = backend.repository(SimpleNamespace(path=str(plain)))
+    assert public["is_git"] is False and public["branches"] == []

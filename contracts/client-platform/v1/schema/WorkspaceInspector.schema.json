@@ -3,6 +3,12 @@
     "WorkspaceCommandStatus": {
       "additionalProperties": false,
       "properties": {
+        "command": {
+          "default": "",
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
         "kind": {
           "maxLength": 128,
           "title": "Kind",

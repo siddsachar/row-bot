@@ -184,6 +184,13 @@ class CanonicalDeveloperRepositoryBackend:
         if status.error:
             raise _error("git_status_unavailable")
         branch = _text(status.branch or "", 256)
+        branches: list[str] = []
+        if status.is_git:
+            try:
+                branches = [_text(name, 256) for name in git.list_branches(str(root), limit=50)]
+            except Exception:
+                # The switcher offers only the current branch when the list is unreadable.
+                branches = []
         public = {
             "state": "ready" if status.is_git else "plain_folder",
             "is_git": bool(status.is_git),
@@ -193,6 +200,7 @@ class CanonicalDeveloperRepositoryBackend:
             "dirty": bool(status.dirty),
             "remote_configured": bool(status.remote),
             "tracking_summary": _text(status.ahead_behind or "", 512),
+            "branches": branches,
         }
         private = {
             **public,

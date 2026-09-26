@@ -302,3 +302,33 @@ def test_diff_continuation_rejects_index_only_revision_change(tmp_path, monkeypa
     monkeypatch.setattr(review, "_diff_base_revision", lambda _: "new-index")
     result = review.read_bounded_diff(str(tmp_path), "file.txt", offset=10, expected_revision=previous)
     assert result.status == "stale" and result.text == ""
+
+
+def test_inspector_reports_each_detected_check_command_for_a_reviewed_run(domain, tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from row_bot import conversation_resources
+    from row_bot.developer import client_workspace, inspector_snapshot, review
+    from row_bot.developer.runtime import CommandSpec
+
+    service, storage, _ = domain
+    choice = register(domain, tmp_path).workspace
+    conversation_resources.bind("chat-a", "workspace", choice.resource_id, expected_revision=0)
+    monkeypatch.setattr(client_workspace, "workspace_has_custom_read_hooks", lambda _path: False)
+    monkeypatch.setattr(inspector_snapshot, "get_snapshot", lambda *_: None)
+    monkeypatch.setattr(inspector_snapshot, "get_snapshot_refresh_error", lambda *_: "")
+    monkeypatch.setattr(inspector_snapshot, "request_snapshot_refresh", lambda *args, **kwargs: None)
+
+    async def snapshot(*_):
+        return SimpleNamespace(version=1, error="", git_summary={"is_git": False},
+            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], todos=[],
+            command_specs=[CommandSpec("pytest", "python -m pytest"),
+                           CommandSpec("Django tests", "python manage.py test")])
+
+    monkeypatch.setattr(inspector_snapshot, "wait_for_snapshot_refresh", snapshot)
+    result = asyncio.run(service.get_workspace_inspector(choice.resource_id, "chat-a"))
+    assert [(item.label, item.command) for item in result.commands] == [
+        ("pytest", "python -m pytest"),
+        ("Django tests", "python manage.py test"),
+    ]
+    assert all(item.status == "not_run" for item in result.commands)

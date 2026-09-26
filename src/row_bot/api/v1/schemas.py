@@ -3328,6 +3328,9 @@ class DeveloperGitState(WireModel):
     dirty: bool
     remote_configured: bool
     tracking_summary: str = Field(max_length=512)
+    branches: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        default_factory=list, max_length=50
+    )
 
 
 class DeveloperWorktreeState(WireModel):
@@ -6736,6 +6739,7 @@ class WorkspaceCommandStatus(WireModel):
     label: str = Field(max_length=4096)
     kind: str = Field(max_length=128)
     status: Literal["not_run"]
+    command: str = Field(default="", max_length=4096)
 
 
 class WorkspaceProcessStatus(WireModel):

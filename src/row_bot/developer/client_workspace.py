@@ -96,6 +96,9 @@ class WorkspaceCommandStatus:
     label: str
     kind: str
     status: Literal["not_run"] = "not_run"
+    # The exact detected command line, so the client can offer to run it
+    # through the reviewed process flow.
+    command: str = ""
 
 
 @dataclass(frozen=True)
@@ -505,7 +508,8 @@ async def get_workspace_inspector(resource_id: str, conversation_id: str,
         "stale" if snapshot.error or refresh_error else "ready", bool(snapshot.git_summary.get("is_git")),
         str(snapshot.git_summary.get("branch") or ""), bool(snapshot.git_summary.get("dirty")),
         len(snapshot.changed_files), snapshot.diff_stats,
-        tuple(WorkspaceCommandStatus(c.label, c.kind) for c in snapshot.command_specs[:100]), processes,
+        tuple(WorkspaceCommandStatus(c.label, c.kind, command=c.command[:4096])
+              for c in snapshot.command_specs[:100]), processes,
         tuple(WorkspaceTodo(t.id[:256], t.label[:4096], t.status[:80]) for t in snapshot.todos[:100]),
         "inspector_refresh_failed" if snapshot.error or refresh_error else "")
 
