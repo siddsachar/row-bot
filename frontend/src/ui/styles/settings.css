@@ -454,6 +454,26 @@
 .settings-page-content .settings-saved-control > .settings-control-actions {
   padding-bottom: 10px;
 }
+/* A row's actions (Reset, or Save and Revert) sit beside its control rather
+   than alone on the next line; messages still span the row. */
+.settings-page-content
+  .settings-saved-control:has(> .field.is-row):has(
+    > .settings-control-actions:not(:empty)
+  ) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+}
+.settings-page-content
+  .settings-saved-control:has(> .field.is-row)
+  > .settings-control-actions {
+  padding-bottom: 0;
+}
+.settings-page-content
+  .settings-saved-control:has(> .field.is-row)
+  > :is([role='status'], [role='alert']) {
+  grid-column: 1 / -1;
+}
 .settings-page-content .settings-saved-control > [role='status'],
 .settings-page-content .settings-saved-control > [role='alert'] {
   margin: 0 0 10px;
@@ -2130,10 +2150,23 @@
   padding: 8px 0;
   border-top: 1px solid var(--border-hairline);
 }
-.document-batch-row > p {
-  flex: 1 1 160px;
-  margin: 0;
+.document-batch-summary {
+  display: grid;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.document-batch-summary strong {
   color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.document-batch-summary small {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.document-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .settings-saved-catalog {
   gap: 8px;
