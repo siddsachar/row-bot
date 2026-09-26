@@ -148,6 +148,39 @@ type State = {
   message: string;
 };
 
+// The server accepts only these names; say so before the review, not after.
+const SKILL_NAME = /^[a-z][a-z0-9_]{1,63}$/;
+const SKILL_NAME_HELP =
+  'Lowercase letters, numbers and underscores, starting with a letter (e.g. weekly_review).';
+const skillNameInvalid = (name: string) =>
+  name.length > 0 && !SKILL_NAME.test(name);
+
+function SkillNameHelp({ id, name }: { id: string; name: string }) {
+  const invalid = skillNameInvalid(name);
+  return (
+    <small
+      id={id}
+      className={`settings-help${invalid ? ' is-invalid' : ''}`}
+      aria-live="polite"
+    >
+      {invalid ? `Not a valid name. ${SKILL_NAME_HELP}` : SKILL_NAME_HELP}
+    </small>
+  );
+}
+
+// A refused field is fixed in the form, not by reloading.
+function reviewFailure(cause: unknown) {
+  const code =
+    cause && typeof cause === 'object'
+      ? (cause as { code?: unknown }).code
+      : undefined;
+  if (code === 'invalid_skill_fields')
+    return 'Check the fields: a display name, icon and instructions are required, and each value must fit its limit.';
+  if (code === 'invalid_skill_target')
+    return 'Choose another skill name: it is not valid or is already in use.';
+  return 'This change could not be reviewed. Reload and try again.';
+}
+
 const blankFields = (): SkillFields => ({
   display_name: '',
   icon: '✨',
@@ -412,12 +445,9 @@ export default function SkillsSettings({
         message: needsConfirmation ? 'Confirm this exact removal.' : '',
       });
       if (!needsConfirmation) await apply(attempt);
-    } catch {
+    } catch (cause) {
       if (!abort.signal.aborted)
-        session.update({
-          busy: '',
-          message: 'This change could not be reviewed. Reload and try again.',
-        });
+        session.update({ busy: '', message: reviewFailure(cause) });
     } finally {
       session.endRead(abort);
     }
@@ -574,6 +604,15 @@ export default function SkillsSettings({
     state.page?.items.filter((skill) => skill.pinned).length ?? 0;
   const shownCustom =
     state.page?.items.filter((skill) => skill.source === 'user').length ?? 0;
+  // Counts describe the loaded page: say "matching" while a search or filter
+  // applies, and "shown" only when the page holds part of the library.
+  const narrowed = Boolean(
+    state.query.trim() || state.source || state.filter !== 'all',
+  );
+  const complete =
+    state.page?.total != null &&
+    (state.page?.items.length ?? 0) >= state.page.total;
+  const shown = complete ? '' : ' shown';
 
   const [tab, setTab] = useTabForAnchor<'installed' | 'discover'>('installed', {
     'skill-library': 'installed',
@@ -874,12 +913,26 @@ export default function SkillsSettings({
             role="group"
             aria-label="Displayed skill totals"
           >
-            <SummaryChip tone="success">
-              {shownAvailable} available shown
-            </SummaryChip>
-            <SummaryChip>{shownPinned} pinned shown</SummaryChip>
-            <SummaryChip>{shownCustom} custom shown</SummaryChip>
-            <SummaryChip>{state.page.total ?? 'Unknown'} total</SummaryChip>
+            {narrowed ? (
+              <SummaryChip>{state.page.total ?? 'Some'} matching</SummaryChip>
+            ) : (
+              <>
+                <SummaryChip tone="success">
+                  {shownAvailable} available{shown}
+                </SummaryChip>
+                <SummaryChip>
+                  {shownPinned} pinned{shown}
+                </SummaryChip>
+                <SummaryChip>
+                  {shownCustom} custom{shown}
+                </SummaryChip>
+                {!complete && (
+                  <SummaryChip>
+                    {state.page.total ?? 'Unknown'} total
+                  </SummaryChip>
+                )}
+              </>
+            )}
           </span>
         )}
       </SettingsSummary>
@@ -923,37 +976,15 @@ export default function SkillsSettings({
             {state.detail.skill.icon} {state.detail.skill.display_name}
           </h2>
           <p>{state.detail.skill.description}</p>
-          <pre className="text-preview">{state.detail.skill.instructions}</pre>
+          <pre className="text-preview settings-skill-instructions">
+            {state.detail.skill.instructions}
+          </pre>
           <div className="button-row">
             <Button
               disabled={locked || !state.detail.skill.editable}
               onClick={startEdit}
             >
               Edit skill
-            </Button>
-            <Field label="Duplicate name">
-              <Input
-                value={state.duplicateName}
-                maxLength={64}
-                onChange={(event) =>
-                  session.update({
-                    duplicateName: event.target.value,
-                    reviewed: null,
-                  })
-                }
-              />
-            </Field>
-            <Button
-              disabled={locked || !revision || !state.duplicateName}
-              onClick={() =>
-                void requestReview('skill.duplicate', {
-                  revision,
-                  name: state.detail?.skill.id,
-                  new_name: state.duplicateName,
-                })
-              }
-            >
-              Duplicate skill
             </Button>
             <Button
               variant="danger"
@@ -969,6 +1000,45 @@ export default function SkillsSettings({
               Delete skill
             </Button>
           </div>
+          <div className="settings-skill-duplicate">
+            <Field label="Duplicate name">
+              <Input
+                value={state.duplicateName}
+                maxLength={64}
+                aria-describedby="skill-duplicate-name-help"
+                aria-invalid={
+                  skillNameInvalid(state.duplicateName) || undefined
+                }
+                onChange={(event) =>
+                  session.update({
+                    duplicateName: event.target.value,
+                    reviewed: null,
+                  })
+                }
+              />
+            </Field>
+            <Button
+              disabled={
+                locked ||
+                !revision ||
+                !state.duplicateName ||
+                skillNameInvalid(state.duplicateName)
+              }
+              onClick={() =>
+                void requestReview('skill.duplicate', {
+                  revision,
+                  name: state.detail?.skill.id,
+                  new_name: state.duplicateName,
+                })
+              }
+            >
+              Duplicate skill
+            </Button>
+            <SkillNameHelp
+              id="skill-duplicate-name-help"
+              name={state.duplicateName}
+            />
+          </div>
         </Surface>
       )}
 
@@ -978,21 +1048,28 @@ export default function SkillsSettings({
             {state.editor.mode === 'create' ? 'Create skill' : 'Edit skill'}
           </h2>
           {state.editor.mode === 'create' && (
-            <Field label="Skill name">
-              <Input
-                maxLength={64}
-                pattern="[a-z][a-z0-9_]{1,63}"
-                value={state.editor.name}
-                onChange={(event) =>
-                  session.update({
-                    editor: state.editor
-                      ? { ...state.editor, name: event.target.value }
-                      : null,
-                    reviewed: null,
-                  })
-                }
-              />
-            </Field>
+            <>
+              <Field label="Skill name">
+                <Input
+                  maxLength={64}
+                  pattern="[a-z][a-z0-9_]{1,63}"
+                  aria-describedby="skill-name-help"
+                  aria-invalid={
+                    skillNameInvalid(state.editor.name) || undefined
+                  }
+                  value={state.editor.name}
+                  onChange={(event) =>
+                    session.update({
+                      editor: state.editor
+                        ? { ...state.editor, name: event.target.value }
+                        : null,
+                      reviewed: null,
+                    })
+                  }
+                />
+              </Field>
+              <SkillNameHelp id="skill-name-help" name={state.editor.name} />
+            </>
           )}
           <Field label="Display name">
             <Input
@@ -1043,6 +1120,8 @@ export default function SkillsSettings({
                 locked ||
                 !revision ||
                 !state.editor.name ||
+                (state.editor.mode === 'create' &&
+                  skillNameInvalid(state.editor.name)) ||
                 !state.editor.fields.display_name ||
                 !state.editor.fields.instructions
               }
@@ -1160,7 +1239,12 @@ export default function SkillsSettings({
               {state.reviewed.command.type === 'skill.delete'
                 ? 'Delete skill'
                 : 'Reject proposal'}{' '}
-              “{state.reviewed.review.target}”.
+              “
+              {state.reviewed.command.type === 'skill.delete' &&
+              state.detail?.skill.id === state.reviewed.review.target
+                ? state.detail.skill.display_name
+                : state.reviewed.review.target}
+              ”.
             </p>
             <p>
               The exact saved version shown here will be checked again before
@@ -1183,7 +1267,9 @@ export default function SkillsSettings({
                 disabled={locked}
                 onClick={() => session.update({ reviewed: null, message: '' })}
               >
-                Keep skill or proposal
+                {state.reviewed.command.type === 'skill.delete'
+                  ? 'Keep skill'
+                  : 'Keep proposal'}
               </Button>
             </div>
           </Surface>

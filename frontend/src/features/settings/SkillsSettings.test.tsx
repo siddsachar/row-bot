@@ -172,9 +172,10 @@ it('presents compact skill rows with saved metrics, filters, and sorting', async
   const { container } = render(
     <SkillsSettings session={createSkillsSettingsSession()} io={api} />,
   );
-  expect(await screen.findByText('2 available shown')).toBeVisible();
-  expect(screen.getByText('1 pinned shown')).toBeVisible();
-  expect(screen.getByText('2 custom shown')).toBeVisible();
+  // The whole library is loaded, so the counts need no "shown" qualifier.
+  expect(await screen.findByText('2 available')).toBeVisible();
+  expect(screen.getByText('1 pinned')).toBeVisible();
+  expect(screen.getByText('2 custom')).toBeVisible();
   const list = container.querySelector('.settings-skill-list')!;
   expect(list.querySelectorAll('.settings-skill-row')).toHaveLength(3);
   expect(list.querySelector('.surface')).toBeNull();
@@ -186,6 +187,9 @@ it('presents compact skill rows with saved metrics, filters, and sorting', async
 
   await userEvent.selectOptions(screen.getByLabelText('Filter'), 'pinned');
   expect(await screen.findByText(/1 shown of 1 matching skills/)).toBeVisible();
+  // A filter narrows the page, so the summary counts the matches only.
+  expect(screen.getByText('1 matching')).toBeVisible();
+  expect(screen.queryByText('1 pinned')).not.toBeInTheDocument();
   expect(screen.queryByText('✨ Alpha custom')).not.toBeInTheDocument();
   expect(screen.getByText('✨ Zulu bundled')).toBeVisible();
 
@@ -271,6 +275,48 @@ it('creates and imports from one explicit click per action', async () => {
     },
     expect.any(AbortSignal),
   );
+});
+
+it('explains the skill name rule before review instead of failing it', async () => {
+  const api = io();
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
+  await screen.findByText('✨ Sample skill');
+  fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
+  const name = screen.getByLabelText('Skill name');
+  await userEvent.type(name, 'weekly-review');
+  await userEvent.type(screen.getByLabelText('Display name'), 'Weekly review');
+  await userEvent.type(screen.getByLabelText('Instructions'), 'Review.');
+  expect(name).toHaveAttribute('aria-invalid', 'true');
+  expect(name).toHaveAccessibleDescription(/^Not a valid name\. Lowercase/);
+  expect(screen.getByRole('button', { name: 'Save new skill' })).toBeDisabled();
+  await userEvent.clear(name);
+  await userEvent.type(name, 'weekly_review');
+  expect(name).not.toHaveAttribute('aria-invalid');
+  expect(screen.getByRole('button', { name: 'Save new skill' })).toBeEnabled();
+  expect(api.review).not.toHaveBeenCalledWith(
+    'skill.create',
+    expect.anything(),
+    expect.anything(),
+  );
+});
+
+it('says which field to fix when the server refuses a new skill', async () => {
+  const api = io({
+    review: vi.fn(async () => {
+      throw { status: 422, code: 'invalid_skill_fields' };
+    }),
+  });
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
+  await screen.findByText('✨ Sample skill');
+  fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
+  await userEvent.type(screen.getByLabelText('Skill name'), 'weekly_review');
+  await userEvent.type(screen.getByLabelText('Display name'), 'Weekly review');
+  await userEvent.type(screen.getByLabelText('Instructions'), 'Review.');
+  fireEvent.click(screen.getByRole('button', { name: 'Save new skill' }));
+  expect(
+    await screen.findByText(/^Check the fields: a display name, icon/),
+  ).toBeVisible();
+  expect(screen.queryByText(/Reload and try again/)).not.toBeInTheDocument();
 });
 
 it('keeps supplemental imports and proposals closed in the resting view', async () => {
@@ -359,6 +405,9 @@ it('opens, edits, duplicates, and confirms destructive deletion', async () => {
   expect(
     await screen.findByRole('button', { name: 'Confirm removal' }),
   ).toHaveClass('danger');
+  // The confirmation names the skill as people see it and offers to keep it.
+  expect(screen.getByText('Delete skill “Sample skill”.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Keep skill' })).toBeVisible();
 });
 
 it('keeps the exact unconfirmed command and performs receipt-only recovery', async () => {

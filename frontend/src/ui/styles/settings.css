@@ -2370,3 +2370,42 @@
     min-height: 44px;
   }
 }
+
+/* Field help that turns into the reason a value is refused. */
+.settings-page-content .settings-help.is-invalid {
+  color: var(--status-danger-text);
+}
+
+/* Skill detail and editor surfaces: fields breathe like the rest of Settings. */
+.settings-skills-page > .surface {
+  display: grid;
+  gap: 12px;
+}
+.settings-skills-page > .surface > h2 {
+  margin: 0;
+  font-size: var(--type-size-title);
+}
+.settings-skills-page > .surface > .settings-help {
+  margin-top: -8px;
+}
+.settings-skills-page .settings-skill-instructions {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: var(--type-size-metadata);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.settings-skills-page .settings-skill-duplicate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px 8px;
+}
+.settings-skills-page .settings-skill-duplicate > .settings-help {
+  grid-column: 1 / -1;
+}
