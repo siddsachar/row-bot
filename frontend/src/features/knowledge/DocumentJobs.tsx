@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
-import { Button, ErrorState } from '../../ui/primitives';
+import { RefreshCw } from 'lucide-react';
+import { Button, CompactAction, ErrorState } from '../../ui/primitives';
 
 export type DocumentQueueItem = {
   id: string;
@@ -359,14 +360,23 @@ export function DocumentJobs({
     void call().catch(() => undefined);
   };
   return (
-    <section aria-label="Document ingestion queue">
-      <h3>Ingestion queue</h3>
-      <p>
-        Documents can become searchable before knowledge extraction finishes.
-      </p>
-      <Button disabled={disabled} onClick={() => invoke(session.load)}>
-        Refresh queue
-      </Button>
+    <section aria-label="Document ingestion queue" className="document-queue">
+      <header className="settings-owner-heading">
+        <div>
+          <h3>Ingestion queue</h3>
+          <p>
+            Documents can become searchable before knowledge extraction
+            finishes.
+          </p>
+        </div>
+        <CompactAction
+          label="Refresh queue"
+          disabled={disabled}
+          onClick={() => invoke(session.load)}
+        >
+          <RefreshCw size={16} aria-hidden />
+        </CompactAction>
+      </header>
       {state.error && (
         <ErrorState title="Queue action needs attention">
           {state.error}
@@ -374,7 +384,7 @@ export function DocumentJobs({
       )}
       {state.batches && <p>{state.batches.total ?? 'Unknown'} saved batches</p>}
       {state.batches?.items.map((item) => (
-        <div key={item.id}>
+        <div key={item.id} className="document-batch-row">
           <p>Batch · {item.status}</p>
           {onProcess &&
             item.id.startsWith('client_') &&

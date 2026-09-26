@@ -499,6 +499,7 @@ export default function WikiSettings({
     <section
       className={`stack capability-page ${compact ? 'settings-knowledge-wiki-panel' : ''}`}
       aria-label="Wiki vault"
+      data-setting-anchor={compact ? 'wiki-vault' : undefined}
     >
       <header
         className={compact ? 'settings-snapshot-heading' : 'capability-header'}
@@ -516,8 +517,14 @@ export default function WikiSettings({
       {snapshot && compact && (
         <>
           {state.status && (
-            <label className="settings-knowledge-switch">
-              <span>Enable Wiki Vault</span>
+            <label className="settings-knowledge-switch settings-inline-row">
+              <span>
+                <strong>Enable Wiki Vault</strong>
+                <small>
+                  {snapshot.articles.toLocaleString()} articles ·{' '}
+                  {snapshot.conversations.toLocaleString()} conversations
+                </small>
+              </span>
               <Toggle
                 label="Enable Wiki Vault"
                 checked={state.enabled}
@@ -526,7 +533,7 @@ export default function WikiSettings({
               />
             </label>
           )}
-          <Field label="Vault path">
+          <Field label="Vault path" layout="row">
             <Input
               aria-label="Vault path"
               value={pathDraft}
@@ -557,14 +564,6 @@ export default function WikiSettings({
             >
               Use selected vault
             </Button>
-          </div>
-          <div className="settings-summary-strip">
-            <span className="status-chip">
-              {snapshot.articles.toLocaleString()} articles
-            </span>
-            <span className="status-chip">
-              {snapshot.conversations.toLocaleString()} conversations
-            </span>
           </div>
         </>
       )}

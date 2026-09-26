@@ -424,7 +424,8 @@ it('does not regress rich saved document details', async () => {
   render(<DocumentsCatalog load={async () => documents()} />);
   fireEvent.click(await screen.findByText('report.txt'));
   const row = within(screen.getByText('report.txt').closest('li')!);
-  expect(row.getByText('Completed')).toBeVisible();
+  // The status shows on the row and again in its details.
+  expect(row.getAllByText('Completed')).toHaveLength(2);
   expect(row.getByText(/Partial — completion records/)).toBeVisible();
   expect(row.getByText('Current searchability')).toBeVisible();
 });
@@ -446,8 +447,14 @@ it('does not regress the saved document search contract', async () => {
     screen.getByLabelText('Saved document status'),
     'unknown',
   );
-  await user.type(screen.getByRole('searchbox'), 'report');
-  await user.click(screen.getByRole('button', { name: 'Search' }));
+  // The filter applies at once; the search applies on Enter (or a pause).
+  expect(load).toHaveBeenLastCalledWith(
+    '',
+    'unknown',
+    undefined,
+    expect.any(AbortSignal),
+  );
+  await user.type(screen.getByRole('searchbox'), 'report{Enter}');
   expect(load).toHaveBeenLastCalledWith(
     'report',
     'unknown',

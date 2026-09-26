@@ -4,7 +4,7 @@ import {
   ChevronDown,
   Edit3,
   History,
-  Network,
+  RefreshCw,
   ScrollText,
   Search,
   Trash2,
@@ -21,6 +21,7 @@ import type {
 import { clientError } from '../../api/errors';
 import {
   Button,
+  CompactAction,
   EmptyState,
   ErrorState,
   Field,
@@ -28,6 +29,13 @@ import {
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
+import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import {
+  DangerAction,
+  SettingsDangerZone,
+  SettingsSummary,
+  SummaryChip,
+} from './anatomy';
 import WikiSettings, {
   type WikiSettingsSession,
 } from '../knowledge/WikiSettings';
@@ -80,6 +88,8 @@ export function SavedCatalog<P extends SavedPage>({
   const [reload, setReload] = useState(0);
   const epoch = useRef(0);
   const more = useRef<AbortController | null>(null);
+  const typing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(typing.current), []);
   const changedMessage = `The saved ${noun} changed. Reload to continue.`;
 
   useEffect(() => {
@@ -182,35 +192,62 @@ export function SavedCatalog<P extends SavedPage>({
   );
 
   return (
-    <div className="stack" aria-busy={loading || loadingMore}>
-      <h2>{title}</h2>
-      <p>{description}</p>
-      <form
-        className="field-row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setApplied({ query: draft.trim(), selected: selected.trim() });
-        }}
-      >
-        <Field label={`Search ${noun}`}>
-          <Input
-            type="search"
-            maxLength={256}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-        </Field>
-        {filter(selected, setSelected)}
-        <Button type="submit">Search</Button>
-      </form>
-      <div>
-        <Button
+    <div
+      className="stack settings-saved-catalog"
+      aria-busy={loading || loadingMore}
+    >
+      <header className="settings-owner-heading">
+        <div>
+          <h3>{title}</h3>
+          <p>{description}</p>
+        </div>
+        <CompactAction
+          label={`Reload ${noun}`}
           disabled={loading}
           onClick={() => setReload((value) => value + 1)}
         >
-          Reload {noun}
-        </Button>
-      </div>
+          <RefreshCw size={16} aria-hidden />
+        </CompactAction>
+      </header>
+      <form
+        className="settings-list-toolbar"
+        role="search"
+        aria-label={`Search ${noun}`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          clearTimeout(typing.current);
+          setApplied({ query: draft.trim(), selected: selected.trim() });
+        }}
+      >
+        <label className="settings-inline-search">
+          <span className="visually-hidden">Search {noun}</span>
+          <Search size={14} aria-hidden />
+          <Input
+            type="search"
+            maxLength={256}
+            placeholder={`Search ${noun}`}
+            value={draft}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraft(value);
+              clearTimeout(typing.current);
+              typing.current = setTimeout(
+                () =>
+                  setApplied({
+                    query: value.trim(),
+                    selected: selected.trim(),
+                  }),
+                350,
+              );
+            }}
+          />
+        </label>
+        {filter(selected, (value) => {
+          setSelected(value);
+          clearTimeout(typing.current);
+          setApplied({ query: draft.trim(), selected: value.trim() });
+        })}
+      </form>
       {loading && <Skeleton label={`Loading saved ${noun}`} />}
       {error && (
         <ErrorState title={`${title} could not be loaded`}>{error}</ErrorState>
@@ -1202,7 +1239,24 @@ function KnowledgeGraphSummary({
     <section
       className="settings-snapshot-section stack settings-knowledge-graph"
       aria-label="Memory graph summary"
+      data-setting-anchor="memory-graph"
     >
+      {snapshot.availability === 'available' && (
+        <SettingsSummary>
+          <span
+            className="settings-summary-group"
+            role="group"
+            aria-label="Graph totals"
+          >
+            <SummaryChip>
+              {snapshot.entities.toLocaleString()} entities
+            </SummaryChip>
+            <SummaryChip>
+              {snapshot.relations.toLocaleString()} relations
+            </SummaryChip>
+          </span>
+        </SettingsSummary>
+      )}
       <div className="settings-owner-heading">
         <div>
           <h2>Memory graph</h2>
@@ -1211,8 +1265,13 @@ function KnowledgeGraphSummary({
             browsing.
           </p>
         </div>
+      </div>
+      <div className="settings-inline-row settings-knowledge-switch-row">
+        <div>
+          <strong>Memory</strong>
+          <p>{memoryStatus}. Recall uses what Row-Bot has learned.</p>
+        </div>
         <label className="settings-knowledge-switch">
-          <span>{memoryStatus}</span>
           <Toggle
             label="Enable Memory"
             checked={snapshot.memory_enabled === true}
@@ -1227,25 +1286,14 @@ function KnowledgeGraphSummary({
         <p role="status">Saved memory graph statistics are unavailable.</p>
       ) : (
         <>
-          <Network size={34} aria-hidden />
-          <div
-            className="settings-summary-strip"
-            role="group"
-            aria-label="Graph totals"
-          >
-            <span className="status-chip">
-              {snapshot.entities.toLocaleString()} entities
-            </span>
-            <span className="status-chip">
-              {snapshot.relations.toLocaleString()} relations
-            </span>
-          </div>
           {snapshot.entity_types.length > 0 && (
-            <p className="settings-help">
-              Types:{' '}
+            <p className="settings-help settings-knowledge-types">
               {snapshot.entity_types
-                .map((item) => `${item.kind}: ${item.count.toLocaleString()}`)
-                .join(', ')}
+                .map(
+                  (item) =>
+                    `${humanizeToken(item.kind)} ${item.count.toLocaleString()}`,
+                )
+                .join(' · ')}
             </p>
           )}
           <dl className="settings-facts">
@@ -1329,7 +1377,7 @@ function KnowledgeAuditAndDanger({
                   {item.outcome === 'used' ? 'Memory used' : 'Memory skipped'}
                 </strong>
                 <span>
-                  {item.timestamp || 'Unknown time'} · {item.selected_count}/
+                  <AuditTime value={item.timestamp} /> · {item.selected_count}/
                   {item.candidate_count} selected ·{' '}
                   {item.context_characters.toLocaleString()} context characters
                 </span>
@@ -1368,7 +1416,8 @@ function KnowledgeAuditAndDanger({
               >
                 <strong>{item.action.replaceAll('_', ' ')}</strong>
                 <span>
-                  {item.timestamp || 'Unknown time'} · {item.actor || 'Row-Bot'}
+                  <AuditTime value={item.timestamp} /> ·{' '}
+                  {item.actor || 'Row-Bot'}
                 </span>
                 {item.subjects.length > 0 && (
                   <p>
@@ -1392,18 +1441,11 @@ function KnowledgeAuditAndDanger({
           )
         }
       />
-      <section
-        className="settings-snapshot-section stack is-danger settings-knowledge-danger"
-        aria-labelledby="settings-knowledge-danger"
-      >
-        <header className="settings-snapshot-heading">
-          <Trash2 size={18} aria-hidden />
-          <div>
-            <h3 id="settings-knowledge-danger">Danger Zone</h3>
-            <p>Permanent actions affecting the complete knowledge store.</p>
-          </div>
-        </header>
-        <div className="settings-control-actions">
+      <SettingsDangerZone meta="Permanent actions on the whole knowledge store">
+        <DangerAction
+          title="Delete all knowledge"
+          description="Permanently removes the current saved graph after an exact revision review. Row-Bot-managed Wiki files and local indexes are cleaned up; files outside Row-Bot's managed Wiki scope are preserved."
+        >
           <Button
             variant="danger"
             disabled={!canDelete || pending || count === 0}
@@ -1411,14 +1453,18 @@ function KnowledgeAuditAndDanger({
           >
             Delete all knowledge ({count.toLocaleString()})
           </Button>
-        </div>
-        <p className="settings-help">
-          This permanently removes the current saved graph after an exact
-          revision review. Row-Bot-managed Wiki files and local indexes are
-          cleaned up; files outside Row-Bot's managed Wiki scope are preserved.
-        </p>
-      </section>
+        </DangerAction>
+      </SettingsDangerZone>
     </div>
+  );
+}
+
+function AuditTime({ value }: { value: string | null | undefined }) {
+  if (!value) return <>Unknown time</>;
+  return (
+    <time dateTime={value} title={absoluteTime(value)}>
+      {relativeTime(value)}
+    </time>
   );
 }
 

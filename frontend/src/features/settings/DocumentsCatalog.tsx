@@ -1,6 +1,7 @@
 import { FileText, Trash2 } from 'lucide-react';
 import type { DocumentSummaryPage } from '../../api/types';
-import { CompactAction, Field, Select } from '../../ui/primitives';
+import { CompactAction, Select } from '../../ui/primitives';
+import { absoluteTime, relativeTime } from '../../ui/format';
 import { SavedCatalog, type SavedLoader } from './KnowledgeCatalog';
 
 const statuses: Record<string, string> = {
@@ -51,19 +52,18 @@ export default function DocumentsCatalog({
       load={load}
       description="Browse saved document and ingestion records. Status and progress are historical; current searchability is unknown."
       filter={(selected, change) => (
-        <Field label="Saved document status">
-          <Select
-            value={selected}
-            onChange={(event) => change(event.target.value)}
-          >
-            <option value="">All statuses</option>
-            {Object.entries(statuses).map(([value, label]) => (
-              <option value={value} key={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <Select
+          aria-label="Saved document status"
+          value={selected}
+          onChange={(event) => change(event.target.value)}
+        >
+          <option value="">All statuses</option>
+          {Object.entries(statuses).map(([value, label]) => (
+            <option value={value} key={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
       )}
       renderItems={(page) => (
         <ul className="settings-results">
@@ -71,8 +71,22 @@ export default function DocumentsCatalog({
             <li className="settings-document-result" key={item.id}>
               <details>
                 <summary>
-                  <FileText size={18} aria-hidden />
+                  <FileText size={16} aria-hidden />
                   <span>{item.name}</span>
+                  <small>
+                    {statuses[item.status] ?? 'Unknown'}
+                    {item.updated_at ? (
+                      <>
+                        {' · '}
+                        <time
+                          dateTime={item.updated_at}
+                          title={absoluteTime(item.updated_at)}
+                        >
+                          {relativeTime(item.updated_at)}
+                        </time>
+                      </>
+                    ) : null}
+                  </small>
                 </summary>
                 <div className="settings-document-detail">
                   {item.truncated && (
@@ -96,7 +110,11 @@ export default function DocumentsCatalog({
                     <dt>Current searchability</dt>
                     <dd>Unknown</dd>
                     <dt>Last saved update</dt>
-                    <dd>{item.updated_at || 'Unknown'}</dd>
+                    <dd>
+                      {item.updated_at
+                        ? absoluteTime(item.updated_at) || item.updated_at
+                        : 'Unknown'}
+                    </dd>
                   </dl>
                 </div>
               </details>

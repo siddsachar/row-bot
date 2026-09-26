@@ -79,7 +79,7 @@ it('presents saved graph totals and an owner-sized initial knowledge catalog', a
   expect(screen.getByText('Showing 30 of 30 matching entries.')).toBeVisible();
   expect(screen.getByText('599 entities')).toBeVisible();
   expect(screen.getByText('956 relations')).toBeVisible();
-  expect(screen.getByText('Types: fact: 411, person: 23')).toBeVisible();
+  expect(screen.getByText('Fact 411 · Person 23')).toBeVisible();
   expect(screen.getByText('538 entities')).toBeVisible();
   expect(screen.getByText('597 active')).toBeVisible();
   expect(screen.getByText('2 archived')).toBeVisible();

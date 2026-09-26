@@ -1,4 +1,5 @@
-import { useId, useSyncExternalStore } from 'react';
+import { useId, useState, useSyncExternalStore } from 'react';
+import { FileUp } from 'lucide-react';
 import { Button, ErrorState } from '../../ui/primitives';
 
 export type DocumentUploadFile = { name: string; size_bytes: number };
@@ -277,40 +278,81 @@ export function DocumentUploads({
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const inputId = useId();
+  const [dragging, setDragging] = useState(false);
   const disabled = state.busy || state.pending || state.revoked;
   const invoke = (callback: () => Promise<unknown>) => {
     void callback().catch(() => undefined);
   };
+  const choose = (files: readonly File[]) => {
+    try {
+      session.select(files);
+    } catch {
+      /* Session exposes the recoverable error. */
+    }
+  };
   return (
-    <section aria-label="Document uploads">
+    <section
+      aria-label="Document uploads"
+      className="document-uploads"
+      data-setting-anchor="document-upload"
+    >
       <h3>Upload documents</h3>
-      <p>
-        PDF, DOC, DOCX, TXT, MD, HTML, HTM and EPUB. Up to 256 MiB per file.
-      </p>
-      <p>
-        Files are staged in a paused batch. Processing and provider use require
-        a separate action.
-      </p>
-      <label htmlFor={inputId}>Choose documents</label>
-      <input
-        id={inputId}
-        type="file"
-        multiple
-        accept=".pdf,.doc,.docx,.txt,.md,.html,.htm,.epub"
-        disabled={disabled}
-        onChange={(event) => {
-          try {
-            session.select(Array.from(event.target.files ?? []));
-          } catch {
-            /* Session exposes the recoverable error. */
-          }
+      <div
+        className="document-dropzone"
+        data-dragging={dragging ? 'true' : undefined}
+        data-disabled={disabled ? 'true' : undefined}
+        onDragEnter={(event) => {
+          if (disabled || !event.dataTransfer.types.includes('Files')) return;
+          event.preventDefault();
+          setDragging(true);
         }}
-      />
-      {state.files.map((file, index) => (
-        <p key={`${index}:${file.name}`}>
-          {file.name} · {file.size} bytes
+        onDragOver={(event) => {
+          if (disabled || !event.dataTransfer.types.includes('Files')) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node))
+            setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          if (disabled) return;
+          choose(Array.from(event.dataTransfer.files));
+        }}
+      >
+        <FileUp size={22} aria-hidden />
+        <p>
+          <strong>Drop files here</strong> or{' '}
+          <label htmlFor={inputId} className="document-dropzone-choose">
+            Choose documents
+          </label>
         </p>
-      ))}
+        <small>
+          PDF, DOC, DOCX, TXT, MD, HTML, HTM and EPUB · up to 256 MiB each.
+          Files are staged in a paused batch; processing and provider use are a
+          separate action.
+        </small>
+        <input
+          id={inputId}
+          className="document-dropzone-input"
+          type="file"
+          multiple
+          accept=".pdf,.doc,.docx,.txt,.md,.html,.htm,.epub"
+          disabled={disabled}
+          onChange={(event) => choose(Array.from(event.target.files ?? []))}
+        />
+      </div>
+      {state.files.length > 0 && (
+        <ul className="document-staged-files" aria-label="Selected documents">
+          {state.files.map((file, index) => (
+            <li key={`${index}:${file.name}`}>
+              {file.name} · {file.size} bytes
+            </li>
+          ))}
+        </ul>
+      )}
       {state.error && (
         <ErrorState title="Upload needs attention">{state.error}</ErrorState>
       )}
