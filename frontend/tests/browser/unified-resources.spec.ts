@@ -725,7 +725,14 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
       name: 'Context',
       exact: true,
     });
-    if (await contextToggle.isVisible()) await contextToggle.click();
+    // The header button toggles Context; reveal it only when hidden.
+    if (
+      !(await page
+        .getByRole('button', { name: 'Add resource', exact: true })
+        .isVisible()) &&
+      (await contextToggle.isVisible())
+    )
+      await contextToggle.click();
     await page
       .getByRole('button', { name: 'Add resource', exact: true })
       .click();

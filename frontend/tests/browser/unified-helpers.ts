@@ -641,7 +641,9 @@ export async function captureActualResourcePanels(
       .getByRole('button', { name: 'Back to conversation', exact: true })
       .click();
   }
-  if (await contextToggle.isVisible()) await contextToggle.click();
+  // The header Context button toggles the card; reveal it only when hidden.
+  if (!(await context.isVisible()) && (await contextToggle.isVisible()))
+    await contextToggle.click();
   await page
     .getByRole('complementary', { name: 'Conversation context' })
     .getByRole('button', { name: 'Phase 1 workspace Developer' })
