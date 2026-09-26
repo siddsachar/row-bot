@@ -5495,9 +5495,53 @@ def sync_all_jobs() -> None:
     logger.info("Synced %d task(s) to APScheduler", len(tasks))
 
 
+_PROCESS_STARTED_AT = datetime.now()
+_interrupted_runs_settled = False
+_INTERRUPTED_RUN_STATUSES = ("starting", "running", "resuming", "stopping")
+
+
+def settle_interrupted_runs(before: datetime | None = None) -> list[str]:
+    """Mark runs an earlier Row-Bot process left unfinished as stopped.
+
+    Their worker died with that process, so they could never report back:
+    they read as running forever and Stop could not settle them. Paused runs
+    are kept because they resume from saved state, and a run that started in
+    this process is never touched. No delivery or notification is sent.
+    """
+    cutoff = (before or _PROCESS_STARTED_AT).isoformat()
+    placeholders = ",".join("?" for _ in _INTERRUPTED_RUN_STATUSES)
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            f"SELECT id FROM task_runs WHERE status IN ({placeholders}) "
+            "AND started_at < ? ORDER BY started_at",
+            (*_INTERRUPTED_RUN_STATUSES, cutoff),
+        ).fetchall()
+    finally:
+        conn.close()
+    settled = [str(row["id"]) for row in rows]
+    for run_id in settled:
+        _finish_run(
+            run_id,
+            "stopped",
+            status_message="Interrupted: Row-Bot closed before this run finished.",
+            terminal_reason="interrupted",
+        )
+    if settled:
+        logger.info("Marked %d interrupted workflow run(s) as stopped", len(settled))
+    return settled
+
+
 @_schema_retry
 def start_task_scheduler() -> None:
     """Start the APScheduler and sync all task jobs (idempotent)."""
+    global _interrupted_runs_settled
+    if not _interrupted_runs_settled:
+        _interrupted_runs_settled = True
+        try:
+            settle_interrupted_runs()
+        except Exception:
+            logger.warning("Could not settle interrupted workflow runs", exc_info=True)
     _get_scheduler()
     sync_all_jobs()
     start_approval_monitor()
