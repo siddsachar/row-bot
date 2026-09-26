@@ -400,7 +400,9 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
     .getByRole('button', { name: 'Close all panels', exact: true })
     .click();
   await expect(
-    page.getByRole('status').filter({ hasText: /^Work interrupted\./ }),
+    page
+      .getByRole('status')
+      .filter({ hasText: /^The response was interrupted\./ }),
   ).toBeVisible();
   await expect(composer(page)).toHaveValue(
     'Unsent chat draft survives first-draft failure',
@@ -655,9 +657,13 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
   const call = (await fixtureState(page)).calls.at(-1)!;
   try {
     await composer(page).fill('Unsent multi-resource draft');
+    // Attaching a file lives in the composer's + menu.
+    await page
+      .getByRole('button', { name: 'Add files and more', exact: true })
+      .click();
     const chooser = page.waitForEvent('filechooser');
     await page
-      .getByRole('button', { name: 'Attach file', exact: true })
+      .getByRole('menuitem', { name: 'Attach file', exact: true })
       .click();
     await (
       await chooser

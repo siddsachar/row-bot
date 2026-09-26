@@ -16,6 +16,14 @@ test('full-history search jumps to an exact stable row outside the loaded ten-th
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
+  // Follow the system colour scheme so the theme can change in place below.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'row-bot.appearance.v1',
+      JSON.stringify({ version: 1, appearance: 'system' }),
+    );
+  });
   await openConversation(page);
   const fixture = await seedLargeLibrary(page);
   expect(fixture.conversation_count).toBeGreaterThan(1000);
@@ -92,15 +100,11 @@ test('full-history search jumps to an exact stable row outside the loaded ten-th
   const anchorBefore = await early.evaluate(
     (element) => element.getBoundingClientRect().top,
   );
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  const preferences = page.getByRole('dialog', {
-    name: 'Preferences',
-    exact: true,
-  });
-  await preferences
-    .getByRole('combobox', { name: 'Appearance', exact: true })
-    .selectOption('dark');
-  await page.keyboard.press('Escape');
+  // Appearance is a Settings page now; a system theme switch changes the
+  // theme in place, which is what the anchor must survive.
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(early).toBeInViewport();
   expect(
     Math.abs(

@@ -103,36 +103,24 @@ test('twenty actual conversation preference openings and theme changes commit wi
   const feedback: number[] = [],
     theme: number[] = [];
   for (let index = 0; index < 20; index++) {
-    const trigger = page.getByRole('button', {
-      name: 'Preferences',
-      exact: true,
-    });
-    await trigger.evaluate((element) => {
+    // Preferences is a Settings page: open it in the app without a reload,
+    // as the Settings navigation does, and time it to the committed page.
+    await page.evaluate(() => {
       Object.assign(window, { __QA_PREFERENCE_COMMIT__: null });
-      element.addEventListener(
-        'click',
-        () => {
-          const start = performance.now();
-          const committed = () => {
-            if (document.querySelector('[role="dialog"] select'))
-              requestAnimationFrame(() =>
-                Object.assign(window, {
-                  __QA_PREFERENCE_COMMIT__: performance.now() - start,
-                }),
-              );
-            else requestAnimationFrame(committed);
-          };
-          requestAnimationFrame(committed);
-        },
-        { once: true, capture: true },
-      );
+      const start = performance.now();
+      const committed = () => {
+        if (document.querySelector('.settings-preferences'))
+          requestAnimationFrame(() =>
+            Object.assign(window, {
+              __QA_PREFERENCE_COMMIT__: performance.now() - start,
+            }),
+          );
+        else requestAnimationFrame(committed);
+      };
+      history.pushState(history.state, '', '/app-v2/settings/preferences');
+      dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+      requestAnimationFrame(committed);
     });
-    await trigger.click();
-    const dialog = page.getByRole('dialog', {
-      name: 'Preferences',
-      exact: true,
-    });
-    await expect(dialog).toBeVisible();
     await page.waitForFunction(
       () =>
         typeof (window as unknown as { __QA_PREFERENCE_COMMIT__: unknown })
@@ -145,7 +133,12 @@ test('twenty actual conversation preference openings and theme changes commit wi
             .__QA_PREFERENCE_COMMIT__,
       ),
     );
-    const choice = dialog.getByRole('combobox', {
+    const local = page.locator('details.settings-supplemental-disclosure');
+    if (
+      !(await local.evaluate((element) => (element as HTMLDetailsElement).open))
+    )
+      await local.locator('summary').click();
+    const choice = page.getByRole('combobox', {
       name: 'Appearance',
       exact: true,
     });
@@ -182,7 +175,10 @@ test('twenty actual conversation preference openings and theme changes commit wi
             .__QA_THEME_COMMIT__,
       ),
     );
-    await page.keyboard.press('Escape');
+    await page.goBack();
+    await expect(composer(page)).toHaveValue(
+      'Keep this real workspace draft through preferences',
+    );
     await assertWorkspaceIdentity(page);
   }
   await writeEvidence(testInfo, 'PB02-PB04-real-workspace-feedback', {
@@ -192,7 +188,7 @@ test('twenty actual conversation preference openings and theme changes commit wi
     remounts: 0,
     excludedSamples: [],
     method:
-      'Actual DOM click/change in HTTP workspace to committed Preferences/theme and animation frame; no fake clock.',
+      'In-app navigation to the Preferences page and an actual DOM change of Appearance, each timed to the committed page/theme and animation frame, in the HTTP workspace; no fake clock.',
   });
   expect(distribution(feedback).p95).toBeLessThanOrEqual(100);
   expect(distribution(theme).p95).toBeLessThanOrEqual(100);
@@ -218,7 +214,10 @@ test('twenty real reconnects per latency condition restore confirmed snapshots a
   let delay = 0;
   await page.route('**/api/v1/**', async (route) => {
     if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-    await route.continue();
+    // A reconnect can cancel a request during the imposed delay.
+    await route.continue().catch((error: Error) => {
+      if (!/already handled|closed/i.test(error.message)) throw error;
+    });
   });
   type RecoveryTrial = {
     index: number;
@@ -340,8 +339,10 @@ test('twenty real reconnects per latency condition restore confirmed snapshots a
   }
   const freshProviderInvocations =
     (await fixtureState(page)).calls.length - before.calls.length;
-  // Drain this page's delayed API handlers before navigation; context guards remain installed.
-  await page.unrouteAll({ behavior: 'wait' });
+  // Remove this page's delayed API handlers before navigation; context guards
+  // remain installed. A handler whose request a reconnect cancelled never
+  // settles, so waiting for handlers to drain can hang.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
   const expiredProviderCounts: number[] = [];
   const expired: {
     imposedPerRequestDelayMs: number;
@@ -382,8 +383,9 @@ test('twenty real reconnects per latency condition restore confirmed snapshots a
       if (closedObservers.has(observer.page)) return;
       observer.release();
       try {
-        // Only this page's API handlers drain; the external-origin context guard remains.
-        await observer.page.unrouteAll({ behavior: 'wait' });
+        // Only this page's API handlers are removed; the external-origin
+        // context guard remains.
+        await observer.page.unrouteAll({ behavior: 'ignoreErrors' });
       } finally {
         closedObservers.add(observer.page);
         await observer.context.close();
@@ -425,7 +427,9 @@ test('twenty real reconnects per latency condition restore confirmed snapshots a
           }
           if (timed && rtt)
             await new Promise((resolve) => setTimeout(resolve, rtt));
-          await route.continue();
+          await route.continue().catch((error: Error) => {
+            if (!/already handled|closed/i.test(error.message)) throw error;
+          });
         });
         await installResetProbe(observer);
         const errors: string[] = [],

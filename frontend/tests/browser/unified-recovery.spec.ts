@@ -119,10 +119,10 @@ test('a delayed real observer exhausts history without delaying the producer or 
       'draft_revision_conflict',
     );
     await page
-      .getByRole('button', { name: 'Review draft conflict', exact: true })
+      .getByRole('button', { name: 'Resolve draft conflict', exact: true })
       .click();
     const conflict = page.getByRole('dialog', {
-      name: 'Review draft conflict',
+      name: 'Resolve draft conflict',
       exact: true,
     });
     await expect(conflict).toContainText('Slow observer unsent draft');

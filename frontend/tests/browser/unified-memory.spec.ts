@@ -1,10 +1,35 @@
 import { performance } from 'node:perf_hooks';
+import type { Page } from '@playwright/test';
 import { test, expect, distribution, writeEvidence } from './evidence';
 import {
   composer,
   openConversation,
   seedLargeLibrary,
 } from './unified-helpers';
+
+// Pinning is reviewed in the Manage conversation dialog.
+async function pinOpenConversation(page: Page): Promise<void> {
+  await page
+    .getByRole('button', { name: 'Conversation actions', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Manage conversation', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', {
+    name: 'Conversation actions',
+    exact: true,
+  });
+  const actions = dialog.getByRole('region', {
+    name: 'Conversation actions',
+    exact: true,
+  });
+  await actions.getByRole('button', { name: 'Pin', exact: true }).click();
+  await expect(
+    actions.getByRole('button', { name: 'Unpin', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+}
 
 test('twenty warm thousand-row opens and ten-thousand-row retained heap meet bounded transcript budgets', async ({
   page,
@@ -19,15 +44,9 @@ test('twenty warm thousand-row opens and ten-thousand-row retained heap meet bou
   await openConversation(page);
   const fixture = await seedLargeLibrary(page);
   await openConversation(page, fixture.short_conversation_id);
-  await page
-    .getByRole('button', { name: 'Conversation actions', exact: true })
-    .click();
-  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  await pinOpenConversation(page);
   await openConversation(page, 'p1-browser-a');
-  await page
-    .getByRole('button', { name: 'Conversation actions', exact: true })
-    .click();
-  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  await pinOpenConversation(page);
   const target = page
     .getByRole('navigation', { name: 'Workspace navigation' })
     .getByRole('button', { name: 'Library conversation 0001', exact: true });
@@ -137,9 +156,13 @@ test('twenty warm thousand-row opens and ten-thousand-row retained heap meet bou
   const cdp = await context.newCDPSession(page);
   const renderedShapes = async () => {
     const log = page.getByRole('log', { name: 'Conversation', exact: true });
+    // Tool calls and their results fold into one activity row per turn.
     const shapes = {
-      toolResults: await log.locator('.message-tool').count(),
-      toolCalls: await log.getByText('1 tool call', { exact: true }).count(),
+      toolResults: await log.locator('.activity-row').count(),
+      toolCalls: await log
+        .locator('summary.activity-summary')
+        .filter({ hasText: /^Used 1 tool/ })
+        .count(),
       mediaPlaceholders: await log
         .locator('.message-text')
         .filter({

@@ -1038,12 +1038,18 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
     name: 'Archive',
     exact: true,
   });
-  if (!(await archive.isVisible())) {
-    await reopenedEntry.locator('summary').click();
+  // The reloaded catalog can replace the row (collapsed) at any moment, so
+  // open it idempotently until its details are showing.
+  await expect(async () => {
+    const open = await reopenedEntry
+      .locator('details')
+      .first()
+      .evaluate((element) => (element as HTMLDetailsElement).open);
+    if (!open) await reopenedEntry.locator('summary').first().click();
     await expect(
       reopenedEntry.getByText('p4-entity-002', { exact: true }),
-    ).toBeVisible();
-  }
+    ).toBeVisible({ timeout: 1_000 });
+  }).toPass();
   // Archive and restore are reviewed by the server and applied in one step.
   await archive.click();
   await expect(page.getByText('No matching knowledge')).toBeVisible();

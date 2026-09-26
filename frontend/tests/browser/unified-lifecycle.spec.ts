@@ -33,6 +33,8 @@ async function assertQueuedControlsReachable(
   testInfo: TestInfo,
   sample: string,
 ): Promise<void> {
+  // Queue appears only while there is text to queue: probe with a draft.
+  await composer(page).fill('Queue reachability probe');
   for (const name of ['Queue message', 'Stop']) {
     const control = page.getByRole('button', { name, exact: true });
     await control.scrollIntoViewIfNeeded();
@@ -110,6 +112,7 @@ async function assertQueuedControlsReachable(
   }
   if (sample.endsWith('-1'))
     await screenshot(page, testInfo, `${sample}-notification-actions`);
+  await composer(page).fill('');
 }
 
 // Screen-only synthetic evidence; raw protocol traces remain disabled because
@@ -333,6 +336,19 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       ),
     ).toHaveCount(1);
     await expect(composer(page)).toHaveValue('Never consumed unsent draft');
+    // Delegated agents are listed under the Context rail's Agents disclosure.
+    const agents = page
+      .getByRole('complementary', { name: 'Conversation context' })
+      .locator('details', {
+        has: page.locator('summary', { hasText: 'Agents' }),
+      })
+      .first();
+    if (
+      !(await agents.evaluate(
+        (element) => (element as HTMLDetailsElement).open,
+      ))
+    )
+      await agents.locator('summary').first().click();
     await page
       .getByRole('button', { name: 'Synthetic child', exact: true })
       .click();

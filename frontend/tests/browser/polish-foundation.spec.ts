@@ -236,14 +236,14 @@ test('composer menus stay in the viewport and only one popover shows at a time (
     models.getByRole('option', { name: 'Fixture model 1 Current' }),
   ).toBeVisible();
   expect((await withinViewport(page, '.model-picker')).inside).toBe(true);
-  expect((await withinViewport(page, '.model-picker-list')).scrolls).toBe(
-    true,
-  );
+  expect((await withinViewport(page, '.model-picker-list')).scrolls).toBe(true);
   await screenshot(page, info, 'polish-model-menu-bounded');
   await page.keyboard.press('Escape');
-  // Wait for the picker to finish closing: it returns focus to its trigger,
-  // and the palette (B5) steps aside whenever the composer loses focus.
+  // Wait for the picker to finish closing: it returns focus to its trigger
+  // after unmounting, and the palette (B5) steps aside whenever the composer
+  // loses focus.
   await expect(models).toHaveCount(0);
+  await expect(model).toBeFocused();
 
   const draft = page.getByRole('textbox', { name: 'Message' });
   await draft.fill('/');
