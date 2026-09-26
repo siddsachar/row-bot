@@ -192,6 +192,42 @@ def test_conversation_waiting_on_its_own_approval_needs_attention(service):
     assert service.get_conversation(waiting)["activity_state"] is None
 
 
+def test_snapshot_restores_a_pending_approval_after_restart(service):
+    import json
+    from row_bot import tasks, threads
+
+    conversation = threads.create_thread("Paused turn", seed_default_skills=False)
+    assert service.snapshot(conversation)["generation"] is None
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO approval_requests (id, run_id, task_id, step_id, resume_token, "
+            "resume_kind, source_thread_id, status, approval_payload_json) VALUES "
+            "('approval-b', 'run-b', '', 'step-b', 'token-b', 'conversation', ?, 'pending', ?)",
+            (conversation, json.dumps({"pass_id": "pass-b"})),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Nothing in memory knows about the paused turn (as after a restart).
+    generation = service.snapshot(conversation)["generation"]
+    assert generation["status"] == "waiting_approval"
+    assert generation["approval_id"] == "approval-b"
+    assert generation["pass_id"] == "pass-b"
+    assert generation["quiesced"] and not generation["can_stop"]
+    from row_bot.api.v1 import schemas
+    schemas.GenerationState.model_validate(generation)
+
+    conn = tasks._get_conn()
+    try:
+        conn.execute("UPDATE approval_requests SET status='denied' WHERE id='approval-b'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert service.snapshot(conversation)["generation"] is None
+
+
 @pytest.mark.parametrize("phase", ["before", "during"])
 def test_history_read_fences_pending_deletion(service, monkeypatch, phase):
     from langchain_core.messages import HumanMessage

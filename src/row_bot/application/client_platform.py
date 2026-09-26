@@ -366,12 +366,47 @@ class ClientPlatformService:
                     rows = [row for _, row in project_checkpoint_records(reader, records)]
                     self.projection.install_rows(conversation_id, reader.revision, rows)
 
+    def _paused_approval_generation(self, conversation_id: str) -> dict | None:
+        """The paused turn of a conversation whose approval is still pending.
+
+        The live generation state is in memory only, so after a restart a
+        pending approval had nothing to show it and the turn could neither be
+        approved nor resumed. The durable request restores the waiting state.
+        """
+        from row_bot.tasks import _get_conn
+        try:
+            with closing(_get_conn()) as conn:
+                row = conn.execute(
+                    "SELECT id, approval_payload_json FROM approval_requests "
+                    "WHERE source_thread_id=? AND resume_kind='conversation' "
+                    "AND status='pending' ORDER BY requested_at DESC LIMIT 1",
+                    (conversation_id,)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        approval_id = str(row["id"])
+        try:
+            context = json.loads(str(row["approval_payload_json"] or "{}"))
+        except (TypeError, ValueError):
+            context = {}
+        pass_id = str(context.get("pass_id") or "") if isinstance(context, dict) else ""
+        restored = f"approval:{approval_id}"
+        return {"execution_id": restored, "conversation_id": conversation_id,
+                "generation_id": restored, "pass_id": pass_id or restored,
+                "segment_id": None, "status": "waiting_approval", "revision": "0",
+                "cancel_requested": False, "quiesced": True, "cleanup_complete": True,
+                "external_outcome": "not_applicable", "approval_id": approval_id,
+                "can_stop": False}
+
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
         with _COMMAND_LOCK:
             self._metadata(conversation_id)
             self._refresh_checkpoint(conversation_id)
             snapshot = self.projection.snapshot(conversation_id)
+            if snapshot.get("generation") is None and not self.registry.active(conversation_id):
+                snapshot["generation"] = self._paused_approval_generation(conversation_id)
             present = {row["id"] for row in snapshot["rows"]}
             for reference in references(conversation_id)[-100:]:
                 row_id = "assistant:" + reference
