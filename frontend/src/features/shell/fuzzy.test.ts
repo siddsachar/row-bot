@@ -16,6 +16,12 @@ describe('fuzzy matching', () => {
     expect(word).toBeGreaterThan(scattered);
   });
 
+  it('counts a leading emoji or punctuation as part of the prefix', () => {
+    expect(fuzzyMatch('land', '🎨 Landing Page')!.score).toBeGreaterThan(
+      fuzzyMatch('land', 'Open Landing Page')!.score,
+    );
+  });
+
   it('treats an empty query as a neutral match', () => {
     expect(fuzzyMatch('  ', 'Anything')).toEqual({ score: 0, indices: [] });
   });

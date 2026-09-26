@@ -14,12 +14,14 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   // A literal substring always wins over a scattered match.
   const literal = haystack.indexOf(needle);
   if (literal >= 0) {
-    const wordStart = literal === 0 || WORD_BREAK.test(haystack[literal - 1]);
+    // A title that opens with an emoji or punctuation still starts here.
+    const prefix = !/[\p{L}\p{N}]/u.test(haystack.slice(0, literal));
+    const wordStart = prefix || WORD_BREAK.test(haystack[literal - 1]);
     return {
       score:
         1000 +
-        (literal === 0 ? 300 : wordStart ? 150 : 0) -
-        Math.min(literal, 100) -
+        (prefix ? 300 : wordStart ? 150 : 0) -
+        (prefix ? 0 : Math.min(literal, 100)) -
         Math.min(haystack.length - needle.length, 100) / 10,
       indices: Array.from({ length: needle.length }, (_, i) => literal + i),
     };
