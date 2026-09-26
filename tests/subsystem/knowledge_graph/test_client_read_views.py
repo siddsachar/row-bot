@@ -118,8 +118,11 @@ def test_graph_projection_caps_nodes_and_marks_truncation(saved):
     assert graph.total_entities == 205
     assert graph.truncated is True
 
+    # "Show all" asks for up to 1,000 memories; more is refused.
+    everything = views.read_knowledge_graph(limit=1000)
+    assert len(everything.nodes) == 205 and everything.truncated is False
     with pytest.raises(views.KnowledgeViewError, match="invalid_knowledge_query"):
-        views.read_knowledge_graph(limit=251)
+        views.read_knowledge_graph(limit=1001)
 
 
 @pytest.mark.parametrize(

@@ -229,6 +229,10 @@ _STAGES = {
 _SQLITE_VALUE_LIMIT = 16 * 1024 * 1024
 _SQLITE_STEP_LIMIT = 10_000_000
 _QUERY_SECONDS = 2.0
+# The graph opens on the 250 best-connected memories; "Show all" asks for up to
+# this many, with at most _GRAPH_EDGE_LIMIT links between them.
+_GRAPH_NODE_LIMIT = 1000
+_GRAPH_EDGE_LIMIT = 4000
 _LEGACY_MARKER_BYTES = 1024 * 1024
 _LEGACY_MARKER_ITEMS = 4096
 _AUDIT_FILE_BYTES = 512 * 1024
@@ -1273,7 +1277,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
     unbounded provenance. Nodes and their in-scope edges are read in one SQLite
     snapshot so counts, revisions, and topology agree.
     """
-    if type(limit) is not int or not 1 <= limit <= 250:
+    if type(limit) is not int or not 1 <= limit <= _GRAPH_NODE_LIMIT:
         raise KnowledgeViewError("invalid_knowledge_query")
     path = get_memory_db_path(create_parent=False)
     root = get_row_bot_data_dir(create=False).absolute()
@@ -1442,12 +1446,12 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                       substr(target_id,1,129) target_id,substr(relation_type,1,65) relation_type,
                       substr(updated_at,1,129) updated_at FROM relations
                       WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
-                      ORDER BY updated_at DESC,id LIMIT 2001""",
-                    (*node_ids, *node_ids),
+                      ORDER BY updated_at DESC,id LIMIT ?""",
+                    (*node_ids, *node_ids, _GRAPH_EDGE_LIMIT + 1),
                 ).fetchall()
-                if len(edge_rows) > 2000:
+                if len(edge_rows) > _GRAPH_EDGE_LIMIT:
                     truncated = True
-                    edge_rows = edge_rows[:2000]
+                    edge_rows = edge_rows[:_GRAPH_EDGE_LIMIT]
                 for row in edge_rows:
                     edge = KnowledgeGraphEdge(
                         _identity(row["id"]),

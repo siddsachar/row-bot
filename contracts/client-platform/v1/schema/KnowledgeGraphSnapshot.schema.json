@@ -152,7 +152,7 @@
       "items": {
         "$ref": "#/$defs/KnowledgeGraphEdge"
       },
-      "maxItems": 2000,
+      "maxItems": 4000,
       "title": "Edges",
       "type": "array"
     },
@@ -169,7 +169,7 @@
       "items": {
         "$ref": "#/$defs/KnowledgeGraphNode"
       },
-      "maxItems": 250,
+      "maxItems": 1000,
       "title": "Nodes",
       "type": "array"
     },
