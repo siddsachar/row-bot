@@ -286,6 +286,7 @@ export default function ConversationLibrary({
             done += 1;
             if (controller.getSnapshot().selectedConversationId === row.id)
               navigate('/');
+            controller.forgetConversation(row.id);
             if (
               receipt.retained_developer_work ||
               receipt.deletion_warnings?.length

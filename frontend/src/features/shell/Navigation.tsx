@@ -625,6 +625,7 @@ export default function Navigation({
         void deleteOneConversation(controller, conversation).then((outcome) => {
           if (outcome.status === 'deleted') {
             if (state.selectedConversationId === conversation.id) navigate('/');
+            controller.forgetConversation(conversation.id);
             overlay.notify(
               outcome.notice
                 ? `Deleted '${title}'. ${outcome.notice}`

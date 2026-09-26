@@ -2021,3 +2021,50 @@ describe('earlier history above the live window', () => {
     expect(transport.history).toHaveBeenCalledTimes(reads);
   });
 });
+
+describe('deleted conversations', () => {
+  it('closes the open conversation after its deletion and stays connected', async () => {
+    const transport = new FixtureTransport({ conversationCount: 3 });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    expect(value.getSnapshot().projection).not.toBeNull();
+    value.forgetConversation('conversation-a');
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.projection).toBeNull();
+    expect(state.conversations.map((row) => row.id)).not.toContain(
+      'conversation-a',
+    );
+    // Forgetting another row only removes it from the list.
+    value.forgetConversation('conversation-3');
+    expect(
+      value.getSnapshot().conversations.map((row) => row.id),
+    ).not.toContain('conversation-3');
+    expect(value.getSnapshot().status).toBe('ready');
+  });
+
+  it('treats a vanished open conversation as closed, not as a lost connection', async () => {
+    class DeletedFixture extends FixtureTransport {
+      gone = new Set<string>();
+      override async subscribe(id: string, signal?: AbortSignal) {
+        if (this.gone.has(id)) throw clientError({ code: 'not_found' });
+        return super.subscribe(id, signal);
+      }
+    }
+    const transport = new DeletedFixture({ conversationCount: 3 });
+    transport.gone.add('conversation-2');
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-2');
+    await flush();
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.handshake).not.toBeNull();
+  });
+});

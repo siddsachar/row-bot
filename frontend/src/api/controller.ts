@@ -766,6 +766,51 @@ export class ClientController {
     await this.loadMoreConversations(true);
   }
 
+  /**
+   * A conversation was deleted (here or on another client). Drop it from
+   * the list and, when it is the open one, stop observing it and close it
+   * without treating its closed stream as a lost connection.
+   */
+  forgetConversation(id: string): void {
+    if (this.disposed) return;
+    const conversations = this.state.conversations.filter(
+      (row) => row.id !== id,
+    );
+    if (this.state.selectedConversationId !== id) {
+      if (conversations.length !== this.state.conversations.length)
+        this.update({ conversations });
+      return;
+    }
+    this.selectionNumber += 1;
+    this.historyNumber += 1;
+    this.selection.abort();
+    this.selection = new AbortController();
+    this.stopObservation(true);
+    this.transcriptCursor = undefined;
+    this.transcriptRequest = false;
+    this.drafts.delete(id);
+    this.draftRevisions.delete(id);
+    this.draftStates.delete(id);
+    this.dirtyDrafts.delete(id);
+    this.update({
+      conversations,
+      selectedConversationId: null,
+      conversation: null,
+      projection: null,
+      workspace: null,
+      activity: [],
+      history: null,
+      historyFocus: null,
+      earlier: [],
+      earlierAvailable: false,
+      loadingEarlier: false,
+      loadingConversation: false,
+      hasMoreTranscript: false,
+      ...(this.state.handshake
+        ? { status: 'ready' as const, error: null }
+        : {}),
+    });
+  }
   async selectConversation(id: string): Promise<void> {
     if (this.disposed) return;
     if (!this.online) {
@@ -1318,6 +1363,14 @@ export class ClientController {
           const safe = clientError(error);
           if (safe.recovery === 'authenticate' || safe.recovery === 'update') {
             this.failed(error);
+            return;
+          }
+          // The open conversation was deleted: close it, stay connected.
+          if (
+            !subscription &&
+            (safe.code === 'not_found' || safe.code === 'conversation_deleting')
+          ) {
+            this.forgetConversation(id);
             return;
           }
           failures += 1;
