@@ -128,9 +128,7 @@ it('never restores an opaque folder grant after reopening with a new handshake',
     rendered = view();
   });
   await act(async () => {
-    fireEvent.change(screen.getByLabelText('Resource type'), {
-      target: { value: 'workspace' },
-    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Code folder' }));
   });
   await act(async () => {
     fireEvent.change(screen.getByLabelText('Folder setup'), {
@@ -710,9 +708,7 @@ it.each([null, 'conversation-a'])(
       view(conversationId);
     });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Choose resource'), {
-        target: { value: 'existing' },
-      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Open saved' }));
     });
     const first = screen.getByRole('button', {
       name: 'Untitled Deck Resource ID: deck-identical-prefix-first',
@@ -1148,9 +1144,7 @@ it.each(['success', 'failure'] as const)(
     const held = holdResourcePage();
     expect(held.signal.aborted).toBe(false);
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Choose resource'), {
-        target: { value: 'create' },
-      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Create new' }));
     });
     expect(held.signal.aborted).toBe(true);
     mock.controller.library.mockResolvedValue({
@@ -1158,9 +1152,7 @@ it.each(['success', 'failure'] as const)(
       next_cursor: null,
     });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Choose resource'), {
-        target: { value: 'existing' },
-      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Open saved' }));
     });
     fireEvent.click(
       screen.getByRole('button', {

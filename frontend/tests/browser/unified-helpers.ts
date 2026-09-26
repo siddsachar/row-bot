@@ -501,11 +501,11 @@ export async function addReviewResourcePair(
         .getByRole('button', { name: 'Start another resource', exact: true })
         .click();
       await setup
-        .getByRole('combobox', { name: 'Resource type', exact: true })
-        .selectOption('workspace');
+        .getByRole('radio', { name: 'Code folder', exact: true })
+        .click();
       await setup
-        .getByRole('combobox', { name: 'Choose resource', exact: true })
-        .selectOption('existing');
+        .getByRole('radio', { name: 'Open saved', exact: true })
+        .click();
       await setup
         .getByRole('button', {
           name: `Phase 1 workspace Resource ID: ${(await fixtureResources(page)).workspace_id}`,

@@ -374,11 +374,9 @@ test('last explicitly opened Deck retains priority when another client adds a wo
       exact: true,
     });
     await setup
-      .getByRole('combobox', { name: 'Resource type', exact: true })
-      .selectOption('workspace');
-    await setup
-      .getByRole('combobox', { name: 'Choose resource', exact: true })
-      .selectOption('existing');
+      .getByRole('radio', { name: 'Code folder', exact: true })
+      .click();
+    await setup.getByRole('radio', { name: 'Open saved', exact: true }).click();
     await setup
       .getByRole('button', {
         name: `Phase 1 workspace Resource ID: ${(await fixtureResources(peer)).workspace_id}`,

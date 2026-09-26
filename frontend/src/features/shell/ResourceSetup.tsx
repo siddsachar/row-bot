@@ -20,12 +20,15 @@ import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
+  Disclosure,
   Field,
   Input,
+  Segmented,
   Select,
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
+import { Code2, Palette } from 'lucide-react';
 import { setupSessions, type SetupDraft } from './setup-state';
 
 export type ResourceSetupEntry = {
@@ -33,6 +36,76 @@ export type ResourceSetupEntry = {
   mode: 'create' | 'existing';
   resource?: ResourceChoice;
 };
+
+const RESOURCE_TYPES = [
+  {
+    value: 'artifact',
+    label: 'Design',
+    hint: 'A deck, document, page, mockup or storyboard',
+    icon: <Palette size={20} aria-hidden />,
+  },
+  {
+    value: 'workspace',
+    label: 'Code folder',
+    hint: 'A folder or repository on this computer',
+    icon: <Code2 size={20} aria-hidden />,
+  },
+] as const;
+
+/** Type tiles: a radio group with roving focus, one tile per resource kind. */
+function ResourceTypeTiles({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: ResourceSetupEntry['kind'];
+  disabled: boolean;
+  onChange: (value: ResourceSetupEntry['kind']) => void;
+}) {
+  return (
+    <div
+      className="setup-type-tiles"
+      role="radiogroup"
+      aria-label="Resource type"
+    >
+      {RESOURCE_TYPES.map((type, index) => (
+        <button
+          key={type.value}
+          type="button"
+          role="radio"
+          className="setup-type-tile"
+          aria-checked={value === type.value}
+          aria-label={type.label}
+          aria-describedby={`setup-type-${type.value}`}
+          tabIndex={value === type.value ? 0 : -1}
+          disabled={disabled}
+          onClick={() => onChange(type.value)}
+          onKeyDown={(event) => {
+            if (
+              !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
+                event.key,
+              )
+            )
+              return;
+            event.preventDefault();
+            const next =
+              RESOURCE_TYPES[(index + 1) % RESOURCE_TYPES.length].value;
+            onChange(next);
+            (
+              event.currentTarget.parentElement?.querySelector(
+                `[aria-label="${RESOURCE_TYPES.find((item) => item.value === next)!.label}"]`,
+              ) as HTMLElement | null
+            )?.focus();
+          }}
+        >
+          <span className="setup-type-icon">{type.icon}</span>
+          <span className="setup-type-label">{type.label}</span>
+          <small id={`setup-type-${type.value}`}>{type.hint}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const artifactLabels = {
   deck: 'Deck',
@@ -821,39 +894,31 @@ export default function ResourceSetup({
         </p>
       ) : (
         <>
-          <div className="setup-grid">
-            <Field label="Resource type">
-              <Select
-                disabled={busy}
-                value={kind}
-                onChange={(e) => {
-                  setKind(e.target.value as typeof kind);
-                  setSelected(null);
-                  setLibrary(null);
-                }}
-              >
-                <option value="artifact">Design</option>
-                <option value="workspace">Coding workspace</option>
-              </Select>
-            </Field>
-            <Field label="Choose resource">
-              <Select
-                disabled={busy}
-                value={mode}
-                onChange={(e) => {
-                  setMode(e.target.value as typeof mode);
-                  setSelected(null);
-                }}
-              >
-                <option value="create">
-                  {kind === 'artifact'
-                    ? `Create a ${artifactLabel}`
-                    : 'Set up a folder'}
-                </option>
-                <option value="existing">Open saved resource</option>
-              </Select>
-            </Field>
-          </div>
+          <ResourceTypeTiles
+            value={kind}
+            disabled={busy}
+            onChange={(next) => {
+              if (next === kind) return;
+              setKind(next);
+              setSelected(null);
+              setLibrary(null);
+            }}
+          />
+          <Segmented
+            size="sm"
+            className="setup-mode"
+            label="Choose resource"
+            value={mode}
+            onChange={(next) => {
+              if (next === mode) return;
+              setMode(next);
+              setSelected(null);
+            }}
+            options={[
+              { value: 'create', label: 'Create new', disabled: busy },
+              { value: 'existing', label: 'Open saved', disabled: busy },
+            ]}
+          />
           {mode === 'existing' ? (
             <div className="stack" role="group" aria-label="Saved resources">
               {library ? (
@@ -912,42 +977,6 @@ export default function ResourceSetup({
                   ))}
                 </Select>
               </Field>
-              {currentOptions ? (
-                <details className="setup-options">
-                  <summary>Design options</summary>
-                  <div className="setup-grid">
-                    <Field label="Template">
-                      <Select
-                        disabled={busy}
-                        value={template}
-                        onChange={(e) => setTemplate(e.target.value)}
-                      >
-                        {currentOptions.templates.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Canvas">
-                      <Select
-                        disabled={busy}
-                        value={canvas}
-                        onChange={(e) => setCanvas(e.target.value)}
-                      >
-                        {currentOptions.canvases.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                  </div>
-                  <p className="muted">{currentOptions.default_brand}</p>
-                </details>
-              ) : (
-                <Skeleton label={`Loading ${artifactLabel} defaults`} />
-              )}
               <Field label="Name (optional)">
                 <Input
                   disabled={busy}
@@ -978,6 +1007,41 @@ export default function ResourceSetup({
                 Generate a first draft after creation, using this design as the
                 write target
               </label>
+              {currentOptions ? (
+                <Disclosure className="setup-options" summary="Advanced">
+                  <div className="setup-grid">
+                    <Field label="Template">
+                      <Select
+                        disabled={busy}
+                        value={template}
+                        onChange={(e) => setTemplate(e.target.value)}
+                      >
+                        {currentOptions.templates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Canvas">
+                      <Select
+                        disabled={busy}
+                        value={canvas}
+                        onChange={(e) => setCanvas(e.target.value)}
+                      >
+                        {currentOptions.canvases.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                  <p className="muted">{currentOptions.default_brand}</p>
+                </Disclosure>
+              ) : (
+                <Skeleton label={`Loading ${artifactLabel} defaults`} />
+              )}
             </>
           ) : (
             <div className="stack">

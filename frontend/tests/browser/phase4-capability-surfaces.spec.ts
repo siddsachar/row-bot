@@ -117,8 +117,8 @@ async function createResource(
   });
   if (kind === 'workspace') {
     await dialog
-      .getByRole('combobox', { name: 'Resource type', exact: true })
-      .selectOption('workspace');
+      .getByRole('radio', { name: 'Code folder', exact: true })
+      .click();
     await dialog
       .getByRole('combobox', { name: 'Folder setup', exact: true })
       .selectOption('draft_folder');

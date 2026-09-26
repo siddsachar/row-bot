@@ -478,8 +478,8 @@ test('Context creates and reuses a Deck in ordinary conversations', async ({
       .click();
     dialog = page.getByRole('dialog', { name: 'Add resource', exact: true });
     await dialog
-      .getByRole('combobox', { name: 'Choose resource', exact: true })
-      .selectOption('existing');
+      .getByRole('radio', { name: 'Open saved', exact: true })
+      .click();
     await dialog
       .getByRole('button', {
         name: `${deckName} Resource ID: ${created.conversation.resource_bindings[0].resource_id}`,
@@ -524,12 +524,8 @@ test('explicit saved-folder selection reuses its real identity without editing f
     name: 'Add resource',
     exact: true,
   });
-  await dialog
-    .getByRole('combobox', { name: 'Resource type', exact: true })
-    .selectOption('workspace');
-  await dialog
-    .getByRole('combobox', { name: 'Choose resource', exact: true })
-    .selectOption('existing');
+  await dialog.getByRole('radio', { name: 'Code folder', exact: true }).click();
+  await dialog.getByRole('radio', { name: 'Open saved', exact: true }).click();
   await dialog
     .getByRole('button', {
       name: `Phase 1 workspace Resource ID: ${before.workspace_id}`,
@@ -557,12 +553,8 @@ test('explicit saved-folder selection reuses its real identity without editing f
   const fresh = await newConversation(page);
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const saved = page.getByRole('dialog', { name: 'Add resource', exact: true });
-  await saved
-    .getByRole('combobox', { name: 'Resource type', exact: true })
-    .selectOption('workspace');
-  await saved
-    .getByRole('combobox', { name: 'Choose resource', exact: true })
-    .selectOption('existing');
+  await saved.getByRole('radio', { name: 'Code folder', exact: true }).click();
+  await saved.getByRole('radio', { name: 'Open saved', exact: true }).click();
   await saved
     .getByRole('button', {
       name: `Phase 1 workspace Resource ID: ${before.workspace_id}`,
@@ -735,11 +727,11 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
       .getByRole('button', { name: 'Start another resource', exact: true })
       .click();
     await dialog
-      .getByRole('combobox', { name: 'Resource type', exact: true })
-      .selectOption('workspace');
+      .getByRole('radio', { name: 'Code folder', exact: true })
+      .click();
     await dialog
-      .getByRole('combobox', { name: 'Choose resource', exact: true })
-      .selectOption('existing');
+      .getByRole('radio', { name: 'Open saved', exact: true })
+      .click();
     await dialog
       .getByRole('button', {
         name: `Phase 1 workspace Resource ID: ${(await fixtureResources(page)).workspace_id}`,

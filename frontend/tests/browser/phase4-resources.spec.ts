@@ -56,9 +56,7 @@ async function returnToChat(page: Page) {
 }
 
 async function selectSaved(dialog: Locator, name: string, resource: string) {
-  await dialog
-    .getByRole('combobox', { name: 'Choose resource', exact: true })
-    .selectOption('existing');
+  await dialog.getByRole('radio', { name: 'Open saved', exact: true }).click();
   const choice = dialog.getByRole('button', {
     name: `${name} Resource ID: ${resource}`,
     exact: true,
@@ -90,7 +88,7 @@ async function restartSetup(dialog: Locator) {
       async () =>
         (await restart.isVisible()) ||
         (await dialog
-          .getByRole('combobox', { name: 'Resource type', exact: true })
+          .getByRole('radiogroup', { name: 'Resource type', exact: true })
           .isVisible()),
     )
     .toBe(true);
@@ -645,9 +643,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
   await composer(page).fill('Retained sandbox import draft');
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
-  await setup
-    .getByRole('combobox', { name: 'Resource type', exact: true })
-    .selectOption('workspace');
+  await setup.getByRole('radio', { name: 'Code folder', exact: true }).click();
   await setup
     .getByRole('combobox', { name: 'Folder setup', exact: true })
     .selectOption('empty_folder');
@@ -830,9 +826,7 @@ test('Phase 4 empty workspace requires a named parent-scoped action and retains 
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   await expect(setup).toHaveAccessibleName('Add resource');
-  await setup
-    .getByRole('combobox', { name: 'Resource type', exact: true })
-    .selectOption('workspace');
+  await setup.getByRole('radio', { name: 'Code folder', exact: true }).click();
   await setup
     .getByRole('combobox', { name: 'Folder setup', exact: true })
     .selectOption('empty_folder');
@@ -1043,8 +1037,8 @@ for (const [kind, mode, label] of [
     });
     if (kind === 'workspace') {
       await dialog
-        .getByRole('combobox', { name: 'Resource type', exact: true })
-        .selectOption('workspace');
+        .getByRole('radio', { name: 'Code folder', exact: true })
+        .click();
       await dialog
         .getByRole('combobox', { name: 'Folder setup', exact: true })
         .selectOption('empty_folder');
@@ -1089,8 +1083,11 @@ for (const [kind, mode, label] of [
       });
       await restartSetup(dialog);
       await dialog
-        .getByRole('combobox', { name: 'Resource type', exact: true })
-        .selectOption(kind);
+        .getByRole('radio', {
+          name: kind === 'artifact' ? 'Design' : 'Code folder',
+          exact: true,
+        })
+        .click();
       await selectSaved(dialog, name, resource);
       await dialog
         .getByRole('button', { name: 'Open resource', exact: true })
@@ -1112,8 +1109,11 @@ for (const [kind, mode, label] of [
       .click();
     const add = page.getByRole('dialog', { name: 'Add resource', exact: true });
     await add
-      .getByRole('combobox', { name: 'Resource type', exact: true })
-      .selectOption(kind);
+      .getByRole('radio', {
+        name: kind === 'artifact' ? 'Design' : 'Code folder',
+        exact: true,
+      })
+      .click();
     await selectSaved(add, name, resource);
     await add
       .getByRole('button', { name: 'Add to this conversation', exact: true })
@@ -1143,8 +1143,11 @@ for (const [kind, mode, label] of [
     });
     await restartSetup(dialog);
     await dialog
-      .getByRole('combobox', { name: 'Resource type', exact: true })
-      .selectOption(kind);
+      .getByRole('radio', {
+        name: kind === 'artifact' ? 'Design' : 'Code folder',
+        exact: true,
+      })
+      .click();
     await selectSaved(dialog, name, resource);
     await dialog
       .getByRole('button', { name: 'Open resource', exact: true })
@@ -1192,9 +1195,7 @@ test('Phase 4 one-shot empty workspace save failure requires renewed parent and 
     name: 'Add resource',
     exact: true,
   });
-  await dialog
-    .getByRole('combobox', { name: 'Resource type', exact: true })
-    .selectOption('workspace');
+  await dialog.getByRole('radio', { name: 'Code folder', exact: true }).click();
   await dialog
     .getByRole('combobox', { name: 'Folder setup', exact: true })
     .selectOption('empty_folder');

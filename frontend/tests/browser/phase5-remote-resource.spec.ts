@@ -37,7 +37,7 @@ test('browser resource setup uses server IDs and exports through a bounded downl
     name: 'Start another resource',
     exact: true,
   });
-  const resourceType = setup.getByRole('combobox', {
+  const resourceType = setup.getByRole('radiogroup', {
     name: 'Resource type',
     exact: true,
   });
@@ -48,10 +48,10 @@ test('browser resource setup uses server IDs and exports through a bounded downl
     )
     .toBe(true);
   if (await restart.isVisible()) await restart.click();
-  await resourceType.selectOption('workspace');
-  await setup
-    .getByRole('combobox', { name: 'Choose resource', exact: true })
-    .selectOption('existing');
+  await resourceType
+    .getByRole('radio', { name: 'Code folder', exact: true })
+    .click();
+  await setup.getByRole('radio', { name: 'Open saved', exact: true }).click();
   const workspace = await fixtureResources(page);
   await setup
     .getByRole('button', {
