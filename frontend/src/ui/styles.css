@@ -1945,9 +1945,6 @@ progress {
 .workflow-enabled-control {
   font-size: var(--type-size-metadata);
 }
-.workflow-enabled-control .toggle-state {
-  display: none;
-}
 
 .knowledge-home {
   display: grid;
@@ -6030,16 +6027,6 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .toggle-control input:disabled + .toggle-track {
   opacity: 0.5;
-}
-/* The state label stays readable; dimming text by opacity fails contrast. */
-.toggle-control input:disabled ~ .toggle-state {
-  color: var(--text-disabled);
-}
-.toggle-state {
-  pointer-events: none;
-  font-size: var(--type-size-metadata);
-  font-weight: 600;
-  min-width: 1.6rem;
 }
 @media (prefers-reduced-motion: reduce) {
   .toggle-track,

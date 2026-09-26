@@ -2,7 +2,9 @@ import { expect, it } from 'vitest';
 import {
   absoluteTime,
   ariaKeyShortcut,
+  credentialSourceLabel,
   humanizeToken,
+  maskedTail,
   parseTimestamp,
   relativeTime,
   shortcutKeys,
@@ -64,4 +66,15 @@ it('formats shortcuts per platform for display and aria-keyshortcuts', () => {
   expect(ariaKeyShortcut('Mod+K', 'mac')).toBe('Meta+K');
   expect(ariaKeyShortcut('Mod+Period', 'other')).toBe('Control+Period');
   expect(ariaKeyShortcut('Esc', 'other')).toBe('Escape');
+});
+
+it('shows only the masked tail of a saved secret and where it lives', () => {
+  expect(maskedTail('****4c99')).toBe('····4c99');
+  expect(maskedTail('****')).toBe('····');
+  expect(maskedTail('')).toBe('');
+  expect(credentialSourceLabel('keyring')).toBe('in keychain');
+  expect(credentialSourceLabel('environment')).toBe('from environment');
+  expect(credentialSourceLabel('')).toBe('');
+  expect(humanizeToken('cloud_provider')).toBe('Cloud');
+  expect(humanizeToken('third_party_router')).toBe('Router');
 });

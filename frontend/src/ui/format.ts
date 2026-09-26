@@ -71,6 +71,8 @@ const TOKEN_LABELS: Record<string, string> = {
   stdio: 'Local process',
   third_party_router: 'Router',
   local_private: 'Private · on device',
+  cloud_provider: 'Cloud',
+  subscription: 'Subscription',
   ui: 'UI',
   id: 'ID',
   ai: 'AI',
@@ -180,4 +182,28 @@ export function ariaKeyShortcut(
       return part.length === 1 ? part.toUpperCase() : part;
     })
     .join('+');
+}
+
+/** "****4c99" → "····4c99": the saved secret's last characters, never more. */
+export function maskedTail(fingerprint: string | null | undefined): string {
+  const text = String(fingerprint ?? '').trim();
+  if (!text) return '';
+  const tail = text.replace(/^[*•·]+/, '');
+  return tail ? `····${tail}` : '····';
+}
+
+const CREDENTIAL_SOURCES: Record<string, string> = {
+  keyring: 'in keychain',
+  encrypted_file: 'encrypted on this device',
+  environment: 'from environment',
+  secret_file: 'server secret file',
+  session: 'this session only',
+  legacy_plaintext: 'plain file (legacy)',
+};
+
+/** Where a saved secret lives, in words ("in keychain"). */
+export function credentialSourceLabel(source: string | null | undefined) {
+  const key = String(source ?? '').trim();
+  if (!key || key === 'none') return '';
+  return CREDENTIAL_SOURCES[key] ?? humanizeToken(key).toLowerCase();
 }

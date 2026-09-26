@@ -1,6 +1,8 @@
 import {
+  cloneElement,
   forwardRef,
   Fragment,
+  isValidElement,
   useEffect,
   useId,
   useMemo,
@@ -121,9 +123,6 @@ export const Toggle = forwardRef<
         {...props}
       />
       <span className="toggle-track" aria-hidden="true" />
-      <span className="toggle-state" aria-hidden="true">
-        {checked ? 'On' : 'Off'}
-      </span>
     </span>
   );
 });
@@ -132,18 +131,52 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
     <select {...props} className={`input select ${props.className ?? ''}`} />
   );
 }
+type ControlProps = { id?: string; 'aria-describedby'?: string };
+
 export function Field({
   label,
   children,
   hint,
+  layout = 'stack',
+  labelAddon,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  /** "row": label and help on the left, the control on the right. */
+  layout?: 'stack' | 'row';
+  /** Shown after the label text; keep it aria-hidden (e.g. a "modified" dot). */
+  labelAddon?: ReactNode;
 }) {
+  const id = useId();
+  if (layout === 'row' && isValidElement<ControlProps>(children)) {
+    // Row fields label the control by id and describe it with the hint, so
+    // the hint is a description rather than part of the control's name.
+    const controlId = children.props.id ?? `${id}-control`;
+    const hintId = hint ? `${id}-hint` : undefined;
+    const describedBy =
+      [children.props['aria-describedby'], hintId].filter(Boolean).join(' ') ||
+      undefined;
+    return (
+      <div className="field is-row">
+        <label className="field-label" htmlFor={controlId}>
+          {label}
+          {labelAddon}
+        </label>
+        {cloneElement(children, {
+          id: controlId,
+          'aria-describedby': describedBy,
+        })}
+        {hint && <small id={hintId}>{hint}</small>}
+      </div>
+    );
+  }
   return (
-    <label className="field">
-      <span>{label}</span>
+    <label className={`field ${layout === 'row' ? 'is-row' : ''}`}>
+      <span className="field-label">
+        {label}
+        {labelAddon}
+      </span>
       {children}
       {hint && <small>{hint}</small>}
     </label>
