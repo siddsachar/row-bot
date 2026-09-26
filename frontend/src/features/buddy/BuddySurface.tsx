@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
+import { useShellSettled } from '../../shell-settled';
 import { Button, EmptyState } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
@@ -552,6 +553,8 @@ export default function BuddySurface({
 }) {
   const { buddyOwner } = useRuntime();
   const state = useClientState();
+  // Buddy's reads wait until the open conversation is confirmed (B29).
+  const shellSettled = useShellSettled();
   const [search, setSearch] = useSearchParams();
   const conversation =
     (settings ? search.get('conversation') : null) ||
@@ -571,6 +574,18 @@ export default function BuddySurface({
       </EmptyState>
     ) : (
       <GlobalBuddy />
+    );
+  if (!settings && buddyOwner?.get() && !shellSettled)
+    return (
+      <aside
+        className="buddy-companion buddy-companion-state"
+        aria-label="Buddy companion"
+        aria-busy="true"
+        data-state="loading"
+      >
+        <img className="buddy-state-glyph" src={glyph} alt="" />
+        <p>Buddy is loading…</p>
+      </aside>
     );
   if (!buddyOwner?.get())
     return settings ? (

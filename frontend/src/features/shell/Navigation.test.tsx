@@ -618,7 +618,7 @@ it('filters by conversation type and labels recency runs inside the recent list'
   ).toEqual(['Today', 'Yesterday', 'This week', 'Older']);
   expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(titles);
   expect(
-    screen.getByRole('radiogroup', { name: 'Conversation type' }),
+    screen.getByRole('radiogroup', { name: 'Filter conversations' }),
   ).toBeVisible();
   fireEvent.click(screen.getByRole('radio', { name: 'Designs' }));
   expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual([

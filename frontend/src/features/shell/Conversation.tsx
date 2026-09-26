@@ -21,6 +21,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
+import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Menu, Skeleton } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
@@ -188,8 +189,13 @@ export default function Conversation({
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
+  // Read once per settled server identity, after the conversation snapshot
+  // is confirmed, so it never competes with open or subscribe (B29).
+  const settledIdentity = useSettledIdentity();
   useEffect(() => {
-    if (!state.handshake) return;
+    const handshake = controller.getSnapshot().handshake;
+    if (!settledIdentity || !handshake) return;
+    const voiceHostKey = `${handshake.client_session_id}:${handshake.server_epoch}`;
     const abort = new AbortController();
     void controller
       .dictationCapability(abort.signal)
@@ -222,7 +228,7 @@ export default function Conversation({
           });
       });
     return () => abort.abort();
-  }, [controller, voiceHostKey, state.handshake]);
+  }, [controller, settledIdentity]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState<{

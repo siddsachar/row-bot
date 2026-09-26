@@ -30,6 +30,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { useClientState, useRuntime } from '../../runtime';
+import { useShellSettled } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Brand,
@@ -114,7 +115,7 @@ function useProfileCounts(session: GoalProfileSettingsSession) {
   } | null>(null);
   const loaded = useRef('');
   const instance = state.handshake?.instance_id ?? '';
-  const settled = state.status === 'ready' && !state.loadingConversation;
+  const settled = useShellSettled();
   useEffect(() => {
     const key = `${instance}\u0000${String(refresh)}`;
     if (!settled || !instance || loaded.current === key) return;
@@ -694,7 +695,7 @@ export default function Navigation({
           <Segmented
             size="sm"
             className="nav-type-filter"
-            label="Conversation type"
+            label="Filter conversations"
             value={type}
             onChange={setType}
             options={CONVERSATION_TYPES.map((option) => ({
