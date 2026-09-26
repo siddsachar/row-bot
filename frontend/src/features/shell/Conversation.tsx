@@ -79,6 +79,15 @@ import type { RecoveryAction } from './turn-errors';
 import { modelRefName, splitModelLabel } from './model-choices';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
+const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
+
+function readContextHidden(): boolean {
+  try {
+    return localStorage.getItem(CONTEXT_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 const QUEUE_EVENTS = new Set([
   'queue.updated',
   'queue.changed',
@@ -102,9 +111,7 @@ export default function Conversation({
   onFirstPromptConsumed,
   compactContext: compactFromViewport = false,
   contextPlacement = compactFromViewport ? 'compact' : 'inline',
-  contextHidden = false,
-  contextInRegion = false,
-  onToggleContext,
+  contextToggle = 0,
   headerActions,
   onStartProfileChat,
 }: {
@@ -119,16 +126,12 @@ export default function Conversation({
   /** Legacy alias for contextPlacement="compact". */
   compactContext?: boolean;
   /**
-   * Where Context lives: a column beside the chat (inline), the right
-   * region's first tab (region), or a sheet on compact layouts.
+   * Where Context lives: a floating card on desktop (inline) or a sheet on
+   * compact layouts.
    */
-  contextPlacement?: 'inline' | 'region' | 'compact';
-  /** The person hid the inline Context column. */
-  contextHidden?: boolean;
-  /** The right region currently shows its Context tab. */
-  contextInRegion?: boolean;
-  /** Toggle the right region (desktop). */
-  onToggleContext?: () => void;
+  contextPlacement?: 'inline' | 'compact';
+  /** Each change toggles Context (the workspace's Mod+. shortcut). */
+  contextToggle?: number;
   /** Header icon actions owned by the workspace (Open panel). */
   headerActions?: ReactNode;
   onStartProfileChat?: (profile: ProfileSummary) => void;
@@ -363,15 +366,46 @@ export default function Conversation({
   const compactPlacement = contextPlacement === 'compact';
   // Without a host (isolated renders) Context renders in place, as before.
   const hosted = Boolean(contextHost) && !compactPlacement;
-  const inlineContext =
-    Boolean(id) &&
-    contextPlacement === 'inline' &&
-    !narrowChat &&
-    !contextHidden;
-  // The rail is visually single-column wherever it is not the inline column.
+  // Context is a small floating card. A wide chat gives it a column of its
+  // own (hidden only on request); a narrow one floats it over the chat on
+  // demand. Panels such as Design keep the full-height right region.
+  const [contextHidden, setContextHiddenState] = useState(readContextHidden);
+  const [floatingOpen, setFloatingOpen] = useState(false);
+  const floatingContext = hosted && narrowChat;
+  const cardActive =
+    Boolean(id) && hosted && (floatingContext ? floatingOpen : !contextHidden);
+  const inlineContext = cardActive && !floatingContext;
+  // The chat is one column unless the docked card takes its own.
   const compactContext = hosted
     ? !inlineContext
     : compactPlacement || narrowChat;
+  useEffect(() => setFloatingOpen(false), [id, floatingContext]);
+  useEffect(() => {
+    if (!floatingContext || !floatingOpen) return;
+    const close = () => setFloatingOpen(false);
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // A dialog or menu owns its own Escape.
+      if (document.querySelector('[role="dialog"], [role="menu"]')) return;
+      close();
+    };
+    const pointerdown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest(
+          '.context-card, [data-context-toggle], [role="dialog"], [role="menu"], [role="listbox"], .tooltip-layer',
+        )
+      )
+        return;
+      close();
+    };
+    document.addEventListener('keydown', keydown);
+    document.addEventListener('pointerdown', pointerdown, true);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      document.removeEventListener('pointerdown', pointerdown, true);
+    };
+  }, [floatingContext, floatingOpen]);
   useEffect(() => {
     const element = chatWorkspaceRef.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
@@ -1569,7 +1603,7 @@ export default function Conversation({
       ready={contextReady}
       connectionStatus={state.status}
       terminalAvailable={terminalAvailable}
-      compactHeading={compactContext}
+      compactHeading={hosted ? false : compactContext}
       agents={delegatedActivity}
       agentsEmpty={agentsEmpty}
       agentsLive={liveAgents}
@@ -1945,24 +1979,33 @@ export default function Conversation({
       key: 'conversation-context',
       title: 'Conversation context',
       description: '',
-      // A hosted rail moves into the sheet instead of mounting a copy.
-      content: hosted ? (
-        <ContextSlot active host={contextHost} className="context-sheet" />
-      ) : (
-        contextRail
-      ),
+      content: contextRail,
     });
   }
   function toggleContext() {
-    if (!hosted || (contextPlacement === 'inline' && narrowChat))
-      openContextSheet();
-    else onToggleContext?.();
+    if (!hosted) openContextSheet();
+    else if (floatingContext) setFloatingOpen((open) => !open);
+    else {
+      const hidden = !contextHidden;
+      setContextHiddenState(hidden);
+      try {
+        if (hidden) localStorage.setItem(CONTEXT_HIDDEN_KEY, '1');
+        else localStorage.removeItem(CONTEXT_HIDDEN_KEY);
+      } catch {
+        /* The choice still applies for this session. */
+      }
+    }
   }
-  const contextShown = hosted
-    ? contextPlacement === 'inline'
-      ? inlineContext
-      : contextInRegion
-    : undefined;
+  const toggleFromShortcut = useEffectEvent(() => {
+    if (id && hosted) toggleContext();
+  });
+  const shortcutCount = useRef(contextToggle);
+  useEffect(() => {
+    if (shortcutCount.current === contextToggle) return;
+    shortcutCount.current = contextToggle;
+    toggleFromShortcut();
+  }, [contextToggle]);
+  const contextShown = hosted ? cardActive : undefined;
   const sendBlocked =
     busy ||
     Boolean(pendingSteering) ||
@@ -2848,7 +2891,10 @@ export default function Conversation({
       )}
       {hosted && contextRail && createPortal(contextRail, contextHost!.element)}
       {hosted ? (
-        <ContextSlot active={inlineContext} className="context-column" />
+        <ContextSlot
+          active={cardActive}
+          className={`context-card ${floatingContext ? 'context-card-floating' : 'context-card-docked'}`}
+        />
       ) : (
         !compactContext && contextRail
       )}

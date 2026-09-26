@@ -25,7 +25,7 @@ export default function ConversationHeader({
   model?: string;
   onFind?: () => void;
   onShare?: () => void;
-  /** Shows Context: toggles the right region, or opens a sheet when narrow. */
+  /** Shows or hides the Context card, or opens its sheet on compact layouts. */
   onContext?: () => void;
   /** Whether Context is on screen (desktop); undefined for a sheet. */
   contextPressed?: boolean;
@@ -131,6 +131,7 @@ export default function ConversationHeader({
         {onContext && (
           <IconButton
             label="Context"
+            data-context-toggle=""
             shortcut={contextPressed === undefined ? undefined : 'Mod+.'}
             pressed={contextPressed}
             disabled={contextDisabled}

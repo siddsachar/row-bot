@@ -76,11 +76,7 @@ import { PanelSubscriptions } from '../panels/subscriptions';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import CommandPalette, { type PaletteCommand } from './CommandPalette';
 import Navigation, { NavigationRail } from './Navigation';
-import {
-  ContextHostContext,
-  ContextSlot,
-  useContextHostOwner,
-} from './context-host';
+import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
 import { reconcilePanelPresentation } from '../panels/presentation';
@@ -100,16 +96,6 @@ import { openAgentProfiles } from './agent-profiles';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 
 const subscriptions = new PanelSubscriptions();
-const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
-const CONTEXT_TAB = 'context';
-
-function readContextHidden(): boolean {
-  try {
-    return localStorage.getItem(CONTEXT_HIDDEN_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
 
 /** A monochrome glyph per panel kind for the right region's tabs. */
 function panelIcon(descriptor: PanelDescriptor): LucideIcon {
@@ -291,22 +277,8 @@ export default function Workspace() {
   );
   const creation = useNewChat();
   const { host: contextHost, parking: contextParking } = useContextHostOwner();
-  const [contextHidden, setContextHiddenState] = useState(readContextHidden);
-  const setContextHidden = (hidden: boolean) => {
-    setContextHiddenState(hidden);
-    try {
-      if (hidden) localStorage.setItem(CONTEXT_HIDDEN_KEY, '1');
-      else localStorage.removeItem(CONTEXT_HIDDEN_KEY);
-    } catch {
-      /* The choice still applies for this session. */
-    }
-  };
-  // Context is the right region's first tab. Choosing it records the panel
-  // that was active, so opening or focusing a panel later shows that panel.
-  const [contextChoice, setContextChoice] = useState<{
-    conversation: string | null;
-    panel: string | null;
-  } | null>(null);
+  // Mod+. toggles the conversation's Context card; each press bumps this.
+  const [contextToggle, setContextToggle] = useState(0);
   const pendingPanel = useRef<{
     descriptor: (typeof samplePanels)[number];
     selectionVersion: number;
@@ -412,9 +384,6 @@ export default function Workspace() {
     desktop &&
     sidePanels.length > 0 &&
     !layout.side.collapsed;
-  const contextSelected =
-    contextChoice?.conversation === conversationId &&
-    contextChoice.panel === layout.activePanelId;
   const bottomVisible =
     Boolean(conversationId) &&
     desktop &&
@@ -772,14 +741,14 @@ export default function Workspace() {
       ...(desktop && conversationId
         ? [
             {
-              id: 'toggle-right',
-              label: 'Toggle right panel',
-              keywords: 'context inspector design workspace',
+              id: 'toggle-context',
+              label: 'Toggle Context',
+              keywords: 'context panel inspector resources agents',
               icon: <PanelRight size={16} />,
               shortcut: 'Mod+.',
               run: () => {
                 overlay.close();
-                toggleRightRegion();
+                setContextToggle((count) => count + 1);
               },
             },
           ]
@@ -857,39 +826,6 @@ export default function Workspace() {
       ),
     });
   }
-  function selectContext() {
-    setContextChoice({
-      conversation: conversationId,
-      panel: currentLayout.current.activePanelId,
-    });
-  }
-  /**
-   * The right region: with side panels it is the side dock (Context is its
-   * first tab); without, Context is a column beside the chat.
-   */
-  function toggleRightRegion(showContext = false) {
-    const current = currentLayout.current;
-    const hasSide = current.panels.some(
-      (panel) =>
-        panel.placement === 'side' &&
-        (!panel.descriptor.resource_ref ||
-          panel.descriptor.resource_ref.startsWith(`${conversationId}:`)),
-    );
-    if (!hasSide) {
-      setContextHidden(!contextHidden);
-      return;
-    }
-    if (current.side.collapsed) {
-      update((previous) => toggleRegion(previous, 'side'));
-      if (showContext) selectContext();
-      return;
-    }
-    if (showContext && !contextSelected) {
-      selectContext();
-      return;
-    }
-    update((previous) => toggleRegion(previous, 'side'));
-  }
   const shellShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (shortcut(event, 'k')) {
       event.preventDefault();
@@ -900,9 +836,9 @@ export default function Workspace() {
       overlay.close();
       void creation.newChat();
     } else if (shortcut(event, '.')) {
-      if (!conversationId || !desktop) return;
+      if (!conversationId || !desktop || homeOpen || routeOpen) return;
       event.preventDefault();
-      toggleRightRegion();
+      setContextToggle((count) => count + 1);
     }
   });
   useEffect(() => {
@@ -960,8 +896,6 @@ export default function Workspace() {
   ) {
     // Command contents stay mounted while the workspace can change breakpoint.
     // Read the current layout when the action runs, not when it was opened.
-    // Opening a panel always shows it, even over a selected Context tab.
-    setContextChoice(null);
     const snapshot = controller.getSnapshot();
     const scope = presentationScope.current;
     const target = panel.resource_ref?.slice(
@@ -1061,13 +995,13 @@ export default function Workspace() {
   function pane(panel: PanelInstance) {
     const isVisible =
       panel.instance_id ===
-        (layout.panels.find(
-          (value) =>
-            value.placement === panel.placement &&
-            value.instance_id === layout.activePanelId,
-        )?.instance_id ??
-          layout.panels.find((value) => value.placement === panel.placement)
-            ?.instance_id) && !(panel.placement === 'side' && contextSelected);
+      (layout.panels.find(
+        (value) =>
+          value.placement === panel.placement &&
+          value.instance_id === layout.activePanelId,
+      )?.instance_id ??
+        layout.panels.find((value) => value.placement === panel.placement)
+          ?.instance_id);
     return (
       <DockTabs.Content
         key={panel.instance_id}
@@ -1100,22 +1034,14 @@ export default function Workspace() {
   );
   function dock(panels: PanelInstance[], placement: PanelPlacement) {
     const side = placement === 'side';
-    const showContext = side && contextSelected;
-    const activePanel =
+    const active =
       panels.find((panel) => panel.instance_id === layout.activePanelId) ??
       panels[0];
-    const active = showContext ? undefined : activePanel;
     return (
       <DockTabs.Root
         asChild
-        value={showContext ? CONTEXT_TAB : (activePanel?.instance_id ?? '')}
-        onValueChange={(id) => {
-          if (id === CONTEXT_TAB) selectContext();
-          else {
-            setContextChoice(null);
-            update((previous) => focusPanel(previous, id));
-          }
-        }}
+        value={active?.instance_id ?? ''}
+        onValueChange={(id) => update((previous) => focusPanel(previous, id))}
       >
         <section
           className={`dock ${side ? 'right-region' : 'bottom-region'} ${active && maximizedPanelId === active.instance_id ? 'maximized' : ''}`}
@@ -1126,14 +1052,6 @@ export default function Workspace() {
               className="dock-tabs"
               aria-label={`${placement} panel tabs`}
             >
-              {side && (
-                <DockTabs.Trigger asChild value={CONTEXT_TAB}>
-                  <Button variant="ghost" className="dock-tab">
-                    <PanelRight size={14} aria-hidden />
-                    <span>Context</span>
-                  </Button>
-                </DockTabs.Trigger>
-              )}
               {panels.map((panel) => {
                 const Icon = panelIcon(panel.descriptor);
                 return (
@@ -1276,16 +1194,6 @@ export default function Workspace() {
               {closeAllHost === placement && closeAll}
             </div>
           </header>
-          {side && (
-            <DockTabs.Content
-              value={CONTEXT_TAB}
-              forceMount
-              className="panel-content context-pane"
-              hidden={!showContext}
-            >
-              <ContextSlot active={showContext && sideVisible} />
-            </DockTabs.Content>
-          )}
           {panels.map(pane)}
         </section>
       </DockTabs.Root>
@@ -1603,16 +1511,8 @@ export default function Workspace() {
                       onComposerFocused={creation.onComposerFocused}
                       firstPrompt={creation.firstPrompt}
                       onFirstPromptConsumed={creation.onFirstPromptConsumed}
-                      contextPlacement={
-                        !desktop
-                          ? 'compact'
-                          : sidePanels.length > 0
-                            ? 'region'
-                            : 'inline'
-                      }
-                      contextHidden={contextHidden}
-                      contextInRegion={sideVisible && contextSelected}
-                      onToggleContext={() => toggleRightRegion(true)}
+                      contextPlacement={desktop ? 'inline' : 'compact'}
+                      contextToggle={contextToggle}
                       headerActions={desktop ? openPanelMenu : undefined}
                     />
                   </section>
@@ -1716,7 +1616,6 @@ export default function Workspace() {
                   className="panel-rail-item"
                   title={panel.descriptor.title}
                   onClick={() => {
-                    setContextChoice(null);
                     if (!desktop) {
                       if (panelPresentation(layout, panel) === 'sheet')
                         overlay.open({
