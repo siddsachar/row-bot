@@ -223,10 +223,31 @@ class ClientPlatformService:
                 raise ClientPlatformError("not_found")
             return dict(row)
 
+    @staticmethod
+    def _awaiting_approval(conversation_ids: list[str]) -> set[str]:
+        """Conversations whose own turn is paused on a pending approval.
+
+        A paused turn is quiesced, so it has no live generation state; the
+        durable request is the only signal that the conversation needs you.
+        """
+        if not conversation_ids:
+            return set()
+        from row_bot.tasks import _get_conn
+        placeholders = ",".join("?" for _ in conversation_ids)
+        try:
+            with closing(_get_conn()) as conn:
+                return {str(row[0]) for row in conn.execute(
+                    "SELECT DISTINCT source_thread_id FROM approval_requests "
+                    "WHERE resume_kind='conversation' AND status='pending' "
+                    f"AND source_thread_id IN ({placeholders})", conversation_ids)}
+        except sqlite3.Error:
+            return set()
+
     def get_conversation(
         self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None,
         parent_conversation_id: str | None = None,
         orchestration_activity: dict | None = None,
+        awaiting_approval: bool | None = None,
     ) -> dict:
         row = self._metadata(conversation_id)
         from row_bot import threads
@@ -239,6 +260,11 @@ class ClientPlatformService:
         if orchestration_activity is None:
             from row_bot.agent_orchestrator import get_thread_orchestration_activity
             orchestration_activity = get_thread_orchestration_activity([conversation_id]).get(conversation_id, {})
+        if awaiting_approval is None:
+            awaiting_approval = conversation_id in self._awaiting_approval([conversation_id])
+        if awaiting_approval:
+            # Nothing urgent is hidden: a paused approval needs the user.
+            orchestration_activity = {"state": "attention", "phase": "waiting_approval"}
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
                 "updated_at": str(row.get("updated_at") or ""),
@@ -322,9 +348,11 @@ class ClientPlatformService:
                     parent_ids.setdefault(str(child_id), str(parent_id))
         from row_bot.agent_orchestrator import get_thread_orchestration_activity
         activity = get_thread_orchestration_activity([row[0] for row in selected]) if selected else {}
+        awaiting = self._awaiting_approval([row[0] for row in selected])
         return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
                 parent_conversation_id=parent_ids.get(row[0], ""),
-                orchestration_activity=activity.get(row[0], {})) for row in selected], "has_more": more,
+                orchestration_activity=activity.get(row[0], {}),
+                awaiting_approval=row[0] in awaiting) for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:

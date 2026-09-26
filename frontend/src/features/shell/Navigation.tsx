@@ -236,7 +236,10 @@ function activityLabel(
   }
   if (activityState === 'attention')
     return {
-      label: 'Agent work needs attention',
+      label:
+        activityPhase === 'waiting_approval'
+          ? 'Waiting for approval'
+          : 'Agent work needs attention',
       spin: false,
       attention: true,
     };

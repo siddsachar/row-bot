@@ -160,6 +160,38 @@ def test_conversation_list_projects_canonical_orchestration_activity(service, mo
     assert service.get_conversation(parent)["activity_state"] == "terminal"
 
 
+def test_conversation_waiting_on_its_own_approval_needs_attention(service):
+    from row_bot import tasks, threads
+
+    waiting = threads.create_thread("Waiting for approval", seed_default_skills=False)
+    quiet = threads.create_thread("Quiet", seed_default_skills=False)
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO approval_requests (id, run_id, task_id, step_id, resume_token, "
+            "resume_kind, source_thread_id, status) VALUES "
+            "('approval-a', 'run-a', '', 'step-a', 'token-a', 'conversation', ?, 'pending')",
+            (waiting,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = {row["id"]: row for row in service.list_conversations()["items"]}
+    assert rows[waiting]["activity_state"] == "attention"
+    assert rows[waiting]["activity_phase"] == "waiting_approval"
+    assert rows[quiet]["activity_state"] is None
+    assert service.get_conversation(waiting)["activity_state"] == "attention"
+
+    conn = tasks._get_conn()
+    try:
+        conn.execute("UPDATE approval_requests SET status='approved' WHERE id='approval-a'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert service.get_conversation(waiting)["activity_state"] is None
+
+
 @pytest.mark.parametrize("phase", ["before", "during"])
 def test_history_read_fences_pending_deletion(service, monkeypatch, phase):
     from langchain_core.messages import HumanMessage

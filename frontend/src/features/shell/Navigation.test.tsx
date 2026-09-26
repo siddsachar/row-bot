@@ -549,6 +549,12 @@ it('uses canonical orchestration activity and stops spinning after failure or co
   expect(
     screen.getByRole('img', { name: 'Agent work needs attention' }),
   ).not.toHaveClass('nav-activity-spin');
+  // A turn paused on its own approval needs the user too, in its own words.
+  row.activity_phase = 'waiting_approval';
+  await act(async () => controller.loadMoreConversations(true));
+  expect(
+    screen.getByRole('img', { name: 'Waiting for approval' }),
+  ).not.toHaveClass('nav-activity-spin');
   row.activity_state = 'terminal';
   row.activity_phase = 'failed';
   await act(async () => controller.loadMoreConversations(true));
