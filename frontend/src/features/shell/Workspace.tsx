@@ -954,6 +954,8 @@ export default function Workspace() {
   ) {
     // Command contents stay mounted while the workspace can change breakpoint.
     // Read the current layout when the action runs, not when it was opened.
+    // Opening a panel always shows it, even over a selected Context tab.
+    setContextChoice(null);
     const snapshot = controller.getSnapshot();
     const scope = presentationScope.current;
     const target = panel.resource_ref?.slice(
@@ -1103,7 +1105,10 @@ export default function Workspace() {
         value={showContext ? CONTEXT_TAB : (activePanel?.instance_id ?? '')}
         onValueChange={(id) => {
           if (id === CONTEXT_TAB) selectContext();
-          else update((previous) => focusPanel(previous, id));
+          else {
+            setContextChoice(null);
+            update((previous) => focusPanel(previous, id));
+          }
         }}
       >
         <section
@@ -1705,6 +1710,7 @@ export default function Workspace() {
                   className="panel-rail-item"
                   title={panel.descriptor.title}
                   onClick={() => {
+                    setContextChoice(null);
                     if (!desktop) {
                       if (panelPresentation(layout, panel) === 'sheet')
                         overlay.open({
