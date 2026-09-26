@@ -480,6 +480,28 @@ function fieldsFromDraft(draft: ProfileDraft, create: boolean): ProfileFields {
   };
 }
 
+// Profile policy values in words; the option values stay the stable ids.
+const CONTEXT_MODES: Record<ProfileDraft['context_mode'], string> = {
+  auto: 'Automatic',
+  focused: 'Focused',
+  recent: 'Recent turns',
+  full: 'Full conversation',
+  empty: 'Empty',
+  resume: 'Resume',
+};
+const WORKSPACE_MODES: Record<ProfileDraft['workspace_mode'], string> = {
+  auto: 'Automatic',
+  read_only: 'Read only',
+  single_writer: 'Single writer',
+  worktree: 'Separate worktree',
+};
+const APPROVAL_MODES: Record<ProfileDraft['approval_mode'], string> = {
+  inherit: 'Same as the chat',
+  approve: 'Ask',
+  allow_all: 'Auto',
+  block: 'Block',
+};
+
 export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   const {
     conversationId,
@@ -498,6 +520,17 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(['Everyday']),
   );
+  // A search opens every group that holds a match; closing one still works.
+  const searchingProfiles = Boolean(state.profileQuery.trim());
+  useEffect(() => {
+    if (!searchingProfiles || !state.profilePage) return;
+    const matched = state.profilePage.items.map(profileGroup);
+    setExpandedGroups((previous) =>
+      matched.every((group) => previous.has(group))
+        ? previous
+        : new Set([...previous, ...matched]),
+    );
+  }, [searchingProfiles, state.profilePage]);
   const locked = !state.active || Boolean(state.busy || state.pending);
   const loadGoalsRef = useRef(loadGoals);
   const loadProfilesRef = useRef(loadProfiles);
@@ -1052,7 +1085,12 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   );
 
   const profileEditor = state.profileMode && state.profileMode !== 'view' && (
-    <fieldset ref={profileEditorRef} tabIndex={-1} disabled={locked}>
+    <fieldset
+      ref={profileEditorRef}
+      className="settings-profile-editor"
+      tabIndex={-1}
+      disabled={locked}
+    >
       <legend>
         {state.profileMode === 'create'
           ? 'Create profile'
@@ -1080,9 +1118,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               }
             />
           </Field>
-          <Button onClick={() => void requestProfileReview('duplicate')}>
-            Duplicate profile
-          </Button>
+          <div className="button-row">
+            <Button
+              variant="primary"
+              onClick={() => void requestProfileReview('duplicate')}
+            >
+              Duplicate profile
+            </Button>
+          </div>
         </>
       ) : (
         <>
@@ -1106,6 +1149,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           </Field>
           <Field label="Description">
             <textarea
+              className="input"
+              rows={2}
               maxLength={2048}
               value={state.profileDraft.description}
               onChange={(event) =>
@@ -1115,6 +1160,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           </Field>
           <Field label="When to use">
             <textarea
+              className="input"
+              rows={2}
               maxLength={2048}
               value={state.profileDraft.when_to_use}
               onChange={(event) =>
@@ -1144,6 +1191,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               hint="The saved instruction body is never loaded into this editor."
             >
               <textarea
+                className="input"
+                rows={6}
                 maxLength={49152}
                 value={state.profileDraft.instructions ?? ''}
                 onChange={(event) =>
@@ -1194,13 +1243,11 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                 })
               }
             >
-              {['auto', 'focused', 'recent', 'full', 'empty', 'resume'].map(
-                (item) => (
-                  <option value={item} key={item}>
-                    {item}
-                  </option>
-                ),
-              )}
+              {Object.entries(CONTEXT_MODES).map(([item, label]) => (
+                <option value={item} key={item}>
+                  {label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Workspace mode">
@@ -1213,13 +1260,11 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                 })
               }
             >
-              {['auto', 'read_only', 'single_writer', 'worktree'].map(
-                (item) => (
-                  <option value={item} key={item}>
-                    {item}
-                  </option>
-                ),
-              )}
+              {Object.entries(WORKSPACE_MODES).map(([item, label]) => (
+                <option value={item} key={item}>
+                  {label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Approval mode">
@@ -1232,14 +1277,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                 })
               }
             >
-              {['inherit', 'block', 'approve', 'allow_all'].map((item) => (
+              {Object.entries(APPROVAL_MODES).map(([item, label]) => (
                 <option value={item} key={item}>
-                  {item}
+                  {label}
                 </option>
               ))}
             </Select>
           </Field>
-          <label>
+          <label className="settings-profile-toggle">
             <Toggle
               label="Profile enabled"
               checked={state.profileDraft.enabled}
@@ -1249,15 +1294,18 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             />{' '}
             Profile enabled
           </label>
-          <Button
-            onClick={() =>
-              void requestProfileReview(
-                state.profileMode === 'create' ? 'create' : 'edit',
-              )
-            }
-          >
-            {state.profileMode === 'create' ? 'Create' : 'Save'} profile
-          </Button>
+          <div className="button-row">
+            <Button
+              variant="primary"
+              onClick={() =>
+                void requestProfileReview(
+                  state.profileMode === 'create' ? 'create' : 'edit',
+                )
+              }
+            >
+              {state.profileMode === 'create' ? 'Create' : 'Save'} profile
+            </Button>
+          </div>
         </>
       )}
     </fieldset>
@@ -1563,19 +1611,36 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         />
       )}
       {state.reviewed && (
-        <section aria-label="Goal or profile change review" className="surface">
-          <h3>Confirm removal</h3>
-          <p>
-            {state.reviewed.kind === 'goal'
-              ? `Goal action: ${state.reviewed.review.operation}.`
-              : `Profile action: ${state.reviewed.review.operation}.`}
-          </p>
+        <section
+          aria-label="Goal or profile change review"
+          className="surface settings-profile-confirm"
+        >
+          <h3>
+            {state.reviewed.kind === 'profile' && state.selectedProfile
+              ? `Delete “${state.selectedProfile.display_name}”?`
+              : 'Confirm removal'}
+          </h3>
+          {state.reviewed.kind === 'goal' && (
+            <p>Goal action: {state.reviewed.review.operation}.</p>
+          )}
           {state.reviewed.review.disclosures.map((item) => (
             <p key={item}>{item}</p>
           ))}
-          <Button disabled={locked} onClick={() => void apply(state.reviewed)}>
-            Confirm removal
-          </Button>
+          <div className="button-row">
+            <Button
+              variant="danger"
+              disabled={locked}
+              onClick={() => void apply(state.reviewed)}
+            >
+              Confirm removal
+            </Button>
+            <Button
+              disabled={locked}
+              onClick={() => session.update({ reviewed: null, message: '' })}
+            >
+              {state.reviewed.kind === 'profile' ? 'Keep profile' : 'Keep goal'}
+            </Button>
+          </div>
         </section>
       )}
       {state.pending && (

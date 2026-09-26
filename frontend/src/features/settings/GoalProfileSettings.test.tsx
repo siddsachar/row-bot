@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import GoalProfileSettings, {
@@ -491,4 +492,58 @@ it('admits one execution during repeated synchronous clicks', async () => {
   await waitFor(() => expect(props.executeGoal).toHaveBeenCalledTimes(1));
   act(() => props.session.dispose());
   await act(async () => pending.reject(Error('synthetic cancellation')));
+});
+
+it('names the profile in its delete confirmation and keeps it on Keep profile', async () => {
+  const props = options();
+  render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  await screen.findByText('Focused Writer');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete Focused Writer' }),
+  );
+  const review = await screen.findByRole('region', {
+    name: 'Goal or profile change review',
+  });
+  expect(
+    within(review).getByRole('heading', { name: 'Delete “Focused Writer”?' }),
+  ).toBeVisible();
+  expect(within(review).getByText('Cannot be undone.')).toBeVisible();
+  expect(within(review).queryByText(/Profile action/)).not.toBeInTheDocument();
+  expect(
+    within(review).getByRole('button', { name: 'Confirm removal' }),
+  ).toHaveClass('danger');
+  fireEvent.click(within(review).getByRole('button', { name: 'Keep profile' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'Goal or profile change review' }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(props.executeProfile).not.toHaveBeenCalled();
+});
+
+it('opens the group that holds a search match', async () => {
+  const props = options();
+  props.loadProfiles.mockImplementation(async ({ query }) =>
+    query ? { ...profilePage, items: [userProfile], total: 1 } : profilePage,
+  );
+  const { container } = render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  await screen.findByText('General Assistant');
+  const mine = () =>
+    [...container.querySelectorAll('details.profile-library-group')].find(
+      (group) =>
+        group.querySelector('summary')?.textContent?.includes('My Profiles'),
+    ) as HTMLDetailsElement;
+  expect(mine().open).toBe(false);
+  fireEvent.change(screen.getByLabelText('Search profiles'), {
+    target: { value: 'focused' },
+  });
+  fireEvent.keyDown(screen.getByLabelText('Search profiles'), { key: 'Enter' });
+  await waitFor(() => expect(mine().open).toBe(true));
+  expect(
+    screen.getByRole('button', { name: 'Delete Focused Writer' }),
+  ).toBeVisible();
 });
