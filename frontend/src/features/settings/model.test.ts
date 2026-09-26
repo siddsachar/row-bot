@@ -122,6 +122,16 @@ describe('settings navigation metadata', () => {
       searchSettingsRows('default model').map((row) => row.anchor),
     ).toEqual(['default-model']);
     expect(searchSettingsRows('')).toEqual([]);
+    // A page name narrows a row search but never lists a whole page.
+    expect(searchSettingsRows('mcp runtime').map(settingsRowHref)).toEqual([
+      '/settings/mcp#mcp-runtimes',
+    ]);
+    expect(searchSettingsRows('mcp').map((row) => row.anchor)).toEqual([
+      'mcp-servers',
+    ]);
+    expect(searchSettingsRows('logging').map(settingsRowHref)).toEqual([
+      '/settings/system#logging.level',
+    ]);
     for (const row of settingsRows)
       expect(resolveSetting(row.leaf)?.id).toBe(row.leaf);
   });

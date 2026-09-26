@@ -390,7 +390,7 @@ export const settingsRows: SettingsRow[] = [
     leaf: 'system',
     anchor: 'logging.level',
     label: 'Log level',
-    keywords: 'diagnostics debug',
+    keywords: 'logging logs diagnostics debug',
   },
   {
     leaf: 'access',
@@ -424,8 +424,14 @@ export function searchSettingsRows(query: string) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   return settingsRows.filter((row) => {
-    const text = `${row.label} ${row.keywords ?? ''}`.toLowerCase();
-    return words.every((word) => text.includes(word));
+    const own = `${row.label} ${row.keywords ?? ''}`.toLowerCase();
+    // The page name narrows ("mcp runtime" → MCP › Managed runtimes), but
+    // one word must name the row itself, so "system" lists the page only.
+    const text = `${own} ${leafLabels[row.leaf]}`.toLowerCase();
+    return (
+      words.every((word) => text.includes(word)) &&
+      words.some((word) => own.includes(word))
+    );
   });
 }
 
