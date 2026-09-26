@@ -184,13 +184,13 @@
       "type": "integer"
     },
     "shown_entities": {
-      "maximum": 250,
+      "maximum": 1000,
       "minimum": 0,
       "title": "Shown Entities",
       "type": "integer"
     },
     "shown_relations": {
-      "maximum": 2000,
+      "maximum": 4000,
       "minimum": 0,
       "title": "Shown Relations",
       "type": "integer"

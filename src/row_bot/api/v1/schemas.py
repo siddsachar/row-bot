@@ -1875,8 +1875,8 @@ class KnowledgeGraphSnapshot(WireModel):
     edges: list[KnowledgeGraphEdge] = Field(max_length=4000)
     total_entities: int = Field(ge=0, le=9007199254740991)
     total_relations: int = Field(ge=0, le=9007199254740991)
-    shown_entities: int = Field(ge=0, le=250)
-    shown_relations: int = Field(ge=0, le=2000)
+    shown_entities: int = Field(ge=0, le=1000)
+    shown_relations: int = Field(ge=0, le=4000)
     truncated: bool
     center_id: OpaqueId | None
     entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(

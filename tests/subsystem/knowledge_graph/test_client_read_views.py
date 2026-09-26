@@ -125,6 +125,24 @@ def test_graph_projection_caps_nodes_and_marks_truncation(saved):
         views.read_knowledge_graph(limit=1001)
 
 
+def test_show_all_graph_passes_the_wire_contract_beyond_the_default_page(saved):
+    from row_bot.api.v1 import schemas as dto
+
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.executemany(
+            "INSERT INTO entities VALUES(?,?,?,?,?,?,?,?,?,?)",
+            [
+                (f"extra-{i:04}", "concept", f"Extra {i}", "Synthetic", "", "", "{}",
+                 "extraction", "created", "updated")
+                for i in range(120)
+            ],
+        )
+    graph = views.read_knowledge_graph(limit=1000)
+    assert graph.shown_entities == 325 and graph.truncated is False
+    # The same projection the route returns: over 250 memories must validate.
+    dto.KnowledgeGraphSnapshot.model_validate(json.loads(json.dumps(asdict(graph))))
+
+
 @pytest.mark.parametrize(
     "query,expected",
     [
