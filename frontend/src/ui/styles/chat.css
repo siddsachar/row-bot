@@ -1744,6 +1744,13 @@
   line-height: 24px;
   outline: none;
 }
+/* Engines with field-sizing grow the field to its text (up to max-height)
+   in normal layout; others use the measured fallback in Conversation. */
+@supports (field-sizing: content) {
+  .composer .message-composer {
+    field-sizing: content;
+  }
+}
 .composer .message-composer::placeholder {
   color: var(--text-muted);
 }

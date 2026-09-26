@@ -82,6 +82,11 @@ const QUEUE_EVENTS = new Set([
   'steering.consumed',
 ]);
 
+const FIELD_SIZING =
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('field-sizing', 'content');
+
 export default function Conversation({
   onPanel,
   completedDesignId,
@@ -360,7 +365,9 @@ export default function Conversation({
   // (a wrapped placeholder must not size it), and width changes re-measure.
   const fitComposer = useCallback(() => {
     const composer = composerRef.current;
-    if (!composer) return;
+    // Engines with CSS field-sizing grow the field in their own layout pass;
+    // measuring here would force an extra layout on every resize frame.
+    if (!composer || FIELD_SIZING) return;
     composer.style.height = '';
     if (!composer.value) return;
     composer.style.height = 'auto';
