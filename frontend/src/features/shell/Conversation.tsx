@@ -1936,7 +1936,11 @@ export default function Conversation({
       title: 'Conversation context',
       description: '',
       // A hosted rail moves into the sheet instead of mounting a copy.
-      content: hosted ? <ContextSlot active /> : contextRail,
+      content: hosted ? (
+        <ContextSlot active host={contextHost} className="context-sheet" />
+      ) : (
+        contextRail
+      ),
     });
   }
   function toggleContext() {

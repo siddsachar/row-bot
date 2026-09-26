@@ -50,11 +50,15 @@ export function useContextHostOwner() {
 export function ContextSlot({
   active,
   className = 'context-slot',
+  host: explicitHost,
 }: {
   active: boolean;
   className?: string;
+  /** Overlay content renders outside the provider; pass the host directly. */
+  host?: ContextHost | null;
 }) {
-  const host = useContextHost();
+  const provided = useContextHost();
+  const host = explicitHost ?? provided;
   const slot = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const target = slot.current;

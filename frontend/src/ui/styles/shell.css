@@ -1234,3 +1234,9 @@
   justify-self: start;
   margin-top: 4px;
 }
+
+.context-sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
