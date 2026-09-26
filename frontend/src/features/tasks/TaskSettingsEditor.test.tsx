@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { TaskSettingsFields, TaskSettingsSnapshot } from '../../api/types';
@@ -47,6 +48,22 @@ function snapshot(
     ...overrides,
   };
 }
+// SettingRow names its control and its row group with the same visible label,
+// so query the control itself by role and accessible name.
+const concurrencyGroup = () =>
+  screen.getByRole('textbox', { name: 'Concurrency group' });
+const findConcurrencyGroup = () =>
+  screen.findByRole('textbox', { name: 'Concurrency group' });
+
+/** The webhook rotation sits in a collapsed Danger zone until opened. */
+function openDangerZone() {
+  const summary = screen.getByText('Danger zone').closest('summary');
+  const zone = summary?.closest('details');
+  expect(zone).not.toHaveAttribute('open');
+  fireEvent.click(summary!);
+  expect(zone).toHaveAttribute('open');
+}
+
 function props(
   overrides: Partial<TaskSettingsEditorProps> = {},
 ): TaskSettingsEditorProps {
@@ -75,14 +92,12 @@ it('retains an unsent configuration through remount and observes late save witho
     save: vi.fn().mockReturnValue(response.promise),
   });
   const first = render(<TaskSettingsEditor {...callbacks} />);
-  fireEvent.change(await screen.findByLabelText(/Concurrency group/), {
+  fireEvent.change(await findConcurrencyGroup(), {
     target: { value: 'Retained group' },
   });
   first.unmount();
   const second = render(<TaskSettingsEditor {...callbacks} />);
-  expect(await screen.findByLabelText(/Concurrency group/)).toHaveValue(
-    'Retained group',
-  );
+  expect(await findConcurrencyGroup()).toHaveValue('Retained group');
   expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
   await act(async () => {
@@ -91,7 +106,7 @@ it('retains an unsent configuration through remount and observes late save witho
   });
   second.unmount();
   const third = render(<TaskSettingsEditor {...callbacks} />);
-  expect(await screen.findByLabelText(/Concurrency group/)).toBeDisabled();
+  expect(await findConcurrencyGroup()).toBeDisabled();
   third.unmount();
   await act(async () =>
     response.resolve(
@@ -99,9 +114,7 @@ it('retains an unsent configuration through remount and observes late save witho
     ),
   );
   render(<TaskSettingsEditor {...callbacks} />);
-  expect(await screen.findByLabelText(/Concurrency group/)).toHaveValue(
-    'Retained group',
-  );
+  expect(await findConcurrencyGroup()).toHaveValue('Retained group');
   expect(
     screen.getByText('Saved workflow settings. No workflow was run.'),
   ).toBeInTheDocument();
@@ -155,7 +168,7 @@ it('loads settings without effects and validates changed fields while saving', a
   expect(callbacks.save).not.toHaveBeenCalled();
   expect(callbacks.rotate).not.toHaveBeenCalled();
   expect(callbacks.download).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText(/Concurrency group/), {
+  fireEvent.change(concurrencyGroup(), {
     target: { value: 'synthetic-group' },
   });
   await act(async () =>
@@ -209,16 +222,23 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
 it('clears inactive trigger target when changing trigger kind without creating a secret', async () => {
   const callbacks = props();
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText('Trigger');
-  fireEvent.change(screen.getByLabelText('Trigger'), {
+  const trigger = await screen.findByRole('combobox', { name: 'Trigger' });
+  fireEvent.change(trigger, {
     target: { value: 'task_complete' },
   });
-  fireEvent.change(screen.getByLabelText('Source workflow ID'), {
-    target: { value: 'source-a' },
-  });
-  fireEvent.change(screen.getByLabelText('Trigger'), {
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Source workflow ID' }),
+    { target: { value: 'source-a' } },
+  );
+  fireEvent.change(trigger, {
     target: { value: 'webhook' },
   });
+  expect(
+    screen.queryByRole('textbox', { name: 'Source workflow ID' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/A private secret is created when you save/),
+  ).toBeInTheDocument();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
@@ -242,11 +262,21 @@ it('keeps webhook download explicit and rotates only after acknowledgement', asy
     rotate: vi.fn().mockResolvedValue(rotated),
   });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByText('A private webhook secret is configured.');
+  await screen.findByText(
+    'A private webhook secret is configured. Keep the file private.',
+  );
   expect(screen.queryByLabelText(/^Secret$/)).not.toBeInTheDocument();
+  openDangerZone();
+  expect(
+    screen.getByRole('checkbox', { name: /I will update existing callers/ }),
+  ).not.toBeChecked();
   expect(
     screen.getByRole('button', { name: 'Rotate webhook secret' }),
   ).toBeDisabled();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Rotate webhook secret' }),
+  );
+  expect(callbacks.rotate).not.toHaveBeenCalled();
   await act(async () =>
     fireEvent.click(
       screen.getByRole('button', {
@@ -288,35 +318,45 @@ it('does not rotate a webhook while a settings save is pending', async () => {
     save: vi.fn().mockReturnValue(pending.promise),
   });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Concurrency group/);
-  fireEvent.change(screen.getByLabelText(/Concurrency group/), {
-    target: { value: 'unsaved' },
+  const group = await findConcurrencyGroup();
+  openDangerZone();
+  // Acknowledge while the saved settings are clean, then start a save.
+  const acknowledgement = screen.getByRole('checkbox', {
+    name: /I will update existing callers/,
   });
+  fireEvent.click(acknowledgement);
+  expect(acknowledgement).toBeChecked();
+  fireEvent.change(group, { target: { value: 'unsaved' } });
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
+  expect(callbacks.save).toHaveBeenCalledOnce();
   expect(
     screen.getByRole('button', {
       name: 'Download private webhook configuration',
     }),
   ).toBeDisabled();
-  expect(
-    screen.getByRole('checkbox', { name: /I will update existing callers/ }),
-  ).toBeDisabled();
+  expect(acknowledgement).toBeDisabled();
+  const rotate = screen.getByRole('button', { name: 'Rotate webhook secret' });
+  expect(rotate).toBeDisabled();
+  fireEvent.click(rotate);
   expect(callbacks.rotate).not.toHaveBeenCalled();
   await act(async () => pending.resolve(webhook));
+  expect(callbacks.rotate).not.toHaveBeenCalled();
+  // A completed save clears the acknowledgement; rotation needs a new one.
+  expect(acknowledgement).not.toBeChecked();
+  expect(rotate).toBeDisabled();
 });
 
 it('aborts a stale review and cannot overwrite newer edits with its result', async () => {
   const pending = deferred<TaskSettingsSnapshot>();
   const callbacks = props({ review: vi.fn().mockReturnValue(pending.promise) });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Concurrency group/);
-  fireEvent.change(screen.getByLabelText(/Concurrency group/), {
+  fireEvent.change(await findConcurrencyGroup(), {
     target: { value: 'first' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
-  fireEvent.change(screen.getByLabelText(/Concurrency group/), {
+  fireEvent.change(concurrencyGroup(), {
     target: { value: 'second' },
   });
   expect(vi.mocked(callbacks.review).mock.calls[0][2]?.aborted).toBe(true);
@@ -325,7 +365,7 @@ it('aborts a stale review and cannot overwrite newer edits with its result', asy
       snapshot({ fields: { ...fields, concurrency_group: 'first' } }),
     ),
   );
-  expect(screen.getByLabelText(/Concurrency group/)).toHaveValue('second');
+  expect(concurrencyGroup()).toHaveValue('second');
   expect(callbacks.save).not.toHaveBeenCalled();
 });
 
@@ -334,22 +374,27 @@ it('retains draft on stale profile revision and requires explicit reload', async
     save: vi.fn().mockRejectedValue({ code: 'task_settings_profile_conflict' }),
   });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Concurrency group/);
-  fireEvent.change(screen.getByLabelText(/Concurrency group/), {
+  fireEvent.change(await findConcurrencyGroup(), {
     target: { value: 'retained' },
   });
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
-  expect(screen.getByLabelText(/Concurrency group/)).toHaveValue('retained');
+  expect(concurrencyGroup()).toHaveValue('retained');
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Your draft is retained. Reload the saved settings before continuing.',
+  );
   expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
   expect(callbacks.load).toHaveBeenCalledTimes(1);
+  expect(callbacks.save).toHaveBeenCalledOnce();
   await act(async () =>
     fireEvent.click(
       screen.getByRole('button', { name: 'Reload saved settings' }),
     ),
   );
-  expect(screen.getByLabelText(/Concurrency group/)).toHaveValue('');
+  expect(callbacks.load).toHaveBeenCalledTimes(2);
+  expect(await findConcurrencyGroup()).toHaveValue('');
+  expect(callbacks.save).toHaveBeenCalledOnce();
 });
 
 it('blocks duplicate effect submission and late save callbacks after unmount', async () => {
@@ -405,8 +450,9 @@ it('fences an old task review while the next task loads', async () => {
       snapshot({ fields: { ...fields, concurrency_group: 'old' } }),
     ),
   );
-  expect(screen.getByLabelText(/Concurrency group/)).toHaveValue('');
+  expect(concurrencyGroup()).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
+  expect(callbacks.save).not.toHaveBeenCalled();
 });
 
 it('bounds optional suggestions and displays authored labels as plain text', async () => {
@@ -424,5 +470,91 @@ it('bounds optional suggestions and displays authored labels as plain text', asy
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(callbacks.onCancel).toHaveBeenCalledOnce();
+  expect(callbacks.save).not.toHaveBeenCalled();
+});
+
+it('groups controls by purpose and names the workflow in its description', async () => {
+  const callbacks = props({ taskName: 'Morning digest' });
+  const view = render(<TaskSettingsEditor {...callbacks} />);
+  const model = await screen.findByRole('group', {
+    name: 'Model and approvals',
+  });
+  expect(
+    within(model).getByRole('combobox', { name: 'Agent profile ID' }),
+  ).toHaveValue('builtin:worker');
+  expect(
+    within(model).getByRole('combobox', { name: 'Approval policy' }),
+  ).toHaveValue('block');
+  expect(
+    within(model).getByRole('combobox', { name: 'Model override' }),
+  ).toHaveValue('');
+  const runs = screen.getByRole('group', { name: 'Runs' });
+  expect(
+    within(runs).getByRole('switch', {
+      name: 'Reuse a conversation across runs',
+    }),
+  ).not.toBeChecked();
+  expect(
+    within(runs).getByRole('textbox', { name: 'Concurrency group' }),
+  ).toHaveValue('');
+  expect(within(runs).getByRole('combobox', { name: 'Trigger' })).toHaveValue(
+    'none',
+  );
+  expect(
+    screen.getByText(/^Morning digest · How future runs choose their model/),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole('group', { name: 'Saved webhook' }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByText('Danger zone')).not.toBeInTheDocument();
+  view.rerender(<TaskSettingsEditor {...callbacks} taskName="" />);
+  expect(
+    screen.getByText(/^How future runs choose their model/),
+  ).toBeInTheDocument();
+  expect(callbacks.load).toHaveBeenCalledOnce();
+  expect(callbacks.review).not.toHaveBeenCalled();
+  expect(callbacks.save).not.toHaveBeenCalled();
+});
+
+it('offers rotation but not download for a saved webhook without a secret', async () => {
+  const webhook = snapshot({
+    fields: { ...fields, trigger_type: 'webhook' },
+    webhook_configured: false,
+  });
+  const rotated = {
+    ...webhook,
+    revision: 'c'.repeat(64),
+    webhook_configured: true,
+  };
+  const callbacks = props({
+    load: vi.fn().mockResolvedValue(webhook),
+    rotate: vi.fn().mockResolvedValue(rotated),
+  });
+  render(<TaskSettingsEditor {...callbacks} />);
+  await screen.findByText(
+    'This webhook has no private secret yet. Rotate it to create one.',
+  );
+  const download = screen.getByRole('button', {
+    name: 'Download private webhook configuration',
+  });
+  expect(download).toBeDisabled();
+  openDangerZone();
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: /I will update existing callers/ }),
+  );
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Rotate webhook secret' }),
+    ),
+  );
+  expect(callbacks.rotate).toHaveBeenCalledOnce();
+  expect(callbacks.rotate).toHaveBeenCalledWith('task-a', 'a'.repeat(64));
+  expect(
+    screen.getByText(
+      'Webhook secret rotated. Download the new configuration and update existing callers.',
+    ),
+  ).toHaveAttribute('role', 'status');
+  expect(download).toBeEnabled();
+  expect(callbacks.download).not.toHaveBeenCalled();
   expect(callbacks.save).not.toHaveBeenCalled();
 });

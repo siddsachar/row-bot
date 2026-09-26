@@ -6,7 +6,7 @@ test.beforeEach(async ({ context }) => {
   await blockFixtureServiceWorkers(context);
 });
 
-test('workflow cards and create dialog fit, retain drafts, and restore focus', async ({
+test('workflow rows and create dialog fit, retain drafts, and restore focus', async ({
   page,
 }, info) => {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -17,7 +17,7 @@ test('workflow cards and create dialog fit, retain drafts, and restore focus', a
   });
   expect(seeded.ok(), await seeded.text()).toBe(true);
 
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await page
     .getByRole('searchbox', { name: 'Search workflows' })
     .fill('Phase 4 saved task 104');

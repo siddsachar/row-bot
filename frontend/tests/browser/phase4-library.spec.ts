@@ -67,7 +67,7 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
   page,
 }, info) => {
   await seed(page, 'tasks', 'empty');
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
   const name = `Phase 4 browser workflow ${info.project.name}`;
@@ -146,7 +146,7 @@ test('Phase 4 workflow graph saves stable steps without starting a run', async (
   page,
 }, info) => {
   await seed(page, 'tasks');
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await searchWorkflows(page, 'Phase 4 saved task 103');
   await expect(workflowCards(page)).toHaveCount(1);
   await chooseWorkflowAction(
@@ -197,11 +197,11 @@ test('Phase 4 workflow graph saves stable steps without starting a run', async (
   ).toHaveValue('Synthetic graph edit');
 });
 
-test('Phase 4 workflow settings require review and preserve saved configuration', async ({
+test('Phase 4 workflow settings save in one reviewed step and preserve saved configuration', async ({
   page,
 }, info) => {
   await seed(page, 'tasks');
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await searchWorkflows(page, 'Phase 4 saved task 102');
   await expect(workflowCards(page)).toHaveCount(1);
   await chooseWorkflowAction(
@@ -231,12 +231,6 @@ test('Phase 4 workflow settings require review and preserve saved configuration'
   await expect(
     editor.getByRole('combobox', { name: 'Trigger', exact: true }),
   ).toHaveValue('webhook');
-  await expect(
-    editor.getByRole('button', { name: 'Save settings', exact: true }),
-  ).toBeDisabled();
-  await editor
-    .getByRole('button', { name: 'Review settings', exact: true })
-    .click();
   await expect(
     editor.getByRole('button', { name: 'Save settings', exact: true }),
   ).toBeEnabled();
@@ -301,28 +295,24 @@ test('Phase 4 Home discovers saved tasks with bounded paging and recorded detail
   page,
 }, info) => {
   await seed(page, 'tasks');
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await expect(
     page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();
   await searchWorkflows(page, 'Phase 4 saved task');
-  await expect(
-    page.getByText('105 matching tasks', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('105 matching', { exact: true })).toBeVisible();
   await expect(workflowCards(page)).toHaveCount(50);
   await page
-    .getByRole('button', { name: 'Load more tasks', exact: true })
+    .getByRole('button', { name: 'Load more workflows', exact: true })
     .click();
   await expect(workflowCards(page)).toHaveCount(100);
   await page
-    .getByRole('button', { name: 'Load more tasks', exact: true })
+    .getByRole('button', { name: 'Load more workflows', exact: true })
     .click();
   await expect(workflowCards(page)).toHaveCount(105);
   await searchWorkflows(page, 'Phase 4 saved task 104');
   await expect(workflowCards(page)).toHaveCount(1);
-  await expect(
-    page.getByText('No recorded status', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('No runs yet', { exact: true })).toBeVisible();
   await expect(page.getByText('Reminder', { exact: true })).toBeVisible();
   const card = workflowCards(page).first();
   const routineActions = [
@@ -361,16 +351,17 @@ test('Phase 4 Home discovers saved tasks with bounded paging and recorded detail
     await accessibility(page, info, `saved-task-${appearance}`);
   }
   await page
-    .getByRole('combobox', { name: 'Workflow status' })
-    .selectOption('enabled');
-  await expect(page.getByText('No matching saved tasks')).toBeVisible();
+    .getByRole('radiogroup', { name: 'Show workflows' })
+    .getByRole('radio', { name: 'Enabled', exact: true })
+    .click();
+  await expect(page.getByText('No matching workflows')).toBeVisible();
 });
 
 test('Phase 4 explicit workflow run records history and opens the unified conversation', async ({
   page,
 }, info) => {
   await seed(page, 'tasks');
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await searchWorkflows(page, 'Phase 4 saved task 104');
   await expect(workflowCards(page)).toHaveCount(1);
   await page
@@ -392,7 +383,7 @@ test('Phase 4 explicit workflow run records history and opens the unified conver
   await runs.getByRole('button', { name: 'Run now', exact: true }).click();
   await expect(
     runs.getByRole('region', { name: 'Selected run', exact: true }),
-  ).toContainText('Saved status: completed.');
+  ).toContainText('Completed');
   await expect(
     runs.getByRole('button', { name: 'Run now', exact: true }),
   ).toBeDisabled();

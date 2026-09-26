@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -356,4 +357,174 @@ it('bounds the editing window to 100 steps without hiding saved steps', async ()
   const saved = vi.mocked(callbacks.save).mock.calls[0][2];
   expect(saved).toHaveLength(100);
   expect(saved[99].fields.prompt).toBe('Last step edited');
+});
+
+function stepButtons() {
+  return within(
+    screen.getByRole('list', { name: 'Workflow step order' }),
+  ).getAllByRole('button');
+}
+function stepNames() {
+  return stepButtons().map((button) => button.textContent);
+}
+
+it('lists one selectable button per step with its kind, id and a one-line summary', async () => {
+  const long = `${'Summarize the synthetic report '.repeat(4)}and stop`;
+  const callbacks = props({
+    load: vi.fn().mockResolvedValue(
+      snapshot({
+        steps: [
+          {
+            ...snapshot().steps[0],
+            fields: { ...fields, prompt: `  ${long}\n\n` },
+          },
+          snapshot().steps[1],
+        ],
+      }),
+    ),
+  });
+  render(<TaskGraphEditor {...callbacks} />);
+  await screen.findByLabelText('Prompt');
+  const list = screen.getByRole('list', { name: 'Workflow step order' });
+  const rows = within(list).getAllByRole('listitem');
+  expect(rows).toHaveLength(2);
+  for (const row of rows)
+    expect(within(row).getAllByRole('button')).toHaveLength(1);
+  expect(stepNames()).toEqual(['1. Prompt · draft', '2. Approval · review']);
+  expect(stepButtons()[0]).toHaveAttribute('aria-pressed', 'true');
+  expect(stepButtons()[1]).toHaveAttribute('aria-pressed', 'false');
+  const summary = rows[0].querySelector('.task-graph-step-summary');
+  expect(summary?.textContent).toBe(
+    `${long.replace(/\s+/g, ' ').slice(0, 79)}…`,
+  );
+  expect(summary?.textContent).toHaveLength(80);
+  expect(rows[1]).toHaveTextContent('Review {{step.draft.output}}');
+  fireEvent.click(stepButtons()[1]);
+  expect(stepButtons()[1]).toHaveAttribute('aria-pressed', 'true');
+  expect(
+    screen.getByRole('group', { name: 'Step 2 · Approval' }),
+  ).toBeInTheDocument();
+});
+
+it('names an unsaved step "new step" and selects it when added', async () => {
+  const callbacks = props();
+  render(<TaskGraphEditor {...callbacks} />);
+  await screen.findByLabelText('Prompt');
+  fireEvent.change(screen.getByLabelText('New step type'), {
+    target: { value: 'notify' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add step' }));
+  expect(stepNames()).toEqual([
+    '1. Prompt · draft',
+    '2. Approval · review',
+    '3. Notification · new step',
+  ]);
+  expect(stepButtons()[2]).toHaveAttribute('aria-pressed', 'true');
+  expect(
+    screen.getByLabelText('Notification channel', { exact: false }),
+  ).toHaveValue('desktop');
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save graph' })),
+  );
+  const saved = vi.mocked(callbacks.save).mock.calls[0][2];
+  expect(saved[2].id).toMatch(/^draft_[0-9a-f]{32}$/);
+  expect(saved[2].type).toBe('notify');
+});
+
+it('moves and removes the selected step with its icon buttons', async () => {
+  const callbacks = props();
+  render(<TaskGraphEditor {...callbacks} />);
+  await screen.findByLabelText('Prompt');
+  expect(screen.getByRole('button', { name: 'Move step up' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Move step down' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: '2. Approval · review' }));
+  expect(screen.getByRole('button', { name: 'Move step down' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Move step up' }));
+  expect(stepNames()).toEqual(['1. Approval · review', '2. Prompt · draft']);
+  expect(stepButtons()[0]).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Remove step' }));
+  expect(stepNames()).toEqual(['1. Prompt · draft']);
+  expect(stepButtons()[0]).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Remove step' })).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save graph' })),
+  );
+  expect(
+    vi.mocked(callbacks.save).mock.calls[0][2].map((step) => step.id),
+  ).toEqual(['draft']);
+});
+
+it('reorders steps by dragging one row onto another', async () => {
+  render(<TaskGraphEditor {...props()} />);
+  await screen.findByLabelText('Prompt');
+  const [first, second] = within(
+    screen.getByRole('list', { name: 'Workflow step order' }),
+  ).getAllByRole('listitem');
+  const dataTransfer = { setData: vi.fn(), effectAllowed: 'none' };
+  fireEvent.dragStart(second, { dataTransfer });
+  expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', 'review');
+  expect(dataTransfer.effectAllowed).toBe('move');
+  fireEvent.dragOver(first, { dataTransfer });
+  fireEvent.drop(first, { dataTransfer });
+  expect(stepNames()).toEqual(['1. Approval · review', '2. Prompt · draft']);
+});
+
+it('names branch targets by position, kind and saved id while keeping id values', async () => {
+  const callbacks = props();
+  render(<TaskGraphEditor {...callbacks} />);
+  await screen.findByLabelText('Prompt');
+  for (const kind of ['prompt', 'condition']) {
+    fireEvent.change(screen.getByLabelText('New step type'), {
+      target: { value: kind },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add step' }));
+  }
+  const whenTrue = screen.getByLabelText('When true') as HTMLSelectElement;
+  const options = Array.from(whenTrue.options).map((option) => [
+    option.value,
+    option.textContent,
+  ]);
+  const unsaved = String(options[4]?.[0]);
+  expect(unsaved).toMatch(/^draft_[0-9a-f]{32}$/);
+  expect(options).toEqual([
+    ['', 'Continue to the next step'],
+    ['end', 'End workflow'],
+    ['draft', 'Step 1 · Prompt · draft'],
+    ['review', 'Step 2 · Approval · review'],
+    [unsaved, 'Step 3 · Prompt'],
+  ]);
+  expect(whenTrue).toHaveValue('end');
+  fireEvent.change(whenTrue, { target: { value: 'review' } });
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save graph' })),
+  );
+  expect(vi.mocked(callbacks.save).mock.calls[0][2][3].fields).toMatchObject({
+    condition: 'not_empty',
+    if_true: 'review',
+    if_false: 'end',
+  });
+});
+
+it('switches back to the builder from the Editor choice', async () => {
+  const onBuilder = vi.fn();
+  render(<TaskGraphEditor {...props({ onBuilder })} />);
+  await screen.findByLabelText('Prompt');
+  const editor = screen.getByRole('radiogroup', { name: 'Editor' });
+  const graph = within(editor).getByRole('radio', { name: 'Step graph' });
+  expect(graph).toBeChecked();
+  fireEvent.click(graph);
+  expect(onBuilder).not.toHaveBeenCalled();
+  fireEvent.click(within(editor).getByRole('radio', { name: 'Builder' }));
+  expect(onBuilder).toHaveBeenCalledOnce();
+});
+
+it('offers no Editor choice or task settings link unless the host provides them', async () => {
+  render(<TaskGraphEditor {...props()} />);
+  await screen.findByLabelText('Prompt');
+  expect(
+    screen.queryByRole('radiogroup', { name: 'Editor' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Schedule and task settings' }),
+  ).not.toBeInTheDocument();
 });

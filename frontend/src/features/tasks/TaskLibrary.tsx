@@ -6,27 +6,34 @@ import {
   useSyncExternalStore,
   type Ref,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import * as Popover from '@radix-ui/react-popover';
 import {
+  ArrowLeft,
   Bell,
   Braces,
   CalendarClock,
+  CornerDownLeft,
   Database,
   FileDown,
   FileUp,
-  GitBranch,
   Lock,
   Mail,
+  MoreHorizontal,
   Pencil,
   Play,
   RefreshCw,
   Search,
+  Send,
   Square,
   Trash2,
-  X,
   Zap,
 } from 'lucide-react';
-import type { TaskDeliverySnapshot, TaskSummaryPage } from '../../api/types';
+import type {
+  TaskDeliverySnapshot,
+  TaskSummary,
+  TaskSummaryPage,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import TaskEditor from './TaskEditor';
@@ -35,19 +42,27 @@ import { taskRuns } from './task-runs';
 import { taskEdits, taskMutation, type TaskCommandOwner } from './task-edits';
 import TaskGraphEditor from './TaskGraphEditor';
 import TaskSettingsEditor from './TaskSettingsEditor';
+import { RunSparkline } from './RunSparkline';
 import {
   Button,
-  CompactAction,
   EmptyState,
   ErrorState,
-  Field,
+  IconButton,
   Input,
   Menu,
-  Select,
+  Segmented,
   Skeleton,
   Toggle,
+  type MenuAction,
 } from '../../ui/primitives';
-import { ModalTask, useOverlay } from '../../ui/overlays';
+import { Drawer, ModalTask, useOverlay } from '../../ui/overlays';
+import {
+  FAILED_RUN_STATUSES,
+  When,
+  runStatus,
+  scheduleWords,
+} from '../home/home-format';
+import { parseTimestamp } from '../../ui/format';
 
 const workflowIcons = {
   notifications: Bell,
@@ -72,106 +87,146 @@ function workflowIcon(icon: string, reminder: boolean) {
   return workflowIcons[key] ?? (reminder ? Bell : Zap);
 }
 
-const weekdays: Record<string, string> = {
-  mon: 'Monday',
-  monday: 'Monday',
-  tue: 'Tuesday',
-  tuesday: 'Tuesday',
-  wed: 'Wednesday',
-  wednesday: 'Wednesday',
-  thu: 'Thursday',
-  thursday: 'Thursday',
-  fri: 'Friday',
-  friday: 'Friday',
-  sat: 'Saturday',
-  saturday: 'Saturday',
-  sun: 'Sunday',
-  sunday: 'Sunday',
-};
+/** Emoji icons are shown as they are; named icons map to glyphs. */
+function WorkflowGlyph({ task }: { task: TaskSummary }) {
+  const icon = task.icon.trim();
+  if (icon && !/^[a-z_]+$/i.test(icon))
+    return <span className="workflow-emoji">{icon}</span>;
+  const Icon = workflowIcon(icon, task.notify_only);
+  return <Icon size={16} />;
+}
 
-function localDateTime(value: string): string | null {
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(
-      value,
+type Filter = 'all' | 'enabled' | 'scheduled' | 'failed';
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'enabled', label: 'Enabled' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'failed', label: 'Failed' },
+];
+/** Scheduled and Failed filter every saved workflow, read page by page. */
+const CLIENT_FILTER_PAGES = 20;
+
+function matchesFilter(task: TaskSummary, filter: Filter) {
+  if (filter === 'scheduled')
+    return task.enabled && Boolean(task.schedule || task.at);
+  if (filter === 'failed')
+    return FAILED_RUN_STATUSES.has(
+      String(task.last_status ?? '').toLowerCase(),
     );
-  if (!match) return null;
-  const [, year, month, day, hour, minute, second] = match;
-  const dateParts = [
-    Number(year),
-    Number(month),
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second ?? 0),
-  ];
-  const calendar = new Date(
-    Date.UTC(
-      dateParts[0],
-      dateParts[1] - 1,
-      dateParts[2],
-      dateParts[3],
-      dateParts[4],
-      dateParts[5],
-    ),
+  return true;
+}
+
+function isRunning(task: TaskSummary) {
+  return Boolean(
+    task.active_run || task.last_status?.toLowerCase() === 'running',
   );
-  if (
-    [
-      calendar.getUTCFullYear(),
-      calendar.getUTCMonth() + 1,
-      calendar.getUTCDate(),
-      calendar.getUTCHours(),
-      calendar.getUTCMinutes(),
-      calendar.getUTCSeconds(),
-    ].some((part, index) => part !== dateParts[index])
-  )
-    return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
 }
 
-function scheduleLabel(schedule: string | null, at: string | null): string {
-  if (schedule) {
-    const daily = /^daily:(\d{2}):(\d{2})$/i.exec(schedule);
-    const weekly = /^weekly:([a-z]+):(\d{2}):(\d{2})$/i.exec(schedule);
-    const hour = Number(daily?.[1] ?? weekly?.[2]);
-    const minute = Number(daily?.[2] ?? weekly?.[3]);
-    if ((daily || weekly) && hour < 24 && minute < 60) {
-      const time = new Intl.DateTimeFormat(undefined, {
-        hour: 'numeric',
-        minute: '2-digit',
-      }).format(new Date(2000, 0, 1, hour, minute));
-      if (daily) return `Daily at ${time}`;
-      const day = weekdays[weekly![1].toLowerCase()];
-      if (day) return `${day} at ${time}`;
-    }
-    const interval = /^interval(_minutes)?:([0-9]+(?:\.[0-9]+)?)$/i.exec(
-      schedule,
-    );
-    if (interval) {
-      const count = Number(interval[2]);
-      if (Number.isFinite(count) && count > 0) {
-        const unit = interval[1] ? 'minute' : 'hour';
-        return `Every ${count} ${unit}${count === 1 ? '' : 's'}`;
-      }
-    }
-    if (/^cron:\S+(?:\s+\S+){4}$/.test(schedule)) return 'Custom cron schedule';
-    return 'Custom schedule';
-  }
-  if (at) {
-    const formatted = localDateTime(at);
-    return formatted ? `Once · ${formatted}` : 'Invalid one-time schedule';
-  }
-  return 'Run manually';
-}
-
-function lastRunLabel(lastRun: string | null): string {
-  if (!lastRun) return 'Never run';
-  const formatted = localDateTime(lastRun);
-  return formatted ? `Last ${formatted}` : 'Last run unavailable';
+function DeliveryDefaults({
+  defaults,
+  options,
+  busy,
+  onSave,
+}: {
+  defaults: ReadonlyArray<{ id: string; label: string }>;
+  options: ReadonlyArray<{ id: string; label: string }>;
+  busy: boolean;
+  onSave: (ids: readonly string[]) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<Set<string>>(new Set());
+  const saved = defaults.map((item) => item.id);
+  const changed =
+    draft.size !== saved.length || saved.some((id) => !draft.has(id));
+  const summary = ['Web app', ...defaults.map((item) => item.label)].join(', ');
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setDraft(new Set(saved));
+        setOpen(next);
+      }}
+    >
+      <Popover.Trigger asChild>
+        <IconButton
+          size="sm"
+          label="Delivery defaults"
+          title={`Delivery defaults: ${summary}`}
+          className="workflow-delivery-trigger"
+        >
+          <Send size={15} aria-hidden />
+          {defaults.length > 0 && (
+            <span className="workflow-delivery-count" aria-hidden>
+              {defaults.length}
+            </span>
+          )}
+        </IconButton>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className="popover workflow-delivery-popover"
+          aria-label="Default delivery channels"
+          align="end"
+          sideOffset={6}
+          collisionPadding={12}
+        >
+          <div className="workflow-delivery-head">
+            <strong>Delivery defaults</strong>
+            <p>
+              Workflows that use the defaults deliver here. A workflow can
+              choose its own channels.
+            </p>
+          </div>
+          <ul className="workflow-delivery-options">
+            <li>
+              <span className="workflow-delivery-locked">
+                <Lock size={13} aria-hidden /> Web app
+              </span>
+              <span className="home-caption">Always on</span>
+            </li>
+            {options.map((channel) => (
+              <li key={channel.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={draft.has(channel.id)}
+                    onChange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      setDraft((previous) => {
+                        const next = new Set(previous);
+                        if (checked) next.add(channel.id);
+                        else next.delete(channel.id);
+                        return next;
+                      });
+                    }}
+                  />
+                  {channel.label}
+                </label>
+              </li>
+            ))}
+          </ul>
+          {!options.length && (
+            <p className="home-caption">No external channels are set up.</p>
+          )}
+          <div className="workflow-delivery-actions">
+            <Popover.Close asChild>
+              <Button className="small">Cancel</Button>
+            </Popover.Close>
+            <Button
+              variant="primary"
+              className="small"
+              disabled={!changed || busy}
+              onClick={() =>
+                void onSave([...draft]).then((ok) => ok && setOpen(false))
+              }
+            >
+              Save defaults
+            </Button>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
 }
 
 export function SavedTasks({
@@ -181,14 +236,12 @@ export function SavedTasks({
   onRuns,
   onGraph,
   onSettings,
+  onOpenConversation,
   deliveryDefaults = [],
   deliveryOptions = [],
-  onEditDeliveryDefaults,
-  onRemoveDeliveryDefault,
   onToggleEnabled,
   onDelete,
   onBulkDelete,
-  onRun,
   onStop,
   onSetDeliveryDefaults,
   refreshToken = 0,
@@ -196,17 +249,16 @@ export function SavedTasks({
 }: {
   onEdit?: (id: string, name: string) => void;
   onCreate?: () => void;
-  onRuns?: (id: string) => void;
+  /** Open the run drawer: review, Run now, history and approvals. */
+  onRuns?: (id: string, name: string) => void;
   onGraph?: (id: string, name: string) => void;
   onSettings?: (id: string, name: string) => void;
+  onOpenConversation?: (id: string) => void;
   deliveryDefaults?: ReadonlyArray<{ id: string; label: string }>;
   deliveryOptions?: ReadonlyArray<{ id: string; label: string }>;
-  onEditDeliveryDefaults?: () => void;
-  onRemoveDeliveryDefault?: (id: string) => void | Promise<void>;
   onToggleEnabled?: (id: string, enabled: boolean) => void | Promise<void>;
   onDelete?: (id: string) => void | Promise<void>;
   onBulkDelete?: (ids: readonly string[]) => void | Promise<void>;
-  onRun?: (id: string) => void | Promise<void>;
   onStop?: (id: string) => void | Promise<void>;
   onSetDeliveryDefaults?: (ids: readonly string[]) => void | Promise<void>;
   refreshToken?: number;
@@ -221,8 +273,14 @@ export function SavedTasks({
   const navigate = useNavigate();
   const overlay = useOverlay();
   const [draft, setDraft] = useState('');
-  const [filter, setFilter] = useState({ query: '', state: 'all' });
+  const [filter, setFilter] = useState<{ query: string; state: Filter }>({
+    query: '',
+    state: 'all',
+  });
   const [page, setPage] = useState<TaskSummaryPage | null>(null);
+  // Scheduled and Failed stop reading after CLIENT_FILTER_PAGES; the count
+  // of workflows checked is shown when more remained unread.
+  const [checkedOnly, setCheckedOnly] = useState(0);
   const [earlierRows, setEarlierRows] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -232,15 +290,25 @@ export function SavedTasks({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [action, setAction] = useState('');
   const [actionError, setActionError] = useState('');
-  const [deliveryOpen, setDeliveryOpen] = useState(false);
-  const [deliveryDraft, setDeliveryDraft] = useState<Set<string>>(
-    () => new Set(deliveryDefaults.map((item) => item.id)),
-  );
   const actionRef = useRef('');
   const epoch = useRef(0);
   const more = useRef<AbortController | null>(null);
+  const clientFilter =
+    filter.state === 'scheduled' || filter.state === 'failed';
   const enabled =
-    filter.state === 'all' ? undefined : filter.state === 'enabled';
+    filter.state === 'enabled' || filter.state === 'scheduled'
+      ? true
+      : undefined;
+  // Search as you type, after a short pause; Enter searches at once.
+  useEffect(() => {
+    const query = draft.trim();
+    if (query === filter.query) return;
+    const timer = window.setTimeout(
+      () => setFilter((value) => ({ ...value, query })),
+      350,
+    );
+    return () => window.clearTimeout(timer);
+  }, [draft, filter.query]);
   useEffect(() => {
     const abort = new AbortController();
     const ticket = ++epoch.current;
@@ -250,12 +318,38 @@ export function SavedTasks({
     setLoadingMore(false);
     setError('');
     setPage(null);
+    setCheckedOnly(0);
     setEarlierRows(0);
     setSelected(new Set());
-    load(filter.query, enabled, undefined, abort.signal).then(
+    let checked = 0;
+    const read = async () => {
+      const first = await load(filter.query, enabled, undefined, abort.signal);
+      if (!clientFilter) return first;
+      const items = [...first.items];
+      let cursor = first.next_cursor;
+      for (let count = 1; cursor && count < CLIENT_FILTER_PAGES; count += 1) {
+        const next = await load(filter.query, enabled, cursor, abort.signal);
+        if (next.revision !== first.revision)
+          throw clientError({ code: 'cursor_expired' });
+        items.push(...next.items);
+        cursor = next.next_cursor;
+      }
+      if (cursor) checked = items.length;
+      const matching = items.filter((task) =>
+        matchesFilter(task, filter.state),
+      );
+      return {
+        ...first,
+        items: matching,
+        total: matching.length,
+        next_cursor: null,
+      };
+    };
+    read().then(
       (next) => {
         if (!abort.signal.aborted && ticket === epoch.current) {
           setPage(next);
+          setCheckedOnly(checked);
           setLoading(false);
         }
       },
@@ -270,7 +364,15 @@ export function SavedTasks({
       abort.abort();
       more.current?.abort();
     };
-  }, [load, filter.query, enabled, reload, refreshToken]);
+  }, [
+    load,
+    filter.query,
+    filter.state,
+    enabled,
+    clientFilter,
+    reload,
+    refreshToken,
+  ]);
   async function invoke(
     key: string,
     callback: () => void | Promise<void>,
@@ -321,7 +423,7 @@ export function SavedTasks({
       );
       if (abort.signal.aborted || ticket !== epoch.current) return;
       if (next.revision !== page.revision) {
-        setError('Saved tasks changed. Reload the list to continue.');
+        setError('Saved workflows changed. Refresh the list to continue.');
         return;
       }
       const items = [...page.items, ...next.items];
@@ -341,201 +443,126 @@ export function SavedTasks({
         setLoadingMore(false);
     }
   }
+  const filtered = Boolean(filter.query) || filter.state !== 'all';
+  const caption = page
+    ? `${page.total.toLocaleString()} ${filtered ? 'matching' : page.total === 1 ? 'workflow' : 'workflows'}${checkedOnly ? ` in the first ${checkedOnly.toLocaleString()}` : ''}`
+    : '';
+  const headerMenu: MenuAction[] = [
+    ...(onBulkDelete && page?.items.length
+      ? [
+          {
+            label: selecting ? 'Done selecting' : 'Select workflows',
+            onSelect: () =>
+              selecting ? leaveSelectionMode() : setSelecting(true),
+          },
+        ]
+      : []),
+  ];
   return (
     <section
-      className="route-surface stack capability-page workflow-library"
+      className="route-surface workflow-library home-page"
       aria-label="Workflows"
       aria-busy={loading}
     >
-      <header className="capability-header">
-        <div className="workflow-heading">
-          <span className="workflow-heading-icon" aria-hidden>
-            <GitBranch size={22} />
-          </span>
-          <div>
-            <p className="eyebrow">Automation library</p>
-            <h1>Workflows</h1>
-            <p>Background agents</p>
-            <div
-              className="workflow-delivery-defaults"
-              role="group"
-              aria-label="Delivery defaults"
-            >
-              <span className="eyebrow">Delivery defaults</span>
-              {deliveryDefaults.length > 0 ? (
-                deliveryDefaults.map((channel) => (
-                  <span className="status-chip" key={channel.id}>
-                    {channel.label}
-                    {onRemoveDeliveryDefault && (
-                      <button
-                        type="button"
-                        className="workflow-chip-action"
-                        aria-label={`Remove ${channel.label} from delivery defaults`}
-                        disabled={action === `delivery:${channel.id}`}
-                        onClick={() =>
-                          void invoke(
-                            `delivery:${channel.id}`,
-                            () => onRemoveDeliveryDefault(channel.id),
-                            `${channel.label} removed from delivery defaults.`,
-                          )
-                        }
-                      >
-                        <X size={14} aria-hidden />
-                      </button>
-                    )}
-                  </span>
-                ))
-              ) : (
-                <span className="status-chip">Web app only</span>
-              )}
-              {(onEditDeliveryDefaults || onSetDeliveryDefaults) && (
-                <CompactAction
-                  label="Edit default delivery channels"
-                  aria-expanded={deliveryOpen}
-                  onClick={() => {
-                    if (onEditDeliveryDefaults) onEditDeliveryDefaults();
-                    if (onSetDeliveryDefaults) {
-                      setDeliveryDraft(
-                        new Set(deliveryDefaults.map((item) => item.id)),
-                      );
-                      setDeliveryOpen((value) => !value);
-                    }
-                  }}
-                >
-                  <span aria-hidden>+</span>
-                </CompactAction>
-              )}
-              <span className="status-chip success">
-                <Lock size={14} aria-hidden /> Web app always on
-              </span>
-            </div>
-            {deliveryOpen && onSetDeliveryDefaults && (
-              <div
-                className="workflow-delivery-menu"
-                role="dialog"
-                aria-label="Default delivery channels"
-              >
-                <strong>Default delivery</strong>
-                {deliveryOptions.length ? (
-                  deliveryOptions.map((channel) => (
-                    <label key={channel.id}>
-                      <input
-                        type="checkbox"
-                        checked={deliveryDraft.has(channel.id)}
-                        onChange={(event) =>
-                          setDeliveryDraft((previous) => {
-                            const next = new Set(previous);
-                            if (event.currentTarget.checked)
-                              next.add(channel.id);
-                            else next.delete(channel.id);
-                            return next;
-                          })
-                        }
-                      />
-                      {channel.label}
-                    </label>
-                  ))
-                ) : (
-                  <p>No configured external channels.</p>
-                )}
-                <div className="action-cluster">
-                  <Button onClick={() => setDeliveryOpen(false)}>Cancel</Button>
-                  <Button
-                    variant="primary"
-                    disabled={Boolean(action)}
-                    onClick={() =>
-                      void invoke(
-                        'delivery:save',
-                        () => onSetDeliveryDefaults([...deliveryDraft]),
-                        'Workflow default delivery saved.',
-                      ).then((saved) => {
-                        if (saved) setDeliveryOpen(false);
-                      })
-                    }
-                  >
-                    Save defaults
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        {(onCreate || (onBulkDelete && page?.items.length)) && (
-          <div className="action-cluster workflow-heading-actions">
-            {onBulkDelete && page && page.items.length > 0 && (
-              <Button
-                variant="ghost"
-                aria-pressed={selecting}
-                onClick={() => {
-                  if (selecting) leaveSelectionMode();
-                  else setSelecting(true);
-                }}
-              >
-                {selecting ? 'Done' : 'Select'}
-              </Button>
-            )}
-            {onCreate && (
-              <Button
-                ref={createButtonRef}
-                variant="primary"
-                onClick={onCreate}
-              >
-                New workflow
-              </Button>
-            )}
-          </div>
-        )}
-      </header>
-      <form
-        className="workflow-toolbar panel-toolbar"
-        aria-label="Filter workflows"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setFilter((value) => ({ ...value, query: draft.trim() }));
-        }}
-      >
-        <Field label="Search workflows">
+      <header className="home-page-header workflow-header">
+        <h1>Workflows</h1>
+        <form
+          className="home-search"
+          role="search"
+          aria-label="Filter workflows"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setFilter((value) => ({ ...value, query: draft.trim() }));
+          }}
+        >
+          <Search className="home-search-icon" size={14} aria-hidden />
           <Input
             type="search"
+            aria-label="Search workflows"
+            placeholder="Search workflows"
             maxLength={256}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-        </Field>
-        <Field label="Workflow status">
-          <Select
-            value={filter.state}
-            onChange={(event) =>
-              setFilter((value) => ({ ...value, state: event.target.value }))
-            }
+          <IconButton
+            size="sm"
+            type="submit"
+            label="Search workflows"
+            tooltip={false}
+            className="home-search-submit"
           >
-            <option value="all">All saved tasks</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-          </Select>
-        </Field>
-        <CompactAction label="Search workflows" type="submit">
-          <Search size={17} aria-hidden />
-        </CompactAction>
-        <CompactAction
+            <CornerDownLeft size={13} aria-hidden />
+          </IconButton>
+        </form>
+        <Segmented
+          label="Show workflows"
+          size="sm"
+          value={filter.state}
+          onChange={(state) => setFilter((value) => ({ ...value, state }))}
+          options={FILTERS}
+        />
+        {page && (
+          <p className="home-caption" role="status">
+            {caption}
+          </p>
+        )}
+        <span className="home-page-header-spacer" />
+        <IconButton
+          size="sm"
           label="Refresh workflows"
           disabled={loading}
           onClick={() => setReload((value) => value + 1)}
         >
-          <RefreshCw size={17} aria-hidden />
-        </CompactAction>
-      </form>
-      {loading && <Skeleton label="Loading saved tasks" />}
-      {error && <ErrorState title="Task list unavailable">{error}</ErrorState>}
+          <RefreshCw size={15} aria-hidden />
+        </IconButton>
+        {onSetDeliveryDefaults && (
+          <DeliveryDefaults
+            defaults={deliveryDefaults}
+            options={deliveryOptions}
+            busy={Boolean(action)}
+            onSave={(ids) =>
+              invoke(
+                'delivery:save',
+                () => onSetDeliveryDefaults(ids),
+                'Workflow default delivery saved.',
+              )
+            }
+          />
+        )}
+        {headerMenu.length > 0 && (
+          <Menu
+            label="More workflow actions"
+            iconOnly
+            variant="ghost"
+            className="icon-action icon-action-sm"
+            actions={headerMenu}
+          >
+            <MoreHorizontal size={16} aria-hidden />
+          </Menu>
+        )}
+        {onCreate && (
+          <Button
+            ref={createButtonRef}
+            variant="primary"
+            className="small workflow-new"
+            onClick={onCreate}
+          >
+            New workflow
+          </Button>
+        )}
+      </header>
+      {loading && <Skeleton label="Loading saved workflows" />}
+      {error && (
+        <ErrorState title="Workflow list unavailable">{error}</ErrorState>
+      )}
       {actionError && (
         <ErrorState title="Workflow action failed">{actionError}</ErrorState>
       )}
       {page && (
         <>
-          <p role="status">{page.total} matching tasks</p>
           {selecting && (
             <div
-              className="workflow-bulk-actions action-cluster"
+              className="workflow-bulk-actions"
               role="group"
               aria-label="Selected workflow actions"
             >
@@ -545,6 +572,7 @@ export function SavedTasks({
               </span>
               <Button
                 variant="ghost"
+                className="small"
                 disabled={selected.size === 0 || Boolean(action)}
                 onClick={() => setSelected(new Set())}
               >
@@ -553,6 +581,7 @@ export function SavedTasks({
               {onBulkDelete && (
                 <Button
                   variant="danger"
+                  className="small"
                   disabled={selected.size === 0 || Boolean(action)}
                   onClick={(event) => {
                     const ids = [...selected].slice(0, 200);
@@ -576,145 +605,222 @@ export function SavedTasks({
                     });
                   }}
                 >
-                  <Trash2 size={16} aria-hidden /> Delete selected
+                  <Trash2 size={15} aria-hidden /> Delete selected
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                className="small"
+                onClick={leaveSelectionMode}
+              >
+                Done
+              </Button>
             </div>
           )}
           {earlierRows > 0 && (
-            <p role="status">
+            <p className="home-caption" role="status">
               Showing entries {earlierRows + 1}–
-              {earlierRows + page.items.length}. Reload saved tasks to return to
-              the beginning.
+              {earlierRows + page.items.length}. Refresh to return to the
+              beginning.
             </p>
           )}
           {!page.items.length && (
-            <EmptyState title="No matching saved tasks">
-              Try another search or status.
+            <EmptyState
+              title={filtered ? 'No matching workflows' : 'No workflows yet'}
+            >
+              {filtered
+                ? 'Try another search or filter.'
+                : 'Create a workflow to run prompts on a schedule or on demand.'}
             </EmptyState>
           )}
-          <ul className="workflow-grid">
-            {page.items.map((task) => {
-              const Icon = workflowIcon(task.icon, task.notify_only);
-              const active = task.last_status?.toLowerCase() === 'running';
-              const schedule = scheduleLabel(task.schedule, task.at);
-              const lastRun = lastRunLabel(task.last_run);
-              const actions = [
-                ...(onRuns
-                  ? [
-                      {
-                        label: 'Run history',
-                        onSelect: () => onRuns(task.id),
-                      },
-                    ]
-                  : []),
-                ...(onGraph
-                  ? [
-                      {
-                        label: 'Edit workflow steps',
-                        onSelect: () => onGraph(task.id, task.name),
-                      },
-                    ]
-                  : []),
-                ...(onSettings
-                  ? [
-                      {
-                        label: 'Workflow settings',
-                        onSelect: () => onSettings(task.id, task.name),
-                      },
-                    ]
-                  : []),
-                ...(task.conversation_id
-                  ? [
-                      {
-                        label: 'Open conversation',
-                        onSelect: () =>
-                          navigate(
-                            `/conversations/${encodeURIComponent(task.conversation_id!)}`,
-                          ),
-                      },
-                    ]
-                  : []),
-              ];
-              return (
-                <li
-                  className={`workflow-card ${task.enabled ? '' : 'workflow-card-disabled'}`}
-                  key={task.id}
-                >
-                  {selecting && (
-                    <label className="workflow-select-control">
-                      <span className="sr-only">
-                        Select workflow: {task.name}
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(task.id)}
-                        onChange={(event) =>
-                          toggleSelected(task.id, event.target.checked)
-                        }
-                      />
-                    </label>
-                  )}
-                  <header className="workflow-card-header">
-                    <span className="workflow-icon" aria-hidden>
-                      <Icon size={22} />
-                    </span>
-                    <div className="workflow-card-title">
-                      <h2 title={task.name}>{task.name}</h2>
-                    </div>
-                  </header>
-                  <p className="workflow-description">
-                    {task.description ||
-                      (task.notify_only ? 'Reminder' : 'No description.')}
-                  </p>
-                  <p
-                    className="workflow-metadata"
-                    title={
-                      [task.schedule, task.at, task.last_run]
-                        .filter(Boolean)
-                        .join(' · ') || undefined
-                    }
+          {page.items.length > 0 && (
+            <ul className="workflow-grid workflow-rows">
+              {page.items.map((task) => {
+                const running = isRunning(task);
+                const run = task.active_run;
+                const next = parseTimestamp(task.next_run);
+                const schedule = scheduleWords(task.schedule, task.at);
+                const lastRun = task.last_run ? (
+                  <>
+                    Ran <When value={task.last_run} />
+                  </>
+                ) : (
+                  'Never run'
+                );
+                const actions: MenuAction[] = [
+                  ...(onRuns
+                    ? [
+                        {
+                          label: 'Run history',
+                          onSelect: () => onRuns(task.id, task.name),
+                        },
+                      ]
+                    : []),
+                  ...(onGraph
+                    ? [
+                        {
+                          label: 'Edit workflow steps',
+                          onSelect: () => onGraph(task.id, task.name),
+                        },
+                      ]
+                    : []),
+                  ...(onSettings
+                    ? [
+                        {
+                          label: 'Workflow settings',
+                          onSelect: () => onSettings(task.id, task.name),
+                        },
+                      ]
+                    : []),
+                  ...(task.conversation_id
+                    ? [
+                        {
+                          label: 'Open conversation',
+                          onSelect: () =>
+                            onOpenConversation
+                              ? onOpenConversation(task.conversation_id!)
+                              : navigate(
+                                  `/conversations/${encodeURIComponent(task.conversation_id!)}`,
+                                ),
+                        },
+                      ]
+                    : []),
+                  ...(onDelete
+                    ? [
+                        {
+                          label: 'Delete workflow',
+                          danger: true,
+                          disabled: Boolean(action),
+                          onSelect: (opener) =>
+                            overlay.open({
+                              kind: 'alert',
+                              returnFocusTo: opener,
+                              title: `Delete '${task.name}'?`,
+                              description:
+                                'This removes the workflow, its schedule and live state. Completed run records remain in audit history.',
+                              confirmLabel: 'Delete workflow',
+                              onConfirm: () =>
+                                void invoke(
+                                  `delete:${task.id}`,
+                                  () => onDelete(task.id),
+                                  `${task.name} deleted.`,
+                                ),
+                            }),
+                        } satisfies MenuAction,
+                      ]
+                    : []),
+                ];
+                const failed = FAILED_RUN_STATUSES.has(
+                  String(task.last_status ?? '').toLowerCase(),
+                );
+                return (
+                  <li
+                    className="workflow-row"
+                    data-enabled={task.enabled ? 'true' : 'false'}
+                    data-running={running ? 'true' : undefined}
+                    data-failed={failed ? 'true' : undefined}
+                    key={task.id}
                   >
-                    <span>
-                      {task.notify_only
-                        ? 'Reminder'
-                        : `${task.step_count} ${task.step_count === 1 ? 'step' : 'steps'}`}
+                    {selecting && (
+                      <label className="workflow-select-control">
+                        <span className="sr-only">
+                          Select workflow: {task.name}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(task.id)}
+                          onChange={(event) =>
+                            toggleSelected(task.id, event.target.checked)
+                          }
+                        />
+                      </label>
+                    )}
+                    <span className="workflow-icon" aria-hidden>
+                      <WorkflowGlyph task={task} />
                     </span>
-                    <span aria-hidden>·</span>
-                    <span>{lastRun}</span>
-                    <span aria-hidden>·</span>
-                    <span>{schedule}</span>
-                  </p>
-                  <footer className="workflow-card-footer">
-                    <div className="workflow-enabled-control">
-                      <span>{task.enabled ? 'Enabled' : 'Disabled'}</span>
-                      <Toggle
-                        label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
-                        checked={task.enabled}
-                        disabled={
-                          !onToggleEnabled ||
-                          action === `toggle:${task.id}` ||
-                          Boolean(action && action !== `toggle:${task.id}`)
-                        }
-                        onChange={(event) =>
-                          void invoke(
-                            `toggle:${task.id}`,
-                            () =>
-                              onToggleEnabled!(task.id, event.target.checked),
-                            `${task.name} ${event.target.checked ? 'enabled' : 'disabled'}.`,
-                          )
-                        }
-                      />
+                    <div className="workflow-row-main">
+                      <span className="workflow-row-title">
+                        <span className="workflow-row-name" title={task.name}>
+                          {task.name}
+                        </span>
+                        {task.description && (
+                          <span
+                            className="workflow-row-description"
+                            title={task.description}
+                          >
+                            {task.description}
+                          </span>
+                        )}
+                      </span>
+                      <p className="workflow-metadata">
+                        <span>
+                          {task.notify_only
+                            ? 'Reminder'
+                            : `${task.step_count} ${task.step_count === 1 ? 'step' : 'steps'}`}
+                        </span>
+                        <span aria-hidden>·</span>
+                        <span>{lastRun}</span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          {schedule === 'Manual' ? 'Run manually' : schedule}
+                        </span>
+                      </p>
                     </div>
-                    <span
-                      className={`workflow-last-status ${active ? 'active' : ''}`}
-                    >
-                      {task.last_status || 'No recorded status'}
+                    <span className="workflow-next">
+                      {next && task.enabled ? (
+                        <>
+                          <span className="visually-hidden">Next run </span>
+                          <When value={task.next_run} />
+                        </>
+                      ) : (
+                        <span className="workflow-next-none">
+                          {task.schedule || task.at
+                            ? task.enabled
+                              ? 'Not scheduled'
+                              : 'Paused'
+                            : ''}
+                        </span>
+                      )}
                     </span>
-                    <div className="workflow-card-actions">
-                      {active
+                    <span className="workflow-status">
+                      {running ? (
+                        <button
+                          type="button"
+                          className="workflow-progress"
+                          onClick={() => onRuns?.(task.id, task.name)}
+                        >
+                          <span className="workflow-progress-dot" aria-hidden />
+                          <span className="visually-hidden">
+                            Open run of {task.name}:{' '}
+                          </span>
+                          {run && run.steps_total > 0
+                            ? `Step ${Math.min(run.steps_done + 1, run.steps_total)}/${run.steps_total}`
+                            : runStatus(run?.status ?? 'running').label}
+                        </button>
+                      ) : (
+                        <RunSparkline
+                          runs={task.recent_runs}
+                          name={task.name}
+                        />
+                      )}
+                    </span>
+                    <Toggle
+                      label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
+                      checked={task.enabled}
+                      disabled={!onToggleEnabled || Boolean(action)}
+                      onChange={(event) =>
+                        void invoke(
+                          `toggle:${task.id}`,
+                          () => onToggleEnabled!(task.id, event.target.checked),
+                          `${task.name} ${event.target.checked ? 'enabled' : 'disabled'}.`,
+                        )
+                      }
+                    />
+                    <div className="workflow-row-actions">
+                      {running
                         ? onStop && (
-                            <CompactAction
+                            <IconButton
+                              size="sm"
                               label={`Stop running workflow: ${task.name}`}
                               variant="danger"
                               disabled={Boolean(action)}
@@ -726,55 +832,27 @@ export function SavedTasks({
                                 )
                               }
                             >
-                              <Square size={16} aria-hidden />
-                            </CompactAction>
+                              <Square size={14} aria-hidden />
+                            </IconButton>
                           )
-                        : onRun && (
-                            <CompactAction
+                        : onRuns && (
+                            <IconButton
+                              size="sm"
                               label={`Run workflow: ${task.name}`}
-                              disabled={!task.enabled || Boolean(action)}
-                              onClick={() =>
-                                void invoke(
-                                  `run:${task.id}`,
-                                  () => onRun(task.id),
-                                  `${task.name} started.`,
-                                )
-                              }
+                              disabled={Boolean(action)}
+                              onClick={() => onRuns(task.id, task.name)}
                             >
-                              <Play size={17} aria-hidden />
-                            </CompactAction>
+                              <Play size={15} aria-hidden />
+                            </IconButton>
                           )}
                       {onEdit && (
-                        <CompactAction
+                        <IconButton
+                          size="sm"
                           label={`Edit workflow: ${task.name}`}
                           onClick={() => onEdit(task.id, task.name)}
                         >
-                          <Pencil size={16} aria-hidden />
-                        </CompactAction>
-                      )}
-                      {onDelete && (
-                        <CompactAction
-                          label={`Delete workflow: ${task.name}`}
-                          disabled={Boolean(action)}
-                          onClick={(event) =>
-                            overlay.open({
-                              kind: 'alert',
-                              title: `Delete '${task.name}'?`,
-                              description:
-                                'This removes the workflow, its schedule and live state. Completed run records remain in audit history.',
-                              confirmLabel: 'Delete workflow',
-                              returnFocusTo: event.currentTarget,
-                              onConfirm: () =>
-                                void invoke(
-                                  `delete:${task.id}`,
-                                  () => onDelete(task.id),
-                                  `${task.name} deleted.`,
-                                ),
-                            })
-                          }
-                        >
-                          <Trash2 size={16} aria-hidden />
-                        </CompactAction>
+                          <Pencil size={14} aria-hidden />
+                        </IconButton>
                       )}
                       {actions.length > 0 && (
                         <Menu
@@ -782,22 +860,25 @@ export function SavedTasks({
                           hint="More workflow actions"
                           iconOnly
                           variant="ghost"
+                          className="icon-action icon-action-sm"
                           actions={actions}
                         >
-                          <span className="workflow-more" aria-hidden>
-                            •••
-                          </span>
+                          <MoreHorizontal size={16} aria-hidden />
                         </Menu>
                       )}
                     </div>
-                  </footer>
-                </li>
-              );
-            })}
-          </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           {page.next_cursor && (
-            <Button disabled={loadingMore} onClick={() => void nextPage()}>
-              {loadingMore ? 'Loading more tasks…' : 'Load more tasks'}
+            <Button
+              className="workflow-more-rows"
+              disabled={loadingMore}
+              onClick={() => void nextPage()}
+            >
+              {loadingMore ? 'Loading more workflows…' : 'Load more workflows'}
             </Button>
           )}
         </>
@@ -810,12 +891,46 @@ const noTaskSubscription = () => () => {};
 const emptyTaskSessions = { selected: null, drafts: [], capacity: false };
 const noTaskSnapshot = () => emptyTaskSessions;
 
+function EditorFrame({
+  title,
+  label,
+  onBack,
+  children,
+  headingRef,
+}: {
+  title: string;
+  label: string;
+  onBack: () => void;
+  children: React.ReactNode;
+  headingRef?: Ref<HTMLHeadingElement>;
+}) {
+  return (
+    <section
+      className="route-surface workflow-editor-view home-page"
+      aria-label={label}
+    >
+      <header className="home-page-header">
+        <IconButton size="sm" label="Back to workflows" onClick={onBack}>
+          <ArrowLeft size={16} aria-hidden />
+        </IconButton>
+        <h1 ref={headingRef} tabIndex={-1}>
+          {title}
+        </h1>
+      </header>
+      {children}
+    </section>
+  );
+}
+
 export default function TaskLibrary() {
   const { controller, taskEditSessions } = useRuntime();
   const state = useClientState();
   const navigate = useNavigate();
   const overlay = useOverlay();
-  const [running, setRunning] = useState<string | null>(null);
+  const [search, setSearch] = useSearchParams();
+  const [runsFor, setRunsFor] = useState<{ id: string; name: string } | null>(
+    null,
+  );
   const [reload, setReload] = useState(0);
   const [delivery, setDelivery] = useState<TaskDeliverySnapshot | null>(null);
   const execution = useMemo(() => taskRuns(controller), [controller]);
@@ -836,6 +951,30 @@ export default function TaskLibrary() {
     taskEditSessions?.subscribe ?? noTaskSubscription,
     taskEditSessions?.getSnapshot ?? noTaskSnapshot,
   );
+  // Overview links open one workflow's runs: /?tab=workflows&workflow=<id>.
+  const requestedRuns = search.get('workflow');
+  useEffect(() => {
+    if (!requestedRuns) return;
+    setRunsFor({ id: requestedRuns, name: '' });
+    setSearch(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('workflow');
+        return next;
+      },
+      { replace: true },
+    );
+    // The link carries only the id; name the drawer once the task is read.
+    controller.taskEditor(requestedRuns).then(
+      (task) =>
+        setRunsFor((current) =>
+          current?.id === requestedRuns && !current.name
+            ? { id: requestedRuns, name: task.fields.name }
+            : current,
+        ),
+      () => {},
+    );
+  }, [controller, requestedRuns, setSearch]);
   useEffect(() => {
     if (!state.handshake) return;
     const abort = new AbortController();
@@ -845,6 +984,9 @@ export default function TaskLibrary() {
     return () => abort.abort();
   }, [controller, reload, state.handshake]);
   const selected = sessions.selected;
+  // The draft in the editor is not waiting to be continued. Its row stays
+  // mounted (hidden) so closing the editor returns focus to it.
+  const waitingDrafts = sessions.drafts.filter((draft) => !draft.open);
   const selectedTaskId =
     selected?.session.kind === 'task' ? selected.session.taskId : null;
   useEffect(() => {
@@ -885,17 +1027,23 @@ export default function TaskLibrary() {
       },
     );
   };
-  const runTask = async (id: string) => {
-    const review = await controller.taskRunReview(id);
-    await execution.run(review);
-  };
   const stopTask = async (id: string) => {
     const page = await controller.taskRuns(id);
-    const active = page.items.find(
-      (item) => item.status.toLowerCase() === 'running',
+    const active = page.items.find((item) =>
+      [
+        'running',
+        'starting',
+        'resuming',
+        'paused',
+        'waiting_approval',
+      ].includes(item.status.toLowerCase()),
     );
     if (!active) throw clientError({ code: 'task_run_not_found' });
     await execution.stop(id, active.id);
+  };
+  const openConversation = (id: string) => {
+    void controller.selectConversation(id);
+    navigate(`/conversations/${encodeURIComponent(id)}`);
   };
   if (!state.handshake) return <Skeleton label="Connecting to workflows" />;
   if (!taskEditSessions)
@@ -906,15 +1054,16 @@ export default function TaskLibrary() {
     );
   if (selected?.session.kind === 'settings')
     return (
-      <section
-        className="route-surface stack"
-        aria-label="Workflow configuration"
+      <EditorFrame
+        title="Workflow settings"
+        label="Workflow configuration"
+        onBack={close}
       >
-        <h1>Workflow settings</h1>
         <TaskSettingsEditor
           key={selected.session.taskId}
           session={selected.session}
           taskId={selected.session.taskId}
+          taskName={selected.label}
           load={controller.taskSettings}
           review={controller.reviewTaskSettings}
           save={selected.settings.save}
@@ -923,15 +1072,15 @@ export default function TaskLibrary() {
           onSaved={saved}
           onCancel={close}
         />
-      </section>
+      </EditorFrame>
     );
   if (selected?.session.kind === 'graph')
     return (
-      <section
-        className="route-surface stack"
-        aria-label="Workflow step editor"
+      <EditorFrame
+        title="Edit workflow steps"
+        label="Workflow step editor"
+        onBack={close}
       >
-        <h1>Edit workflow steps</h1>
         <TaskGraphEditor
           key={selected.session.taskId}
           session={selected.session}
@@ -940,15 +1089,31 @@ export default function TaskLibrary() {
           save={selected.graph}
           onSaved={saved}
           onCancel={close}
+          onBuilder={() =>
+            taskEditSessions.open(
+              'task',
+              selected.session.taskId,
+              selected.label,
+            )
+          }
+          onTaskSettings={() =>
+            taskEditSessions.open(
+              'settings',
+              selected.session.taskId,
+              selected.label,
+            )
+          }
         />
-      </section>
+      </EditorFrame>
     );
   if (selected?.session.kind === 'task' && selected.session.taskId)
     return (
-      <section className="route-surface stack" aria-label="Workflow editor">
-        <h1 ref={editorHeading} tabIndex={-1}>
-          {selected.session.taskId ? 'Edit workflow' : 'New workflow'}
-        </h1>
+      <EditorFrame
+        title="Edit workflow"
+        label="Workflow editor"
+        onBack={close}
+        headingRef={editorHeading}
+      >
         <TaskEditor
           key={selected.session.taskId}
           session={selected.session}
@@ -958,35 +1123,36 @@ export default function TaskLibrary() {
           save={selected.edits.save}
           onSaved={saved}
           onCancel={close}
-        />
-      </section>
-    );
-  if (running !== null)
-    return (
-      <section className="route-surface stack" aria-label="Workflow runs">
-        <h1>Workflow runs</h1>
-        <Button onClick={() => setRunning(null)}>Back to workflows</Button>
-        <TaskRun
-          taskId={running}
-          loadReview={controller.taskRunReview}
-          loadHistory={controller.taskRuns}
-          loadApprovals={controller.taskApprovals}
-          run={execution.run}
-          stop={execution.stop}
-          respondApproval={execution.respondApproval}
-          openConversation={(id) =>
-            navigate(`/conversations/${encodeURIComponent(id)}`)
+          deliveryDefaults={
+            delivery?.channels
+              .filter((channel) => channel.selected)
+              .map((channel) => channel.label) ?? []
+          }
+          onAdvancedSteps={() =>
+            taskEditSessions.open(
+              'graph',
+              selected.session.taskId,
+              selected.label,
+            )
+          }
+          onTaskSettings={() =>
+            taskEditSessions.open(
+              'settings',
+              selected.session.taskId,
+              selected.label,
+            )
           }
         />
-      </section>
+      </EditorFrame>
     );
   return (
-    <div className="stack">
+    <div className="workflow-home">
       <ModalTask
         open={selected?.session.kind === 'task' && !selected.session.taskId}
         title="New task/workflow"
-        description="Define a workflow or reminder, then save it without starting a run."
+        description="Name it, add steps, and choose when it runs. Saving never starts a run."
         ariaLabel="New task/workflow"
+        className="workflow-builder-dialog"
         dismissible={!selected?.session.getMeta().busy}
         fallbackFocusTo={createButton.current}
         onOpenChange={(open) => {
@@ -1001,11 +1167,16 @@ export default function TaskLibrary() {
             save={selected.edits.save}
             onSaved={saved}
             onCancel={close}
+            deliveryDefaults={
+              delivery?.channels
+                .filter((channel) => channel.selected)
+                .map((channel) => channel.label) ?? []
+            }
           />
         )}
       </ModalTask>
       {sessions.capacity && (
-        <p role="alert">
+        <p role="alert" className="workflow-capacity">
           Eight workflows already have unsaved or unresolved changes. Continue
           one of them before opening another.
         </p>
@@ -1013,70 +1184,76 @@ export default function TaskLibrary() {
       {sessions.drafts.length > 0 && (
         <section
           aria-label="Continue editing workflows"
-          className="workflow-recovery stack"
+          className="workflow-recovery"
+          hidden={waitingDrafts.length === 0}
         >
           <h2>Continue editing</h2>
-          <p>
-            Unsaved workflow changes stay on this device while Row-Bot remains
-            open. A save whose outcome is not yet known must be checked before
-            it can be discarded.
-          </p>
           <ul className="workflow-recovery-list">
             {sessions.drafts.map((draft) => {
               const area =
                 draft.kind === 'graph'
-                  ? 'steps'
+                  ? 'Steps'
                   : draft.kind === 'settings'
-                    ? 'settings'
-                    : 'details';
+                    ? 'Settings'
+                    : 'Details';
               const stateLabel = draft.uncertain
-                ? 'Save outcome needs review'
+                ? 'save outcome needs review'
                 : draft.busy
-                  ? 'Save in progress'
+                  ? 'saving'
                   : draft.dirty
-                    ? 'Unsaved changes'
-                    : 'Pending save receipt';
+                    ? 'unsaved changes'
+                    : 'waiting for the save receipt';
               return (
-                <li className="workflow-recovery-row" key={draft.key}>
+                <li
+                  className="workflow-recovery-row"
+                  key={draft.key}
+                  hidden={draft.open}
+                >
+                  <Pencil size={14} aria-hidden />
                   <div>
                     <strong>{draft.label}</strong>
                     <small>
                       {area} · {stateLabel}
                     </small>
                   </div>
-                  <div className="action-cluster">
-                    <Button
-                      onClick={() =>
-                        taskEditSessions.open(
-                          draft.kind,
-                          draft.taskId,
-                          draft.label,
-                        )
-                      }
-                    >
-                      Continue editing
-                    </Button>
-                    <Button
-                      disabled={!draft.canDiscard}
-                      onClick={(event) =>
-                        overlay.open({
-                          kind: 'alert',
-                          title: `Discard changes to ${draft.label}?`,
-                          description:
-                            'These unsaved workflow changes will be removed from this device. The last saved workflow is not deleted.',
-                          confirmLabel: 'Discard changes',
-                          returnFocusTo: event.currentTarget,
-                          onConfirm: () => taskEditSessions.discard(draft.key),
-                        })
-                      }
-                    >
-                      Discard changes
-                    </Button>
-                  </div>
+                  <Button
+                    className="small"
+                    onClick={() =>
+                      taskEditSessions.open(
+                        draft.kind,
+                        draft.taskId,
+                        draft.label,
+                      )
+                    }
+                  >
+                    Continue editing
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="small"
+                    disabled={!draft.canDiscard}
+                    onClick={(event) =>
+                      overlay.open({
+                        kind: 'alert',
+                        title: `Discard changes to ${draft.label}?`,
+                        description:
+                          'These unsaved workflow changes will be removed from this device. The last saved workflow is not deleted.',
+                        confirmLabel: 'Discard changes',
+                        returnFocusTo: event.currentTarget,
+                        onConfirm: () => taskEditSessions.discard(draft.key),
+                      })
+                    }
+                  >
+                    Discard changes
+                  </Button>
                 </li>
               );
             })}
           </ul>
+          <p className="home-caption">
+            Unsaved changes stay on this device while Row-Bot is open. A save
+            whose outcome is unknown must be checked before it can be discarded.
+          </p>
         </section>
       )}
       <SavedTasks
@@ -1086,27 +1263,50 @@ export default function TaskLibrary() {
         load={controller.savedTasks}
         onCreate={() => taskEditSessions.open('task')}
         onEdit={(id, name) => taskEditSessions.open('task', id, name)}
-        onRuns={setRunning}
+        onRuns={(id, name) => setRunsFor({ id, name })}
+        onOpenConversation={openConversation}
         onToggleEnabled={toggleEnabled}
         onDelete={deleteTask}
         onBulkDelete={deleteTasks}
-        onRun={runTask}
         onStop={stopTask}
         deliveryDefaults={
           delivery?.channels.filter((channel) => channel.selected) ?? []
         }
         deliveryOptions={delivery?.channels ?? []}
-        onRemoveDeliveryDefault={(id) =>
-          saveDeliveryDefaults(
-            delivery?.channels
-              .filter((channel) => channel.selected && channel.id !== id)
-              .map((channel) => channel.id) ?? [],
-          )
-        }
         onSetDeliveryDefaults={saveDeliveryDefaults}
         onGraph={(id, name) => taskEditSessions.open('graph', id, name)}
         onSettings={(id, name) => taskEditSessions.open('settings', id, name)}
       />
+      <Drawer
+        open={runsFor !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRunsFor(null);
+            setReload((value) => value + 1);
+          }
+        }}
+        title={runsFor?.name || 'Workflow runs'}
+        description="Run it, follow its progress and answer approvals"
+        closeLabel="Close workflow runs"
+        className="workflow-run-drawer"
+      >
+        {runsFor && (
+          <TaskRun
+            key={runsFor.id}
+            taskId={runsFor.id}
+            loadReview={controller.taskRunReview}
+            loadHistory={controller.taskRuns}
+            loadApprovals={controller.taskApprovals}
+            run={execution.run}
+            stop={execution.stop}
+            respondApproval={execution.respondApproval}
+            openConversation={(id) => {
+              setRunsFor(null);
+              openConversation(id);
+            }}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }

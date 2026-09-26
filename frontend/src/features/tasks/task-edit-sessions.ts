@@ -261,6 +261,8 @@ export function createTaskEditSessions(
       kind: TaskEditKind;
       taskId: string;
       label: string;
+      /** Shown in the editor right now. */
+      open: boolean;
       dirty: boolean;
       busy: boolean;
       uncertain: boolean;
@@ -281,6 +283,7 @@ export function createTaskEditSessions(
             kind: entry.session.kind,
             taskId: entry.session.taskId,
             label: entry.label,
+            open: key === selected,
             dirty: meta.dirty,
             busy: meta.busy,
             uncertain: meta.uncertain,
