@@ -453,6 +453,63 @@ describe('Buddy avatar lifecycle', () => {
       expect(view.container.querySelector('video')).toBeInTheDocument(),
     );
   });
+
+  it('settles a finished run after two passes but loops while work is live (B29)', async () => {
+    let nextUrl = 0;
+    vi.stubGlobal('URL', {
+      createObjectURL: () => `blob:finished-${++nextUrl}`,
+      revokeObjectURL: vi.fn(),
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const loadMedia = async () => new Blob(['clip']);
+    const celebrating = {
+      ...pack,
+      animation_map: { ...pack.animation_map, celebrate: 'idle-loop' },
+    };
+    const view = render(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={celebrating}
+        snapshot={{
+          ...snapshot,
+          activity: 'completed',
+          status: { ...snapshot.status, event_id: 21 },
+        }}
+        loadMedia={loadMedia}
+      />,
+    );
+    const video = await waitFor(() => {
+      const element = view.container.querySelector('video');
+      expect(element).toBeInTheDocument();
+      return element!;
+    });
+    fireEvent.ended(video);
+    expect(view.container.querySelector('video')).toBeInTheDocument();
+    fireEvent.ended(video);
+    expect(view.container.querySelector('video')).not.toBeInTheDocument();
+    view.rerender(
+      <BuddyAvatar
+        conversation="conversation"
+        pack={{
+          ...celebrating,
+          animation_map: { ...celebrating.animation_map, working: 'idle-loop' },
+        }}
+        snapshot={{
+          ...snapshot,
+          activity: 'tool',
+          status: { ...snapshot.status, event_id: 22 },
+        }}
+        loadMedia={loadMedia}
+      />,
+    );
+    const live = await waitFor(() => {
+      const element = view.container.querySelector('video');
+      expect(element).toBeInTheDocument();
+      return element!;
+    });
+    for (let pass = 0; pass < 4; pass += 1) fireEvent.ended(live);
+    expect(view.container.querySelector('video')).toBeInTheDocument();
+  });
 });
 
 it('reuses pack media across conversations for the same pack revision', async () => {

@@ -158,7 +158,12 @@ export function BuddyAvatar({
     )?.id ?? '';
   const motionEvent = `${activity}:${clip}:${snapshot.status.event_id}`;
   useEffect(() => setMotionPasses(0), [motionEvent]);
-  const motionActive = !!motion && (activity !== 'idle' || motionPasses < 2);
+  // Idle and finished states play their clip twice and then rest on the
+  // still; only live work loops. A clip looping forever keeps a video and a
+  // per-frame canvas pass running on every open page (B29).
+  const settles =
+    activity === 'idle' || activity === 'completed' || activity === 'stopped';
+  const motionActive = !!motion && (!settles || motionPasses < 2);
   const draw = useCallback((source: HTMLImageElement | HTMLVideoElement) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -281,7 +286,7 @@ export function BuddyAvatar({
       data-buddy-mood={snapshot.status.mood}
       data-buddy-animation={snapshot.status.animation}
       data-media={
-        motion && activity === 'idle' && motionPasses >= 2
+        motion && settles && motionPasses >= 2
           ? still
             ? 'still'
             : 'fallback'
@@ -329,7 +334,7 @@ export function BuddyAvatar({
           playsInline
           onLoadedData={() => setVideoReady(true)}
           onEnded={(event) => {
-            if (activity !== 'idle') {
+            if (!settles) {
               event.currentTarget.currentTime = 0;
               void event.currentTarget.play().catch(() => setMotionPasses(2));
             } else if (motionPasses === 0) {
