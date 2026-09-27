@@ -114,3 +114,53 @@ def overlay_lifecycle(webview: Any, script: Any, report: dict[str, Any]) -> None
     report["closing_docked"] = main.events.closing.fire()
     report["main_open_overlay_route"] = main.dispatch("managed_window", {"route": "/app-v2/buddy-overlay"})
     report["main_status"] = main.dispatch("buddy_placement", {"action": "status"})
+
+
+def _control(script: Any, route: str) -> list[Any]:
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{script._CONTROL_PORT}{route}", timeout=5) as response:
+            return [response.status, json.loads(response.read())]
+    except urllib.error.HTTPError as error:
+        body = error.read()
+        return [error.code, json.loads(body) if body else None]
+
+
+def startup_and_tray(webview: Any, script: Any, report: dict[str, Any]) -> None:
+    main = webview.windows[0]
+    report["main_created_with"] = main.buddy_config_at_create
+    report["config_at_start"] = _config()
+    if os.name == "nt":
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        user32.GetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        report["per_monitor_v2"] = bool(user32.AreDpiAwarenessContextsEqual(
+            ctypes.c_void_p(user32.GetThreadDpiAwarenessContext()), ctypes.c_void_p(-4)))
+    report["show_while_docked"] = _control(script, "/buddy/show?manual=1")
+    report["windows_while_docked"] = len(webview.windows)
+
+    main.load()
+    main.dispatch("discover", {"attestation": "attest-main"})
+    main.dispatch("buddy_placement", {"action": "tear_off", "x": 900, "y": 600})
+    buddy = webview.windows[1]
+    buddy.load()
+    buddy.dispatch("discover", {"attestation": "attest-buddy"})
+    buddy.dispatch("buddy_placement", {"action": "ready"})
+    report["visible_after_ready"] = buddy.visible
+
+    report["hide_automatic"] = _control(script, "/buddy/hide?manual=0")
+    report["after_hide_automatic"] = [buddy.visible, _config()["visible"]]
+    report["show_automatic"] = _control(script, "/buddy/show?manual=false")
+    report["hide_manual"] = _control(script, "/buddy/hide")
+    report["after_hide_manual"] = [buddy.visible, _config()["visible"]]
+    report["show_manual"] = _control(script, "/buddy/show?manual=1")
+    report["after_show_manual"] = [buddy.visible, _config()["visible"]]
+    main.hide()
+    report["main_show"] = _control(script, "/main/show")
+    report["main_visible"] = main.visible
+    report["close"] = _control(script, "/buddy/close")
+    report["after_close"] = [buddy.destroyed, _config()["placement"]]
+    report["unknown"] = _control(script, "/buddy/collapse")

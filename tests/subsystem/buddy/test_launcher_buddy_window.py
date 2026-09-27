@@ -80,9 +80,20 @@ def api():
         server.server_close()
 
 
-def _run(tmp_path: Path, port: int, scenario: str, *, client_v2: bool = True) -> dict:
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _run(tmp_path: Path, port: int, scenario: str, *, client_v2: bool = True,
+         control_port: int = 0, buddy_config: dict | None = None) -> dict:
     data = tmp_path / "data"
     data.mkdir()
+    if buddy_config is not None:
+        (data / "buddy_config.json").write_text(json.dumps(buddy_config), encoding="utf-8")
     report = tmp_path / "report.json"
     environment = {
         key: value for key, value in os.environ.items()
@@ -98,7 +109,7 @@ def _run(tmp_path: Path, port: int, scenario: str, *, client_v2: bool = True) ->
     })
     completed = subprocess.run(
         [sys.executable, "-", f"http://127.0.0.1:{port}/app-v2/", "Row-Bot",
-         "1280", "900", "", "0", "1" if client_v2 else "0"],
+         "1280", "900", "", str(control_port), "1" if client_v2 else "0"],
         input=launcher._WINDOW_SCRIPT,
         text=True,
         capture_output=True,
@@ -197,3 +208,28 @@ def test_window_script_points_the_overlay_at_the_react_route() -> None:
     end = source.index("\ndef ", start + 1)
     exec(compile(source[start:end], "<window-script>", "exec"), namespace)
     assert namespace["_buddy_overlay_url"](8765) == "http://127.0.0.1:8765/app-v2/buddy-overlay"
+
+
+def test_start_up_docks_buddy_first_and_the_tray_controls_follow_placement(tmp_path, api) -> None:
+    """Tear-off is session-scoped; the tray's loopback control routes show,
+    hide and close only a torn-off Buddy, and only manual changes persist."""
+    report = _run(tmp_path, api.server_address[1], "startup_and_tray", control_port=_free_port(),
+                  buddy_config={"placement": "desktop", "visible": True, "overlay": {"x": 300, "y": 200}})
+    assert report["main_created_with"] == {"placement": "docked", "visible": True}
+    assert report["config_at_start"] == {"placement": "docked", "visible": True, "overlay": {"x": 300, "y": 200}}
+    if sys.platform == "win32":
+        assert report["per_monitor_v2"] is True
+    assert report["show_while_docked"] == [409, {"ok": False}]
+    assert report["windows_while_docked"] == 1
+    assert report["visible_after_ready"] is True
+    assert report["hide_automatic"] == [200, {"ok": True}]
+    assert report["after_hide_automatic"] == [False, True]
+    assert report["show_automatic"] == [200, {"ok": True}]
+    assert report["hide_manual"] == [200, {"ok": True}]
+    assert report["after_hide_manual"] == [False, False]
+    assert report["show_manual"] == [200, {"ok": True}]
+    assert report["after_show_manual"] == [True, True]
+    assert report["main_show"] == [200, {"ok": True}] and report["main_visible"] is True
+    assert report["close"] == [200, {"ok": True}]
+    assert report["after_close"] == [True, "desktop"]
+    assert report["unknown"] == [404, None]

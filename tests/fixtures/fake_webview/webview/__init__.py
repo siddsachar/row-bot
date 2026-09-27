@@ -43,6 +43,17 @@ class Events:
             setattr(self, name, Event())
 
 
+def _buddy_config() -> dict[str, Any] | None:
+    """The saved Buddy placement when a window is created (test data dir only)."""
+    path = os.path.join(os.environ.get("ROW_BOT_DATA_DIR", ""), "buddy_config.json")
+    try:
+        with open(path, encoding="utf-8") as stream:
+            value = json.load(stream)
+    except (OSError, ValueError):
+        return None
+    return {"placement": value.get("placement"), "visible": value.get("visible")}
+
+
 class Window:
     def __init__(self, title: str, url: str, options: dict[str, Any]) -> None:
         self.uid = f"window-{next(_ids)}"
@@ -54,6 +65,7 @@ class Window:
         self.exposed: dict[str, Callable[..., Any]] = {}
         self.visible = not options.get("hidden", False)
         self.destroyed = False
+        self.buddy_config_at_create = _buddy_config()
         windows.append(self)
 
     def _note(self, action: str, *args: Any) -> None:
