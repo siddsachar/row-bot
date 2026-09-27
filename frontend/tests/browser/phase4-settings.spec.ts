@@ -1268,9 +1268,11 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   await preferences
     .getByLabel('Bubble style', { exact: true })
     .selectOption('chatty');
-  await page
-    .getByLabel('Describe your Buddy', { exact: true })
-    .fill('Retained synthetic description');
+  const describe = page.getByLabel('Describe your Buddy', { exact: true });
+  // The pack's description seeds the empty field once it loads; replace it
+  // after that, or typing races the seed.
+  await expect(describe).not.toHaveValue('');
+  await describe.fill('Retained synthetic description');
   await openHomeThroughNavigation(page);
   await expectFocusedHome(page);
   await openSettingsRouteFromHome(page, {

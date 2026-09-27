@@ -710,14 +710,29 @@ test('actual state messages and recovery controls remain readable in light and d
           name: 'Check request receipt',
           exact: true,
         });
+        // A compact composer keeps recovery in its Message actions menu.
+        const messageActions = page.getByRole('button', {
+          name: 'Message actions',
+          exact: true,
+        });
         await expect.poll(() => lostResponseFinished).toBe(true);
-        await expect(receipt).toBeVisible();
+        await expect(receipt.or(messageActions).first()).toBeVisible();
         expect(lost).toBe(true);
-        await assertControlTextUnclipped(receipt);
+        const inMenu = !(await receipt.isVisible());
+        if (!inMenu) await assertControlTextUnclipped(receipt);
         await screenshot(page, info, `${label}-unknown-response`);
         await page.unroute(commands);
-        await receipt.click();
+        if (inMenu) {
+          await messageActions.click();
+          await page
+            .getByRole('menuitem', {
+              name: 'Check request receipt',
+              exact: true,
+            })
+            .click();
+        } else await receipt.click();
         await expect(receipt).toHaveCount(0);
+        await expect(messageActions).toHaveCount(0);
         await expect
           .poll(async () => (await fixtureState(page)).calls.length)
           .toBe(count + 1);
