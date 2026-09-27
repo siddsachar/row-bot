@@ -407,6 +407,42 @@ describe('BuddyOverlay', () => {
     expect(screen.getByText('Chat · Stopped')).toBeVisible();
   });
 
+  it('keeps a message typed during a run and says why it did not send', async () => {
+    const controller = fakeController({
+      projection: {
+        rows: [row('u1', 'user', 'Plan'), row('a1', 'assistant', 'Working')],
+        generation: generation({
+          status: 'running',
+          quiesced: false,
+          can_stop: true,
+        }),
+      } as ClientState['projection'],
+    });
+    renderOverlay(controller);
+    const field = await screen.findByRole('textbox', { name: 'Buddy message' });
+    fireEvent.change(field, { target: { value: 'One more thing' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(
+      await screen.findByText(
+        'Row-Bot is still working. Send when it finishes, or Stop it.',
+      ),
+    ).toHaveAttribute('role', 'status');
+    expect(controller.intent).not.toHaveBeenCalled();
+    expect(controller.getDraft('c1').text).toBe('One more thing');
+    // The hint leaves with the run.
+    act(() =>
+      controller.set({
+        projection: {
+          rows: [row('u1', 'user', 'Plan'), row('a1', 'assistant', 'Done')],
+          generation: generation(),
+        } as ClientState['projection'],
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/Row-Bot is still working/)).toBeNull(),
+    );
+  });
+
   it('names the running step while no words have arrived', async () => {
     const controller = fakeController({
       projection: {

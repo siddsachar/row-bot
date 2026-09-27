@@ -430,6 +430,16 @@ html[data-platform='macos'] .buddy-overlay {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.buddy-overlay-hint {
+  flex: 0 0 auto;
+  margin: -2px 4px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .buddy-overlay-startup-error {
   margin: 0;
   padding: 16px;

@@ -222,6 +222,11 @@ export default function BuddyOverlay({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => setError(''), [id]);
+  const [composerHint, setComposerHint] = useState('');
+  const turnActive = isLive(phase) || phase === 'approval';
+  useEffect(() => {
+    if (!turnActive) setComposerHint('');
+  }, [turnActive]);
   const draft = id ? controller.getDraft(id) : { text: '', attachments: [] };
   const controls =
     state.workspace?.conversation_id === id
@@ -368,7 +373,15 @@ export default function BuddyOverlay({
     }
     if (event.shiftKey) return;
     event.preventDefault();
-    send();
+    // A message cannot start while this turn is working or waiting: say so
+    // instead of ignoring Enter; the draft stays (B98).
+    if (turnInFlight && draft.text.trim())
+      setComposerHint(
+        phase === 'approval'
+          ? 'Row-Bot is waiting for your approval. Your message stays here.'
+          : 'Row-Bot is still working. Send when it finishes, or Stop it.',
+      );
+    else send();
   }
 
   // The header is the drag region. pywebview binds its own drag regions when
@@ -771,10 +784,17 @@ export default function BuddyOverlay({
           />
         </button>
       </form>
-      {error && (
+      {error ? (
         <p className="buddy-overlay-error" role="alert">
           {error}
         </p>
+      ) : (
+        composerHint &&
+        turnInFlight && (
+          <p className="buddy-overlay-hint" role="status">
+            {composerHint}
+          </p>
+        )
       )}
       <p className="visually-hidden" role="status" aria-live="polite">
         {announcement}
