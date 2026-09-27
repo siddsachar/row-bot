@@ -59,9 +59,14 @@ export default function useNewChat() {
     }
   }, [key]);
 
+  /**
+   * Starts a chat. `firstMessage` is sent once the chat is ready unless
+   * `send` is false, when it only waits in the composer as a draft.
+   */
   async function newChat(
     firstMessage = '',
     profile?: { id: string; display_name: string },
+    { send = true }: { send?: boolean } = {},
   ) {
     if (
       operation.current ||
@@ -114,7 +119,12 @@ export default function useNewChat() {
         setPending(null);
         setMissing(null);
         setFocusConversationId(result.conversation_id);
-        if (firstMessage.trim()) {
+        if (firstMessage.trim() && !send) {
+          controller.setDraft(result.conversation_id, {
+            text: firstMessage,
+            attachments: [],
+          });
+        } else if (firstMessage.trim()) {
           controller.setDraft(result.conversation_id, {
             text: firstMessage.trim(),
             attachments: [],

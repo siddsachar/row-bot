@@ -1658,7 +1658,10 @@ export default function Workspace() {
                             resetLayout: () => update(resetLayout),
                             startProfileChat: (profile) =>
                               void creation.newChat('', profile),
-                            newChat: (draft) => void creation.newChat(draft),
+                            newChat: (draft) =>
+                              void creation.newChat(draft, undefined, {
+                                send: false,
+                              }),
                           }}
                         >
                           <Outlet />

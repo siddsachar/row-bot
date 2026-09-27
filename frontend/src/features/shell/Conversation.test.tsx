@@ -200,6 +200,13 @@ function Conversation(props: Parameters<typeof ConversationView>[0]) {
       >
         New chat with example
       </button>
+      <button
+        onClick={() =>
+          void owner.newChat('Create a design: ', undefined, { send: false })
+        }
+      >
+        New chat with a draft
+      </button>
       {owner.error && <p role="alert">{owner.error}</p>}
       {owner.canReview && (
         <button onClick={owner.reviewMissingReceipt}>
@@ -916,6 +923,33 @@ it('creates a conversation and submits a Home example through one user action', 
     write_targets: [],
   });
   expect(mock.drafts.get('first-chat')?.text).toBe('');
+});
+
+it('starts a chat with a draft that waits in the composer and is never sent', async () => {
+  idleConversation();
+  mock.state.selectedConversationId = null;
+  mock.state.conversation = null;
+  mock.state.workspace!.conversation_id = 'first-chat';
+  mock.intent.mockImplementation(
+    async (_target, _type, _payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'first-chat',
+      status: 'completed',
+    }),
+  );
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'New chat with a draft' }),
+    ),
+  );
+  await act(async () => rendered.rerender(<Conversation onPanel={vi.fn()} />));
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.create');
+  expect(mock.drafts.get('first-chat')?.text).toBe('Create a design: ');
 });
 
 it('keeps a Home example as a local draft until a model becomes ready', async () => {

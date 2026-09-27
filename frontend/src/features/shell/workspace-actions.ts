@@ -5,7 +5,7 @@ type WorkspaceActions = {
   resetLayout: () => void;
   /** Start a new chat that uses this agent profile. */
   startProfileChat?: (profile: ProfileSummary) => void;
-  /** Start a new chat, optionally with a draft already in the composer. */
+  /** Start a new chat with this text waiting in the composer (never sent). */
   newChat?: (draft?: string) => void;
 };
 
