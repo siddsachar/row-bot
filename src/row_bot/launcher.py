@@ -1694,6 +1694,12 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 from row_bot.buddy.config import get_buddy_config, save_buddy_config
+from row_bot.buddy.native_host import (
+    OVERLAY_ROUTE,
+    BuddyWindowHost,
+    buddy_overlay_url,
+    placement_callback,
+)
 from row_bot.buddy.overlay import (
     OVERLAY_HEIGHT,
     OVERLAY_WIDTH,
@@ -1701,19 +1707,16 @@ from row_bot.buddy.overlay import (
     ForegroundAppTracker,
     apply_placement_state,
     enable_windows_per_monitor_dpi,
-    finite_coordinate,
-    native_overlay_transparency,
     placement_state_from_config,
     placement_state_for_app_startup,
     platform_foreground_backend,
-    position_for_drop,
     screen_areas_from_native,
-    should_defer_native_show,
 )
 
 _NAMED_WINDOWS = {}
-_BUDDY_WINDOW_READY = False
 _FOREGROUND_TRACKER = ForegroundAppTracker(platform_foreground_backend())
+# Operations the desktop Buddy's document may use: nothing else.
+_BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "main_window"})
 
 def _save_buddy_state(state, *, x=None, y=None):
     config = apply_placement_state(get_buddy_config(), state)
@@ -1789,11 +1792,9 @@ def _port_from_url(url):
     except Exception:
         return 8080
 
-def _buddy_overlay_url(port, cache_bust=False):
-    url = f"http://127.0.0.1:{int(port)}/buddy-overlay"
-    if cache_bust:
-        return f"{url}?buddy_refresh={int(time.time() * 1000)}"
-    return url
+def _buddy_overlay_url(port):
+    # The React overlay (its own small Vite entry), never the NiceGUI page.
+    return buddy_overlay_url(port)
 
 def _buddy_window_log(message):
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [buddy.window] {message}"
@@ -1812,27 +1813,13 @@ def _buddy_window_log(message):
 
 class _JsApi:
     """Expose Python helpers to JavaScript via window.pywebview.api."""
+    # Buddy: the legacy main window and the tray reach the same host as the
+    # React windows' attested bridge.
     def tear_off_buddy(self, screen_x=0, screen_y=0, port=None):
-        try:
-            buddy_port = int(port or _APP_PORT)
-            drop_x = finite_coordinate(screen_x)
-            drop_y = finite_coordinate(screen_y)
-            x, y = position_for_drop(drop_x, drop_y, _screen_areas())
-        except Exception:
-            return False
-        state = placement_state_from_config(get_buddy_config()).tear_off()
-        _save_buddy_state(state, x=x, y=y)
-        _buddy_window_log(f"tear-off drop={drop_x:.0f},{drop_y:.0f} position={x},{y}")
-        opened = self.open_buddy_window(buddy_port, OVERLAY_WIDTH, OVERLAY_HEIGHT, x, y)
-        if not opened:
-            _save_buddy_state(state.dock())
-        return opened
+        return _BUDDY.tear_off(screen_x, screen_y)
 
     def dock_buddy(self):
-        state = placement_state_from_config(get_buddy_config()).dock()
-        _save_buddy_state(state)
-        _buddy_window_log("docked")
-        return self.close_buddy_window(False)
+        return _BUDDY.dock()
 
     def buddy_placement(self):
         state = placement_state_from_config(get_buddy_config())
@@ -1850,18 +1837,7 @@ class _JsApi:
         return True
 
     def show_main_window(self):
-        window = _NAMED_WINDOWS.get("main")
-        if window is None:
-            return False
-        try:
-            try:
-                window.restore()
-            except Exception:
-                pass
-            window.show()
-            return True
-        except Exception:
-            return False
+        return _BUDDY.show_main(None)
 
     def get_foreground_target(self):
         target = _FOREGROUND_TRACKER.last_external
@@ -1995,213 +1971,24 @@ class _JsApi:
             return False
 
     def open_buddy_window(self, port=None, width=OVERLAY_WIDTH, height=OVERLAY_HEIGHT, x=None, y=None):
-        global _BUDDY_WINDOW_READY
         try:
-            buddy_port = int(port or _APP_PORT)
             width = int(width or OVERLAY_WIDTH)
             height = int(height or OVERLAY_HEIGHT)
         except Exception:
             return False
-
-        config = get_buddy_config()
-        placement = placement_state_from_config(config)
-        if placement.placement is not BuddyPlacement.DESKTOP:
-            return False
-        overlay_config = dict(config.get("overlay") or {})
-        requested_x = overlay_config.get("x") if x is None else x
-        requested_y = overlay_config.get("y") if y is None else y
-        if requested_x is not None and requested_y is not None:
-            x, y = position_for_drop(
-                finite_coordinate(requested_x) + width / 2,
-                finite_coordinate(requested_y) + min(height / 3, 76),
-                _screen_areas(),
-                width=width,
-                height=height,
-            )
-            _save_buddy_state(placement, x=x, y=y)
-        else:
-            x = y = None
-        key = "buddy"
-        url = _buddy_overlay_url(buddy_port)
-        existing = _NAMED_WINDOWS.get(key)
-        if existing is not None:
-            try:
-                if x is not None and y is not None:
-                    existing.move(int(x), int(y))
-                try:
-                    existing.restore()
-                except Exception:
-                    pass
-                if placement.visible and _BUDDY_WINDOW_READY:
-                    existing.show()
-                return True
-            except Exception:
-                _NAMED_WINDOWS.pop(key, None)
-
-        kwargs = {
-            "title": "Buddy",
-            "url": url,
-            "width": width,
-            "height": height,
-            "x": int(x) if x is not None else None,
-            "y": int(y) if y is not None else None,
-            "js_api": _JS_API,
-            "resizable": False,
-            "frameless": True,
-            "shadow": False,
-            "focus": True,
-            "on_top": True,
-            "easy_drag": False,
-            "hidden": True,
-            "background_color": "#0B1119",
-            "transparent": native_overlay_transparency(sys.platform),
-        }
-        window = None
-        fallback_kwargs = dict(kwargs)
-        fallback_kwargs.pop("background_color", None)
-        minimal_kwargs = dict(fallback_kwargs)
-        for optional_key in ("transparent", "shadow", "on_top", "hidden"):
-            minimal_kwargs.pop(optional_key, None)
-        plain_kwargs = {
-            "title": "Buddy",
-            "url": url,
-            "width": width,
-            "height": height,
-            "js_api": _JS_API,
-        }
-        for candidate in (kwargs, fallback_kwargs, minimal_kwargs, plain_kwargs):
-            try:
-                window = webview.create_window(**candidate)
-                break
-            except Exception as exc:
-                try:
-                    print(f"Buddy overlay create_window failed with keys {sorted(candidate.keys())}: {exc}", file=sys.stderr, flush=True)
-                except Exception:
-                    pass
-                continue
-        if window is None:
-            try:
-                window = webview.create_window("Buddy", url, width=width, height=height, js_api=_JS_API)
-            except Exception as exc:
-                try:
-                    print(f"Buddy overlay plain create_window failed: {exc}", file=sys.stderr, flush=True)
-                except Exception:
-                    pass
-        if window is None:
-            return False
-        _BUDDY_WINDOW_READY = False
-        _NAMED_WINDOWS[key] = window
-
-        def _forget_buddy(*_args):
-            global _BUDDY_WINDOW_READY
-            _NAMED_WINDOWS.pop(key, None)
-            _BUDDY_WINDOW_READY = False
-
-        def _persist_move(moved_x, moved_y):
-            try:
-                state = placement_state_from_config(get_buddy_config())
-                _save_buddy_state(state, x=int(moved_x), y=int(moved_y))
-            except Exception:
-                pass
-
-        try:
-            window.events.closed += _forget_buddy
-            window.events.moved += _persist_move
-        except Exception:
-            pass
-
-        def _ready_timeout_show():
-            time.sleep(2.0)
-            if _NAMED_WINDOWS.get(key) is not window or _BUDDY_WINDOW_READY:
-                return
-            state = placement_state_from_config(get_buddy_config())
-            if state.placement is not BuddyPlacement.DESKTOP or not state.visible:
-                return
-            try:
-                window.show()
-                _buddy_window_log("page-ready handshake timed out; forced native show")
-            except Exception as exc:
-                _buddy_window_log(f"page-ready timeout show failed: {exc}")
-
-        threading.Thread(
-            target=_ready_timeout_show,
-            daemon=True,
-            name="buddy-ready-timeout",
-        ).start()
-        return True
+        return _BUDDY.open(x=x, y=y, width=width, height=height)
 
     def mark_buddy_window_ready(self):
-        global _BUDDY_WINDOW_READY
-        _BUDDY_WINDOW_READY = True
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return False
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP or not state.visible:
-            return True
-        try:
-            try:
-                window.restore()
-            except Exception:
-                pass
-            window.show()
-            _buddy_window_log("page ready; native window shown")
-            return True
-        except Exception as exc:
-            _buddy_window_log(f"page ready show failed: {exc}")
-            return False
+        return _BUDDY.mark_ready()
 
     def show_buddy_window(self, manual=True, port=None, width=OVERLAY_WIDTH, height=OVERLAY_HEIGHT):
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP:
-            return False
-        if bool(manual):
-            _save_buddy_state(state.show())
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return self.open_buddy_window(port, width, height)
-        if should_defer_native_show(ready=_BUDDY_WINDOW_READY, manual=bool(manual)):
-            return True
-        try:
-            try:
-                window.restore()
-            except Exception:
-                pass
-            window.show()
-            if bool(manual) and not _BUDDY_WINDOW_READY:
-                _buddy_window_log("manual recovery forced native show before page-ready handshake")
-            return True
-        except Exception as exc:
-            _buddy_window_log(f"native show failed: {exc}")
-            return False
+        return _BUDDY.show(bool(manual))
 
     def hide_buddy_window(self, manual=True):
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP:
-            return False
-        if bool(manual):
-            _save_buddy_state(state.hide())
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return False
-        try:
-            window.hide()
-            return True
-        except Exception:
-            return False
+        return _BUDDY.hide(bool(manual))
 
     def close_buddy_window(self, manual=True):
-        global _BUDDY_WINDOW_READY
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return True
-        try:
-            window.destroy()
-            _NAMED_WINDOWS.pop("buddy", None)
-            _BUDDY_WINDOW_READY = False
-            return True
-        except Exception:
-            return False
+        return _BUDDY.close()
 
     def get_clipboard(self):
         import subprocess as _sp, sys as _sys
@@ -2246,18 +2033,7 @@ def _on_loaded(window):
 _JS_API = _JsApi()
 
 def _on_main_window_closing():
-    state = placement_state_from_config(get_buddy_config())
-    if state.placement is not BuddyPlacement.DESKTOP:
-        return True
-    window = _NAMED_WINDOWS.get("main")
-    try:
-        if window is not None:
-            window.hide()
-        _buddy_window_log("main-window close cancelled; hidden while Buddy is desktop")
-        return False
-    except Exception as exc:
-        _buddy_window_log(f"main-window hide-on-close failed: {exc}")
-        return True
+    return _BUDDY.main_closing()
 
 def _install_main_window_buddy_events(window):
     try:
@@ -2315,6 +2091,25 @@ w, h = int(sys.argv[3]), int(sys.argv[4])
 _ICON_PATH = sys.argv[5] if len(sys.argv) > 5 else ""
 _CONTROL_PORT = int(sys.argv[6]) if len(sys.argv) > 6 else 0
 _CLIENT_V2 = len(sys.argv) > 7 and sys.argv[7] == "1"
+_NATIVE_INSTANCE = {}
+
+def _native_instance_id():
+    # The legacy main window never bootstraps; the React overlay still needs
+    # the process identity to bind its own bridge.
+    if "id" not in _NATIVE_INSTANCE:
+        _NATIVE_INSTANCE["id"] = str(_native_json("/api/v1/native/bootstrap")["instance_id"])
+    return _NATIVE_INSTANCE["id"]
+
+_BUDDY = BuddyWindowHost(
+    create_window=webview.create_window,
+    load_config=get_buddy_config,
+    save_config=save_buddy_config,
+    screens=_screen_areas,
+    main_window=lambda: _NAMED_WINDOWS.get("main"),
+    attach=lambda window: _attach_client_v2(window, _native_instance_id(), role="buddy"),
+    port=_APP_PORT,
+    log=_buddy_window_log,
+)
 enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
 _reset_buddy_placement_for_startup()
@@ -2360,7 +2155,9 @@ def _native_clipboard_write(text):
     except Exception:
         return False
 
-def _attach_client_v2(window, instance_id):
+def _attach_client_v2(window, instance_id, role="main"):
+    # Roles: "main" (the workspace and managed shell windows) and "buddy"
+    # (the desktop Buddy, bound to exactly its own document).
     from row_bot.native_client import (
         NativeDocumentAuthority,
         PyWebViewDriver,
@@ -2497,6 +2294,9 @@ def _attach_client_v2(window, instance_id):
     def open_managed(route):
         if not isinstance(route, str) or not route.startswith("/app-v2/"):
             return False
+        if route.rstrip("/") == OVERLAY_ROUTE:
+            # Only the host opens the desktop Buddy, with its own role.
+            return False
         key = "client-v2:" + route
         existing = _NAMED_WINDOWS.get(key)
         if existing is not None:
@@ -2510,21 +2310,35 @@ def _attach_client_v2(window, instance_id):
         _attach_client_v2(child, instance_id)
         return True
 
-    def buddy_placement(action, x, y):
-        if action == "tear_off" and not _JS_API.tear_off_buddy(x, y):
-            return None
-        if action == "dock" and not _JS_API.dock_buddy():
-            return None
-        state = placement_state_from_config(get_buddy_config())
-        return {"placement": state.placement.value, "visible": state.visible}
-
+    if role == "buddy":
+        # The desktop Buddy may only place itself, read the conversation to
+        # follow and bring the main window forward: no pickers, clipboard,
+        # saves, external links, managed windows or terminals.
+        driver = PyWebViewDriver(
+            window,
+            buddy_placement=placement_callback(_BUDDY, "buddy"),
+            read_buddy_target=_BUDDY.target,
+            show_main_window=_BUDDY.show_main,
+            allowed=_BUDDY_CAPABILITIES,
+        )
+        return attach_native_client(
+            window,
+            instance_id=instance_id,
+            origin=_NATIVE_ORIGIN,
+            driver=driver,
+            authenticate_document=authenticate,
+            authorize_document=authorize,
+            revoke_document=revoke,
+            shell_path=OVERLAY_ROUTE,
+        )
     driver = PyWebViewDriver(
         window,
         open_window=open_managed,
         read_clipboard=_JS_API.get_clipboard,
         write_clipboard=_native_clipboard_write,
         save_reference=save_reference,
-        buddy_placement=buddy_placement,
+        buddy_placement=placement_callback(_BUDDY, "main"),
+        publish_buddy_target=_BUDDY.publish_target,
     )
     return attach_native_client(
         window,
@@ -2548,8 +2362,7 @@ main_window = webview.create_window(
 _NAMED_WINDOWS["main"] = main_window
 if _CLIENT_V2:
     try:
-        _bootstrap = _native_json("/api/v1/native/bootstrap")
-        _attach_client_v2(main_window, str(_bootstrap["instance_id"]))
+        _attach_client_v2(main_window, _native_instance_id())
         _buddy_window_log("client-v2 native bridge ready; terminal capability registered")
     except Exception as exc:
         _buddy_window_log(f"client-v2 native bridge unavailable: {exc}")
