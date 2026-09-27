@@ -684,3 +684,36 @@ export async function captureActualResourcePanels(
     composerCount: await composer(page).count(),
   });
 }
+
+/**
+ * Add resource: the Context card's button where Context is on screen, else
+ * the composer's + menu (tablets and phones show Context as a sheet).
+ */
+export async function openAddResource(page: Page): Promise<void> {
+  const inline = page.getByRole('button', {
+    name: 'Add resource',
+    exact: true,
+  });
+  if (await inline.isVisible()) {
+    await inline.click();
+    return;
+  }
+  await page
+    .getByRole('button', { name: 'Add files and more', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Add resource…', exact: true })
+    .click();
+}
+
+/** New chat from the sidebar, opening the drawer below the desktop width. */
+export async function clickNewChat(page: Page): Promise<void> {
+  const newChat = page
+    .getByRole('navigation', { name: 'Workspace navigation' })
+    .getByRole('button', { name: 'New chat', exact: true });
+  if (!(await newChat.isVisible()))
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  await newChat.click();
+}

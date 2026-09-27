@@ -13,6 +13,7 @@ import {
   fixtureState,
   newConversation,
   openConversation,
+  clickNewChat,
 } from './unified-helpers';
 import { captureBrowserDownload } from './download-helpers';
 import type { Page, TestInfo } from '@playwright/test';
@@ -602,7 +603,7 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   test.setTimeout(180_000);
   page.setDefaultTimeout(10_000);
   await page.goto('/app-v2/');
-  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await clickNewChat(page);
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await expect(composer(page)).toBeVisible();
   const conversation = new URL(page.url()).pathname.split('/').at(-1)!;

@@ -20,6 +20,7 @@ import {
   reloadDocument,
   releaseProducer,
   restoreThinkingDefault,
+  openAddResource,
 } from './unified-helpers';
 
 test.use({ serviceWorkers: 'allow' });
@@ -62,7 +63,7 @@ async function home(page: Page): Promise<void> {
 }
 
 async function addDeck(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   const another = setup.getByRole('button', {
     name: 'Start another resource',
@@ -372,9 +373,7 @@ test('last explicitly opened Deck retains priority when another client adds a wo
   if (await back.isVisible()) await back.click();
   await expect(composer(peer)).toBeVisible();
   try {
-    await peer
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    await openAddResource(peer);
     const setup = peer.getByRole('dialog', {
       name: 'Add resource',
       exact: true,
