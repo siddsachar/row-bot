@@ -2670,7 +2670,14 @@ export default function Conversation({
               rows={1}
               maxLength={200000}
               placeholder={
-                isRunning ? 'Queue a follow-up…' : 'Message Row-Bot…'
+                // A one-line field keeps its hint to one line.
+                isRunning
+                  ? singleLine
+                    ? 'Follow-up…'
+                    : 'Queue a follow-up…'
+                  : singleLine
+                    ? 'Message'
+                    : 'Message Row-Bot…'
               }
               aria-describedby={
                 composerStateReason ? 'message-composer-state' : undefined

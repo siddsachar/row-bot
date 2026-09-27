@@ -85,18 +85,6 @@
   padding: 0 10px;
   background: var(--accent-subtle);
 }
-@media (pointer: coarse) {
-  .composer[data-single-line] .composer-voice .button.icon-button {
-    width: 36px;
-    min-width: 36px;
-  }
-  .composer[data-single-line]
-    .composer-voice
-    .conversation-voice-toggle.button.icon-button {
-    width: 20px;
-    min-width: 20px;
-  }
-}
 /* Model, approvals and context usage live in the + menu. */
 .composer-plus-context {
   display: flex;
@@ -433,15 +421,56 @@
   .composer-setup-model.button {
     min-height: 44px;
   }
+  .composer .composer-queue-button.button {
+    min-width: 44px;
+  }
+  /* Every composer action is a touch target at every touch width (tablets
+     keep the two-row composer). */
   .composer[data-single-line] .composer-plus.button,
-  .composer[data-single-line] .composer-primary.button {
+  .composer[data-single-line] .composer-primary.button,
+  .composer .composer-plus.button,
+  .composer .composer-primary.button,
+  .composer .composer-shield.button,
+  .composer .composer-voice .button.icon-button,
+  .composer .composer-voice .conversation-voice-toggle.button.icon-button {
     width: 44px;
     min-width: 44px;
     height: 44px;
     min-height: 44px;
   }
-  .composer[data-single-line] .composer-voice .button.icon-button {
-    height: 44px;
+  .composer .composer-voice .conversation-voice-toggle.button.icon-button {
+    margin-inline-start: 0;
+  }
+  .composer .composer-model-pill.button {
     min-height: 44px;
+  }
+  .chat-empty-more {
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+  /* Chips grow to the touch floor rather than hide a larger hit box that
+     the scrolling chip row would clip. */
+  .composer .composer-skill-chip,
+  .composer .composer-skill-suggestion {
+    height: auto;
+    min-height: 44px !important;
+  }
+  .composer .composer-skill-chip .icon-button,
+  .composer .composer-skill-suggestion .icon-button {
+    width: 44px !important;
+    min-width: 44px !important;
+  }
+  .composer .composer-skill-chip .button,
+  .composer .composer-skill-suggestion .button,
+  .composer .composer-setup-model.button {
+    min-height: 44px !important;
+  }
+  .context-ring-button {
+    width: 44px;
+    height: 44px;
+  }
+  .overview-section-link {
+    min-height: 44px;
+    padding-inline: 8px;
   }
 }
