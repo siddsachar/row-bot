@@ -53,6 +53,7 @@ import { ConversationGlyph } from './ConversationGlyph';
 import {
   CONVERSATION_TYPES,
   matchesType,
+  withRetainedRow,
   recencyGroup,
   type ConversationType,
 } from './conversation-groups';
@@ -358,9 +359,13 @@ export default function Navigation({
   const activeTopLevel = selected?.parent_conversation_id
     ? selectedParent
     : selected;
+  // The open conversation stays listed (in order) when the preview or a
+  // collapsed page hides it, but a type filter is an explicit choice.
   const rows =
-    activeTopLevel && !visible.some(({ id }) => id === activeTopLevel.id)
-      ? [...visible, activeTopLevel]
+    activeTopLevel &&
+    matchesType(activeTopLevel, type) &&
+    !visible.some(({ id }) => id === activeTopLevel.id)
+      ? withRetainedRow(visible, activeTopLevel)
       : visible;
   const pinnedRows = rows.filter((row) => row.pinned);
   const recentRows = rows.filter((row) => !row.pinned);

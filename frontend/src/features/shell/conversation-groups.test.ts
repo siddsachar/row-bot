@@ -5,6 +5,7 @@ import {
   groupConversations,
   matchesType,
   recencyGroup,
+  withRetainedRow,
 } from './conversation-groups';
 
 const now = new Date(2026, 8, 26, 15, 30);
@@ -86,5 +87,38 @@ describe('conversation groups', () => {
     expect(matchesType({ category: 'designer' }, 'code')).toBe(false);
     expect(matchesType({}, 'chat')).toBe(true);
     expect(matchesType({ category: 'workflow' }, 'all')).toBe(true);
+  });
+
+  it('keeps a retained open conversation in the list order', () => {
+    const list = [
+      row('pinned', at(9), { pinned: true }),
+      row('today', at(0, 9)),
+      row('week', at(3)),
+    ];
+    const ids = (rows: ConversationView[]) => rows.map(({ id }) => id);
+    // Newer than the listed rows: first after the pinned block.
+    expect(ids(withRetainedRow(list, row('newest', at(0, 12))))).toEqual([
+      'pinned',
+      'newest',
+      'today',
+      'week',
+    ]);
+    // Between two runs: the date labels stay in one run each.
+    expect(ids(withRetainedRow(list, row('yesterday', at(1))))).toEqual([
+      'pinned',
+      'today',
+      'yesterday',
+      'week',
+    ]);
+    // Older than everything: last, as before.
+    expect(ids(withRetainedRow(list, row('old', at(30))))).toEqual([
+      'pinned',
+      'today',
+      'week',
+      'old',
+    ]);
+    expect(
+      ids(withRetainedRow(list, row('pin2', at(0), { pinned: true }))),
+    ).toEqual(['pinned', 'pin2', 'today', 'week']);
   });
 });

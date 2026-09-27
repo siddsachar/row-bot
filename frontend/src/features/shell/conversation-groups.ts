@@ -90,6 +90,25 @@ export function recencyGroup(
 }
 
 /**
+ * Adds the open conversation to a list that does not show it, where the
+ * list's own order would put it (pinned first, then newest first), so the
+ * sidebar's date runs stay whole.
+ */
+export function withRetainedRow(
+  rows: readonly ConversationView[],
+  row: ConversationView,
+): ConversationView[] {
+  const time = (value: ConversationView) =>
+    parseTimestamp(value.updated_at)?.getTime() ?? 0;
+  const index = rows.findIndex((other) =>
+    row.pinned ? !other.pinned : !other.pinned && time(other) < time(row),
+  );
+  return index < 0
+    ? [...rows, row]
+    : [...rows.slice(0, index), row, ...rows.slice(index)];
+}
+
+/**
  * Pinned first, then Today / Yesterday / This week / Older. Rows keep the
  * server's order inside a group; empty groups are omitted.
  */
