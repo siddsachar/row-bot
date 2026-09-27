@@ -2836,40 +2836,49 @@ export default function Conversation({
                     </Button>
                   )}
                 <span className="composer-primary-slot">
-                  {running ? (
-                    <Button
-                      variant="secondary"
-                      iconOnly
-                      className="composer-stop"
-                      aria-label="Stop"
-                      title="Stop"
-                      disabled={!generation.can_stop}
-                      onClick={() => void action('conversation.stop')}
-                    >
-                      <Square size={14} aria-hidden />
-                    </Button>
-                  ) : (
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      iconOnly
-                      className="composer-send"
-                      aria-label="Send"
-                      aria-describedby={
-                        composerStateReason
-                          ? 'message-composer-state'
-                          : undefined
-                      }
-                      disabled={
-                        sendBlocked ||
-                        !draft.text.trim() ||
-                        state.status !== 'ready' ||
-                        !sendActionReady
-                      }
-                    >
-                      <ArrowUp size={18} aria-hidden />
-                    </Button>
-                  )}
+                  {/* One button morphs between Send and Stop, so focus and
+                      position hold while a response starts and ends. */}
+                  <Button
+                    type={running ? 'button' : 'submit'}
+                    variant={running ? 'secondary' : 'primary'}
+                    iconOnly
+                    className={`composer-primary ${running ? 'composer-stop' : 'composer-send'}`}
+                    data-state={running ? 'stop' : 'send'}
+                    aria-label={running ? 'Stop' : 'Send'}
+                    title={running ? 'Stop' : undefined}
+                    aria-describedby={
+                      !running && composerStateReason
+                        ? 'message-composer-state'
+                        : undefined
+                    }
+                    disabled={
+                      running
+                        ? !generation.can_stop
+                        : sendBlocked ||
+                          !draft.text.trim() ||
+                          state.status !== 'ready' ||
+                          !sendActionReady
+                    }
+                    onClick={
+                      running
+                        ? (event) => {
+                            event.preventDefault();
+                            void action('conversation.stop');
+                          }
+                        : undefined
+                    }
+                  >
+                    <ArrowUp
+                      className="composer-primary-send"
+                      size={18}
+                      aria-hidden
+                    />
+                    <Square
+                      className="composer-primary-stop"
+                      size={14}
+                      aria-hidden
+                    />
+                  </Button>
                 </span>
               </div>
             </div>

@@ -2012,7 +2012,29 @@
   background: var(--text-primary);
   color: var(--canvas);
 }
-.composer-stop.button svg {
+/* Send morphs into Stop: the arrow lifts away as the square settles in and
+   the fill turns from accent to ink. Reduced motion swaps at once. */
+.composer-primary.button {
+  position: relative;
+  overflow: hidden;
+}
+.composer-primary svg {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  transition:
+    opacity var(--motion-popover) var(--ease-out),
+    transform var(--motion-panel) var(--ease-out);
+}
+.composer-primary[data-state='send'] .composer-primary-stop {
+  opacity: 0;
+  transform: scale(0.3) rotate(-90deg);
+}
+.composer-primary[data-state='stop'] .composer-primary-send {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.6);
+}
+.composer-stop.button .composer-primary-stop {
   fill: currentColor;
 }
 /* The draft status stays announced (visually hidden) unless it needs you. */

@@ -313,6 +313,24 @@ function activeConversation(id = 'conversation-a') {
   return commandReceipts.scope(mock.state.handshake.instance_id, id);
 }
 
+it('morphs Send into Stop on one button that keeps its place and focus', () => {
+  activeConversation();
+  const rendered = render(<Conversation onPanel={vi.fn()} />);
+  const stop = screen.getByRole('button', { name: 'Stop' });
+  expect(stop).toHaveAttribute('data-state', 'stop');
+  expect(stop).toHaveAttribute('type', 'button');
+  stop.focus();
+  mock.state.projection = {
+    rows: [],
+    generation: null,
+  } as unknown as Snapshot;
+  rendered.rerender(<Conversation onPanel={vi.fn()} />);
+  const send = screen.getByRole('button', { name: 'Send' });
+  expect(send).toBe(stop);
+  expect(send).toHaveAttribute('data-state', 'send');
+  expect(send).toHaveAttribute('type', 'submit');
+});
+
 it('anchors bounded approval context inline with canonical resolve controls', async () => {
   activeConversation();
   mock.state.projection = {
