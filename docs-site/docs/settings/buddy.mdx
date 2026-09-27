@@ -26,12 +26,12 @@ Drag-to-undock requires the native Windows or macOS application. Browser/server 
 
 ## Message The Selected Thread
 
-The title at the top of the overlay identifies the thread that will receive your next message. The smaller line shows whether that thread is using Chat, Developer, or Designer context. If no thread is selected, the first message creates a normal Chat thread.
+The title at the top of the overlay identifies the thread that will receive your next message. Buddy follows the conversation selected in the main Row-Bot window: switch conversations there and Buddy switches with you. The smaller line shows whether that thread is a Chat, Code, or Design conversation and what it is doing. If no thread is selected, Buddy follows your most recent conversation.
 
 - Type into **Message this thread...**. Enter sends; Shift+Enter adds a line.
 - The full composer and overlay share the saved draft for each thread. Switching threads loads that thread's draft without merging it into another conversation.
 - Sending captures the thread and Chat, Developer, or Designer context shown at that moment, so changing the main-window selection during a run does not silently retarget the request.
-- The overlay attempts once to return focus to the external app you were using before it sends, then shows current progress, the latest response, or an error.
+- After sending, the overlay shows current progress, the latest response, or an error. If a response was interrupted (for example by a restart), **Resume** continues it.
 - Use **Stop** to stop the selected thread's active response. The overlay does not retry the turn by itself.
 - Attachments, transcript history, tool traces, model selection, and microphone controls remain in the full Row-Bot thread. Use **Open full thread** when you need them.
 
@@ -41,18 +41,18 @@ The overlay is a text composer, not a second microphone session. Talk and Dictat
 
 Buddy never creates a separate approval policy. It projects the selected thread's existing gate:
 
-- **Simple approvals** show **Approve** and **Deny** in the overlay. A compatible batch may show **Approve all**.
-- **Complex approvals** show **Review** or **Details** and open the full thread so you can inspect the complete request before deciding.
+- The current approval shows **Deny**, **Details**, and **Approve** in the overlay. Ctrl+Enter (Cmd+Enter on macOS) approves.
+- **Details** opens the full thread so you can inspect the complete request before deciding.
 - If the selected thread or pending generation no longer matches, Buddy opens the full thread instead of approving a stale request.
 
 ## Overlay Menu And Lifecycle
 
 - **Open full thread** restores the main Row-Bot window at the selected conversation.
-- **Collapse** reduces Buddy to its compact header; **Expand** restores the composer and status area.
 - **Dock Buddy** closes the native overlay and returns Buddy to its sidebar dock.
 - **Hide Buddy** hides the overlay without docking it. Use the tray's **Show Buddy** action to bring it back.
 - While Buddy is torn off, closing the main Row-Bot window hides that window instead of quitting the app. Use **Open full thread**, **Open Row-Bot** in the tray, or the tray's quit action as appropriate.
 - Tear-off is session-scoped. A fresh Row-Bot launch resets placement to the sidebar dock; a saved hidden preference remains hidden until you show Buddy.
+- The overlay follows Row-Bot's appearance setting (System, Light, or Dark) and your device's reduced-motion setting.
 
 ## Appearance Controls
 

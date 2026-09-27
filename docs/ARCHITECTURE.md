@@ -1549,56 +1549,56 @@ modifying the core codebase.
 
 ## Buddy Desktop Overlay
 
-Buddy is a projection of one selected Row-Bot thread, not another agent runtime
-or transcript store. `buddy/overlay.py` owns platform-neutral placement,
-lifecycle, turn-target, approval, snapshot, screen-position, and foreground-app
-types; `ui/buddy.py` owns the sidebar and overlay presentations; and
-`launcher.py` owns the optional native window.
+Buddy is a projection of one Row-Bot conversation, not another agent runtime
+or transcript store. The torn-off desktop Buddy is a small React entry
+(`frontend/buddy-overlay.html` → `frontend/src/overlay/`) served at
+`/app-v2/buddy-overlay`; it shares the typed client controller, the design
+tokens and the attested native platform with the workspace. `buddy/overlay.py`
+owns platform-neutral placement, screen-position and turn-target types;
+`buddy/native_host.py` owns the native window; `launcher.py` composes it.
 
 - **Canonical placement state** — `BuddyPlacementState` represents docked or
-  desktop placement separately from visible and collapsed conditions. Legacy
-  floating/surface config migrates in place, with compatibility mirrors kept in
-  sync for older callers
-- **Session-scoped tear-off** — one terminal drag from the in-app Buddy dock can
-  request a native Windows/macOS overlay. Releasing over the dock cancels, a
-  valid external drop is clamped to the nearest screen work area, and persisted
-  coordinates retain negative multi-monitor positions
-- **Startup and recovery lifecycle** — a new app launch returns desktop
-  placement to the dock without changing an intentional hidden preference;
-  manual show does not wait indefinitely for page readiness, and tray actions
-  can restore either Buddy or the hidden main window
-- **Selected-thread snapshot** — `build_thread_snapshot()` projects the named
-  selected thread, Chat/Developer/Designer surface, generation progress, latest
-  plain-text answer, sanitized error, and one compatible approval without
-  copying tool traces, attachments, images, or private payloads
-- **Turn capture** — Send captures the selected thread, surface, message-list
-  identity, model/tool/approval context, and draft owner at dispatch time. A
-  later main-window selection change cannot retarget the in-flight turn; no
-  selected thread creates one normal Chat thread
-- **Draft continuity** — overlay and full composer use the same per-thread draft
-  APIs and source markers, so switching threads swaps drafts without merging
-  them or overwriting a newer editor value
-- **Scoped Stop and progress** — overlay Stop delegates to the selected thread's
-  normal generation cancellation, current progress wins before output tokens,
-  and the final answer or error remains a read-only projection rather than
-  starting a second turn
-- **Approval projection and handoff** — simple approvals with complete
-  display-safe descriptions can be approved or denied in Buddy; grouped,
-  incomplete, complex, stale, cross-thread, or cross-generation requests open
-  the full thread. The full UI polls shared interrupt state so an approval
-  raised from Buddy is never stranded in another local client
-- **One-shot focus hand-back** — the native foreground tracker excludes Row-Bot
-  windows, stores only display-safe external app metadata, restores a minimized
-  target if needed, and attempts activation once per send without repositioning
-  the external window or retrying a failed activation
-- **Compact presentation contract** — the overlay is an opaque rectangular flex
-  layout with three direct actions plus a menu, fixed bounded dimensions,
-  compact status bubbles, softened approval motion, crossfaded state changes,
-  and quiet idle-video cadence
+  desktop placement separately from the visible condition. Legacy
+  floating/surface config migrates in place
+- **Session-scoped tear-off** — dragging the sidebar avatar out of the window
+  (or Undock) asks the main window's bridge for `buddy_placement: tear_off`.
+  A drop is clamped to the nearest screen work area in DIPs, and persisted
+  coordinates keep negative multi-monitor positions. A fresh launch returns
+  Buddy to the dock without changing an intentional hidden preference
+- **Native host** — `BuddyWindowHost` creates the 380×230 frameless,
+  always-on-top window hidden, attaches its own attested bridge (no pywebview
+  `js_api`), and shows it when the page reports ready or after a 2 s
+  timeout. Windows keeps an opaque host so the window stays hit-testable;
+  macOS uses transparency. Per-monitor-v2 DPI is enabled before any window
+  exists, and physical positions from pywebview are converted to DIPs
+- **Window roles** — the main window may read status, tear off, dock and
+  publish the conversation it shows; the Buddy window may read status, dock,
+  hide, report ready, read the followed conversation and bring the main
+  window forward at a conversation. Each role's bridge refuses every other
+  operation, and the Buddy bridge is bound to exactly its own document
+- **Following the main window** — the main window publishes its selected
+  conversation through its bridge; the host keeps a revisioned target and
+  sends Buddy a content-free change hint. Buddy reads the target on the hint,
+  on focus and every few seconds, ignores stale revisions, and falls back to
+  the most recent conversation
+- **Turns, drafts and approvals** — Send, Stop, Resume and approval
+  decisions are ordinary client intents on the followed conversation, so
+  they keep that conversation's model, tools and approval mode. Drafts are
+  the conversation's server drafts; same-origin windows exchange id-only
+  hints on `BroadcastChannel('row-bot-client')` and re-read on focus
+- **Lease and grants** — each window's document lease is renewed with a
+  fresh attestation from its own session every 20 minutes. When the server
+  refuses a grant because its policy revision moved on (an MCP server
+  connecting, a Settings change) the bridge reports it before any effect and
+  the window re-attests once; a lost document reloads (Buddy) or stays
+  unavailable until the page loads again (main window)
+- **Presentation** — tokens and appearance follow the app setting (System
+  by default); reduced motion disables the activity ring, caret and shimmer.
+  Motion is CSS-only and nothing animates out
 - **Platform boundary** — browser/server mode, Linux browser-first launch,
-  compact mobile presentation, and remote browsers keep Buddy inside Row-Bot;
-  undocking does not add tools, change the selected provider, create a new voice
-  session, or bypass the thread's approval mode
+  compact mobile presentation and remote browsers keep Buddy inside Row-Bot;
+  undocking does not add tools, change the selected provider, create a new
+  voice session, or bypass the conversation's approval mode
 
 ---
 
@@ -2043,7 +2043,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`access/`** + **`ui/access_context.py`** + **`ui/remote_access_settings.py`** | Single-owner deployment/request policy, HTTP/WebSocket middleware, invitations, devices, sessions, cookies, assigned-interface and trusted-origin routes, live runtime-policy mutation, managed-policy precedence, CLI/doctor, Tailscale Serve ownership, launcher control, access service/store, UI authorization, and full/compact Remote Access controls |
 | **`mobile/`** + **`ui/mobile*.py`** | Compact presentation and legacy access compatibility, PWA endpoints, full-screen shell, chat, browser-local voice hooks, Activity, workflow editor, and phone-safe provider/skill/plugin/settings adapters |
 | **`brand.py`** + **`runtime_paths.py`** | Row-Bot product identity, public naming constants, runtime path detection, and packaged/source checkout path helpers |
-| **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config/legacy migration, asset validation, Hatch generation, typed docked/desktop lifecycle, multi-monitor placement, selected-thread/surface/approval snapshots, shared drafts, scoped Send/Stop, focus hand-back, in-app dock, and native overlay presentation |
+| **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config/legacy migration, asset validation, Hatch generation, typed docked/desktop lifecycle, multi-monitor placement, turn-target capture, in-app dock, and the native desktop Buddy host (the overlay itself is the React `/app-v2/buddy-overlay` entry) |
 | **`designer/`** | Designer Studio subsystem: gallery, editor, tooling, storage, exports, presentation mode, publishing, and asset hydration |
 | **`developer/`** | Developer Studio subsystem: workspace links and child-folder registration, folder-scoped writer ownership, Git helpers, durable worktree allocation, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, Custom Tool internals, and UI |
 | **`ui/chat_components.py`** | Responsive shared chat input, exact-model Thinking picker, upload, message-area, active-skill chip, stable Send/Stop slot, and desktop context-meter components reused by main chat, Designer Studio, and Developer Studio |
@@ -2082,7 +2082,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`data_reader.py`** | Shared structured-data loader for CSV, TSV, Excel, JSON, and JSONL |
 | **`data_paths.py`** | Shared Row-Bot data-directory and SQLite path resolution for tasks, memory, threads, access/mobile compatibility, diagnostics, backup, and recovery commands |
 | **`docs_capture.py`** | App-side helpers for seeded real UI documentation capture and screenshot automation |
-| **`launcher.py`** | Desktop/server launcher, `serve` and `access` CLI integration, host/port/deployment resolution, native/tray selection, splash/window picker, authenticated child environment, loopback-only restart/shutdown control, main/Buddy native-window lifecycle, DPI/placement/foreground recovery, logging, macOS native tray host, and DB-family recovery commands |
+| **`launcher.py`** | Desktop/server launcher, `serve` and `access` CLI integration, host/port/deployment resolution, native/tray selection, splash/window picker, authenticated child environment, loopback-only restart/shutdown control, main/Buddy native-window lifecycle and attested bridges, DPI/placement recovery, logging, macOS native tray host, and DB-family recovery commands |
 | **`update_handoff.py`** | Detached Windows update handoff helper that waits for Row-Bot processes/ports to exit before starting the installer |
 | **`stability.py`** | UI callback/error capture, asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
