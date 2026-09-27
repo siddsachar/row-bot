@@ -24,7 +24,10 @@ _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
-                         "terminal_open", "buddy_placement"})
+                         "terminal_open", "buddy_placement", "buddy_follow", "main_window"})
+# Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
+# itself and reports that its first view is drawn ("ready").
+_BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
 
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
@@ -121,6 +124,8 @@ class NativeDriver(Protocol):
     def open_external(self, url: str) -> bool: ...
     def managed_window(self, route: str) -> bool: ...
     def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
+    def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None: ...
+    def main_window(self, conversation_id: str | None) -> bool: ...
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None: ...
     def capabilities(self) -> list[str]: ...
 
@@ -149,7 +154,14 @@ class PyWebViewDriver:
                  write_clipboard: Callable[[str], bool] | None = None,
                  save_reference: Callable[[str, Path], bool] | None = None,
                  open_external: Callable[[str], bool] | None = None,
-                 buddy_placement: Callable[[str, float | None, float | None], dict[str, Any] | None] | None = None) -> None:
+                 buddy_placement: Callable[[str, float | None, float | None], dict[str, Any] | None] | None = None,
+                 publish_buddy_target: Callable[[str], dict[str, Any] | None] | None = None,
+                 read_buddy_target: Callable[[], dict[str, Any] | None] | None = None,
+                 show_main_window: Callable[[str | None], bool] | None = None,
+                 allowed: frozenset[str] | None = None) -> None:
+        if publish_buddy_target is not None and read_buddy_target is not None:
+            # One window either publishes what it shows or follows; never both.
+            raise ValueError("buddy_follow_role_conflict")
         self._window = window
         self._open_window = open_window
         self._read_clipboard = read_clipboard
@@ -157,15 +169,23 @@ class PyWebViewDriver:
         self._save_reference = save_reference
         self._open_external = open_external
         self._buddy_placement = buddy_placement
+        self._publish_buddy_target = publish_buddy_target
+        self._read_buddy_target = read_buddy_target
+        self._show_main_window = show_main_window
+        self._allowed = allowed
 
     def capabilities(self) -> list[str]:
         result = ["select_file", "select_folder", "open_external"]
         for name, callback in (("managed_window", self._open_window), ("clipboard_read", self._read_clipboard),
                                ("clipboard_write", self._write_clipboard), ("save", self._save_reference),
-                               ("buddy_placement", self._buddy_placement)):
+                               ("buddy_placement", self._buddy_placement),
+                               ("buddy_follow", self._publish_buddy_target or self._read_buddy_target),
+                               ("main_window", self._show_main_window)):
             if callback is not None:
                 result.append(name)
-        return result
+        # A window role may narrow what its document can reach (the desktop
+        # Buddy gets no pickers, clipboard, saves or external navigation).
+        return [name for name in result if self._allowed is None or name in self._allowed]
 
     def select(self, kind: str) -> str | None:
         import webview
@@ -190,6 +210,14 @@ class PyWebViewDriver:
 
     def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None:
         return self._buddy_placement(action, x, y) if self._buddy_placement else None
+
+    def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None:
+        if conversation_id is None:
+            return self._read_buddy_target() if self._read_buddy_target else None
+        return self._publish_buddy_target(conversation_id) if self._publish_buddy_target else None
+
+    def main_window(self, conversation_id: str | None) -> bool:
+        return bool(self._show_main_window and self._show_main_window(conversation_id))
 
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None:
         if self._save_reference is None:
@@ -234,6 +262,7 @@ class NativeClientBridge:
                  open_terminal: Callable[
                      [NativeSelectionAuthority, str | None], str
                  ] | None = None,
+                 shell_path: str | None = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         parsed = urlsplit(origin)
         if not safe_external_url(origin) or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
@@ -255,6 +284,11 @@ class NativeClientBridge:
         self._cancel_selection = cancel_selection
         self._revoke_document = revoke_document
         self._open_terminal = open_terminal
+        # A window bound to one document (the desktop Buddy) keeps its
+        # bridge only while it shows exactly that document.
+        if shell_path is not None and not re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", shell_path):
+            raise ValueError("invalid_native_shell_path")
+        self._shell_path = shell_path
         self._clock = clock
         self._lock = threading.RLock()
         self._token = ""
@@ -268,8 +302,11 @@ class NativeClientBridge:
             if not isinstance(url, str) or not safe_external_url(url):
                 return False
             parsed = urlsplit(url)
-            return (f"{parsed.scheme}://{parsed.netloc}" == self._origin
-                    and bool(re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", parsed.path)))
+            if f"{parsed.scheme}://{parsed.netloc}" != self._origin:
+                return False
+            if self._shell_path is not None:
+                return parsed.path.rstrip("/") == self._shell_path.rstrip("/")
+            return bool(re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", parsed.path))
         except Exception:
             return False
 
@@ -459,10 +496,35 @@ class NativeClientBridge:
                 if not authorized():
                     return _unavailable("native_proof_required")
                 return {"status": "cancelled"} if result is None else ({"status": "ok", "value": None} if result else _unavailable())
+            if operation == "buddy_follow":
+                publish = set(payload) == {"conversationId"}
+                if not (publish or not payload) or (
+                    publish and not (isinstance(payload["conversationId"], str)
+                                     and _SCOPE_VALUE.fullmatch(payload["conversationId"]))):
+                    return _unavailable("invalid_request")
+                value = self._driver.buddy_follow(payload["conversationId"] if publish else None)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                target = value.get("conversationId") if isinstance(value, dict) else None
+                return ({"status": "ok", "value": value}
+                        if isinstance(value, dict) and set(value) == {"conversationId", "revision"}
+                        and (target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target))
+                        and type(value["revision"]) is int and value["revision"] >= 0 else _unavailable())
+            if operation == "main_window":
+                target = payload.get("conversationId")
+                if set(payload) != {"conversationId"} or not (
+                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)):
+                    return _unavailable("invalid_request")
+                result = self._driver.main_window(target)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return {"status": "ok", "value": None} if result else _unavailable()
             if operation == "buddy_placement":
                 action = payload.get("action")
                 point = action == "tear_off" and set(payload) == {"action", "x", "y"}
-                if not ((action in {"status", "dock"} and set(payload) == {"action"})
+                if not ((action in _BUDDY_ACTIONS and set(payload) == {"action"})
                         or (point and all(isinstance(payload[key], (int, float))
                                           and not isinstance(payload[key], bool)
                                           and abs(payload[key]) <= 1000000 for key in ("x", "y")))):
@@ -526,6 +588,7 @@ def attach_native_client(
     open_terminal: Callable[
         [NativeSelectionAuthority, str | None], str
     ] | None = None,
+    shell_path: str | None = None,
 ) -> NativeClientBridge:
     """Attach only to a newly created trusted /app-v2 window, never legacy API.
 
@@ -539,7 +602,8 @@ def attach_native_client(
                                 register_selection=register_selection,
                                 cancel_selection=cancel_selection,
                                 revoke_document=revoke_document,
-                                open_terminal=open_terminal)
+                                open_terminal=open_terminal,
+                                shell_path=shell_path)
 
     def loaded(*_args: Any) -> None:
         proof = bridge._bind_loaded_document()

@@ -513,3 +513,103 @@ describe('safe native and fake capabilities', () => {
     expect(dispatch).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('desktop Buddy operations', () => {
+  it('publishes, reads and validates the followed conversation', async () => {
+    const dispatch = vi.fn().mockResolvedValue({
+      status: 'ok',
+      value: { conversationId: 'conversation-1', revision: 3 },
+    });
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+    );
+    expect(await adapter.publishBuddyTarget('conversation-1')).toEqual({
+      status: 'ok',
+      value: { conversationId: 'conversation-1', revision: 3 },
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('buddy_follow', {
+      conversationId: 'conversation-1',
+    });
+    await adapter.readBuddyTarget();
+    expect(dispatch).toHaveBeenLastCalledWith('buddy_follow', {});
+    // Ids the host would refuse never cross the bridge.
+    for (const bad of ['', 'a b', '../x', 'x'.repeat(257)])
+      expect(await adapter.publishBuddyTarget(bad)).toMatchObject({
+        status: 'unavailable',
+      });
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    // A malformed host answer is refused.
+    for (const value of [
+      { conversationId: 'a b', revision: 1 },
+      { conversationId: 'c', revision: -1 },
+      { conversationId: 'c', revision: 1, extra: true },
+      { conversationId: 'c' },
+    ]) {
+      dispatch.mockResolvedValueOnce({ status: 'ok', value });
+      expect(await adapter.readBuddyTarget()).toMatchObject({
+        status: 'unavailable',
+      });
+    }
+  });
+
+  it('shows the main window on a conversation and moves only through pywebview', async () => {
+    const dispatch = vi.fn().mockResolvedValue({ status: 'ok', value: null });
+    const callback = vi.fn();
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      {
+        pywebview: { _jsApiCallback: callback },
+      },
+    );
+    expect(await adapter.showMainWindow('conversation-1')).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('main_window', {
+      conversationId: 'conversation-1',
+    });
+    await adapter.showMainWindow(null);
+    expect(dispatch).toHaveBeenLastCalledWith('main_window', {
+      conversationId: null,
+    });
+    expect(await adapter.showMainWindow('bad id')).toMatchObject({
+      status: 'unavailable',
+    });
+    expect(adapter.moveWindow(10.4, 20.6)).toBe(true);
+    expect(callback).toHaveBeenCalledWith(
+      'pywebviewMoveWindow',
+      [10, 21],
+      'move',
+    );
+    expect(adapter.moveWindow(Number.NaN, 1)).toBe(false);
+    const hostless = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      {},
+    );
+    expect(hostless.moveWindow(1, 1)).toBe(false);
+  });
+
+  it('is unavailable in browsers and scripted in the fake', async () => {
+    const browser = createBrowserPlatform(media());
+    expect(await browser.readBuddyTarget()).toMatchObject({
+      status: 'unavailable',
+    });
+    expect(await browser.publishBuddyTarget('c')).toMatchObject({
+      status: 'unavailable',
+      reason: 'buddy_target_requires_native',
+    });
+    expect(await browser.showMainWindow('c')).toMatchObject({
+      status: 'unavailable',
+    });
+    expect(browser.moveWindow(1, 1)).toBe(false);
+    const fake = createFakePlatform({ moveWindow: true });
+    expect(fake.moveWindow(1, 1)).toBe(true);
+    expect(fake.calls).toEqual(['moveWindow']);
+  });
+});

@@ -36,14 +36,45 @@ export interface MediaTransport {
   download(reference: string, signal?: AbortSignal): Promise<Blob>;
 }
 
+/**
+ * Desktop Buddy placement actions. Main windows tear Buddy off, dock it and
+ * read its status; the desktop Buddy itself docks, hides and reports "ready"
+ * once its first view is drawn (the host reveals it only then).
+ */
+export type BuddyPlacementAction =
+  'status' | 'tear_off' | 'dock' | 'hide' | 'ready';
+export type BuddyPlacement = {
+  placement: 'docked' | 'desktop';
+  visible: boolean;
+};
+/** The conversation the desktop Buddy follows, as the native host last heard it. */
+export type BuddyTarget = { conversationId: string | null; revision: number };
+
+/** Conversation ids accepted by the native host (its `_SCOPE_VALUE`). */
+export const nativeConversationId = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9:_.-]{1,256}$/.test(value);
+
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
   buddyPlacement(
-    action: 'status' | 'tear_off' | 'dock',
+    action: BuddyPlacementAction,
     point?: { x: number; y: number },
-  ): Promise<
-    CapabilityResult<{ placement: 'docked' | 'desktop'; visible: boolean }>
-  >;
+  ): Promise<CapabilityResult<BuddyPlacement>>;
+  /** Main windows: tell the desktop Buddy which conversation is open. */
+  publishBuddyTarget(
+    conversationId: string,
+  ): Promise<CapabilityResult<BuddyTarget>>;
+  /** Desktop Buddy: the conversation the main window has open. */
+  readBuddyTarget(): Promise<CapabilityResult<BuddyTarget>>;
+  /** Desktop Buddy: bring the main window forward on a conversation. */
+  showMainWindow(
+    conversationId: string | null,
+  ): Promise<CapabilityResult<null>>;
+  /**
+   * Frameless windows: move this window's top-left corner to a screen point
+   * (CSS pixels). Returns false where the host cannot move windows.
+   */
+  moveWindow(x: number, y: number): boolean;
   selectFile(
     signal?: AbortSignal,
     intent?: SelectionIntent,

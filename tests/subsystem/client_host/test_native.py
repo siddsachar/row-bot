@@ -195,9 +195,12 @@ def test_buddy_placement_requires_capability_proof_and_closed_payload(native) ->
     assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "tear_off", "x": 500, "y": -200}) == {
         "status": "ok", "value": {"placement": "desktop", "visible": True}}
     assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "dock"})["status"] == "ok"
+    # Actions are a closed set of shapes; which actions a window may use is its
+    # role's decision (tests/subsystem/buddy/test_native_host.py).
     for payload in ({"action": "tear_off", "x": "500", "y": 1},
                     {"action": "tear_off", "x": 1, "y": 1, "port": 80},
-                    {"action": "hide"}, {"action": "status", "path": "/private"}):
+                    {"action": "hide", "x": 1}, {"action": "minimize"},
+                    {"action": "status", "path": "/private"}):
         assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "unavailable"
     assert calls == [("tear_off", 500, -200), ("dock", None, None)]
     bridge._invalidate()
@@ -480,3 +483,69 @@ def test_terminal_open_rejects_unscoped_or_malformed_payload(payload) -> None:
     )["status"] == "ok"
     assert bridge.native_client_dispatch(proof, "terminal_open", payload)["status"] == "unavailable"
     assert opened == []
+
+
+def _buddy_bridge(url: str, driver: PyWebViewDriver) -> tuple[NativeClientBridge, dict]:
+    state = {"url": url}
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: state["url"], driver=driver,
+        authenticate_document=lambda _token, _context: NativeDocumentAuthority("session", "policy", "grant"),
+        authorize_document=lambda _authority, _context: True,
+        shell_path="/app-v2/buddy-overlay",
+    )
+    return bridge, state
+
+
+def test_desktop_buddy_bridge_is_bound_to_its_document_and_its_operations() -> None:
+    calls: list[tuple] = []
+    driver = PyWebViewDriver(
+        SimpleNamespace(),
+        read_clipboard=lambda: calls.append(("clipboard",)) or "secret",
+        buddy_placement=lambda action, x, y: calls.append(("placement", action)) or {
+            "placement": "desktop", "visible": True},
+        read_buddy_target=lambda: {"conversationId": "conversation-1", "revision": 4},
+        show_main_window=lambda conversation: calls.append(("main", conversation)) or True,
+        allowed=frozenset({"buddy_placement", "buddy_follow", "main_window"}),
+    )
+    bridge, state = _buddy_bridge("http://localhost:8080/app-v2/buddy-overlay", driver)
+    proof = bridge._bind_loaded_document()
+    discovered = bridge.native_client_dispatch(proof, "discover", {"attestation": "server_attestation"})
+    assert sorted(discovered["value"]["capabilities"]) == ["buddy_follow", "buddy_placement", "main_window"]
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "open_external", {"url": "https://fixture.invalid/"})[
+        "status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "buddy_follow", {}) == {
+        "status": "ok", "value": {"conversationId": "conversation-1", "revision": 4}}
+    # This window only follows: publishing is refused before the driver acts.
+    assert bridge.native_client_dispatch(proof, "buddy_follow", {"conversationId": "conversation-2"})[
+        "status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "main_window", {"conversationId": None})["status"] == "ok"
+    for payload in ({"conversationId": "a b"}, {"conversationId": 1}, {}, {"conversationId": None, "x": 1}):
+        assert bridge.native_client_dispatch(proof, "main_window", payload)["status"] == "unavailable"
+    for payload in ({"action": "ready"}, {"action": "hide"}):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "ok"
+    for payload in ({"action": "ready", "x": 1}, {"action": "collapse"}, {"action": "tear_off", "x": True, "y": 1}):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "unavailable"
+    assert calls == [("main", None), ("placement", "ready"), ("placement", "hide")]
+    # Any other /app-v2 document in this window has no bridge at all.
+    state["url"] = "http://localhost:8080/app-v2/"
+    assert bridge.native_client_dispatch(proof, "buddy_follow", {})["status"] == "unavailable"
+    assert bridge._bind_loaded_document() is None
+
+
+def test_buddy_follow_answers_and_roles_are_validated() -> None:
+    with pytest.raises(ValueError):
+        PyWebViewDriver(SimpleNamespace(), publish_buddy_target=lambda _c: None,
+                        read_buddy_target=lambda: None)
+    with pytest.raises(ValueError):
+        NativeClientBridge(instance_id="i", window_id="w", origin="http://localhost:8080",
+                           current_url=lambda: None, driver=Driver(), shell_path="/elsewhere")
+    answers = iter([{"conversationId": "bad id", "revision": 1}, {"conversationId": "c", "revision": -1},
+                    {"conversationId": "c", "revision": True}, {"conversationId": None, "revision": 0}])
+    driver = PyWebViewDriver(SimpleNamespace(), read_buddy_target=lambda: next(answers))
+    bridge, _ = _buddy_bridge("http://localhost:8080/app-v2/buddy-overlay", driver)
+    proof = bridge._bind_loaded_document()
+    bridge.native_client_dispatch(proof, "discover", {"attestation": "server_attestation"})
+    results = [bridge.native_client_dispatch(proof, "buddy_follow", {})["status"] for _ in range(4)]
+    assert results == ["unavailable", "unavailable", "unavailable", "ok"]

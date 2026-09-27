@@ -1,4 +1,6 @@
 import type {
+  BuddyPlacement,
+  BuddyTarget,
   CapabilityResult,
   ClientPlatform,
   MediaTransport,
@@ -7,6 +9,7 @@ import type {
   SelectionIntent,
 } from './types';
 import {
+  nativeConversationId,
   protect,
   safeDownloadName,
   safeExternalUrl,
@@ -20,10 +23,29 @@ export interface NativeEndpoint {
   ): Promise<unknown>;
 }
 
+/** pywebview's own page bridge; only its window-move channel is used here. */
+type PyWebViewHost = {
+  pywebview?: {
+    _jsApiCallback?(name: string, params: unknown, id: string): unknown;
+  };
+};
+
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const reference = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9:_-]{1,256}$/.test(value);
+const placementValue = (value: unknown): value is BuddyPlacement =>
+  object(value) &&
+  ['docked', 'desktop'].includes(String(value.placement)) &&
+  typeof value.visible === 'boolean' &&
+  Object.keys(value).length === 2;
+const targetValue = (value: unknown): value is BuddyTarget =>
+  object(value) &&
+  (value.conversationId === null ||
+    nativeConversationId(value.conversationId)) &&
+  Number.isSafeInteger(value.revision) &&
+  (value.revision as number) >= 0 &&
+  Object.keys(value).length === 2;
 
 // The closure endpoint is installed by trusted shell code. This is not a flag
 // check; Python validates instance/window/document proof before every effect.
@@ -31,6 +53,7 @@ export function createPyWebViewPlatform(
   endpoint: NativeEndpoint,
   media: MediaTransport,
   attestation: string,
+  host: PyWebViewHost = window as PyWebViewHost,
 ): ClientPlatform {
   async function call<T>(
     operation: string,
@@ -138,14 +161,32 @@ export function createPyWebViewPlatform(
         action === 'tear_off'
           ? { action, x: point!.x, y: point!.y }
           : { action },
-        (
-          value,
-        ): value is { placement: 'docked' | 'desktop'; visible: boolean } =>
-          object(value) &&
-          ['docked', 'desktop'].includes(String(value.placement)) &&
-          typeof value.visible === 'boolean' &&
-          Object.keys(value).length === 2,
+        placementValue,
       );
+    },
+    // The host refuses these outside the window role that owns them: main
+    // windows publish, only the desktop Buddy reads and shows the main window.
+    publishBuddyTarget: (conversationId) =>
+      nativeConversationId(conversationId)
+        ? call('buddy_follow', { conversationId }, targetValue)
+        : Promise.resolve(unavailable('invalid_conversation')),
+    readBuddyTarget: () => call('buddy_follow', {}, targetValue),
+    showMainWindow: (conversationId) =>
+      conversationId === null || nativeConversationId(conversationId)
+        ? call('main_window', { conversationId }, nullValue)
+        : Promise.resolve(unavailable('invalid_conversation')),
+    // pywebview binds `.pywebview-drag-region` once, when the page loads,
+    // before this client renders; the same move channel serves our header.
+    moveWindow: (x, y) => {
+      const bridge = host.pywebview?._jsApiCallback;
+      if (typeof bridge !== 'function' || !Number.isFinite(x + y)) return false;
+      bridge.call(
+        host.pywebview,
+        'pywebviewMoveWindow',
+        [Math.round(x), Math.round(y)],
+        'move',
+      );
+      return true;
     },
     openTerminal: (conversationId) =>
       call<{ terminalId: string }>(

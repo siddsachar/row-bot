@@ -4,6 +4,9 @@ import { createPyWebViewPlatform, type NativeEndpoint } from './native';
 import type { ClientPlatform, MediaTransport } from './types';
 
 export type {
+  BuddyPlacement,
+  BuddyPlacementAction,
+  BuddyTarget,
   CapabilityResult,
   ClientPlatform,
   MediaTransport,
@@ -13,6 +16,7 @@ export type {
 } from './types';
 export { createBrowserPlatform } from './browser';
 export { createPyWebViewPlatform } from './native';
+export { nativeConversationId } from './types';
 
 declare global {
   interface Window {
@@ -55,6 +59,7 @@ export async function selectClientPlatform(
     endpoint,
     media,
     authorization.attestation,
+    target as Parameters<typeof createPyWebViewPlatform>[3],
   );
   const discovered = await native.discover();
   return discovered.status === 'ok' &&
