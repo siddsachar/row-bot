@@ -102,11 +102,12 @@ async function openSettingsRouteFromHome(
     name: 'Workspace navigation',
     exact: true,
   });
-  if ((page.viewportSize()?.width ?? 0) >= 900) {
+  // Below the desktop breakpoint the sidebar is a drawer.
+  if ((page.viewportSize()?.width ?? 0) >= 1024) {
     await expect(navigation).toBeVisible();
   } else {
     await page
-      .getByRole('button', { name: 'Expand navigation', exact: true })
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   }
   const settings = navigation.getByRole('link', {
