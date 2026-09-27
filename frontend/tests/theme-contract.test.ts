@@ -198,7 +198,11 @@ describe('device preference input boundary', () => {
   ])('invalid stored preference %s has safe defaults', (stored) => {
     localStorage.setItem(THEME_KEY, stored);
     expect(bootstrapTheme(TOKENS)).toEqual(DEFAULT_THEME);
-    expect(document.documentElement.dataset.theme).toBe('dark');
+    // The default follows the system appearance.
+    expect(document.documentElement.dataset.appearance).toBe('system');
+    expect(document.documentElement.dataset.theme).toBe(
+      matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    );
   });
 
   it('migrates only the supported preference fields, excluding arbitrary properties', () => {
