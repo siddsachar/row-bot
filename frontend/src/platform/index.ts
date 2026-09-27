@@ -49,6 +49,9 @@ export async function selectClientPlatform(
   media: MediaTransport,
   handshake: Pick<HandshakeView, 'native_adapter'> | null | undefined,
   target: Window = window,
+  // A fresh attestation from this document's session, used when the server
+  // refuses the one it holds (B102).
+  reattest?: () => Promise<string | null>,
 ): Promise<ClientPlatform> {
   const browser = createBrowserPlatform(media, target);
   const authorization = handshake?.native_adapter;
@@ -82,6 +85,7 @@ export async function selectClientPlatform(
     media,
     authorization.attestation,
     target as Parameters<typeof createPyWebViewPlatform>[3],
+    reattest,
   );
   const discovered = await native.discover();
   return discovered.status === 'ok' &&

@@ -355,8 +355,9 @@ def test_native_capabilities_require_current_authenticated_attestation() -> None
     assert bridge.native_client_dispatch(
         proof, "discover", {"attestation": "one_time_attestation"})["status"] == "ok"
     state["authorized"] = False
+    # The document is still bound; only its grant was refused (B102).
     assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
-        "status": "unavailable", "reason": "native_proof_required"}
+        "status": "unavailable", "reason": "native_authentication_required"}
     state["authorized"] = True
     assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
     assert bridge.native_client_dispatch(
@@ -606,3 +607,50 @@ def test_a_lapsed_server_grant_is_replaced_by_a_fresh_attestation() -> None:
     assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
     assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
     assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+
+
+def test_a_refused_grant_asks_for_a_fresh_attestation_only_before_any_effect() -> None:
+    """A policy change (an MCP server connecting after start-up) refused every
+    grant, and the window could not tell that from a lost document (B102)."""
+    state = {"granted": set(), "url": "http://localhost:8080/app-v2/"}
+
+    def authenticate(attestation, _context):
+        state["granted"].add("grant-" + attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    driver = Driver()
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: state["url"], driver=driver,
+        authenticate_document=authenticate,
+        authorize_document=lambda authority, _c: authority.authority_grant in state["granted"])
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    state["granted"].clear()
+    for operation, payload in [("clipboard_read", {}), ("clipboard_write", {"text": "fixture"}),
+                               ("select_file", _picker_payload()), ("open_external", {"url": "https://example.com/"})]:
+        assert bridge.native_client_dispatch(proof, operation, payload) == {
+            "status": "unavailable", "reason": "native_authentication_required"}
+    assert driver.calls == []
+    # Without a fresh attestation nothing is granted.
+    assert bridge.native_client_dispatch(proof, "discover", {}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+
+    # A grant refused after the effect ran is not a retry signal.
+    def revoke_during(text):
+        state["granted"].clear()
+        return True
+    driver.clipboard_write = revoke_during
+    assert bridge.native_client_dispatch(proof, "clipboard_write", {"text": "fixture"}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+
+    # A document that navigated away cannot re-attest.
+    state["url"] = "http://localhost:8080/legacy"
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    state["url"] = "http://localhost:8080/app-v2/"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    assert "grant-attest-3" not in state["granted"]

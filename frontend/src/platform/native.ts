@@ -54,24 +54,66 @@ export function createPyWebViewPlatform(
   media: MediaTransport,
   initialAttestation: string,
   host: PyWebViewHost = window as PyWebViewHost,
+  reattest?: () => Promise<string | null>,
 ): ClientPlatform {
   // The latest attestation this document exchanged; renewNative replaces it.
   let attestation = initialAttestation;
+  // The server refuses every grant once its policy revision moves on (an MCP
+  // server connecting after start-up, a Settings change). The bridge says so
+  // before any effect runs, so this document exchanges a fresh attestation
+  // from its own session once and tries again (B102). Concurrent calls share
+  // one exchange.
+  let reauthenticating: Promise<boolean> | null = null;
+  const reauthenticate = (): Promise<boolean> => {
+    if (!reattest) return Promise.resolve(false);
+    reauthenticating ??= (async () => {
+      try {
+        const fresh = await reattest();
+        if (!reference(fresh)) return false;
+        const response = await endpoint.dispatch('discover', {
+          attestation: fresh,
+        });
+        if (!object(response) || response.status !== 'ok') return false;
+        attestation = fresh;
+        return true;
+      } catch {
+        return false;
+      } finally {
+        reauthenticating = null;
+      }
+    })();
+    return reauthenticating;
+  };
   async function call<T>(
     operation: string,
-    payload: Record<string, unknown>,
+    // A function is read at send time, so a retried discovery carries the
+    // attestation this document holds by then.
+    payload: Record<string, unknown> | (() => Record<string, unknown>),
     valid: (value: unknown) => value is T,
+    retry = true,
   ): Promise<CapabilityResult<T>> {
     try {
-      const response = await endpoint.dispatch(operation, payload);
+      const response = await endpoint.dispatch(
+        operation,
+        typeof payload === 'function' ? payload() : payload,
+      );
       if (!object(response)) return unavailable('invalid_native_response');
       if (response.status === 'cancelled') return { status: 'cancelled' };
+      if (
+        response.status === 'unavailable' &&
+        response.reason === 'native_authentication_required' &&
+        retry &&
+        (await reauthenticate())
+      )
+        return call(operation, payload, valid, false);
       if (response.status === 'unavailable')
         // A lapsed lease is told apart: its window can only recover by
-        // loading again (B99). Other reasons stay generic.
+        // loading again (B99). A grant that stays refused may too (B102).
+        // Other reasons stay generic.
         return unavailable(
-          response.reason === 'native_proof_required'
-            ? 'native_proof_required'
+          response.reason === 'native_proof_required' ||
+            response.reason === 'native_authentication_required'
+            ? response.reason
             : 'native_operation_unavailable',
         );
       return response.status === 'ok' && valid(response.value)
@@ -118,6 +160,7 @@ export function createPyWebViewPlatform(
         'discover',
         { attestation: fresh },
         platformInfo,
+        false,
       );
       if (result.status === 'ok') attestation = fresh;
       return result;
@@ -125,7 +168,7 @@ export function createPyWebViewPlatform(
     discover: () =>
       call<PlatformInfo>(
         'discover',
-        { attestation },
+        () => ({ attestation }),
         (value): value is PlatformInfo =>
           object(value) &&
           value.kind === 'pywebview' &&
@@ -171,7 +214,7 @@ export function createPyWebViewPlatform(
         return unavailable('invalid_drop_position');
       const discovered = await call<PlatformInfo>(
         'discover',
-        { attestation },
+        () => ({ attestation }),
         (value): value is PlatformInfo =>
           object(value) &&
           value.kind === 'pywebview' &&

@@ -748,3 +748,157 @@ describe('native lease renewal (B99)', () => {
     });
   });
 });
+
+describe('refused native grants (B102)', () => {
+  const info = {
+    status: 'ok',
+    value: {
+      kind: 'pywebview',
+      platform: 'windows',
+      capabilities: ['buddy_placement', 'buddy_follow'],
+      instanceId: 'instance',
+      windowId: 'window',
+      epoch: 1,
+    },
+  };
+  const refused = {
+    status: 'unavailable',
+    reason: 'native_authentication_required',
+  };
+
+  it('exchanges one fresh attestation and retries once', async () => {
+    const target = {
+      status: 'ok',
+      value: { conversationId: null, revision: 3 },
+    };
+    const dispatch = vi
+      .fn()
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValueOnce(info)
+      .mockResolvedValue(target);
+    const reattest = vi.fn().mockResolvedValue('b'.repeat(32));
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      undefined,
+      reattest,
+    );
+    const [first, second] = await Promise.all([
+      adapter.readBuddyTarget(),
+      adapter.readBuddyTarget(),
+    ]);
+    expect(first).toEqual(target);
+    expect(second).toEqual(target);
+    // Both refused calls shared one exchange.
+    expect(reattest).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls.slice(0, 3)).toEqual([
+      ['buddy_follow', {}],
+      ['buddy_follow', {}],
+      ['discover', { attestation: 'b'.repeat(32) }],
+    ]);
+    dispatch.mockResolvedValue(info);
+    await adapter.discover();
+    expect(dispatch).toHaveBeenLastCalledWith('discover', {
+      attestation: 'b'.repeat(32),
+    });
+  });
+
+  it('gives up after one retry and never retries a lost document', async () => {
+    const dispatch = vi
+      .fn()
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValueOnce(info)
+      .mockResolvedValueOnce(refused);
+    const reattest = vi.fn().mockResolvedValue('b'.repeat(32));
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      undefined,
+      reattest,
+    );
+    expect(await adapter.writeClipboard('fixture')).toEqual(refused);
+    expect(dispatch).toHaveBeenCalledTimes(3);
+
+    dispatch.mockReset().mockResolvedValue({
+      status: 'unavailable',
+      reason: 'native_proof_required',
+    });
+    reattest.mockClear();
+    expect(await adapter.readBuddyTarget()).toEqual({
+      status: 'unavailable',
+      reason: 'native_proof_required',
+    });
+    expect(reattest).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the held attestation when a fresh one is refused or missing', async () => {
+    const dispatch = vi
+      .fn()
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValue(info);
+    const reattest = vi
+      .fn()
+      .mockResolvedValueOnce('c'.repeat(32))
+      .mockResolvedValueOnce(null);
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      undefined,
+      reattest,
+    );
+    expect(await adapter.readClipboard()).toEqual(refused);
+    expect(await adapter.readClipboard()).toEqual(refused);
+    await adapter.discover();
+    expect(dispatch).toHaveBeenLastCalledWith('discover', {
+      attestation: 'a'.repeat(32),
+    });
+    // Without a source there is nothing to exchange.
+    const plain = createPyWebViewPlatform(
+      { dispatch: vi.fn().mockResolvedValue(refused) },
+      media(),
+      'a'.repeat(32),
+    );
+    expect(await plain.readBuddyTarget()).toEqual(refused);
+  });
+
+  it('recovers a cold start whose first attestation predates a policy change', async () => {
+    const dispatch = vi
+      .fn()
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValue(info);
+    Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', {
+      configurable: true,
+      value: { dispatch },
+    });
+    const reattest = vi.fn().mockResolvedValue('b'.repeat(32));
+    const chosen = await selectClientPlatform(
+      media(),
+      {
+        native_adapter: {
+          available: true,
+          proof_required: true,
+          instance_id: 'instance',
+          attestation: 'a'.repeat(32),
+        },
+      },
+      window,
+      reattest,
+    );
+    delete window.__ROW_BOT_NATIVE_CLIENT__;
+    expect(await chosen.discover()).toMatchObject({
+      value: { kind: 'pywebview' },
+    });
+    expect(dispatch.mock.calls.slice(0, 3)).toEqual([
+      ['discover', { attestation: 'a'.repeat(32) }],
+      ['discover', { attestation: 'b'.repeat(32) }],
+      ['discover', { attestation: 'b'.repeat(32) }],
+    ]);
+  });
+});

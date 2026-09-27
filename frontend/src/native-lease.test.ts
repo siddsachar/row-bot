@@ -86,3 +86,19 @@ it('reloads the desktop Buddy once when its lease has lapsed', async () => {
   await other.showMainWindow('c1');
   expect(reload).toHaveBeenCalledTimes(2);
 });
+
+it('reloads the desktop Buddy when its grant stays refused (B102)', async () => {
+  const reload = vi.fn();
+  const platform = reloadWhenLeaseLapses(
+    createFakePlatform({
+      readBuddyTarget: {
+        status: 'unavailable',
+        reason: 'native_authentication_required',
+      },
+    }),
+    reload,
+    () => 0,
+  );
+  await platform.readBuddyTarget();
+  expect(reload).toHaveBeenCalledTimes(1);
+});

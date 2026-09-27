@@ -30,6 +30,8 @@ async function start() {
   let platform = await selectClientPlatform(
     controller,
     controller.getSnapshot().handshake,
+    window,
+    () => controller.nativeAttestation(),
   );
   if (
     import.meta.env.VITE_ENABLE_FIXTURES === '1' &&

@@ -432,7 +432,15 @@ class NativeClientBridge:
                     return _unavailable("native_authentication_required")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
-                    return _unavailable("native_proof_required")
+                    # Nothing has run yet. A document that is still bound
+                    # but whose grant was refused (the server's policy
+                    # revision moved on) may exchange a fresh attestation
+                    # through discover and try again (B102); a lost document
+                    # can only load again.
+                    return _unavailable(
+                        "native_authentication_required"
+                        if epoch == self._epoch and self._valid_document(proof)
+                        else "native_proof_required")
             available = self._driver.capabilities()
             if self._open_terminal is not None:
                 available.append("terminal_open")

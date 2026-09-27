@@ -198,6 +198,8 @@ async function start() {
   let platform = await selectClientPlatform(
     controller,
     controller.getSnapshot().handshake,
+    window,
+    () => controller.nativeAttestation(),
   );
   // The desktop Buddy follows this window's conversation and shares drafts.
   const unpublishBuddyTarget = publishBuddyTarget(controller, platform);
