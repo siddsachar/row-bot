@@ -100,7 +100,15 @@ it('selects an element with its box, tag and short text for the anchored prompt'
     tag: 'img',
     rect: null,
   });
-  expect(select({ elementId: 'not-an-id', tag: 'p' })).toBeNull();
+  // An agent-marked ancestor's internal id is not editable: still selectable.
+  expect(select({ elementId: 'el-81befbe4', tag: 'h1' })).toMatchObject({
+    type: 'select',
+    elementId: null,
+    tag: 'h1',
+  });
+  expect(select({ elementId: { forged: true }, tag: 'p' })).toMatchObject({
+    elementId: null,
+  });
   expect(select({ elementId, tag: '<script>' })).toBeNull();
   expect(
     select({ elementId, tag: 'p', rect: { x: 'a', y: 0, w: 1, h: 1 } }),

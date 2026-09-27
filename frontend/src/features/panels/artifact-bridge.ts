@@ -87,7 +87,10 @@ export function artifactBridgeMessage(
       /^[a-z][a-z0-9-]{0,31}$/.test(element.tag)
         ? element.tag
         : '';
-    if (!tag || (elementId !== '' && !validId)) return null;
+    if (!tag) return null;
+    // Only an editable text id is kept. Elements without one (or inside an
+    // agent-marked block, whose internal id is not editable) can still be
+    // asked about; they are just never edited from the panel.
     return {
       type: 'select',
       elementId: validId ? (elementId as string) : null,
