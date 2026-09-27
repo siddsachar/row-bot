@@ -1362,6 +1362,7 @@ export default function ArtifactPreview({
                     current?.resource_revision ?? resourceRevision
                   }
                   visible={visible}
+                  updating={loading}
                   currentPageIndex={current?.page_index ?? 0}
                   pageCount={current?.page_count ?? 0}
                   create={createExport}

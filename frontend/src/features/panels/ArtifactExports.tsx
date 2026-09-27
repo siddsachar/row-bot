@@ -15,6 +15,8 @@ export type ArtifactExportsProps = {
   currentPageIndex: number;
   pageCount: number;
   visible: boolean;
+  /** The panel is still catching up with the saved version (after an edit). */
+  updating?: boolean;
   create: (
     options: ArtifactExportOptions,
     expectedRevision: string,
@@ -197,12 +199,18 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       <Button
         variant="primary"
         disabled={
-          busy || props.pageCount < 1 || (pages === 'range' && !range.trim())
+          busy ||
+          props.updating ||
+          props.pageCount < 1 ||
+          (pages === 'range' && !range.trim())
         }
         onClick={() => void run()}
       >
         {busy ? 'Working…' : 'Export design'}
       </Button>
+      {props.updating && !busy && (
+        <p className="muted">Waiting for the saved version…</p>
+      )}
       {error && <ErrorState title="Export unavailable">{error}</ErrorState>}
       {current && (
         <div>

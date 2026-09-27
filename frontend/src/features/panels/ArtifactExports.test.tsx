@@ -83,6 +83,23 @@ it.each(['html', 'png', 'pptx'])(
   },
 );
 
+it('waits for the saved version before exporting after an edit', async () => {
+  const current = props({ updating: true });
+  const view = render(<ArtifactExports {...current} />);
+  expect(screen.getByRole('button', { name: 'Export design' })).toBeDisabled();
+  expect(screen.getByText('Waiting for the saved version…')).toBeVisible();
+  view.rerender(
+    <ArtifactExports {...current} updating={false} resourceRevision="r2" />,
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Export design' })),
+  );
+  expect(current.create).toHaveBeenCalledWith(
+    { format: 'pdf', pages: 'all' },
+    'r2',
+  );
+});
+
 it('preserves range options on incomplete failure and never offers its download', async () => {
   const current = props({
     create: vi.fn().mockRejectedValue({ code: 'export_incomplete' }),
