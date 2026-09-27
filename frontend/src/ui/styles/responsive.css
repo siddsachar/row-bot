@@ -292,3 +292,59 @@
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
   }
 }
+
+/* --------------------------------------------------------- compact settings */
+
+/* Compact Settings keep their search: the side navigation shows only its
+   search field (and the results while searching) above the section picker. */
+@media (max-width: 900px) {
+  .settings-shell {
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      'head'
+      'nav'
+      'picker'
+      'content';
+  }
+  .settings-side-navigation {
+    display: flex;
+    max-height: 45vh;
+    padding: 0 16px 8px;
+    border-right: 0;
+  }
+  .settings-side-navigation .settings-category-list {
+    display: none;
+  }
+  .settings-navigation-search {
+    margin: 0;
+    padding: 0;
+  }
+}
+@container settings (max-width: 640px) {
+  .settings-shell {
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      'head'
+      'nav'
+      'picker'
+      'content';
+  }
+  .settings-side-navigation {
+    display: flex;
+    max-height: 45vh;
+    padding: 0 16px 8px;
+    border-right: 0;
+  }
+  .settings-side-navigation .settings-category-list {
+    display: none;
+  }
+  .settings-navigation-search {
+    margin: 0;
+    padding: 0;
+  }
+}
+@media (pointer: coarse) {
+  .settings-navigation-search .input {
+    min-height: 44px;
+  }
+}
