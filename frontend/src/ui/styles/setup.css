@@ -220,7 +220,7 @@
 /* Areas: one tile each, status chip, one primary action, ⋯. */
 .setup-areas {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
   gap: 10px;
   margin: 0;
   padding: 0;
@@ -231,7 +231,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
     'icon text chip'
-    'icon actions actions';
+    'actions actions actions';
   align-items: start;
   gap: 10px 12px;
   padding: 14px;
@@ -310,6 +310,9 @@
 }
 .setup-area-actions .setup-area-more {
   margin-left: auto;
+}
+.setup-area-actions > .button:not(.setup-area-more) {
+  white-space: nowrap;
 }
 .setup-more {
   display: flex;
