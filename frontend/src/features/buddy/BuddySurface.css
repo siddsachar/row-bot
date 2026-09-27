@@ -2,6 +2,12 @@
   display: inline-grid;
   touch-action: none;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.buddy-drag-handle img,
+.buddy-drag-handle video {
+  -webkit-user-drag: none;
 }
 .buddy-drag-handle[data-dragging='true'] {
   cursor: grabbing;

@@ -144,6 +144,9 @@ export function BuddyDragHandle({
         onPointerUp={end}
         onPointerCancel={cancel}
         onLostPointerCapture={cancel}
+        // The avatar is an image: the browser's own image drag would start on
+        // the first move and cancel this gesture, so Buddy never tore off (B101).
+        onDragStart={(event) => event.preventDefault()}
         onClickCapture={(event) => {
           if (!suppressClick.current) return;
           suppressClick.current = false;

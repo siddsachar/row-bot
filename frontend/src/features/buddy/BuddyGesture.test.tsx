@@ -106,3 +106,20 @@ describe('Buddy drag-away', () => {
     expect(handle).toHaveAttribute('data-dragging', 'false');
   });
 });
+
+describe('native image drag (B101)', () => {
+  it('never lets the avatar image start a browser drag that cancels the gesture', () => {
+    const view = render(
+      <BuddyDragHandle
+        platform={{ buddyPlacement: vi.fn() } as unknown as ClientPlatform}
+        onTornOff={vi.fn()}
+      >
+        <img alt="" src="data:image/png;base64,AA==" />
+      </BuddyDragHandle>,
+    );
+    const image = view.container.querySelector('img')!;
+    const drag = new Event('dragstart', { bubbles: true, cancelable: true });
+    image.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+  });
+});
