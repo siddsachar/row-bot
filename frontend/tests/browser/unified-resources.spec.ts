@@ -574,7 +574,16 @@ test('explicit saved-folder selection reuses its real identity without editing f
   expect(separateBinding.resource_id).toBe(bound[0].resource_id);
   expect(separateBinding.binding_id).not.toBe(bound[0].binding_id);
   await page.keyboard.press('Escape');
+  // Leaving retires the document (pagehide), which disposes the client and
+  // aborts a draft save still in flight: wait for the save to land first.
+  const draftSaved = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname.endsWith('/draft') &&
+      response.request().method() !== 'GET' &&
+      response.ok(),
+  );
   await composer(page).fill('Separate workspace conversation draft');
+  await draftSaved;
   await openConversation(page, conversation);
   await expect(composer(page)).toHaveValue('Folder registration draft');
   await openConversation(page, fresh);
