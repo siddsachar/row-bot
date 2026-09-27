@@ -277,6 +277,16 @@
 
 /* ------------------------------------------------------------ phone chat */
 
+/* Beside the bubble the user actions (44px each on touch) ran off the left
+   edge of a phone, leaving Copy unreachable: they sit under it instead. */
+@media (hover: none), (pointer: coarse), (max-width: 767px) {
+  .message-user .message-toolbar {
+    position: static;
+    align-self: flex-end;
+    margin: 2px -6px 0 0;
+  }
+}
+
 @media (max-width: 767px) {
   .composer {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
