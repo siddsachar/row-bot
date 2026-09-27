@@ -12,6 +12,7 @@ import {
   stableConversationMarker,
   type FixtureWindow,
 } from './fixture';
+import { headerAction } from './unified-helpers';
 
 test('workspace command shortcut focuses search and ignores IME composition', async ({
   page,
@@ -55,11 +56,9 @@ test('workspace commands dialog traps focus, locks background scroll and restore
 }, testInfo) => {
   await openFixture(page);
   await stableConversationMarker(page);
-  const opener = page.getByRole('button', {
-    name: 'Workspace commands',
-    exact: true,
-  });
-  await opener.click();
+  // Phones reach Workspace commands from the header's menu; focus returns
+  // to that menu's trigger.
+  const opener = await headerAction(page, 'Workspace commands');
   const dialog = page.getByRole('dialog', {
     name: 'Workspace commands',
     exact: true,

@@ -21,6 +21,7 @@ import {
   releaseProducer,
   restoreThinkingDefault,
   openAddResource,
+  revealContextControl,
 } from './unified-helpers';
 
 test.use({ serviceWorkers: 'allow' });
@@ -264,6 +265,7 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
   await reloadDocument(page);
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
+  await revealContextControl(page, 'Automatic presentation Deck Design');
   await page
     .getByRole('complementary', { name: 'Conversation context' })
     .getByRole('button', {
@@ -395,9 +397,10 @@ test('last explicitly opened Deck retains priority when another client adds a wo
       setup.getByText('Resource ready', { exact: true }),
     ).toBeVisible();
     // The background workspace is listed for this client without opening a
-    // panel, so the explicitly opened Deck keeps its place.
+    // panel, so the explicitly opened Deck keeps its place. (Below 1024px the
+    // Deck is a full-height sheet over the still-mounted composer.)
     await expect(
-      page.getByRole('group', { name: 'Resource write targets' }),
+      page.locator('[aria-label="Resource write targets"]'),
     ).toContainText('Folder · Phase 1 workspace');
     const after = await layoutFor(page, id);
     expect(after.panels).toHaveLength(before.panels.length);

@@ -14,6 +14,8 @@ import {
   newConversation,
   openConversation,
   clickNewChat,
+  headerAction,
+  revealContextControl,
 } from './unified-helpers';
 import { captureBrowserDownload } from './download-helpers';
 import type { Page, TestInfo } from '@playwright/test';
@@ -105,12 +107,7 @@ async function createResource(
   kind: 'deck' | 'workspace',
   name: string,
 ) {
-  if (
-    !(await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .isVisible())
-  )
-    await page.getByRole('button', { name: 'Context', exact: true }).click();
+  await revealContextControl(page, 'Add resource');
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const dialog = page.getByRole('dialog', {
     name: 'Add resource',
@@ -167,8 +164,7 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   });
   const revealContext = async () => {
     await expect(composer(page)).toBeVisible();
-    if (!(await context.isVisible()))
-      await page.getByRole('button', { name: 'Context', exact: true }).click();
+    if (!(await context.isVisible())) await headerAction(page, 'Context');
     await expect(context).toBeVisible();
   };
   await revealContext();
@@ -370,6 +366,7 @@ test('managed browser uses one reviewed live-control panel with sanitized recove
   await expect(
     page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
   ).toBeVisible();
+  await revealContextControl(page, 'Conversation actions');
   await page
     .getByRole('button', { name: 'Conversation actions', exact: true })
     .click();
@@ -609,12 +606,7 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   const conversation = new URL(page.url()).pathname.split('/').at(-1)!;
   await composer(page).fill('Retained lifecycle conversation draft');
   const name = `phase4-lifecycle-${conversation}`;
-  if (
-    !(await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .isVisible())
-  )
-    await page.getByRole('button', { name: 'Context', exact: true }).click();
+  await revealContextControl(page, 'Add resource');
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const dialog = page.getByRole('dialog', {
     name: 'Add resource',
@@ -660,22 +652,27 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     preview.getByRole('combobox', { name: 'Preview zoom' }),
   ).toBeVisible();
   // Maximize is a focus mode; an Escape that closes a menu stays in it.
-  await page.getByRole('button', { name: 'Focus mode' }).focus();
-  await page.keyboard.press('Enter');
-  const exitFocus = page.getByRole('button', { name: 'Exit focus mode' });
-  await expect(exitFocus).toBeVisible();
-  await expect(preview.locator('iframe')).toBeVisible();
-  await preview
-    .getByRole('button', { name: 'More design actions', exact: true })
-    .click();
-  await expect(page.getByRole('menu')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('menu')).toBeHidden();
-  await expect(exitFocus).toBeVisible();
-  await visualCheck(page, info, 'design-slice8-maximized');
-  await exitFocus.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Focus mode' })).toBeVisible();
+  // Below the desktop width the panel is already a full-height sheet.
+  if (page.viewportSize()!.width >= 1024) {
+    await page.getByRole('button', { name: 'Focus mode' }).focus();
+    await page.keyboard.press('Enter');
+    const exitFocus = page.getByRole('button', { name: 'Exit focus mode' });
+    await expect(exitFocus).toBeVisible();
+    await expect(preview.locator('iframe')).toBeVisible();
+    await preview
+      .getByRole('button', { name: 'More design actions', exact: true })
+      .click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(exitFocus).toBeVisible();
+    await visualCheck(page, info, 'design-slice8-maximized');
+    await exitFocus.focus();
+    await page.keyboard.press('Enter');
+    await expect(
+      page.getByRole('button', { name: 'Focus mode' }),
+    ).toBeVisible();
+  }
 
   const actions = preview.getByRole('toolbar', { name: 'Design actions' });
   await actions.getByRole('button', { name: 'Present', exact: true }).click();
@@ -731,12 +728,7 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   page.setDefaultTimeout(10_000);
   const conversation = await newConversation(page);
   await composer(page).fill('Retained conversation actions draft');
-  if (
-    !(await page
-      .getByRole('button', { name: 'Conversation actions', exact: true })
-      .isVisible())
-  )
-    await page.getByRole('button', { name: 'Context', exact: true }).click();
+  await revealContextControl(page, 'Conversation actions');
   await page
     .getByRole('button', { name: 'Conversation actions', exact: true })
     .click();
@@ -782,12 +774,7 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   await expect(
     page.getByRole('heading', { name: renamed, exact: true }),
   ).toBeVisible();
-  if (
-    !(await page
-      .getByRole('button', { name: 'Conversation actions', exact: true })
-      .isVisible())
-  )
-    await page.getByRole('button', { name: 'Context', exact: true }).click();
+  await revealContextControl(page, 'Conversation actions');
   await page
     .getByRole('button', { name: 'Conversation actions', exact: true })
     .click();

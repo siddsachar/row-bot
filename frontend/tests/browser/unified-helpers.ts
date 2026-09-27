@@ -721,3 +721,49 @@ export async function clickNewChat(page: Page): Promise<void> {
     .getByRole('button', { name: 'New chat', exact: true })
     .click();
 }
+
+/**
+ * Shows the Context card's controls: already inline on desktop, the header
+ * Context button on tablets, the header menu's Context on phones.
+ */
+export async function revealContextControl(
+  page: Page,
+  name: string,
+): Promise<void> {
+  const control = page.getByRole('button', { name, exact: true });
+  if (await control.isVisible()) return;
+  const context = page.getByRole('button', { name: 'Context', exact: true });
+  if (await context.isVisible()) await context.click();
+  else {
+    await page
+      .getByRole('button', { name: 'Conversation menu', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: 'Context', exact: true }).click();
+  }
+  await expect(control).toBeVisible();
+}
+
+/**
+ * Runs a conversation header action: its icon button on desktop and tablets,
+ * the same item in the header's ⋯ menu on phones. Returns the control that
+ * keeps focus afterwards (the icon, or the ⋯ trigger).
+ */
+export async function headerAction(page: Page, name: string): Promise<Locator> {
+  const button = page.getByRole('button', { name, exact: true });
+  if (await button.isVisible()) {
+    await button.click();
+    return button;
+  }
+  const menu = page.getByRole('button', {
+    name: 'Conversation menu',
+    exact: true,
+  });
+  await menu.click();
+  await page
+    .getByRole('menuitem', {
+      name: name === 'Find' ? 'Find in conversation' : name,
+      exact: true,
+    })
+    .click();
+  return menu;
+}
