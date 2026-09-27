@@ -6,7 +6,7 @@ import { openFixture } from './fixture';
 /*
  * Pixel baselines for surfaces whose content is fully synthetic: the
  * component gallery and the in-browser fixture conversation (fixture data),
- * and the Setup Center on the isolated fixture server (fresh data per run).
+ * and the Setup Center on the fixture server (its sidebar masked).
  * Fonts are bundled, the clock is frozen and animations are finished, so the
  * pixels repeat between runs on one platform and engine. Baselines exist for
  * Chromium on the platform that recorded them; elsewhere these tests skip
@@ -80,5 +80,15 @@ test('Setup Center pixels hold on the fixture server', async ({
   ).toBeVisible();
   await expect(page.getByLabel('Loading setup progress')).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
-  await expect(page).toHaveScreenshot(name, OPTIONS);
+  // The fixture server is shared by the run: other specs add conversations
+  // to the sidebar, so it is masked.
+  await expect(page).toHaveScreenshot(name, {
+    ...OPTIONS,
+    mask: [
+      page.getByRole('navigation', {
+        name: 'Workspace navigation',
+        exact: true,
+      }),
+    ],
+  });
 });

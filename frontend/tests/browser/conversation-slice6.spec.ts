@@ -249,7 +249,7 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await page
     .getByRole('button', { name: 'Add files and more', exact: true })
     .click();
-  await expect(page.getByRole('menuitem', { name: /^Mode/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /^Mode\b/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await screenshot(page, info, 'slice6-zoom-200');
 });
