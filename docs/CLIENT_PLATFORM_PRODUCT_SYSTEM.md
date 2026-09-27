@@ -359,6 +359,60 @@ tabs, and nothing is read before the workspace is connected.
   dismiss icons; All | Pinned filters it. The skill library report renders as
   rows, never raw JSON.
 
+### Design and Developer panels
+
+A conversation shows a Design panel only when it has a design, and a Developer
+inspector only when its code folder is bound. Both are dense tools in the side
+panel; their layout follows the panel's own width through container queries
+(`container: design` and `container: dev` in `ui/styles/panels.css`), not the
+viewport. The panel's maximize control is a focus mode (the panel fills the
+workspace; Escape or Exit focus mode returns). Any action that changes nothing
+irreversibly is one reviewed step; destructive ones keep their confirmation.
+
+- **Design** fills the panel with the page on a dotted ground, fitted by
+  default (tall pages start at the panel width). The top bar holds the
+  design name (edit in place; Enter saves, Escape cancels), Preview | Edit,
+  and icon actions: undo and redo (Mod+Z / Shift+Mod+Z, also from the
+  canvas), history, properties, present, share, export, an info popover with
+  the capabilities and review requirements, and ⋯ (search tools, pages and
+  assets; insert blocks; review; import a document). A floating dock carries
+  ◀ page N/M ▶ (the number opens a page menu), zoom (Fit, Width, 50–200%) and,
+  for landing pages and app mockups, device width. From 720px the page
+  strip sits on the left with thumbnails in the design's own aspect ratio and
+  the inspector beside the canvas; below that the strip hides and the
+  inspector is a sheet over the canvas. Edit opens the inspector only beside
+  the canvas, so a narrow panel keeps the page clear to select on.
+- In Edit, a click outlines an element with a label ("Heading · Launch day")
+  and anchors an "Ask Row-Bot to change this…" field below it (above or
+  inside when there is no room). Sending composes one message that names the
+  page and the element and posts it through the open conversation's composer;
+  the selection clears when the preview refreshes. Double-click edits text in
+  place. The inspector has Properties (selection, the page's title and notes,
+  its text, brand colours and logo, type) plus Library, Review and History
+  tabs. Fields save on their own (text on blur or Enter, colours after a
+  pause); the preview refreshes by itself and a manual refresh appears only
+  on an error card. Undo restores the newest history snapshot; redo restores
+  the state that undo replaced. Presenting takes the keyboard (arrows,
+  Escape) and hands focus back to Present when it ends. Exports download
+  locally; sharing and publishing always ask first.
+- **Developer** opens with a status strip: folder, a branch chip (opens
+  Git), ahead/behind, "N changed" or Clean, one checks dot, where commands
+  run, refresh and an info popover with the safety boundaries (approvals,
+  sandbox, network; clone, install, network and delete are never offered
+  here). Four tabs follow: **Changes** groups files under the agent change
+  that made them (newest first, earlier ones folded), then other changes; a
+  unified or split diff folds unchanged lines and colours syntax. Undo is
+  offered only for sandbox imports, whose originals the panel keeps; other
+  agent changes are handed to the chat to revert. **Files** is a filterable
+  tree with a highlighted preview. **Run** lists detected checks with ▶ and
+  every process in the folder; Run reviews and starts in one step and starts
+  only with the server's approval evidence, and the selected process streams
+  into one console (follow, latest 2,000 lines). **Git** has a branch
+  switcher, a commit box with a suggested message and file picks, and a pull
+  request form with suggested text; push and pull requests confirm first.
+  Worktree, sandbox image and network sit under Advanced. Errors are neutral
+  cards with the cause and one Retry.
+
 ## Accessibility, effects and visual regression
 
 The `/app-v2/primitives` route exercises every public primitive and token family.
