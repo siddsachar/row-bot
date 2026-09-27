@@ -769,6 +769,16 @@ def _p4_registered_folder(resource_id: str, workspace) -> Path:
     return expected
 
 
+@app.get("/__p4_fixture/workspace-parent")
+def p4_workspace_parent(x_fixture_token: str = Header(default="")) -> dict:
+    """The synthetic parent a spec's stand-in desktop bridge "chooses"."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.developer.review import scoped_workspace_path
+    parent = scoped_workspace_path(predecessor.DATA / "fixture-workspace")
+    parent.mkdir(parents=True, exist_ok=True)
+    return {"path": str(parent)}
+
+
 @app.post("/__p4_fixture/workspace-save-failure/{folder_name}")
 def p4_workspace_save_failure(folder_name: str, x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)

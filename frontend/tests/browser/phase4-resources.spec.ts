@@ -26,6 +26,96 @@ function fixtureHeaders() {
   return { 'X-Fixture-Token': token, Origin: new URL(base).origin };
 }
 
+/**
+ * Folder choices come from the desktop bridge: the browser platform cannot
+ * mint a folder grant. This stand-in performs the bridge's host half through
+ * the same loopback routes the pywebview bridge uses (attest the handshake's
+ * one-shot attestation, then complete one exact selection) and always
+ * "chooses" the fixture's disposable parent folder.
+ */
+async function installDesktopFolderBridge(page: Page) {
+  const response = await page.request.get('/__p4_fixture/workspace-parent', {
+    headers: fixtureHeaders(),
+  });
+  expect(response.ok()).toBe(true);
+  const { path } = (await response.json()) as { path: string };
+  await page.addInitScript((parent) => {
+    try {
+      if (window !== window.top) return;
+    } catch {
+      return;
+    }
+    const windowId = 'phase4-desktop-window';
+    const epoch = 1;
+    let instance = '';
+    let grant: {
+      session_id: string;
+      policy_revision: string;
+      authority_grant: string;
+    } | null = null;
+    const post = async (route: string, body: unknown) => {
+      const reply = await fetch(`/api/v1${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!reply.ok) throw new Error(`${route} ${reply.status}`);
+      return reply.json();
+    };
+    Object.assign(window, {
+      __ROW_BOT_NATIVE_CLIENT__: {
+        async dispatch(operation: string, payload: Record<string, unknown>) {
+          if (operation === 'discover') {
+            // Attestations are one-shot, like the desktop bridge's: exchange
+            // the first one and keep its grant for this document.
+            if (!grant) {
+              const identity = await fetch('/api/v1/native/bootstrap');
+              instance = ((await identity.json()) as { instance_id: string })
+                .instance_id;
+              grant = await post('/native/attest', {
+                attestation: payload.attestation,
+                instance_id: instance,
+                window_id: windowId,
+                window_epoch: epoch,
+              });
+            }
+            return {
+              status: 'ok',
+              value: {
+                kind: 'pywebview',
+                platform: 'windows',
+                capabilities: ['select_folder'],
+                instanceId: instance,
+                windowId,
+                epoch,
+              },
+            };
+          }
+          if (operation === 'select_folder' && grant) {
+            const view = await post('/native/selections/complete', {
+              ...grant,
+              instance_id: instance,
+              window_id: windowId,
+              window_epoch: epoch,
+              selection_kind: 'folder',
+              intent_id: payload.intentId,
+              intent: payload.intent,
+              conversation_id: payload.conversationId ?? null,
+              destination: payload.destination,
+              path: parent,
+            });
+            return {
+              status: 'ok',
+              value: { kind: 'folder', reference: view.reference },
+            };
+          }
+          return { status: 'unavailable' };
+        },
+      },
+    });
+  }, path);
+}
+
 async function resourceState(page: Page, resource: string) {
   const response = await page.request.get(
     `/__p4_fixture/resources/${resource}/state`,
@@ -623,6 +713,7 @@ for (const [mode, label] of [
 test('Phase 4 sandbox import and Undo retain reviews and restore exact original files', async ({
   page,
 }, info) => {
+  await installDesktopFolderBridge(page);
   const conversation = await newConversation(page);
   await composer(page).fill('Retained sandbox import draft');
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
@@ -673,17 +764,11 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
   await expect(
     imports.getByText('Synthetic imported', { exact: false }),
   ).toBeVisible();
-  await imports
-    .getByRole('button', { name: 'Review import', exact: true })
-    .click();
-  const folders = imports.getByRole('list', {
-    name: 'Reviewed new folders',
-    exact: true,
-  });
-  await expect(folders.getByRole('listitem')).toHaveText(['new', 'new/nested']);
-  await imports
-    .getByRole('button', { name: 'Cancel review', exact: true })
-    .click();
+  // Selecting a saved change shows its patch; nothing is imported until the
+  // one reviewed Import step.
+  await expect(
+    imports.getByRole('textbox', { name: 'Saved patch', exact: true }),
+  ).toHaveValue(/new\/nested\/empty\.txt/);
   const before = await page.request.get(
     `/__p4_fixture/resources/${resource}/import-probe`,
     { headers: fixtureHeaders() },
@@ -693,12 +778,11 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     empty_created: false,
     imported: false,
   });
-  await imports
-    .getByRole('button', { name: 'Review import', exact: true })
-    .click();
   await toggleSandboxChanges(false);
   await toggleSandboxChanges(true);
-  await expect(folders.getByRole('listitem')).toHaveText(['new', 'new/nested']);
+  await expect(
+    imports.getByRole('textbox', { name: 'Saved patch', exact: true }),
+  ).toHaveValue(/new\/nested\/empty\.txt/);
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -706,7 +790,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     await accessibility(page, info, `sandbox-import-review-${appearance}`);
   }
   await imports
-    .getByRole('button', { name: 'Confirm import', exact: true })
+    .getByRole('button', { name: 'Import selected changes', exact: true })
     .click();
   await expect(
     imports.getByText(
@@ -811,6 +895,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
 test('Phase 4 empty workspace requires a named parent-scoped action and retains the chat', async ({
   page,
 }, info) => {
+  await installDesktopFolderBridge(page);
   const conversation = await newConversation(page);
   const before = await conversationState(page, conversation);
   await composer(page).fill('Retained empty-workspace draft');
@@ -1016,6 +1101,7 @@ for (const [kind, mode, label] of [
     page,
   }, info) => {
     const settleResourceView = trackResourceViewRequests(page);
+    if (kind === 'workspace') await installDesktopFolderBridge(page);
     const original = await newConversation(page);
     const initial = await conversationState(page, original);
     const name = `phase4-${mode.replaceAll('_', '-')}-${original}`;
@@ -1171,6 +1257,7 @@ for (const [kind, mode, label] of [
 test('Phase 4 one-shot empty workspace save failure requires renewed parent and resumes exact identity', async ({
   page,
 }, info) => {
+  await installDesktopFolderBridge(page);
   const conversation = await newConversation(page);
   const name = `phase4-recover-${conversation}`;
   const armed = await page.request.post(
