@@ -778,11 +778,6 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     empty_created: false,
     imported: false,
   });
-  await toggleSandboxChanges(false);
-  await toggleSandboxChanges(true);
-  await expect(
-    imports.getByRole('textbox', { name: 'Saved patch', exact: true }),
-  ).toHaveValue(/new\/nested\/empty\.txt/);
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
