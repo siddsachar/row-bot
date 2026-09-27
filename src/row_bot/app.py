@@ -3131,13 +3131,6 @@ async def index():
     _update_token_counter()
 
 
-@ui.page("/buddy-overlay")
-async def buddy_overlay():
-    ui.dark_mode(True)
-    from row_bot.ui.buddy import build_buddy_overlay_page
-    build_buddy_overlay_page(state)
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ═════════════════════════════════════════════════════════════════════════════

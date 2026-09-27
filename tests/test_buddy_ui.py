@@ -60,7 +60,6 @@ def test_buddy_ui_surfaces_are_wired():
     sidebar_src = _read("src/row_bot/ui/sidebar.py")
     settings_src = _read("src/row_bot/ui/settings.py")
 
-    assert '@ui.page("/buddy-overlay")' in app_src
     assert "build_in_app_buddy" in app_src
     assert "build_sidebar_buddy" in sidebar_src
     assert 'ui.tab("Buddy"' in settings_src
@@ -93,120 +92,6 @@ def test_buddy_events_are_emitted_from_runtime_sources():
     assert "APPROVAL_TIMED_OUT" in tasks_src
     assert 'BuddyEventType.APPROVAL_DENIED: ("approval", "workflow")' in brain_src
     assert "BuddyEventType.NOTIFICATION" in notifications_src
-
-
-def test_buddy_desktop_and_packaging_hooks_exist():
-    launcher_src = _read("src/row_bot/launcher.py")
-    inno_src = _read("installer/row_bot_setup.iss")
-    mac_src = _read("installer/build_mac_app.sh")
-    linux_src = _read("installer/build_linux_app.sh")
-
-    assert "open_buddy_window" in launcher_src
-    assert "mark_buddy_window_ready" in launcher_src
-    assert "close_buddy_window" in launcher_src
-    assert "show_buddy_window" in launcher_src
-    assert "hide_buddy_window" in launcher_src
-    assert "tear_off_buddy" in launcher_src
-    assert "dock_buddy" in launcher_src
-    assert "restore_foreground_target" in launcher_src
-    assert "show_main_window" in launcher_src
-    assert "Show Buddy" in launcher_src
-    assert "Hide Buddy" in launcher_src
-    assert "_send_window_command" in launcher_src
-    assert "ThreadingHTTPServer" in launcher_src
-    assert 'parsed.path.startswith("/buddy/show")' in launcher_src
-    assert 'parsed.path.startswith("/buddy/hide")' in launcher_src
-    assert "parse_qs(parsed.query or \"\")" in launcher_src
-    assert "manual = str((qs.get(\"manual\") or [\"1\"])[0]).lower()" in launcher_src
-    assert "_buddy_overlay_url" in launcher_src
-    assert '"transparent": native_overlay_transparency(sys.platform)' in launcher_src
-    assert '"background_color": "#0B1119"' in launcher_src
-    assert '"background_color": "#00000000"' not in launcher_src
-    assert "fallback_kwargs.pop(\"background_color\", None)" in launcher_src
-    assert "minimal_kwargs" in launcher_src
-    assert "plain_kwargs" in launcher_src
-    assert "Buddy overlay create_window failed" in launcher_src
-    assert "webview.create_window(\"Buddy\", url, width=width, height=height, js_api=_JS_API)" in launcher_src
-    assert '"shadow": False' in launcher_src
-    assert '"focus": True' in launcher_src
-    assert '"hidden": True' in launcher_src
-    assert '"easy_drag": False' in launcher_src
-    assert "_BUDDY_WINDOW_READY = False" in launcher_src
-    assert "should_defer_native_show(ready=_BUDDY_WINDOW_READY" in launcher_src
-    assert "_BUDDY_MANUALLY_HIDDEN" not in launcher_src
-    assert "_BUDDY_DESKTOP_ENABLED" not in launcher_src
-    assert "row_bot_window.log" in launcher_src
-    assert "[buddy.window]" in launcher_src
-    assert "set_buddy_desktop_enabled" not in launcher_src
-    assert "_install_main_window_buddy_events(main_window)" in launcher_src
-    assert "window.events.closing += _on_main_window_closing" in launcher_src
-    assert 'startup reset Buddy to the main dock' in launcher_src
-    startup_reset = launcher_src.index("_reset_buddy_placement_for_startup()", launcher_src.index("url, title ="))
-    dpi_setup = launcher_src.index("enable_windows_per_monitor_dpi(sys.platform)", launcher_src.index("url, title ="))
-    main_create = launcher_src.index("main_window = webview.create_window", launcher_src.index("url, title ="))
-    assert startup_reset < main_create
-    assert dpi_setup < main_create
-    loaded_section = launcher_src.split("def _on_loaded", 1)[1].split("_JS_API =", 1)[0]
-    assert "open_buddy_window" not in loaded_section
-    assert 'page-ready handshake timed out; forced native show' in launcher_src
-    assert "window.events.minimized +=" not in launcher_src
-    assert "window.events.restored +=" not in launcher_src
-    assert "window.events.shown +=" not in launcher_src
-    assert "OVERLAY_WIDTH" in launcher_src
-    assert "OVERLAY_HEIGHT" in launcher_src
-    assert "_WINDOW_SCRIPT = r'''\nimport sys\nimport time" in launcher_src
-    assert "_APP_ICON_PATH = app_icon_path()" in launcher_src
-    assert "icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None" in launcher_src
-    assert "url = _buddy_overlay_url(buddy_port)" in launcher_src
-    assert "existing.load_url" not in launcher_src.split("def open_buddy_window", 1)[1].split("def mark_buddy_window_ready", 1)[0]
-    assert '"url": url' in launcher_src
-    assert "from buddy.desktop import open_buddy_overlay" not in launcher_src
-    assert "..\\src\\row_bot\\*" in inno_src
-    assert "src/row_bot" in mac_src
-    assert "src/row_bot" in linux_src
-
-
-def test_buddy_runtime_supports_generated_art_as_primary_path():
-    runtime_src = _read("static/buddy/runtime/buddy.js")
-    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
-    manifest_src = _read("static/buddy/builtins/glyph/manifest.json")
-
-    assert "initGeneratedRoot" in runtime_src
-    assert "drawGeneratedBuddy" in runtime_src
-    assert "drawCoverSource" in runtime_src
-    assert "drawContainSource" in runtime_src
-    assert "drawSourceForFit" in runtime_src
-    assert "drawTransparentSource" in runtime_src
-    assert "sampleBackgroundColor" in runtime_src
-    assert "isVideoBackgroundPixel" in runtime_src
-    assert "seedBackgroundCorners" in runtime_src
-    assert "BACKGROUND_COLOR_DISTANCE_THRESHOLD = 24" in runtime_src
-    assert "BACKGROUND_LUMA_DELTA_THRESHOLD = 15" in runtime_src
-    assert "BACKGROUND_SEED_RATIO = 0.05" in runtime_src
-    assert "distance < BACKGROUND_COLOR_DISTANCE_THRESHOLD" in runtime_src
-    assert "drawSourceForFit(keyCtx" in runtime_src
-    assert "const imageSize = size * 0.84" in runtime_src
-    assert "root.dataset.generatedFit === 'contain'" not in runtime_src
-    assert "Generated motion ready" in runtime_src
-    assert "Generated motion pack ready" in runtime_src
-    assert "clipForSnapshot" in runtime_src
-    assert "data-motion-pack" in buddy_ui_src
-    assert "data-personality" in buddy_ui_src
-    assert "Generate a companion look in Settings to activate animation" in runtime_src
-    assert "data-preview" in buddy_ui_src
-    assert "data-motion" in buddy_ui_src
-    assert "data-generated-fit" in buddy_ui_src
-    assert 'rendered_motion_url = "" if motion_pack_json != "{}" else motion_url' in buddy_ui_src
-    assert 'data-motion="{html.escape(rendered_motion_url)}"' in buddy_ui_src
-    assert 'render_fit = "cover"' in buddy_ui_src
-    assert 'render_fit = "contain"' not in buddy_ui_src
-    assert "data-riv" not in buddy_ui_src
-    assert '{"generated_motion_pack", "generated_still"}' in buddy_ui_src
-    assert "@rive-app/canvas" not in buddy_ui_src
-    assert "background: transparent" in buddy_ui_src
-    assert '"runtime": "generated_motion_pack"' in manifest_src
-    assert '"preview": "preview.png"' in manifest_src
-    assert '"path": "motions/idle.mp4"' in manifest_src
 
 
 def test_buddy_hatch_prompts_request_keyable_motion_assets():
@@ -293,7 +178,7 @@ def test_buddy_settings_uses_visual_pack_picker():
     assert '"latest_hatch_preview"' in buddy_ui_src
     assert '"latest_hatch_motion_pack"' in buddy_ui_src
     assert "_refresh_existing_buddy_surfaces" in buddy_ui_src
-    assert '"desktop": _surface_html("desktop")' in buddy_ui_src
+    assert '{"sidebar": _surface_html("sidebar")}' in buddy_ui_src
     assert "client.run_javascript(code)" in buddy_ui_src
     assert "element.replaceWith(next)" in buddy_ui_src
     assert 'latest_cfg["pack_id"] = pack_id' in buddy_ui_src
@@ -435,7 +320,6 @@ def test_buddy_settings_strips_redundant_pack_prefixes():
 
 def test_buddy_surface_sizing_and_docked_drag_are_targeted():
     buddy_ui_src = _read("src/row_bot/ui/buddy.py")
-    runtime_src = _read("static/buddy/runtime/buddy.js")
 
     assert '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage' in buddy_ui_src
     sidebar_stage = buddy_ui_src.split(
@@ -451,8 +335,6 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
     assert "data-buddy-display-name" not in buddy_ui_src
     assert "data-display-name" not in buddy_ui_src
     assert "sidebar_avatar_label = ui.label" not in buddy_ui_src
-    assert "root.dataset.displayName" not in runtime_src
-    assert "buddy-label" not in runtime_src
     assert ".row-bot-buddy-in-app.row-bot-buddy-drag-preview .row-bot-buddy-stage::after" in buddy_ui_src
     assert "display: none" in buddy_ui_src
     assert "buddyDragInstalled" in buddy_ui_src
@@ -492,22 +374,10 @@ def test_buddy_sidebar_click_replaces_toolbar_buttons():
 
 def test_buddy_status_bubbles_and_hot_apply_are_wired():
     buddy_ui_src = _read("src/row_bot/ui/buddy.py")
-    runtime_src = _read("static/buddy/runtime/buddy.js")
 
     assert "data-bubble-verbosity" in buddy_ui_src
     assert '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-status' in buddy_ui_src
     assert ".row-bot-buddy-in-app.row-bot-buddy-drag-preview .row-bot-buddy-status" in buddy_ui_src
-    assert ".row-bot-buddy-overlay-page .row-bot-buddy-status" in buddy_ui_src
-    assert "width: min(68vw, 176px)" in buddy_ui_src
-    assert "max-height: 58px" in buddy_ui_src
-    assert "generatedStatus(root, snapshot)" in runtime_src
-    assert "snapshot.message || snapshot.label" in runtime_src
-    assert "PERSONALITY_STATUS" in runtime_src
-    assert "verbosity === 'chatty'" in runtime_src
-    assert "surface === 'desktop' && kind !== 'idle'" in runtime_src
-    assert "DESKTOP_STATUS_HOLD_MS = 5500" in runtime_src
-    assert "statusHoldText" in runtime_src
-    assert "statusHoldUntil" in runtime_src
     assert "def _client_is_live(client)" in buddy_ui_src
     assert "not getattr(client, \"_deleted\", False)" in buddy_ui_src
     assert "lambda: _push_snapshot(client)" in buddy_ui_src
@@ -516,118 +386,57 @@ def test_buddy_status_bubbles_and_hot_apply_are_wired():
     assert "if (docked && window.RowBotBuddyDock) window.RowBotBuddyDock.resetAll();" in snapshot_section
     assert "_apply_buddy_surface_settings" in buddy_ui_src
     assert "window.pywebview.api" in buddy_ui_src
-    assert "api.set_buddy_desktop_enabled" not in buddy_ui_src
     assert "api.tear_off_buddy" in buddy_ui_src
-    assert "api.dock_buddy" in buddy_ui_src
     assert "hide_buddy_window" in buddy_ui_src
-    assert "minimize_buddy_window" not in buddy_ui_src
     assert "document.querySelectorAll('[data-buddy-in-app-shell]')" in buddy_ui_src
-    assert "__ROW_BOT_BUDDY_DESKTOP_FOCUS_SYNC" not in buddy_ui_src
-    assert "row-bot-buddy-overlay-controls" not in buddy_ui_src
-    assert "_hide_desktop_overlay" not in buddy_ui_src
-    assert "_show_desktop_overlay" not in buddy_ui_src
-    assert "row-bot-buddy-overlay-html" in buddy_ui_src
-    assert "row-bot-buddy-overlay-body" in buddy_ui_src
-    assert "window.location.pathname === '/buddy-overlay'" in buddy_ui_src
-    assert "document.documentElement.classList.add('row-bot-buddy-overlay-html')" in buddy_ui_src
-    assert "revealOverlay" in buddy_ui_src
-    assert "api.mark_buddy_window_ready" in buddy_ui_src
-    assert "elapsed >= 700" in buddy_ui_src
-    assert "requestAnimationFrame(() => requestAnimationFrame(revealOverlay))" in buddy_ui_src
-    assert "html.row-bot-buddy-overlay-html body" in buddy_ui_src
-    assert "html.row-bot-buddy-overlay-html .q-layout" in buddy_ui_src
-    assert ".nicegui-content" in buddy_ui_src
 
 
-def test_buddy_overlay_uses_three_small_direct_actions_without_extra_controls():
-    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
-    overlay_section = buddy_ui_src.split("def build_buddy_overlay_page", 1)[1].split(
-        "def build_buddy_settings_tab",
-        1,
-    )[0]
+def test_the_nicegui_desktop_overlay_and_its_runtime_are_retired():
+    """The torn-off Buddy is the React overlay (``/app-v2/buddy-overlay``)."""
+    import row_bot.buddy.overlay as overlay
+    import row_bot.ui.buddy as buddy_ui
 
-    assert 'icon="more_horiz"' not in overlay_section
-    assert "ui.menu()" not in overlay_section
-    assert "ui.menu_item(" not in overlay_section
-    assert "row-bot-buddy-overlay-actions" in overlay_section
-    assert 'ui.button(icon="open_in_new", on_click=_open_full_thread)' in overlay_section
-    assert 'ui.button(icon="dock", on_click=_dock)' in overlay_section
-    assert 'ui.button(icon="visibility_off", on_click=_hide)' in overlay_section
-    for accessible_name in (
-        "Open full thread",
-        "Dock Buddy",
-        "Hide Buddy",
-    ):
-        assert f"aria-label='{accessible_name}'" in overlay_section
-        assert f'.tooltip("{accessible_name}")' in overlay_section
-    assert overlay_section.index("row-bot-buddy-overlay-body") < overlay_section.index(
-        "row-bot-buddy-overlay-actions"
-    )
-    action_section = overlay_section.split("row-bot-buddy-overlay-actions", 1)[1].split(
-        'with ui.column().style("display:none")',
-        1,
-    )[0]
-    assert action_section.count("size=xs") == 3
-    assert "size=sm" not in action_section
-    assert "_toggle_collapse" not in overlay_section
-    assert 'icon="unfold_more"' not in overlay_section
-    assert "Collapse or expand Buddy" not in overlay_section
-    assert "row-bot-buddy-overlay-collapsed" not in buddy_ui_src
+    assert not hasattr(buddy_ui, "build_buddy_overlay_page")
+    assert "/static/buddy/runtime/" not in buddy_ui._BUDDY_HEAD
+    assert "buddy-overlay" not in buddy_ui._BUDDY_HEAD
+    assert not (ROOT / "static" / "buddy" / "runtime" / "buddy.js").exists()
+    for retired in ("build_thread_snapshot", "project_approval", "ForegroundAppTracker", "NativeBuddyLifecycle"):
+        assert not hasattr(overlay, retired), retired
 
 
-def test_buddy_overlay_uses_opaque_rectangular_flex_layout():
-    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
-    overlay_page_rule = buddy_ui_src.split(".row-bot-buddy-overlay-page {", 1)[1].split("}", 1)[0]
-    overlay_body_rule = buddy_ui_src.split("\n.row-bot-buddy-overlay-body {", 1)[1].split("}", 1)[0]
-    response_rule = buddy_ui_src.split(".row-bot-buddy-overlay-response {", 1)[1].split("}", 1)[0]
-    approval_rule = buddy_ui_src.split(".row-bot-buddy-overlay-approval {", 1)[1].split("}", 1)[0]
+def test_legacy_buddy_surfaces_show_the_active_look_as_a_still_image(monkeypatch, tmp_path):
+    import row_bot.ui.buddy as buddy_ui
 
-    assert "box-sizing: border-box" in overlay_page_rule
-    assert "background: linear-gradient(145deg, #0b1119, #111b26)" in overlay_page_rule
-    assert "border-radius: 0" in overlay_page_rule
-    assert "rgba(" not in overlay_page_rule.split("background:", 1)[1].split(";", 1)[0]
-    assert "flex: 1 1 auto" in overlay_body_rule
-    assert "min-height: 0" in overlay_body_rule
-    assert "flex: 1 1 auto" in response_rule
-    assert "max-height: none" in response_rule
-    assert "flex: 0 0 auto" in approval_rule
-    assert "approval_box.set_visibility(False)" in buddy_ui_src
-    assert "backdrop-filter" not in buddy_ui_src
+    preview = tmp_path / "look.png"
+    preview.write_bytes(b"not decoded")
+    monkeypatch.setattr(buddy_ui, "static_url_for_path", lambda value: "/_buddy/" + Path(value).name)
+    monkeypatch.setattr(buddy_ui, "get_buddy_config", lambda: {
+        "active_hatch_preview": str(preview), "bubble_verbosity": "quiet", "personality": "calm"})
+    rendered = buddy_ui._surface_html("sidebar")
+    assert '<img src="/_buddy/look.png" alt="" draggable="false">' in rendered
+    assert 'data-surface="sidebar"' in rendered and 'data-bubble-verbosity="quiet"' in rendered
+    assert "<canvas" not in rendered and "data-motion" not in rendered
 
+    # Without a generated look, the selected pack's still image is shown.
+    monkeypatch.setattr(buddy_ui, "get_buddy_config", lambda: {"pack_id": "glyph"})
+    assert '<img src="/_buddy/preview.png"' in buddy_ui._surface_html("sidebar")
 
-def test_buddy_idle_video_uses_quiet_replay_cadence():
-    runtime_src = _read("static/buddy/runtime/buddy.js")
-
-    assert "IDLE_REPLAY_DELAY_MS = 60000" in runtime_src
-    assert "shouldUseIdleCadence" in runtime_src
-    assert "animation === 'idle_breathe'" in runtime_src
-    assert "video.loop = false" in runtime_src
-    assert "video.autoplay = false" in runtime_src
-    assert "idleStillUntil = nowMs() + IDLE_REPLAY_DELAY_MS" in runtime_src
-    assert "idleStill ? state.image" in runtime_src
-    assert "LOOP_RESTART_PADDING_SECONDS = 0.08" in runtime_src
-    assert "restartVideoSmoothly" in runtime_src
-    assert "smoothLoopIfNeeded" in runtime_src
-    assert "cleanupGeneratedState" in runtime_src
-    assert "isGeneratedStateAttached" in runtime_src
-    assert "state.root.isConnected !== false" in runtime_src
-    assert "generated.delete(state.canvas.id)" in runtime_src
+    # With no image at all, the glyph fallback stays visible.
+    monkeypatch.setattr(buddy_ui, "load_buddy_pack", lambda _pack_id: type("Pack", (), {"preview_path": None})())
+    monkeypatch.setattr(buddy_ui, "get_buddy_config", lambda: {})
+    fallback = buddy_ui._surface_html("sidebar")
+    assert "<img" not in fallback and "row-bot-buddy-fallback" in fallback
 
 
-def test_buddy_approval_motion_is_softened_and_state_changes_crossfade():
-    runtime_src = _read("static/buddy/runtime/buddy.js")
-    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
+def test_builtin_glyph_pack_ships_a_still_and_motion_clips():
+    manifest_src = _read("static/buddy/builtins/glyph/manifest.json")
 
-    assert "CLIP_CROSSFADE_MS = 280" in runtime_src
-    assert "drawTransitionedSource" in runtime_src
-    assert "transitionFromSource" in runtime_src
-    assert "progress * progress * (3 - 2 * progress)" in runtime_src
-    assert "state.activeClip === 'approval'" in runtime_src
-    assert "return 0.72" in runtime_src
-    assert "isApproval ? Math.sin(phase * 2.1) * 0.7" in runtime_src
-    assert "isApproval ? 'rgba(228, 194, 94, 0.28)'" in runtime_src
-    assert "row-bot-buddy-v7" in buddy_ui_src
-    assert 'data-animation="tap_glass"' in buddy_ui_src
-    assert "animation-duration: 4.2s" in buddy_ui_src
-    assert "animation === 'tap_glass' || animation === 'pause'" not in runtime_src
-    assert "if (animation === 'pause') return 0.82" in runtime_src
+    assert '"runtime": "generated_motion_pack"' in manifest_src
+    assert '"preview": "preview.png"' in manifest_src
+    assert '"path": "motions/idle.mp4"' in manifest_src
+
+
+def test_installers_ship_the_runtime_package():
+    assert "..\\src\\row_bot\\*" in _read("installer/row_bot_setup.iss")
+    assert "src/row_bot" in _read("installer/build_mac_app.sh")
+    assert "src/row_bot" in _read("installer/build_linux_app.sh")

@@ -1704,17 +1704,14 @@ from row_bot.buddy.overlay import (
     OVERLAY_HEIGHT,
     OVERLAY_WIDTH,
     BuddyPlacement,
-    ForegroundAppTracker,
     apply_placement_state,
     enable_windows_per_monitor_dpi,
     placement_state_from_config,
     placement_state_for_app_startup,
-    platform_foreground_backend,
     screen_areas_from_native,
 )
 
 _NAMED_WINDOWS = {}
-_FOREGROUND_TRACKER = ForegroundAppTracker(platform_foreground_backend())
 # Operations the desktop Buddy's document may use: nothing else.
 _BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "main_window"})
 
@@ -1753,14 +1750,6 @@ def _screen_scale():
         return max(1.0, ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100)
     except Exception:
         return 1.0
-
-def _track_foreground_apps():
-    while True:
-        try:
-            _FOREGROUND_TRACKER.observe()
-        except Exception:
-            pass
-        time.sleep(0.25)
 
 def _install_windows_app_icon():
     if sys.platform != "win32" or not (_ICON_PATH and os.path.isfile(_ICON_PATH)):
@@ -1848,16 +1837,6 @@ class _JsApi:
 
     def show_main_window(self):
         return _BUDDY.show_main(None)
-
-    def get_foreground_target(self):
-        target = _FOREGROUND_TRACKER.last_external
-        return {
-            "available": target is not None,
-            "app_name": _FOREGROUND_TRACKER.app_name,
-        }
-
-    def restore_foreground_target(self):
-        return _FOREGROUND_TRACKER.restore_once()
 
     def open_url(self, url):
         if isinstance(url, str) and url.lower().startswith(("https://", "http://")):
@@ -2125,7 +2104,6 @@ enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
 _reset_buddy_placement_for_startup()
 _start_control_server(_CONTROL_PORT)
-threading.Thread(target=_track_foreground_apps, daemon=True, name="buddy-foreground-tracker").start()
 
 _NATIVE_ORIGIN = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
 _NATIVE_AUTHORITIES = {}

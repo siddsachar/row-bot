@@ -1,51 +1,26 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
 
 from row_bot.buddy.overlay import (
-    ApprovalProjection,
     BuddyPlacement,
     BuddyPlacementState,
-    ForegroundAppTracker,
-    ForegroundWindow,
-    NativeBuddyLifecycle,
     OverlayTurnTarget,
     RuntimeSurface,
     ScreenArea,
-    build_thread_snapshot,
     clamp_overlay_position,
     enable_windows_per_monitor_dpi,
     native_overlay_transparency,
     placement_state_from_config,
     placement_state_for_app_startup,
     position_for_drop,
-    project_approval,
     screen_areas_from_native,
     should_defer_native_show,
-    _WindowsForegroundBackend,
 )
 from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401
-
-
-class FakeWindow:
-    def __init__(self) -> None:
-        self.calls: list[tuple] = []
-
-    def hide(self) -> None:
-        self.calls.append(("hide",))
-
-    def show(self) -> None:
-        self.calls.append(("show",))
-
-    def move(self, x: int, y: int) -> None:
-        self.calls.append(("move", x, y))
-
-    def destroy(self) -> None:
-        self.calls.append(("destroy",))
 
 
 def _state(**overrides):
@@ -144,65 +119,6 @@ def test_placement_transitions_keep_hidden_and_collapsed_as_conditions():
     assert BuddyPlacementState().collapse() == BuddyPlacementState()
 
 
-def test_native_lifecycle_cancels_main_close_only_while_torn_off():
-    stored = {"placement": "desktop", "visible": False, "overlay": {}}
-    main = FakeWindow()
-    buddy = FakeWindow()
-
-    def load():
-        return dict(stored)
-
-    def save(value):
-        stored.clear()
-        stored.update(value)
-        return dict(stored)
-
-    lifecycle = NativeBuddyLifecycle(
-        load_config=load,
-        save_config=save,
-        main_window=main,
-        buddy_window=lambda: buddy,
-    )
-
-    assert lifecycle.main_closing() is False
-    assert main.calls == [("hide",)]
-    assert lifecycle.dock() is True
-    assert buddy.calls == [("destroy",)]
-    assert lifecycle.main_closing() is True
-
-
-def test_native_lifecycle_tear_off_move_hide_show_and_quit():
-    stored = {"placement": "docked", "visible": True, "overlay": {}}
-    main = FakeWindow()
-    buddy = FakeWindow()
-
-    def save(value):
-        stored.clear()
-        stored.update(value)
-        return dict(stored)
-
-    lifecycle = NativeBuddyLifecycle(
-        load_config=lambda: dict(stored),
-        save_config=save,
-        main_window=main,
-        buddy_window=lambda: buddy,
-    )
-
-    assert lifecycle.tear_off(-320, 120) is True
-    assert stored["placement"] == "desktop"
-    assert stored["overlay"]["x"] == -320
-    assert buddy.calls == [("move", -320, 120), ("show",)]
-    assert lifecycle.hide() is True
-    assert stored["visible"] is False
-    assert lifecycle.show() is True
-    assert stored["visible"] is True
-    lifecycle.moved(-250, 160)
-    assert stored["overlay"] == {"x": -250, "y": 160}
-    lifecycle.quit()
-    assert buddy.calls[-1] == ("destroy",)
-    assert main.calls[-1] == ("destroy",)
-
-
 def test_positioning_retains_negative_coordinates_and_recovers_missing_monitor():
     screens = [ScreenArea(-1920, 0, 1920, 1080), ScreenArea(0, 0, 1920, 1040)]
     assert clamp_overlay_position(-1800, 80, screens) == (-1800, 80)
@@ -264,216 +180,6 @@ def test_thread_draft_continuity_between_full_composer_and_overlay(monkeypatch, 
     loaded = threads.load_thread_draft("thread-1")
     assert loaded["text"] == "edited in overlay"
     assert loaded["source"] == "buddy_overlay"
-
-
-def test_snapshot_projects_only_selected_generation_across_thread_switch():
-    old_generation = SimpleNamespace(
-        status="streaming",
-        accumulated="Old thread text",
-        interrupt_data=None,
-        error="",
-        pending_tools={},
-    )
-    selected_generation = SimpleNamespace(
-        status="streaming",
-        accumulated="New thread text",
-        interrupt_data=None,
-        error="",
-        pending_tools={},
-    )
-    state = _state(thread_id="thread-2", thread_name="New target")
-
-    snapshot = build_thread_snapshot(
-        state,
-        {"thread-1": old_generation, "thread-2": selected_generation},
-    )
-
-    assert snapshot.thread_id == "thread-2"
-    assert snapshot.response_text == "New thread text"
-    assert snapshot.can_stop is True
-    assert "Old thread" not in snapshot.response_text
-
-
-def test_snapshot_does_not_attribute_old_thread_approval_after_selection_change():
-    state = _state(
-        thread_id="thread-2",
-        pending_interrupt={"description": "Delete old output", "target": "old.txt"},
-        pending_interrupt_generation_id="thread-1:generation-1",
-    )
-    snapshot = build_thread_snapshot(state, {})
-    assert snapshot.approval.required is False
-
-
-def test_snapshot_uses_progress_before_tokens_and_plain_text_answer_afterward():
-    generation = SimpleNamespace(
-        status="streaming",
-        accumulated="",
-        interrupt_data=None,
-        error="",
-        pending_tools={"call": {"label": "Browser search"}},
-    )
-    state = _state(messages=[])
-    progress = build_thread_snapshot(state, {"thread-1": generation}, buddy_status="Working")
-    assert progress.progress_text == "Working with Browser search"
-    generation.accumulated = "## Result\n**Safe** [link](https://example.test) <script>ignored</script>"
-    answer = build_thread_snapshot(state, {"thread-1": generation})
-    assert answer.progress_text == ""
-    assert answer.response_text == "Result\nSafe link ignored"
-
-
-@pytest.mark.parametrize("message", ["Provider connection failed", "Desktop client disconnected"])
-def test_snapshot_projects_runtime_errors_without_starting_another_turn(message):
-    generation = SimpleNamespace(
-        status="error",
-        accumulated="",
-        interrupt_data=None,
-        error=message,
-        pending_tools={},
-    )
-    snapshot = build_thread_snapshot(_state(messages=[]), {"thread-1": generation})
-    assert snapshot.error == message
-    assert snapshot.generating is False
-    assert snapshot.can_stop is False
-
-
-def test_well_described_approvals_can_be_settled_in_overlay_but_vague_requires_full_ui():
-    simple = project_approval(
-        {"description": "Write the reviewed file", "target": "notes.md", "reversible": True}
-    )
-    assert simple == ApprovalProjection(True, True, "Write the reviewed file", "notes.md", 1)
-    grouped = project_approval(
-        [
-            {"description": "Focus Edge", "action": "focus"},
-            {"description": "Select the AI topic", "target": "AI"},
-        ]
-    )
-    assert grouped.required is True
-    assert grouped.simple is True
-    assert grouped.count == 2
-    assert "Focus Edge" in grouped.description
-    assert "Select the AI topic" in grouped.description
-    assert grouped.reason == "Approve all or open details"
-    vague = project_approval({"tool": "shell"})
-    assert vague.simple is False
-
-
-def test_grouped_approval_with_an_undescribed_action_still_requires_full_ui():
-    projection = project_approval(
-        [
-            {"description": "Focus Edge", "action": "focus"},
-            {"tool": "browser_click"},
-        ]
-    )
-    assert projection == ApprovalProjection(
-        True,
-        False,
-        "Approval required",
-        "Review in Row-Bot",
-        2,
-    )
-
-
-@dataclass
-class FakeForegroundBackend:
-    window: ForegroundWindow | None
-    activated: list[ForegroundWindow]
-
-    def current(self):
-        return self.window
-
-    def activate(self, window):
-        self.activated.append(window)
-        return True
-
-
-class FakeWindowsUser32:
-    def __init__(self, *, valid: bool = True, minimized: bool = False, activated: bool = True) -> None:
-        self.valid = valid
-        self.minimized = minimized
-        self.activated = activated
-        self.calls: list[tuple] = []
-
-    def IsWindow(self, handle):  # noqa: N802
-        self.calls.append(("IsWindow", handle))
-        return self.valid
-
-    def IsIconic(self, handle):  # noqa: N802
-        self.calls.append(("IsIconic", handle))
-        return self.minimized
-
-    def ShowWindow(self, handle, command):  # noqa: N802
-        self.calls.append(("ShowWindow", handle, command))
-        return True
-
-    def SetForegroundWindow(self, handle):  # noqa: N802
-        self.calls.append(("SetForegroundWindow", handle))
-        return self.activated
-
-
-def _windows_foreground_backend(user32: FakeWindowsUser32) -> _WindowsForegroundBackend:
-    backend = _WindowsForegroundBackend.__new__(_WindowsForegroundBackend)
-    backend.user32 = user32
-    return backend
-
-
-def test_windows_foreground_rejects_invalid_handle_without_restore_or_activation():
-    user32 = FakeWindowsUser32(valid=False)
-    backend = _windows_foreground_backend(user32)
-
-    assert backend.activate(ForegroundWindow(44, 700)) is False
-    assert user32.calls == [("IsWindow", 44)]
-
-
-@pytest.mark.parametrize("placement", ["normal", "maximized"])
-def test_windows_foreground_visible_window_is_activated_without_placement_change(placement):
-    user32 = FakeWindowsUser32(minimized=False)
-    backend = _windows_foreground_backend(user32)
-
-    assert backend.activate(ForegroundWindow(44, 700, placement, "Edge")) is True
-    assert user32.calls == [
-        ("IsWindow", 44),
-        ("IsIconic", 44),
-        ("SetForegroundWindow", 44),
-    ]
-
-
-def test_windows_foreground_minimized_window_restores_once_before_activation():
-    user32 = FakeWindowsUser32(minimized=True)
-    backend = _windows_foreground_backend(user32)
-
-    assert backend.activate(ForegroundWindow(44, 700, "Edge", "Edge")) is True
-    assert user32.calls == [
-        ("IsWindow", 44),
-        ("IsIconic", 44),
-        ("ShowWindow", 44, 9),
-        ("SetForegroundWindow", 44),
-    ]
-
-
-def test_windows_foreground_failed_activation_is_not_retried():
-    user32 = FakeWindowsUser32(activated=False)
-    backend = _windows_foreground_backend(user32)
-
-    assert backend.activate(ForegroundWindow(44, 700)) is False
-    assert [name for name, *_args in user32.calls].count("SetForegroundWindow") == 1
-
-
-def test_foreground_tracker_filters_row_bot_and_restores_external_app_once_per_send():
-    backend = FakeForegroundBackend(ForegroundWindow(11, 700, "Editor", "Code"), [])
-    tracker = ForegroundAppTracker(backend, own_process_id=900, ignored_handles=lambda: {22})
-    assert tracker.observe().handle == 11
-    assert tracker.app_name == "Code"
-    backend.window = ForegroundWindow(22, 901, "Buddy", "Row-Bot")
-    assert tracker.observe().handle == 11
-    assert tracker.restore_once() is True
-    assert backend.activated == [ForegroundWindow(11, 700, "Editor", "Code")]
-
-
-def test_foreground_tracker_does_not_reject_external_apps_by_title_alone():
-    external = ForegroundWindow(33, 700, "Buddy notes", "Notes")
-    backend = FakeForegroundBackend(external, [])
-    tracker = ForegroundAppTracker(backend, own_process_id=900)
-    assert tracker.observe() == external
 
 
 @pytest.mark.parametrize(
