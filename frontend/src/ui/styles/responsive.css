@@ -363,3 +363,35 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* ------------------------------------------------------------- dialogs */
+
+/* Tablets keep ordinary dialogs and the palette as centred cards; only large
+   tasks (the workflow builder, an expanded chart) take the whole screen. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(
+      .workflow-builder-dialog
+    ):not(.chart-dialog) {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(560px, calc(100vw - 48px));
+    height: auto;
+    max-height: min(calc(100dvh - 48px), calc(100% - 48px));
+    border-radius: var(--radius-dialog);
+  }
+  .dialog.palette {
+    top: min(12vh, 120px);
+    transform: translateX(-50%);
+    width: min(640px, calc(100vw - 32px));
+    max-height: min(560px, calc(100dvh - 24vh));
+    border-radius: 14px;
+  }
+}
+/* A full-screen task keeps its footer at the bottom edge. */
+@media (max-width: 1023px) {
+  .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(.palette)
+    > .dialog-body {
+    flex: 1 1 auto;
+  }
+}
