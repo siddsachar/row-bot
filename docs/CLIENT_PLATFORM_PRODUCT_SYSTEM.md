@@ -508,6 +508,46 @@ Run diagnosis…); Mark done and Skip sit in its ⋯. Areas that match the
 chosen uses are recommended and come first. Every choice is one reviewed,
 idempotent command; an uncertain one is kept for "Check setup action".
 
+### Desktop Buddy (overlay)
+
+The torn-off Buddy is its own small entry, `frontend/buddy-overlay.html` →
+`src/overlay/`, served at `/app-v2/buddy-overlay` in a 380×230 frameless,
+always-on-top window. A separate entry beat a lazy route in the main bundle
+(Edge at 380×230, warm: ready 744 vs 820 ms median, 282 vs 564 KB script,
+4 vs 59 KB CSS). It loads only fonts, tokens and its own stylesheet, and the
+asset manifest and `build:verify` require it.
+
+- **Header (drag region).** 40px avatar with its activity ring, the
+  conversation title (h1) and "kind · state" (Chat · Responding…). Three 28px
+  icon actions: Open full thread, Dock Buddy, Hide Buddy. Dragging the
+  header moves the window through pywebview's own move channel.
+- **Body.** The latest answer of the followed conversation as plain text,
+  scrollable and focusable, with a caret while it streams; before words
+  arrive, the last three steps ("Searching · flights to Lisbon"). A
+  stopped or tool-only turn never shows an older answer. Notices: an
+  interrupted turn offers Resume, a failed one Open thread, a message with
+  no reply says so.
+- **Approval.** One row: "Allow X?" with the key argument, Deny, Details
+  (opens the full thread) and Approve (Mod+Enter).
+- **Composer.** "Message this thread", Enter sends, Shift+Enter breaks the
+  line, Send morphs to Stop. While a turn runs or waits, Enter says why it
+  did not send and keeps the text. Drafts are the conversation's own and
+  follow the main window both ways.
+- **Following.** Buddy shows the conversation selected in the main window
+  (read through its bridge on a change hint, on focus and every 5 s), else
+  the most recent one. Open full thread brings the main window forward at
+  that conversation.
+- **Look.** Tokens and appearance follow the app setting (System by
+  default). Windows keeps an opaque rectangle; macOS is transparent with
+  rounded corners. Reduced motion removes the ring, caret and shimmer.
+  CSS only, and nothing animates out. The window is revealed only after the
+  first settled render and the avatar (or 700 ms).
+
+The native wiring (window roles, attested bridge, lease renewal, grant
+re-attestation) is in `docs/ARCHITECTURE.md` › Buddy Desktop Overlay. What the
+default app still loads from NiceGUI, as the checklist for removing it, is in
+`docs/NICEGUI_RETIREMENT.md`.
+
 ## Motion
 
 Motion confirms a state change; it never delays one. Tokens: 120ms popovers,
