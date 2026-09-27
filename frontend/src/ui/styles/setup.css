@@ -1,0 +1,368 @@
+/*
+ * Setup Center. One centred column: a page header with a progress ring, the
+ * first-model step when it is still open, "What would you like to use?" as
+ * selectable tiles, then one tile per area with a status chip, one primary
+ * action and a ⋯ for Mark done / Skip.
+ */
+
+.setup-center {
+  display: grid;
+  gap: 28px;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 20px 32px 64px;
+  box-sizing: border-box;
+}
+.setup-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+.setup-header-icon,
+.setup-hero-icon,
+.setup-area-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 10px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-raised);
+  color: var(--accent-solid);
+}
+.setup-header-icon {
+  width: 36px;
+  height: 36px;
+}
+.setup-header-text {
+  min-width: 0;
+}
+.setup-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-20);
+  line-height: var(--leading-20);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.015em;
+}
+.setup-header p {
+  margin: 1px 0 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+}
+.setup-notice {
+  margin: -12px 0 0;
+  color: var(--status-success-text);
+  font-size: var(--type-size-label);
+}
+.setup-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+}
+.setup-callout p {
+  margin: 0;
+}
+
+/* First model: the one step that must happen before the rest. */
+.setup-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 18px 20px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent-solid) 32%, var(--border-hairline));
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--accent-solid) 7%, var(--surface));
+}
+.setup-hero-icon {
+  width: 40px;
+  height: 40px;
+  align-self: start;
+}
+.setup-hero-text h2 {
+  margin: 0;
+  font-size: var(--text-17);
+  line-height: var(--leading-17);
+  font-weight: var(--weight-semibold);
+}
+.setup-hero-text p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+}
+.setup-hero-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.setup-hero-links a {
+  color: var(--text-link);
+}
+.setup-hero-note {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+
+.setup-section {
+  display: grid;
+  gap: 12px;
+}
+.setup-section-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-17);
+  line-height: var(--leading-17);
+  font-weight: var(--weight-semibold);
+}
+.setup-section-head p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-label);
+}
+
+/* Uses: selectable tiles (native checkboxes; the tile is the label). */
+.setup-intents {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+.setup-intent {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 12px 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    background var(--motion-popover) var(--ease-out),
+    border-color var(--motion-popover) var(--ease-out);
+}
+.setup-intent:hover {
+  background: var(--surface-hover);
+}
+.setup-intent-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.setup-intent:has(.setup-intent-input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.setup-intent:has(.setup-intent-input:disabled) {
+  cursor: default;
+}
+.setup-intent-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.setup-intent-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-14);
+  line-height: 1.3;
+}
+.setup-intent-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border-control);
+  border-radius: 50%;
+  color: transparent;
+  transition:
+    background var(--motion-popover) var(--ease-out),
+    border-color var(--motion-popover) var(--ease-out);
+}
+.setup-intent[data-checked] {
+  border-color: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+}
+.setup-intent[data-checked] .setup-intent-icon {
+  color: var(--accent-solid);
+}
+.setup-intent[data-checked] .setup-intent-check {
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
+  color: var(--accent-on-solid);
+}
+
+/* Areas: one tile each, status chip, one primary action, ⋯. */
+.setup-areas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-area {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'icon text chip'
+    'icon actions actions';
+  align-items: start;
+  gap: 10px 12px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.setup-area-icon {
+  grid-area: icon;
+  width: 34px;
+  height: 34px;
+  color: var(--text-secondary);
+}
+.setup-area[data-status='recommended'] .setup-area-icon {
+  color: var(--accent-solid);
+}
+.setup-area[data-status='done'] .setup-area-icon {
+  color: var(--status-success-text);
+}
+.setup-area-text {
+  grid-area: text;
+  min-width: 0;
+}
+.setup-area-text h3 {
+  margin: 0;
+  font-size: var(--text-14);
+  line-height: 1.35;
+  font-weight: var(--weight-semibold);
+}
+.setup-area-text p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.setup-chip {
+  grid-area: chip;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.setup-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.setup-chip[data-status='done'] {
+  background: var(--status-success-background);
+  color: var(--status-success-text);
+}
+.setup-chip[data-status='recommended'] {
+  background: var(--accent-subtle);
+  color: var(--text-link);
+}
+.setup-chip[data-status='recommended'] .setup-chip-dot {
+  background: var(--accent-solid);
+}
+.setup-chip[data-status='skipped'] {
+  color: var(--text-muted);
+}
+.setup-area-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.setup-area-actions .setup-area-more {
+  margin-left: auto;
+}
+.setup-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-label);
+}
+.setup-more a {
+  color: var(--text-link);
+}
+
+@media (max-width: 767px) {
+  .setup-center {
+    gap: 22px;
+    padding: 12px 12px 40px;
+  }
+  .setup-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 14px;
+  }
+  .setup-hero > .button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+  .setup-hero-note {
+    grid-column: 1 / -1;
+  }
+  .setup-intents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .setup-intent {
+    padding-inline: 12px 10px;
+  }
+  .setup-intent-icon {
+    display: none;
+  }
+  .setup-areas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 380px) {
+  .setup-intents {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (forced-colors: active) {
+  .setup-intent[data-checked] {
+    border-color: Highlight;
+  }
+  .setup-intent[data-checked] .setup-intent-check {
+    background: Highlight;
+    color: HighlightText;
+  }
+}

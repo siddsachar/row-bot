@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   Code2,
   Columns3,
+  Compass,
   Copy,
   Globe,
   Home as HomeIcon,
@@ -700,6 +701,13 @@ export default function Workspace() {
         keywords: 'suggestions findings',
         icon: <Lightbulb size={16} />,
         run: () => go('/?tab=insights'),
+      },
+      {
+        id: 'setup',
+        label: 'Setup Center',
+        keywords: 'onboarding getting started guide progress',
+        icon: <Compass size={16} />,
+        run: () => go('/setup'),
       },
       {
         id: 'settings',
@@ -1562,6 +1570,7 @@ export default function Workspace() {
                             resetLayout: () => update(resetLayout),
                             startProfileChat: (profile) =>
                               void creation.newChat('', profile),
+                            newChat: (draft) => void creation.newChat(draft),
                           }}
                         >
                           <Outlet />

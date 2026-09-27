@@ -102,6 +102,46 @@ time {
   animation: glyph-settle var(--motion-draw) var(--ease-out) both;
 }
 
+/* ProgressRing ---------------------------------------------------------- */
+.progress-ring {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.progress-ring svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+.progress-ring circle {
+  fill: none;
+}
+.progress-ring-track {
+  stroke: var(--surface-pressed);
+}
+.progress-ring-value {
+  stroke: var(--accent-solid);
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--motion-panel) var(--ease-out);
+}
+.progress-ring[data-complete] .progress-ring-value {
+  stroke: var(--status-success-text);
+}
+.progress-ring-count {
+  position: relative;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.progress-ring-count small {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
 /* Kbd ------------------------------------------------------------------- */
 .kbd {
   display: inline-flex;

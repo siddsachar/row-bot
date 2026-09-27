@@ -5,6 +5,8 @@ type WorkspaceActions = {
   resetLayout: () => void;
   /** Start a new chat that uses this agent profile. */
   startProfileChat?: (profile: ProfileSummary) => void;
+  /** Start a new chat, optionally with a draft already in the composer. */
+  newChat?: (draft?: string) => void;
 };
 
 export const WorkspaceActionsContext = createContext<WorkspaceActions | null>(

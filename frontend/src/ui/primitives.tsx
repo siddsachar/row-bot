@@ -621,6 +621,64 @@ export type Tone =
 
 /** Status as shape, then word. The label is always available to assistive tech. */
 /**
+ * A small circular progress for counted work ("4 of 11 areas handled"). The
+ * count sits in the middle; the label names it for assistive technology.
+ */
+export function ProgressRing({
+  value,
+  total,
+  label,
+  size = 44,
+}: {
+  value: number;
+  total: number;
+  /** Spoken as the value text, e.g. "4 of 11 areas handled". */
+  label: string;
+  size?: number;
+}) {
+  const stroke = 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const done = total > 0 ? Math.min(1, Math.max(0, value / total)) : 1;
+  return (
+    <span
+      className="progress-ring"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={Math.min(value, total)}
+      aria-valuetext={label}
+      data-complete={done >= 1 ? 'true' : undefined}
+      style={{ width: size, height: size }}
+    >
+      <svg viewBox={`0 0 ${size} ${size}`} aria-hidden>
+        <circle
+          className="progress-ring-track"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={stroke}
+        />
+        <circle
+          className="progress-ring-value"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={stroke}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - done)}
+        />
+      </svg>
+      <span className="progress-ring-count" aria-hidden>
+        {Math.min(value, total)}
+        <small>/{total}</small>
+      </span>
+    </span>
+  );
+}
+
+/**
  * A copy icon that turns into a check drawn in one stroke after a successful
  * copy. Reduced motion shows the finished check at once.
  */

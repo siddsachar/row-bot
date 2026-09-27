@@ -1,8 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { OnboardingSnapshot } from '../../api/types';
 import { OnboardingCenter } from './Onboarding';
+import { WorkspaceActionsContext } from './workspace-actions';
 
 const snapshot: OnboardingSnapshot = {
   schema_version: 1,
@@ -61,10 +69,10 @@ it('loads progress passively and finishes selected model from one click', async 
   );
 });
 
-it('saves an intent switch directly and uses its receipt revision', async () => {
+it('saves an intent tile directly and uses its receipt revision', async () => {
   const { send } = show();
   fireEvent.click(
-    await screen.findByRole('switch', { name: 'Chat assistant' }),
+    await screen.findByRole('checkbox', { name: 'Chat assistant' }),
   );
   expect(send).toHaveBeenCalledWith(
     expect.objectContaining({ action: 'save_profile', profile: ['chat'] }),
@@ -205,4 +213,75 @@ it('lets the user correct a rejected unready model choice', async () => {
   expect(
     screen.getByRole('button', { name: 'Use selected model and continue' }),
   ).toBeEnabled();
+});
+
+it('orders recommended areas first with a status chip and one primary action', async () => {
+  const resumed: OnboardingSnapshot = {
+    ...snapshot,
+    setup_complete: true,
+    profile: ['designer'],
+    completed_steps: ['models'],
+    skipped_steps: ['voice'],
+    steps: [
+      ...snapshot.steps,
+      { id: 'knowledge', title: 'Knowledge', description: 'Memory.' },
+      { id: 'designer', title: 'Designer', description: 'Designs.' },
+    ],
+    intents: [
+      ...snapshot.intents,
+      { id: 'designer', label: 'Designer Studio' },
+    ],
+  };
+  const send = vi.fn(async (command) => ({
+    schema_version: 1 as const,
+    command_id: command.command_id,
+    status: 'completed' as const,
+    snapshot: { ...resumed, completed_steps: ['models', 'knowledge'] },
+  }));
+  const newChat = vi.fn();
+  render(
+    <MemoryRouter>
+      <WorkspaceActionsContext.Provider
+        value={{ resetLayout: vi.fn(), newChat }}
+      >
+        <OnboardingCenter owner={{ load: vi.fn(async () => resumed), send }} />
+      </WorkspaceActionsContext.Provider>
+    </MemoryRouter>,
+  );
+  const list = await screen.findByRole('list');
+  const titles = within(list)
+    .getAllByRole('heading', { level: 3 })
+    .map((heading) => heading.textContent);
+  expect(titles).toEqual(['Designer', 'Knowledge', 'Models', 'Voice']);
+  expect(
+    screen.getByRole('progressbar', { name: '2 of 4 areas handled' }),
+  ).toBeInTheDocument();
+  const items = within(list).getAllByRole('listitem');
+  expect(items.map((item) => item.getAttribute('data-status'))).toEqual([
+    'recommended',
+    'recommended',
+    'done',
+    'skipped',
+  ]);
+  expect(within(items[2]).getByText('Done')).toBeVisible();
+  expect(
+    within(items[1]).getByRole('link', { name: 'Open Knowledge' }),
+  ).toHaveAttribute('href', '/settings/knowledge');
+  fireEvent.click(
+    within(items[0]).getByRole('button', { name: 'Start a design' }),
+  );
+  expect(newChat).toHaveBeenCalledWith('Create a design: ');
+  expect(send).not.toHaveBeenCalled();
+  const more = within(items[1]).getByRole('button', {
+    name: 'More actions for Knowledge',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Mark Knowledge done' }),
+    ),
+  );
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'mark_done', step: 'knowledge' }),
+  );
 });
