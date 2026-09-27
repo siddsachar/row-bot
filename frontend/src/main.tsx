@@ -4,6 +4,7 @@ import {
   publishBuddyTarget,
 } from './features/buddy/BuddyFollow';
 import { bindDraftSync } from './draft-sync';
+import { keepNativeLease } from './native-lease';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -201,6 +202,7 @@ async function start() {
   // The desktop Buddy follows this window's conversation and shares drafts.
   const unpublishBuddyTarget = publishBuddyTarget(controller, platform);
   const unbindDraftSync = bindDraftSync(controller);
+  const releaseNativeLease = keepNativeLease(controller, platform);
   const workspaceEditSessions = createWorkspaceEditSessions(controller, {
     capacity: 8,
   });
@@ -471,6 +473,7 @@ async function start() {
       disposeActiveConversationSession();
       unpublishBuddyTarget();
       unbindDraftSync();
+      releaseNativeLease();
       controller.dispose();
     },
   });

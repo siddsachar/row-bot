@@ -693,3 +693,58 @@ describe('native selection at a cold start (B95)', () => {
     });
   });
 });
+
+describe('native lease renewal (B99)', () => {
+  it('exchanges a fresh attestation and uses it from then on', async () => {
+    const info = {
+      status: 'ok',
+      value: {
+        kind: 'pywebview',
+        platform: 'windows',
+        capabilities: ['buddy_placement'],
+        instanceId: 'instance',
+        windowId: 'window',
+        epoch: 1,
+      },
+    };
+    const dispatch = vi.fn().mockResolvedValue(info);
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+    );
+    expect(await adapter.renewNative!('b'.repeat(32))).toMatchObject({
+      status: 'ok',
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('discover', {
+      attestation: 'b'.repeat(32),
+    });
+    await adapter.discover();
+    expect(dispatch).toHaveBeenLastCalledWith('discover', {
+      attestation: 'b'.repeat(32),
+    });
+    expect(await adapter.renewNative!('bad attestation')).toMatchObject({
+      status: 'unavailable',
+    });
+    dispatch.mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'native_proof_required',
+    });
+    expect(await adapter.renewNative!('c'.repeat(32))).toEqual({
+      status: 'unavailable',
+      reason: 'native_proof_required',
+    });
+    await adapter.discover();
+    expect(dispatch).toHaveBeenLastCalledWith('discover', {
+      attestation: 'b'.repeat(32),
+    });
+    dispatch.mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'invalid_request',
+    });
+    expect(await adapter.readBuddyTarget()).toEqual({
+      status: 'unavailable',
+      reason: 'native_operation_unavailable',
+    });
+  });
+});

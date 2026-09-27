@@ -28,6 +28,9 @@ _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_
 # Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
 # itself and reports that its first view is drawn ("ready").
 _BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
+# A document's lease. It runs from the latest attestation the document
+# exchanged, so a long-lived window renews it with a fresh one (B99).
+LEASE_SECONDS = 1800
 
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
@@ -294,6 +297,7 @@ class NativeClientBridge:
         self._token = ""
         self._epoch = 0
         self._expires = 0.0
+        self._attestation = ""
         self._authority: NativeDocumentAuthority | None = None
 
     def _at_shell(self) -> bool:
@@ -316,6 +320,7 @@ class NativeClientBridge:
             context = self._context()
             self._token = ""
             self._authority = None
+            self._attestation = ""
             self._epoch += 1
         if authority is not None and self._revoke_document is not None:
             try:
@@ -329,7 +334,7 @@ class NativeClientBridge:
             if not self._at_shell():
                 return None
             self._token = secrets.token_urlsafe(32)
-            self._expires = self._clock() + 1800
+            self._expires = self._clock() + LEASE_SECONDS
             return {"instanceId": self._instance, "windowId": self._window,
                     "epoch": self._epoch, "token": self._token}
 
@@ -396,10 +401,14 @@ class NativeClientBridge:
             if (not _valid_authority(authority) or not self._valid_document(proof)
                     or self._epoch != epoch or self._context() != context):
                 return False
+            previous = self._authority
             self._authority = authority
             if not self._valid(proof):
-                self._authority = None
+                # A failed renewal leaves the current authority in place.
+                self._authority = previous
                 return False
+            self._attestation = payload["attestation"]
+            self._expires = self._clock() + LEASE_SECONDS
             return True
 
     def native_client_dispatch(self, proof: object, operation: object, payload: object) -> dict[str, Any]:
@@ -414,8 +423,12 @@ class NativeClientBridge:
                     return _unavailable("native_proof_required")
                 epoch = self._epoch
                 authenticated = self._valid(proof)
-            if operation == "discover" and not authenticated:
-                if not self._authenticate_discovery(proof, payload, epoch):
+            # A fresh attestation renews an authenticated document's lease;
+            # the one it already exchanged is simply a discovery (B99).
+            renewing = (operation == "discover" and authenticated
+                        and payload.get("attestation") not in (None, self._attestation))
+            if operation == "discover" and (not authenticated or renewing):
+                if not self._authenticate_discovery(proof, payload, epoch) and not authenticated:
                     return _unavailable("native_authentication_required")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:

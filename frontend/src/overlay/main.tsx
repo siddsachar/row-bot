@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { createClientController } from '../api';
 import { selectClientPlatform } from '../platform';
 import { bindDraftSync } from '../draft-sync';
+import { keepNativeLease, reloadWhenLeaseLapses } from '../native-lease';
 import { ThemeProvider } from '../ui/theme';
 import { installInputModality } from '../ui/input-modality';
 import BuddyOverlay from './BuddyOverlay';
@@ -38,6 +39,8 @@ async function start() {
     platform = createFakePlatform();
   }
   const unbindDrafts = bindDraftSync(controller);
+  const releaseLease = keepNativeLease(controller, platform);
+  platform = reloadWhenLeaseLapses(platform, () => location.reload());
   createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <BuddyOverlay
@@ -52,6 +55,7 @@ async function start() {
   window.addEventListener('pagehide', (event) => {
     if (event.persisted) return;
     unbindDrafts();
+    releaseLease();
     controller.dispose();
   });
   window.addEventListener('online', () => void controller.setOnline(true));

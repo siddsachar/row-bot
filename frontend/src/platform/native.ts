@@ -52,9 +52,11 @@ const targetValue = (value: unknown): value is BuddyTarget =>
 export function createPyWebViewPlatform(
   endpoint: NativeEndpoint,
   media: MediaTransport,
-  attestation: string,
+  initialAttestation: string,
   host: PyWebViewHost = window as PyWebViewHost,
 ): ClientPlatform {
+  // The latest attestation this document exchanged; renewNative replaces it.
+  let attestation = initialAttestation;
   async function call<T>(
     operation: string,
     payload: Record<string, unknown>,
@@ -65,7 +67,13 @@ export function createPyWebViewPlatform(
       if (!object(response)) return unavailable('invalid_native_response');
       if (response.status === 'cancelled') return { status: 'cancelled' };
       if (response.status === 'unavailable')
-        return unavailable('native_operation_unavailable');
+        // A lapsed lease is told apart: its window can only recover by
+        // loading again (B99). Other reasons stay generic.
+        return unavailable(
+          response.reason === 'native_proof_required'
+            ? 'native_proof_required'
+            : 'native_operation_unavailable',
+        );
       return response.status === 'ok' && valid(response.value)
         ? { status: 'ok', value: response.value }
         : unavailable('invalid_native_response');
@@ -92,7 +100,28 @@ export function createPyWebViewPlatform(
     );
     return signal?.aborted ? { status: 'cancelled' } : result;
   };
+  const platformInfo = (value: unknown): value is PlatformInfo =>
+    object(value) &&
+    value.kind === 'pywebview' &&
+    ['windows', 'macos', 'linux', 'unknown'].includes(String(value.platform)) &&
+    Array.isArray(value.capabilities) &&
+    value.capabilities.every((item) => typeof item === 'string') &&
+    typeof value.instanceId === 'string' &&
+    typeof value.windowId === 'string' &&
+    typeof value.epoch === 'number';
   return {
+    // A fresh attestation (from a new handshake on this session) renews the
+    // document's lease before it lapses.
+    renewNative: async (fresh) => {
+      if (!reference(fresh)) return unavailable('invalid_attestation');
+      const result = await call(
+        'discover',
+        { attestation: fresh },
+        platformInfo,
+      );
+      if (result.status === 'ok') attestation = fresh;
+      return result;
+    },
     discover: () =>
       call<PlatformInfo>(
         'discover',

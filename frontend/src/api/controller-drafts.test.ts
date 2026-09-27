@@ -182,3 +182,30 @@ it('announces saved drafts by id on the shared channel and refreshes on announce
   buddy.value.dispose();
   expect(buddyChannel.closed).toBe(true);
 });
+
+it('asks the same session for a fresh native attestation', async () => {
+  const transport = new SharedDraftTransport(new Map());
+  const value = new ClientController(transport, () => 1);
+  clients.push(value);
+  expect(await value.nativeAttestation()).toBeNull();
+  value.setVisible(false);
+  await value.start();
+  const handshake = value.getSnapshot().handshake!;
+  const connect = vi.spyOn(transport, 'connect');
+  connect.mockResolvedValueOnce({
+    ...(await transport.connect()),
+    native_adapter: {
+      available: true,
+      proof_required: true,
+      instance_id: handshake.instance_id,
+      attestation: 'f'.repeat(32),
+    },
+  });
+  expect(await value.nativeAttestation()).toBe('f'.repeat(32));
+  // A different session (the old one expired) is not this window's.
+  connect.mockResolvedValueOnce({
+    ...(await transport.connect()),
+    client_session_id: '00000000-0000-4000-8000-000000000000',
+  });
+  expect(await value.nativeAttestation()).toBeNull();
+});

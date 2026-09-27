@@ -549,3 +549,60 @@ def test_buddy_follow_answers_and_roles_are_validated() -> None:
     bridge.native_client_dispatch(proof, "discover", {"attestation": "server_attestation"})
     results = [bridge.native_client_dispatch(proof, "buddy_follow", {})["status"] for _ in range(4)]
     assert results == ["unavailable", "unavailable", "unavailable", "ok"]
+
+
+def test_a_fresh_attestation_renews_the_document_lease_before_it_lapses() -> None:
+    """Long-lived windows (the main window, the desktop Buddy) kept their
+    bridge for only 30 minutes; a fresh attestation renews it (B99)."""
+    state = {"clock": 100.0}
+    exchanged: list[str] = []
+
+    def authenticate(attestation, _context):
+        if not attestation.startswith("attest-") or attestation in exchanged:
+            return None  # one-shot and unknown attestations are refused
+        exchanged.append(attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/", driver=Driver(),
+        authenticate_document=authenticate, authorize_document=lambda _a, _c: True,
+        clock=lambda: state["clock"])
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    # Re-sending the exchanged attestation is only a discovery.
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    assert exchanged == ["attest-1"]
+    state["clock"] += 1700
+    # A refused renewal keeps the current lease.
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "bogus"})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    state["clock"] += 1700  # past the first lease, inside the renewed one
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+    state["clock"] += 200  # the renewed lease lapses too
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    # A lapsed document cannot renew itself; only a reload binds a new one.
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"})["status"] == "unavailable"
+    assert "attest-3" not in exchanged
+
+
+def test_a_lapsed_server_grant_is_replaced_by_a_fresh_attestation() -> None:
+    state = {"clock": 100.0, "granted": set()}
+
+    def authenticate(attestation, _context):
+        state["granted"].add("grant-" + attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/", driver=Driver(),
+        authenticate_document=authenticate,
+        authorize_document=lambda authority, _c: authority.authority_grant in state["granted"],
+        clock=lambda: state["clock"])
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    state["granted"].clear()  # the server grant expired (e.g. the machine slept)
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"

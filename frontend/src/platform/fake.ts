@@ -1,7 +1,10 @@
 import type { CapabilityResult, ClientPlatform, PlatformInfo } from './types';
 import { unavailable } from './types';
 
-type AsyncOperation = Exclude<keyof ClientPlatform, 'moveWindow'>;
+type AsyncOperation = Exclude<
+  keyof ClientPlatform,
+  'moveWindow' | 'renewNative'
+>;
 export type FakePlatformScript = Partial<{
   [Key in AsyncOperation]: Awaited<ReturnType<ClientPlatform[Key]>>;
 }> & { moveWindow?: boolean };

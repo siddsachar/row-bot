@@ -56,6 +56,11 @@ export const nativeConversationId = (value: unknown): value is string =>
 
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
+  /**
+   * Native windows only: exchange a fresh attestation to renew this
+   * document's native lease, which otherwise lapses after 30 minutes.
+   */
+  renewNative?(attestation: string): Promise<CapabilityResult<PlatformInfo>>;
   buddyPlacement(
     action: BuddyPlacementAction,
     point?: { x: number; y: number },

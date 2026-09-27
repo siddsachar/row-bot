@@ -570,6 +570,26 @@ export class ClientController {
       loadingConversations: false,
     });
   }
+  /**
+   * A fresh native attestation for this session. Handshaking again on the
+   * same session issues one to a local owner; the native bridge exchanges it
+   * to renew a long-lived window's lease (B99). Null when unavailable.
+   */
+  async nativeAttestation(signal?: AbortSignal): Promise<string | null> {
+    const current = this.state.handshake;
+    if (this.disposed || !current) return null;
+    const view = validateWire<import('./types').HandshakeView>(
+      'HandshakeView',
+      await this.transport.connect(signal ?? this.lifetime.signal),
+    );
+    if (
+      view.client_session_id !== current.client_session_id ||
+      view.instance_id !== current.instance_id ||
+      !view.native_adapter?.available
+    )
+      return null;
+    return view.native_adapter.attestation ?? null;
+  }
   start(): Promise<void> {
     if (this.disposed || !this.online) return Promise.resolve();
     if (this.startPromise) return this.startPromise;
