@@ -16,6 +16,7 @@ import {
   GitBranch,
   Globe2,
   HardDrive,
+  Code2,
   Hammer,
   Import,
   ListChecks,
@@ -2872,6 +2873,7 @@ export function UtilitiesSnapshotPanel({
     system_info: MonitorCog,
     conversation_search: Search,
     custom_tool_builder: Hammer,
+    developer: Code2,
   };
   if (snapshot.availability !== 'available')
     return (

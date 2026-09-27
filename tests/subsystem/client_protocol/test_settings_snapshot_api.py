@@ -380,7 +380,7 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
     assert snapshot.documents.memory_index.state == "pending"
     assert snapshot.preferences.identity.name == "Ada"
     assert snapshot.plugins.items[0].name == "Sample Plugin"
-    assert len(snapshot.utilities.items) == 9
+    assert len(snapshot.utilities.items) == 10
     assert all(item.available for item in snapshot.utilities.items)
     assert [item.label for item in snapshot.utilities.items] == [
         "Tasks",
@@ -392,6 +392,7 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
         "System Info",
         "Conversation Search",
         "Custom Tool Builder",
+        "Developer",
     ]
     assert "PRIVATE_SENTINEL" not in response.text
     assert "PRIVATE_PATH_SENTINEL" not in response.text
@@ -1346,6 +1347,13 @@ def test_tracker_delete_all_uncertain_outcome_is_not_replayed(api, monkeypatch):
             False,
             "tools_config.json",
             ("tools", "calculator"),
+        ),
+        (
+            "utilities",
+            "developer.enabled",
+            True,
+            "tools_config.json",
+            ("tools", "developer"),
         ),
         (
             "preferences",

@@ -42,6 +42,9 @@ _UTILITY_PRESENTATION = {
     "system_info": ("System Info", "Read bounded host information."),
     "conversation_search": ("Conversation Search", "Search saved conversations."),
     "custom_tool_builder": ("Custom Tool Builder", "Build reviewed local tools."),
+    # Without it a conversation's code folder can be read but never changed,
+    # and no other settings page offers the switch.
+    "developer": ("Developer", "Read, change and run code in a conversation's code folder."),
 }
 _SEARCH_TOOL_PRESENTATION = {
     "web_search": "Web Search",

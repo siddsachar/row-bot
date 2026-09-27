@@ -55,6 +55,7 @@ _UTILITY_IDS = {
     "system_info",
     "conversation_search",
     "custom_tool_builder",
+    "developer",
 }
 _SECRET_FIELDS = {
     ("voice", "openai_realtime_credential"): "OPENAI_API_KEY",
