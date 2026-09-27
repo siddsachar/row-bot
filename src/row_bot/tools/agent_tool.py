@@ -613,6 +613,46 @@ def _agent_status(
     })
 
 
+def _children_blocked_by_this_turn(
+    parent_thread_id: str, run_ids: set[str] | None = None
+) -> list[dict[str, Any]]:
+    """Queued children waiting for the folder writer this conversation's own
+    turn holds. A write-capable chat turn keeps its single-writer lease until
+    the turn ends, so waiting on such a child inside the turn cannot finish."""
+    if not parent_thread_id:
+        return []
+    from row_bot.agent_runs import get_agent_write_lock
+
+    blocked: list[dict[str, Any]] = []
+    for run in list_agent_runs(
+        parent_thread_id=parent_thread_id, statuses=["queued"], limit=50
+    ):
+        if run_ids is not None and str(run.get("id") or "") not in run_ids:
+            continue
+        key = str(run.get("write_lock_key") or "")
+        holder = get_agent_write_lock(key) if key else None
+        if (
+            holder
+            and str(holder.get("thread_id") or "") == parent_thread_id
+            and str(holder.get("run_id") or "").startswith("chat-")
+        ):
+            blocked.append(run)
+    return blocked
+
+
+def _blocked_wait_response(blocked: list[dict[str, Any]]) -> str:
+    return _json_response({
+        "ok": True,
+        "blocked_by_this_turn": [_public_run(run) for run in blocked],
+        "message": (
+            "These child Agents need this folder's single writer, which this "
+            "turn holds until it ends, so waiting here cannot finish. Either "
+            "end this turn (they start right after it) or make the change in "
+            "this turn yourself and stop them with agent_stop."
+        ),
+    })
+
+
 def _agent_wait(
     run_id: str = "",
     orchestration_id: str = "",
@@ -647,6 +687,9 @@ def _agent_wait(
                 "ok": False,
                 "message": "The orchestration belongs to another parent thread.",
             })
+        blocked = _children_blocked_by_this_turn(parent_thread_id)
+        if blocked:
+            return _blocked_wait_response(blocked)
         try:
             group = wait_for_required_group(
                 orchestration_id,
@@ -664,6 +707,11 @@ def _agent_wait(
                 else "Required Agent cohort is still running after the wait timeout."
             ),
         })
+    blocked = _children_blocked_by_this_turn(
+        str((_runtime_context()).get("thread_id") or ""), {run_id}
+    )
+    if blocked:
+        return _blocked_wait_response(blocked)
     run = agent_runner.wait_for_agent_run(run_id, timeout=timeout_seconds)
     payload: dict[str, Any] = {"ok": bool(run), "run": _public_run(run)}
     if include_events and run:
