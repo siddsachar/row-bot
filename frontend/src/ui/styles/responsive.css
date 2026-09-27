@@ -473,4 +473,10 @@
     min-height: 44px;
     padding-inline: 8px;
   }
+  /* Approval decisions and turn notices keep the touch floor too. */
+  .approval-card-actions .button,
+  .turn-notice-actions .button,
+  .approval-card-allow.button {
+    min-height: 44px;
+  }
 }
