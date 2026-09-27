@@ -435,3 +435,15 @@ it('folds the model, approvals and context usage into + on a one-line composer',
   );
   anchor.current.remove();
 });
+
+it('hands Add resource the + trigger so focus can return to it', async () => {
+  const onAddResource = vi.fn();
+  render(<ComposerControls onError={vi.fn()} onAddResource={onAddResource} />);
+  const more = await menu('Add files and more');
+  await act(async () =>
+    fireEvent.click(more.getByRole('menuitem', { name: 'Add resource…' })),
+  );
+  expect(onAddResource).toHaveBeenCalledWith(
+    screen.getByRole('button', { name: 'Add files and more' }),
+  );
+});

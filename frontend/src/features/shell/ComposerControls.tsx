@@ -75,7 +75,8 @@ export default function ComposerControls({
   disabled?: boolean;
   onError: (error: string) => void;
   onAttach?: () => void;
-  onAddResource?: () => void;
+  /** Receives the + trigger so the setup can return focus to it. */
+  onAddResource?: (opener: HTMLElement | null) => void;
   attachDisabled?: boolean;
   modelPickerOpen?: boolean;
   onModelPickerOpenChange?(open: boolean): void;
@@ -298,7 +299,10 @@ export default function ComposerControls({
               </Dropdown.Item>
             )}
             {onAddResource && (
-              <Dropdown.Item className="menu-item" onSelect={onAddResource}>
+              <Dropdown.Item
+                className="menu-item"
+                onSelect={() => onAddResource(plusRef.current)}
+              >
                 <FolderPlus size={16} aria-hidden />
                 <span className="menu-item-label">Add resource…</span>
               </Dropdown.Item>

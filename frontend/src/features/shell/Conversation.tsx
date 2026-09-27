@@ -1476,8 +1476,10 @@ export default function Conversation({
     });
     composerRef.current?.focus();
   }
-  function setup() {
+  function setup(opener?: HTMLElement | null) {
     overlay.open({
+      // Opened from a menu item that disappears: return focus to its trigger.
+      returnFocusTo: opener,
       title: 'Add resource',
       description:
         'Create or add a design or coding workspace to this conversation.',
@@ -1675,7 +1677,7 @@ export default function Conversation({
       writerQueued={writerQueued}
       onCancelWait={() => void action('conversation.stop')}
       onUseOutputInCode={useOutputInCode}
-      onAddResource={setup}
+      onAddResource={() => setup()}
       onOpenResource={resourcePanel}
       onUnbindResource={unbindResource}
       onFind={findConversation}
