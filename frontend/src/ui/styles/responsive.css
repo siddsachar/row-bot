@@ -86,18 +86,9 @@
   background: var(--accent-subtle);
 }
 @media (pointer: coarse) {
-  .composer[data-single-line] .composer-plus.button,
-  .composer[data-single-line] .composer-primary.button {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
-    min-height: 40px;
-  }
   .composer[data-single-line] .composer-voice .button.icon-button {
     width: 36px;
     min-width: 36px;
-    height: 40px;
-    min-height: 40px;
   }
   .composer[data-single-line]
     .composer-voice
@@ -393,5 +384,54 @@
   .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(.palette)
     > .dialog-body {
     flex: 1 1 auto;
+  }
+}
+
+/* ------------------------------------------------ touch targets (44px) */
+
+@media (pointer: coarse) {
+  /* Switches keep their visual track; the invisible input grows to 44px. */
+  .toggle-control input {
+    inset: 50% auto auto 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+  .settings-shell summary,
+  .settings-shell button,
+  .settings-shell .button,
+  .settings-shell label:has(input[type='checkbox']),
+  .settings-shell label:has(input[type='radio']),
+  .settings-shell
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
+      [type='color']
+    ):not([type='file']),
+  .settings-shell select,
+  .settings-shell textarea {
+    min-height: 44px;
+  }
+  .settings-shell button,
+  .settings-shell .icon-button {
+    min-width: 44px;
+  }
+  /* Inline help links keep their line; their hit area grows vertically. */
+  .settings-shell :is(p, small, li, dd) a[href]:not(.button) {
+    padding-block: 14px;
+    margin-block: -14px;
+  }
+  .composer-queue-button.button,
+  .composer-setup-model.button {
+    min-height: 44px;
+  }
+  .composer[data-single-line] .composer-plus.button,
+  .composer[data-single-line] .composer-primary.button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+  .composer[data-single-line] .composer-voice .button.icon-button {
+    height: 44px;
+    min-height: 44px;
   }
 }
