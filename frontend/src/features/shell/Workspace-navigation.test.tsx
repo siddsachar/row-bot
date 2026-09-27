@@ -198,3 +198,47 @@ it('explains disconnected conversation state, preserves the local draft, and res
   expect(send).toBeEnabled();
   expect(send).not.toHaveAttribute('aria-describedby');
 });
+
+function GoToSettings() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => navigate('/settings/buddy')}>Route elsewhere</button>
+  );
+}
+
+it('closes the phone navigation drawer when something in it changes the route', async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <GoToSettings />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle navigation' }));
+  expect(
+    await screen.findByRole('dialog', { name: 'Conversations' }),
+  ).toBeVisible();
+  // Like Buddy settings in the drawer's footer: a route change from inside.
+  await act(async () => {
+    fireEvent.click(screen.getByText('Route elsewhere'));
+  });
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Conversations' })).toBeNull(),
+  );
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/settings/buddy',
+  );
+});

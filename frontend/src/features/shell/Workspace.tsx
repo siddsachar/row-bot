@@ -604,6 +604,15 @@ export default function Workspace() {
   const closeCompactSheet = useEffectEvent(() =>
     overlay.dismiss('workspace-panel'),
   );
+  // Anything in the navigation drawer that changes the route (Buddy,
+  // Agents, a destination) leaves the drawer behind. Closing after the
+  // navigation keeps its history step from undoing the new route.
+  const closeNavigationDrawer = useEffectEvent(() =>
+    overlay.dismiss('navigation-drawer'),
+  );
+  useEffect(() => {
+    closeNavigationDrawer();
+  }, [location.pathname]);
   useEffect(() => {
     if (desktop) closeCompactSheet();
   }, [desktop]);
@@ -1266,6 +1275,7 @@ export default function Workspace() {
             ? update((previous) => toggleRegion(previous, 'navigation'))
             : overlay.open({
                 kind: 'drawer',
+                key: 'navigation-drawer',
                 title: 'Conversations',
                 description: 'Choose a conversation',
                 content: navigation(false),
