@@ -442,6 +442,12 @@ export default function Conversation({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptContentRef = useRef<HTMLDivElement>(null);
   const followingLatest = useRef(true);
+  // The transcript's size when it was last pinned to the latest row.
+  const pinnedGeometry = useRef<{
+    height: number;
+    client: number;
+    width: number;
+  } | null>(null);
   const scrollOwner = useRef<string | null>(null);
   const wasHistory = useRef(false);
   const [showLatest, setShowLatest] = useState(false);
@@ -850,6 +856,11 @@ export default function Conversation({
       0,
       transcript.scrollHeight - transcript.clientHeight,
     );
+    pinnedGeometry.current = {
+      height: transcript.scrollHeight,
+      client: transcript.clientHeight,
+      width: transcript.clientWidth,
+    };
   }
   useLayoutEffect(() => {
     if (scrollOwner.current !== id || (wasHistory.current && !state.history)) {
@@ -2182,6 +2193,20 @@ export default function Conversation({
               24;
             if (state.history) {
               setShowLatest(true);
+              return;
+            }
+            const pinned = pinnedGeometry.current;
+            if (
+              !following &&
+              followingLatest.current &&
+              pinned &&
+              (transcript.scrollHeight !== pinned.height ||
+                transcript.clientHeight !== pinned.client ||
+                transcript.clientWidth !== pinned.width)
+            ) {
+              // The layout moved under a reader who was following (a panel
+              // opened, the composer changed height): stay on the latest.
+              scrollToLatest();
               return;
             }
             followingLatest.current = following;

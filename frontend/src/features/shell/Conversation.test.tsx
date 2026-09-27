@@ -659,6 +659,38 @@ it('follows live rows until the reader scrolls away and resumes only on explicit
   expect(mock.showLatest).not.toHaveBeenCalled();
 });
 
+it('stays on the latest row when the layout, not the reader, moves the transcript', async () => {
+  activeConversation();
+  let client = 100;
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(
+    function (this: HTMLElement) {
+      return this.classList.contains('transcript') ? 900 : 0;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(
+    function (this: HTMLElement) {
+      return this.classList.contains('transcript') ? client : 0;
+    },
+  );
+  await act(async () => {
+    conversation();
+  });
+  const log = screen.getByRole('log');
+  expect(log.scrollTop).toBe(800);
+  // A panel opens and the composer grows: the transcript is 38px shorter and
+  // the browser reports a scroll before any resize callback runs.
+  client = 62;
+  fireEvent.scroll(log);
+  expect(log.scrollTop).toBe(838);
+  expect(screen.queryByRole('button', { name: 'Latest messages' })).toBeNull();
+  // The reader scrolling away still stops following.
+  log.scrollTop = 300;
+  fireEvent.scroll(log);
+  expect(
+    screen.getByRole('button', { name: 'Latest messages' }),
+  ).toBeInTheDocument();
+});
+
 it('preserves an older history position and follows the newest window after leaving history or switching conversation', async () => {
   activeConversation();
   transcriptGeometry();
