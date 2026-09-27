@@ -65,7 +65,9 @@ export default function ConversationHeader({
     if (!editing) setValue(title);
   }, [editing, title]);
   useEffect(() => {
-    if (editing) input.current?.select();
+    if (!editing) return;
+    input.current?.focus();
+    input.current?.select();
   }, [editing]);
   async function commit() {
     if (committing.current) return;
@@ -122,7 +124,9 @@ export default function ConversationHeader({
               {
                 label: 'Rename conversation',
                 icon: <Pencil size={16} />,
-                onSelect: () => setEditing(true),
+                onSelect: () => undefined,
+                // After the menu lets go of focus, so the field keeps it.
+                afterClose: () => setEditing(true),
               },
             ]
           : []),

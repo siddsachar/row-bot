@@ -90,3 +90,30 @@ it('is one phone row: back, title and a ⋯ that holds every action', async () =
   );
   expect(onContext).toHaveBeenCalledTimes(1);
 });
+
+it('keeps focus in the title field when Rename is chosen from the phone menu', async () => {
+  render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename
+      onRename={vi.fn(async () => {})}
+      menuActions={[]}
+    />,
+  );
+  const more = screen.getByRole('button', { name: 'Conversation menu' });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Rename conversation' }),
+    ),
+  );
+  const input = await screen.findByRole('textbox', {
+    name: 'Conversation title',
+  });
+  await waitFor(() => expect(input).toHaveFocus());
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(input).toHaveFocus();
+  expect(
+    screen.getByRole('textbox', { name: 'Conversation title' }),
+  ).toBeInTheDocument();
+});

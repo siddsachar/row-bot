@@ -269,6 +269,12 @@ export type MenuAction = {
   shortcut?: string;
   /** Start a new group: a separator is drawn above this item. */
   separatorBefore?: boolean;
+  /**
+   * Runs once the menu has closed and released focus, instead of returning
+   * focus to the trigger: for items that move focus themselves (a rename
+   * field). The menu's focus trap would otherwise pull focus back.
+   */
+  afterClose?: () => void;
 };
 
 /** One order for every menu: groups as given, destructive actions last. */
@@ -303,6 +309,7 @@ export function Menu({
   iconOnly?: boolean;
 }) {
   const opener = useRef<HTMLButtonElement>(null);
+  const afterClose = useRef<(() => void) | null>(null);
   const trigger = (
     <Dropdown.Trigger asChild>
       <Button
@@ -342,6 +349,12 @@ export function Menu({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
+            const next = afterClose.current;
+            afterClose.current = null;
+            if (next) {
+              next();
+              return;
+            }
             const target = focusAfterClose?.() ?? opener.current;
             if (target?.isConnected) target.focus({ preventScroll: true });
           }}
@@ -361,6 +374,7 @@ export function Menu({
                 onSelect={() => {
                   // A modal menu can trap focus until it unmounts. Pass the
                   // connected trigger explicitly to any task opened by an item.
+                  afterClose.current = action.afterClose ?? null;
                   action.onSelect(opener.current);
                 }}
               >
