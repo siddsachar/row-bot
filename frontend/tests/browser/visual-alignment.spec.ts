@@ -431,9 +431,16 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
 }, info) => {
   await restoreThinkingDefault(page);
   const id = await newConversation(page);
-  // Thinking lives in the model picker's footer as a segmented choice.
+  // Thinking lives in the model picker's footer as a segmented choice. A
+  // one-line (phone) composer opens the picker from + › Model.
   const model = page.getByRole('button', { name: 'Model', exact: true });
-  await model.click();
+  if (await model.isVisible()) await model.click();
+  else {
+    await page
+      .getByRole('button', { name: 'Add files and more', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: /^Model/ }).click();
+  }
   const picker = page.getByRole('dialog', {
     name: 'Choose a model',
     exact: true,
@@ -457,10 +464,15 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
   await expect(
     thinking.getByRole('radio', { name: 'High', exact: true }),
   ).toHaveAttribute('aria-checked', 'true');
-  await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
+  // The pill states the choice; a one-line composer has no pill, and the
+  // admitted request below proves the choice either way.
+  const pill = (await model.count()) > 0;
+  if (pill)
+    await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
   await page.keyboard.press('Escape');
   await reloadDocument(page);
-  await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
+  if (pill)
+    await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
   await composer(page).fill('Thinking request uses admitted configuration');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect

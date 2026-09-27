@@ -182,11 +182,10 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     document.documentElement.style.zoom = '2';
   });
   const headerControls = [];
-  for (const name of [
-    'Workspace commands',
-    'Toggle navigation',
-    'Open panel',
-  ]) {
+  // Phones keep search and panels in the conversation header's menu.
+  for (const name of page.viewportSize()!.width < 768
+    ? ['Toggle navigation', 'Conversation menu']
+    : ['Workspace commands', 'Toggle navigation', 'Open panel']) {
     headerControls.push(
       await page
         .getByRole('button', { name, exact: true })
