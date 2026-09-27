@@ -380,8 +380,11 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
   for landing pages and app mockups, device width. From 720px the page
   strip sits on the left with thumbnails in the design's own aspect ratio and
   the inspector beside the canvas; below that the strip hides and the
-  inspector is a sheet over the canvas. Edit opens the inspector only beside
-  the canvas, so a narrow panel keeps the page clear to select on.
+  inspector is a sheet docked under the canvas, which refits above it. Edit
+  opens the inspector only beside the canvas, so a narrow panel keeps the
+  page clear to select on. A canvas that scrolls (Width or a zoom) takes
+  keyboard focus; in a short bottom dock the canvas keeps 240px and the
+  panel scrolls.
 - In Edit, a click outlines an element with a label ("Heading · Launch day")
   and anchors an "Ask Row-Bot to change this…" field below it (above or
   inside when there is no room). Sending composes one message that names the
@@ -394,7 +397,9 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
   on an error card. Undo restores the newest history snapshot; redo restores
   the state that undo replaced. Presenting takes the keyboard (arrows,
   Escape) and hands focus back to Present when it ends. Exports download
-  locally; sharing and publishing always ask first.
+  locally and wait until the panel shows the saved version; sharing and
+  publishing always ask first. The Edit-mode bridge is a static script the
+  client's page policy allows by digest; its identity is a JSON data block.
 - **Developer** opens with a status strip: folder, a branch chip (opens
   Git), ahead/behind, "N changed" or Clean, one checks dot, where commands
   run, refresh and an info popover with the safety boundaries (approvals,
