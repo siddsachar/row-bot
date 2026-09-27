@@ -209,3 +209,32 @@ it('asks the same session for a fresh native attestation', async () => {
   });
   expect(await value.nativeAttestation()).toBeNull();
 });
+
+it('keeps the draft being sent when a re-read brings the same text (B103)', async () => {
+  const store = new Map<string, DraftView>();
+  const buddy = await windowOn(store, 'conversation-a');
+  const main = await windowOn(store, 'conversation-a');
+  buddy.value.setDraft('conversation-a', {
+    text: 'Send this',
+    attachments: [],
+  });
+  await flush();
+  // The composer captures the draft it sends ...
+  const sent = buddy.value.getDraft('conversation-a');
+  // ... while the other window re-saves the same text (a new revision) and
+  // this window re-reads it, and the conversation reloads.
+  expect(await main.value.refreshDraft('conversation-a')).toBe(true);
+  main.value.setDraft('conversation-a', { text: 'Send this', attachments: [] });
+  await flush();
+  expect(await buddy.value.refreshDraft('conversation-a')).toBe(true);
+  expect(buddy.value.getDraft('conversation-a')).toBe(sent);
+  await buddy.value.selectConversation('conversation-a');
+  expect(buddy.value.getDraft('conversation-a')).toBe(sent);
+
+  // Different text still replaces it.
+  main.value.setDraft('conversation-a', { text: 'Changed', attachments: [] });
+  await flush();
+  expect(await buddy.value.refreshDraft('conversation-a')).toBe(true);
+  expect(buddy.value.getDraft('conversation-a')).not.toBe(sent);
+  expect(buddy.value.getDraft('conversation-a').text).toBe('Changed');
+});

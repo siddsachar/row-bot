@@ -918,10 +918,7 @@ export class ClientController {
       )
         throw new Error('protocol_incompatible');
       if (draft && !this.dirtyDrafts.has(id)) {
-        this.drafts.set(id, {
-          text: draft.text,
-          attachments: draft.attachments,
-        });
+        this.adoptSavedDraft(id, draft);
         this.draftRevisions.set(id, draft.revision);
         this.draftStates.set(id, 'saved');
       } else if (draft && !this.draftRevisions.has(id)) {
@@ -1611,12 +1608,35 @@ export class ClientController {
       !settled()
     )
       return false;
-    this.drafts.set(id, { text: saved.text, attachments: saved.attachments });
+    this.adoptSavedDraft(id, saved);
     this.draftRevisions.set(id, saved.revision);
     this.draftStates.set(id, 'saved');
     if (this.state.selectedConversationId === id)
       this.update({ draftStatus: 'saved' });
     return true;
+  }
+  /**
+   * Take the server copy, keeping the current draft object when its content
+   * is the same: composers clear after Send only if the draft is still the
+   * one they sent, and a re-read of that same text (another window's hint,
+   * a reload) is not a change (B103).
+   */
+  private adoptSavedDraft(
+    id: string,
+    saved: { text: string; attachments: import('./types').AttachmentView[] },
+  ): void {
+    const current = this.drafts.get(id);
+    if (
+      current &&
+      current.text === saved.text &&
+      current.attachments.length === saved.attachments.length &&
+      current.attachments.every(
+        (attachment, index) =>
+          attachment.attachment_ref === saved.attachments[index].attachment_ref,
+      )
+    )
+      return;
+    this.drafts.set(id, { text: saved.text, attachments: saved.attachments });
   }
   /**
    * Same-origin windows tell each other which draft changed (ids only, never

@@ -56,21 +56,18 @@ for (const appearance of ['light', 'dark'] as const) {
     page,
   }, testInfo) => {
     test.setTimeout(120_000);
-    await context.addInitScript(
-      (mode) => {
-        // Every page in the context shares the choice; opaque sandboxed
-        // frames have no storage.
-        try {
-          localStorage.setItem(
-            'row-bot.appearance.v1',
-            JSON.stringify({ version: 1, appearance: mode, accent: 'blue' }),
-          );
-        } catch {
-          /* not a document of this origin */
-        }
-      },
-      appearance,
-    );
+    await context.addInitScript((mode) => {
+      // Every page in the context shares the choice; opaque sandboxed
+      // frames have no storage.
+      try {
+        localStorage.setItem(
+          'row-bot.appearance.v1',
+          JSON.stringify({ version: 1, appearance: mode, accent: 'blue' }),
+        );
+      } catch {
+        /* not a document of this origin */
+      }
+    }, appearance);
     // The main window beside Buddy; the overlay page keeps the project's
     // 380×230 viewport.
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -119,6 +116,8 @@ for (const appearance of ['light', 'dark'] as const) {
     await overlay.getByRole('button', { name: 'Send', exact: true }).click();
     const stop = overlay.getByRole('button', { name: 'Stop', exact: true });
     await expect(stop).toBeVisible({ timeout: 20_000 });
+    // What was sent leaves both composers (B103).
+    await expect(buddyMessage(overlay)).toHaveValue('');
     await expect(
       overlay.getByText('Synthetic stream is active.', { exact: false }),
     ).toBeVisible({ timeout: 20_000 });
@@ -151,6 +150,10 @@ for (const appearance of ['light', 'dark'] as const) {
       exact: true,
     });
     await expect(approve).toBeVisible({ timeout: 20_000 });
+    await expect(buddyMessage(overlay)).toHaveValue('');
+    await expect(composer(page)).toHaveValue('', { timeout: 15_000 });
+    // Enabled once the approval's details have loaded.
+    await expect(approve).toBeEnabled({ timeout: 20_000 });
     await expect(
       overlay.getByRole('button', { name: 'Deny', exact: true }),
     ).toBeVisible();
