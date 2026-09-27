@@ -1539,6 +1539,8 @@ export default function Conversation({
       title: 'Managed browser',
       required_capabilities: ['browser_navigate'],
     });
+    // Below 1024px Context is a sheet; the panel must not open behind it.
+    overlay.dismiss('conversation-context');
   }
   function findConversation() {
     if (!id) return;

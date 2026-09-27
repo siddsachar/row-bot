@@ -72,6 +72,7 @@ const mock = vi.hoisted(() => ({
   searchLibrary: vi.fn(),
   close: vi.fn(),
   open: vi.fn(),
+  dismiss: vi.fn(),
   download: vi.fn(),
   writeClipboard: vi.fn(),
   platformDiscover: vi.fn(),
@@ -142,7 +143,7 @@ vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({
     close: mock.close,
     open: mock.open,
-    dismiss: vi.fn(),
+    dismiss: mock.dismiss,
     notify: vi.fn(),
   }),
 }));
@@ -488,6 +489,26 @@ it('renders assistant Markdown safely and copies only the visible canonical text
   expect(
     within(message).getByRole('button', { name: 'Copied message' }),
   ).toBeVisible();
+});
+
+it('opens the managed browser as a panel and closes the Context sheet it came from', async () => {
+  activeConversation();
+  const user = userEvent.setup();
+  const onPanel = vi.fn();
+  await act(async () => {
+    render(<Conversation onPanel={onPanel} />);
+  });
+  await user.click(
+    screen.getByRole('button', { name: 'Conversation actions' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Manage browser' }),
+  );
+  expect(onPanel).toHaveBeenCalledWith(
+    expect.objectContaining({ panel_kind: 'browser.live' }),
+  );
+  // Below 1024px Context is a sheet: the panel must not open behind it.
+  expect(mock.dismiss).toHaveBeenCalledWith('conversation-context');
 });
 
 it('opens reviewed conversation management from the existing action menu', async () => {
