@@ -61,11 +61,19 @@ test('compact setup, panel sheets, Back and virtual keyboard preserve the conver
   const draft = `Retained ${testInfo.project.name} draft`;
   await composer.fill(draft);
 
+  // Add resource lives in the composer's + menu; closing the setup returns
+  // focus to +.
   const addResource = page.getByRole('button', {
-    name: 'Add resource',
+    name: 'Add files and more',
     exact: true,
   });
-  await addResource.click();
+  const openSetup = async () => {
+    await addResource.click();
+    await page
+      .getByRole('menuitem', { name: 'Add resource…', exact: true })
+      .click();
+  };
+  await openSetup();
   const setup = page.getByRole('dialog', {
     name: 'Add resource',
     exact: true,
@@ -79,20 +87,25 @@ test('compact setup, panel sheets, Back and virtual keyboard preserve the conver
   await expect(addResource).toBeFocused();
   await expect(composer).toHaveValue(draft);
 
-  await addResource.click();
+  await openSetup();
   await expect(
     setup.getByRole('textbox', { name: 'Name (optional)', exact: true }),
   ).toHaveValue('Retained compact resource draft');
   await page.keyboard.press('Escape');
   await expect(addResource).toBeFocused();
 
+  // Phones fold the panels into the header's ⋯; tablets keep Open panel.
+  const phone = page.viewportSize()!.width < 768;
   const panelOpener = page.getByRole('button', {
-    name: 'Open panel',
+    name: phone ? 'Conversation menu' : 'Open panel',
     exact: true,
   });
   await panelOpener.click();
   await page
-    .getByRole('menuitem', { name: 'Workspace notes', exact: true })
+    .getByRole('menuitem', {
+      name: phone ? 'Open Workspace notes' : 'Workspace notes',
+      exact: true,
+    })
     .click();
   const sheet = page.getByRole('dialog', {
     name: 'Workspace notes',
