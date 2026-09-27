@@ -508,10 +508,12 @@ function OwnedBuddy({
         initialPrompt={initialPrompt}
         companionVisible={!settings && buddyPlacement.placement === 'docked'}
         onSettings={() => {
-          overlay.close();
+          // Navigate before closing (B17): closing first queues a history
+          // step back that would land after the push and undo the route.
           navigate(
             `/settings/buddy?conversation=${encodeURIComponent(conversation)}`,
           );
+          overlay.close();
         }}
         onUndock={
           buddyPlacement.supported && !settings
