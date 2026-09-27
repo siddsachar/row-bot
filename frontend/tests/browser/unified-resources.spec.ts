@@ -162,8 +162,12 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
     exact: true,
   });
   if (await back.isVisible()) await back.click();
-  await page.getByRole('button', { name: 'Context', exact: true }).focus();
+  // Phones keep Context in the header's menu.
+  await page
+    .getByRole('button', { name: 'Conversation menu', exact: true })
+    .focus();
   await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: 'Context', exact: true }).click();
   await expect(
     page
       .getByRole('complementary', { name: 'Conversation context' })

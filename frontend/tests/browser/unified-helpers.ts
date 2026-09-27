@@ -483,15 +483,7 @@ export async function addReviewResourcePair(
   deck: string,
 ): Promise<void> {
   for (const kind of ['artifact', 'workspace']) {
-    const add = page.getByRole('button', { name: 'Add resource', exact: true });
-    if (!(await add.isVisible())) {
-      const context = page.getByRole('button', {
-        name: 'Context',
-        exact: true,
-      });
-      if (await context.isVisible()) await context.click();
-    }
-    await add.click();
+    await openAddResource(page);
     const setup = page.getByRole('dialog', {
       name: 'Add resource',
       exact: true,

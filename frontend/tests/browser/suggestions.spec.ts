@@ -6,6 +6,7 @@ import {
   type FixtureWindow,
 } from './fixture';
 import { readLayout } from './panel-helpers';
+import { headerAction } from './unified-helpers';
 
 test('an advisory panel waits for explicit open and preserves conversation focus', async ({
   page,
@@ -34,7 +35,14 @@ test('an advisory panel waits for explicit open and preserves conversation focus
       page.getByRole('button', { name: 'Toggle navigation', exact: true }),
     ).toBeFocused();
   }
-  const focus = page.getByRole('button', { name: 'Open panel', exact: true });
+  // Phones keep Open panel inside the header's menu.
+  const focus = page.getByRole('button', {
+    name:
+      testInfo.project.use.viewport!.width < 768
+        ? 'Conversation menu'
+        : 'Open panel',
+    exact: true,
+  });
   await focus.focus();
   await expect(focus).toBeFocused();
   const suggest = () =>
@@ -61,7 +69,7 @@ test('an advisory panel waits for explicit open and preserves conversation focus
   expect((await readLayout(page)).panels).toHaveLength(0);
   await expect(focus).toBeFocused();
   if (testInfo.project.use.viewport!.width < 1024)
-    await page.getByRole('button', { name: 'Context', exact: true }).click();
+    await headerAction(page, 'Context');
   const context = page.getByRole('complementary', {
     name: 'Conversation context',
   });
