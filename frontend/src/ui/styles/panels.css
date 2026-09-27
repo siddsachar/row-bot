@@ -14,6 +14,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* A short bottom dock scrolls the panel rather than squash the canvas. */
+  overflow-y: auto;
   background: var(--surface);
 }
 
@@ -85,8 +87,8 @@
 .design-body {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 240px;
 }
 .design-stage {
   position: relative;
