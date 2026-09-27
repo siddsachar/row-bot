@@ -62,3 +62,30 @@ def test_queued_submission_reuses_exact_existing_intent_identity():
         submission = _optimistic_user_submission("Same text", [first, second], queued_ids=["second-intent"])
         assert submission["message_id"] == "second-intent"
     assert first["message_id"] == "first-intent"
+
+
+def test_finishing_run_publishes_its_drained_queue_before_the_final_checkpoint(platform):
+    """A client resets on the final checkpoint and resubscribes from a
+    snapshot that carries no queue, so the drained queue must come first (B97)."""
+    from langchain_core.messages import AIMessage
+    from row_bot.threads import append_checkpoint_messages
+
+    handle = platform.admit_execution(
+        "conversation-a",
+        {"configurable": {"platform_submission_id": "queue-drain-input"}},
+        text="Run that ends with durable rows the stream never bound",
+    )
+    queued = platform.projection.events_since("conversation-a", "0")["events"]
+    assert [event["payload"]["submission_ids"] for event in queued
+            if event["type"] == "queue.updated"][-1] == ["queue-drain-input"]
+    cursor = platform.projection.snapshot("conversation-a")["cursor"]
+    append_checkpoint_messages("conversation-a", [AIMessage(id="late-tool-result", content="Done after approval.")])
+
+    platform.finish_execution(handle, "completed")
+
+    events = platform.projection.events_since("conversation-a", cursor)["events"]
+    kinds = [event["type"] for event in events]
+    checkpoint = kinds.index("transcript.checkpoint")
+    drained = [index for index, event in enumerate(events)
+               if event["type"] == "queue.updated" and event["payload"]["submission_ids"] == []]
+    assert drained and drained[0] < checkpoint

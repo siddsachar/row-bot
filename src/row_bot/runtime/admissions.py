@@ -385,10 +385,11 @@ def keyed_digest(value: dict, *, read_only: bool = False) -> str:
     return hmac.new(secret, canonical, hashlib.sha256).hexdigest()
 
 
-def queued_submission_ids(conversation_id: str) -> list[str]:
+def queued_submission_ids(conversation_id: str, *, excluding_pass: str = "") -> list[str]:
     with transaction() as conn:
         return [str(row[0]) for row in conn.execute("SELECT submission_id FROM generation_passes WHERE conversation_id=? "
-                "AND state IN ('admitting','admitted','started') ORDER BY admission_sequence LIMIT 256", (conversation_id,))]
+                "AND state IN ('admitting','admitted','started') AND pass_id<>? ORDER BY admission_sequence LIMIT 256",
+                (conversation_id, excluding_pass))]
 
 
 def start_segment(pass_id: str) -> str:

@@ -177,9 +177,9 @@ class ClientPlatformService:
             self._publish_queue(conversation_id)
             return handle
 
-    def _publish_queue(self, conversation_id: str) -> None:
+    def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
-            "submission_ids": admissions.queued_submission_ids(conversation_id),
+            "submission_ids": admissions.queued_submission_ids(conversation_id, excluding_pass=finishing),
             "revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1)})
 
     def finish_execution(self, handle: Any, status: str) -> None:
@@ -189,6 +189,10 @@ class ClientPlatformService:
             if handle.producer_done.is_set():
                 return
             status = "stopped" if handle.cancel_scope.is_cancelled() else status
+            # Clients reset on a checkpoint installed below and resubscribe
+            # from a snapshot, which carries no queue: an update published
+            # after it never reaches them and they kept "1 queued" (B97).
+            self._publish_queue(handle.conversation_id, finishing=handle.pass_id)
             self._refresh_checkpoint(handle.conversation_id)
             from row_bot.application.live_content import discard, references
             for reference in references(handle.conversation_id):
