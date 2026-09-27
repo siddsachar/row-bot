@@ -124,6 +124,10 @@ the footer at the bottom edge. Short sheets use at most 85dvh (Context is a
 full-height sheet on phones and a side sheet on tablets); navigation uses a
 280px tablet drawer and a full-screen phone list, both closed from the header. Overlay keys allow an owner
 to dismiss its responsive surface without dismissing an unrelated task.
+A closing surface keeps its presentation and unmounts at once (a changed
+animation would keep it mounted, dismissable, for the next tap). Anything
+that navigates from inside an overlay navigates first and closes second, so
+the overlay's history step cannot undo the new route.
 Fixed surfaces also respect their containing viewport at zoom; the header text
 can wrap and the body scrolls within the height left by the header and footer.
 Verify loaded controls and actual viewport hit targets, since a full-page
