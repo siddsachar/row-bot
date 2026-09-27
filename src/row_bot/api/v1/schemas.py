@@ -6824,6 +6824,7 @@ class WorkspaceChangeSet(WireModel):
     reviewed: bool
     reverted: bool
     file_count: int = Field(ge=0)
+    undoable: bool = False
 
 
 class WorkspaceChangeSetPage(WireModel):

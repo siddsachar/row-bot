@@ -25,6 +25,11 @@
           "maxLength": 4096,
           "title": "Summary",
           "type": "string"
+        },
+        "undoable": {
+          "default": false,
+          "title": "Undoable",
+          "type": "boolean"
         }
       },
       "required": [

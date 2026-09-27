@@ -150,6 +150,9 @@ class WorkspaceChangeSet:
     reviewed: bool
     reverted: bool
     file_count: int
+    # Only sandbox imports keep the originals the panel's Undo restores; the
+    # agent's own edits are reverted by its developer_revert_agent_changes tool.
+    undoable: bool = False
 
 
 @dataclass(frozen=True)
@@ -553,7 +556,9 @@ def list_inspector_change_sets(resource_id: str, conversation_id: str, cursor: s
         raise ValueError("snapshot_revision_conflict")
     scope = f"ledger:{resource_id}:{conversation_id}"
     offset = _page_cursor(cursor, scope, revision)
-    items = tuple(WorkspaceChangeSet(item.id, item.summary[:4096], item.reviewed, item.reverted, len(item.files))
+    items = tuple(WorkspaceChangeSet(item.id, item.summary[:4096], item.reviewed, item.reverted, len(item.files),
+                                     undoable=isinstance(item.guarded_import, dict)
+                                     and item.guarded_import.get("kind") == "workspace.import.v1")
                   for item in snapshot.agent_changes[offset:offset + limit])
     return WorkspaceChangeSetPage(items, _next_cursor(scope, revision, offset + len(items), len(snapshot.agent_changes)),
                                   revision, len(snapshot.agent_changes))
