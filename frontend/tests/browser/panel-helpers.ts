@@ -46,8 +46,19 @@ export async function openPanel(
   page: Page,
   name = 'Workspace notes',
 ): Promise<void> {
-  await page.getByRole('button', { name: 'Open panel', exact: true }).click();
-  await page.getByRole('menuitem', { name, exact: true }).click();
+  const opener = page.getByRole('button', { name: 'Open panel', exact: true });
+  if (await opener.isVisible()) {
+    await opener.click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+  } else {
+    // Phones list the thread's panels in the conversation header's menu.
+    await page
+      .getByRole('button', { name: 'Conversation menu', exact: true })
+      .click();
+    await page
+      .getByRole('menuitem', { name: `Open ${name}`, exact: true })
+      .click();
+  }
   const content = page
     .locator('.sample-panel:visible')
     .getByRole('heading', { name, exact: true });
