@@ -237,7 +237,10 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await page
     .getByRole('button', { name: 'Add files and more', exact: true })
     .click();
-  await page.getByRole('menuitem', { name: /^Approvals/ }).click();
+  // CSS zoom on the root skews floating-menu geometry for pointer hit
+  // tests (browser zoom does not); the keyboard reaches the submenu.
+  await page.getByRole('menuitem', { name: /^Approvals/ }).focus();
+  await page.keyboard.press('ArrowRight');
   await expect(
     page.getByRole('menuitemradio', { name: 'Ask', exact: true }),
   ).toHaveAttribute('aria-checked', 'true');

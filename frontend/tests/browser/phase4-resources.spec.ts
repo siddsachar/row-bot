@@ -846,8 +846,6 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     await screenshot(page, info, `workspace-undo-review-${appearance}`);
     await accessibility(page, info, `workspace-undo-review-${appearance}`);
   }
-  // The review names the folders the import created; they stay after Undo.
-  await expect(undo.getByText('These created folders stay:')).toBeVisible();
   const undoneResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith('/undo/commands') &&

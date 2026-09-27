@@ -18,6 +18,8 @@ const OPTIONS = {
   animations: 'disabled',
   caret: 'hide',
   maxDiffPixelRatio: 0.002,
+  // Full-page captures of the long gallery can take over 10s under load.
+  timeout: 30_000,
 } as const;
 
 test.beforeEach(async ({ page }, info) => {
