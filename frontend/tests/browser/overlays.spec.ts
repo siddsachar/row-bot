@@ -162,7 +162,12 @@ test('settings aliases route to retained unified settings', async ({
     .getByRole('link', { name: 'Accounts', exact: true });
   await accounts.click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/accounts/);
-  await expect(accounts).toHaveAttribute('aria-current', 'page');
+  // Compact Settings name the current page in the section picker.
+  if (page.viewportSize()!.width < 900)
+    await expect(
+      page.getByRole('combobox', { name: 'Settings section', exact: true }),
+    ).toHaveValue('accounts');
+  else await expect(accounts).toHaveAttribute('aria-current', 'page');
   await expect(
     page.getByRole('heading', { name: 'Accounts', exact: true }),
   ).toBeVisible();

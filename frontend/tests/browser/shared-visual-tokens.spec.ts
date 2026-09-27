@@ -137,9 +137,10 @@ test('reference chrome density preserves reading size, focus and accessible them
       expect(measured.cardRadius).toBe('10px');
       expect(measured.panelRadius).toBe('12px');
       expect(measured.controlRadius).toBe('6px');
-      // Below 1024px dialogs open as full-screen task surfaces without a radius.
+      // Phones open dialogs as full-screen task surfaces without a radius;
+      // tablets and desktops keep rounded cards.
       expect(measured.dialogRadius).toBe(
-        measured.viewport < 1024 ? '0px' : '16px',
+        measured.viewport < 768 ? '0px' : '16px',
       );
       expect(measured.composerRadius).toBe('18px');
       expect(measured.pillRadius).toBe('999px');

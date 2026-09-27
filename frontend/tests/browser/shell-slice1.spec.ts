@@ -6,12 +6,30 @@ test('simplified shell keeps controls and Home reachable', async ({
 }, info) => {
   await openFixture(page);
   const compact = page.viewportSize()!.width < 1024;
+  const phone = page.viewportSize()!.width < 768;
   await expect(page.locator('.app-header')).toHaveCount(0);
-  await expect(page.locator('.compact-controls')).toHaveCount(compact ? 1 : 0);
-  await expect(page.getByRole('button', { name: 'Open panel' })).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Workspace commands' }),
-  ).toBeVisible();
+  // A conversation is one header row at every width: no separate bar.
+  await expect(page.locator('.compact-controls')).toHaveCount(0);
+  if (phone) {
+    // Phones fold search and the panels into the header's menu.
+    await page
+      .getByRole('button', { name: 'Conversation menu', exact: true })
+      .click();
+    await expect(
+      page.getByRole('menuitem', { name: 'Workspace commands' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('menuitem', { name: 'Open Workspace notes' }),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+  } else {
+    await expect(
+      page.getByRole('button', { name: 'Open panel' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Workspace commands' }),
+    ).toBeVisible();
+  }
 
   if (compact) {
     await screenshot(page, info, 'slice1-compact-conversation');
