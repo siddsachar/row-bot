@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -241,4 +242,42 @@ it('closes the phone navigation drawer when something in it changes the route', 
   expect(screen.getByLabelText('Current route')).toHaveTextContent(
     '/settings/buddy',
   );
+});
+
+it('returns focus to the phone header menu after Workspace commands opened from it', async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const user = userEvent.setup();
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const menu = screen.getByRole('button', { name: 'Conversation menu' });
+  await user.click(menu);
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Workspace commands' }),
+  );
+  expect(
+    await screen.findByRole('dialog', { name: 'Workspace commands' }),
+  ).toBeVisible();
+  await user.keyboard('{Escape}');
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('dialog', { name: 'Workspace commands' }),
+    ).toBeNull(),
+  );
+  // The menu item that opened it is gone; its trigger takes focus back.
+  await waitFor(() => expect(menu).toHaveFocus());
 });

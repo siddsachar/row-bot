@@ -821,6 +821,9 @@ export default function Workspace() {
     overlay.open({
       kind: 'palette',
       className: 'command-palette-dialog',
+      // From the phone header's ⋯ the focused element is a menu item that
+      // is about to unmount; return to the menu's trigger instead.
+      returnFocusTo: opener,
       title: 'Workspace commands',
       description:
         'Search conversations, commands, settings and agents. Press Escape to return to your workspace.',
