@@ -138,8 +138,9 @@ def enable_windows_per_monitor_dpi(
 ) -> bool:
     """Opt the native host into per-monitor-v2 coordinates before WinForms.
 
-    This keeps JavaScript ``screenX`` tear-off coordinates and pywebview monitor
-    bounds in the same coordinate space on mixed-DPI Windows desktops.
+    WinForms then reports physical work areas; the Buddy host converts them
+    (and pywebview's physical "moved" positions) to the DIPs that pages and
+    pywebview's create/move use (``native_host.BuddyWindowHost``).
     """
 
     if str(platform_name or sys.platform).lower() != "win32":

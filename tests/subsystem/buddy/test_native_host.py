@@ -259,3 +259,30 @@ def test_placement_actions_are_limited_by_window_role(role: str, allowed: set[st
         harness.host.open()
         result = placement_callback(harness.host, role)(action, 300.0, 300.0)
         assert (result is not None) is (action in allowed), (role, action)
+
+
+def test_drop_and_moves_use_dips_on_a_scaled_display() -> None:
+    """At 150 % the page drops in DIPs, WinForms work areas and pywebview's
+    moved event are physical pixels, and pywebview creates windows in DIPs
+    (B100). Two 3840x2088 physical monitors are 2560x1392 DIPs each."""
+    screens = [ScreenArea(0, 0, 3840, 2088), ScreenArea(3840, 0, 3840, 2088)]
+    harness = Harness(screens=screens)
+    harness.host._scale = lambda: 1.5
+    assert harness.host.screen_areas() == [ScreenArea(0, 0, 2560, 1392), ScreenArea(2560, 0, 2560, 1392)]
+    # A drop in the middle of the second monitor stays centred on it.
+    assert harness.host.tear_off(3840, 700) is True
+    window = harness.windows[0]
+    assert (window.options["x"], window.options["y"]) == (3650, 624)
+    # A drop at the bottom keeps the whole window inside the DIP work area.
+    low = Harness(screens=screens)
+    low.host._scale = lambda: 1.5
+    low.host.tear_off(1000, 1380)
+    assert low.windows[0].options["y"] == 1392 - 230 - 8
+    # Moves arrive in physical pixels and are remembered in DIPs, so the
+    # next open lands where the person left Buddy.
+    window._events.fire("moved", 5772, 946)
+    assert harness.config["overlay"] == {"x": 3848, "y": 631}
+    harness.host.close()
+    assert harness.host.open() is True
+    reopened = harness.windows[-1]
+    assert (reopened.options["x"], reopened.options["y"]) == (3848, 631)

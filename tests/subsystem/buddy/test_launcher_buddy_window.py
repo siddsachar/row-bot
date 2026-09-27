@@ -167,7 +167,9 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     assert report["main_open_scripts"] == [
         "window.dispatchEvent(new CustomEvent('row-bot-open-conversation', { detail: \"conversation-2\" }));"]
     assert report["closing_torn_off"] == [False]
-    assert report["config_after_move"]["overlay"] == {"x": 1234, "y": 567}
+    # pywebview reports moves in physical pixels; the host keeps DIPs (B100).
+    scale = report["scale"]
+    assert report["config_after_move"]["overlay"] == {"x": round(1234 / scale), "y": round(567 / scale)}
 
     assert report["bridge_after_navigation"]["status"] == "unavailable"
     assert _ok(report["hide"]) and report["visible_after_hide"] is False

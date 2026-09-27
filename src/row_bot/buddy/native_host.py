@@ -119,6 +119,7 @@ class BuddyWindowHost:
         platform: str | None = None,
         start_timer: Callable[[float, Callable[[], None]], None] = _start_timer,
         ready_timeout: float = READY_TIMEOUT_SECONDS,
+        scale: Callable[[], float] = lambda: 1.0,
     ) -> None:
         self._create_window = create_window
         self._load_config = load_config
@@ -131,6 +132,7 @@ class BuddyWindowHost:
         self._platform = platform or sys.platform
         self._start_timer = start_timer
         self._ready_timeout = ready_timeout
+        self._scale = scale
         self._lock = threading.RLock()
         self.window: Any | None = None
         self.ready = False
@@ -151,6 +153,27 @@ class BuddyWindowHost:
         config["overlay"] = overlay
         self._save_config(config)
 
+    # Coordinates -------------------------------------------------------------
+    # pywebview creates and moves windows in DIPs (it multiplies by the
+    # primary display's scale), and the page's screenX/screenY drop point is
+    # in DIPs too. Its screens (WinForms work areas in a per-monitor-aware
+    # process) and its "moved" event are physical pixels. Everything here is
+    # DIPs (B100).
+    def _factor(self) -> float:
+        try:
+            value = float(self._scale())
+        except Exception:
+            return 1.0
+        return value if value > 0 else 1.0
+
+    def screen_areas(self) -> list[ScreenArea]:
+        factor = self._factor()
+        return [
+            ScreenArea(round(area.x / factor), round(area.y / factor),
+                       round(area.width / factor), round(area.height / factor))
+            for area in self._screens()
+        ]
+
     def status(self) -> dict[str, Any]:
         state = self.placement()
         return {"placement": state.placement.value, "visible": bool(state.visible)}
@@ -162,7 +185,7 @@ class BuddyWindowHost:
         try:
             drop_x = finite_coordinate(screen_x)
             drop_y = finite_coordinate(screen_y)
-            x, y = position_for_drop(drop_x, drop_y, list(self._screens()))
+            x, y = position_for_drop(drop_x, drop_y, self.screen_areas())
         except Exception:
             return False
         state = self.placement().tear_off()
@@ -193,7 +216,7 @@ class BuddyWindowHost:
             x, y = position_for_drop(
                 finite_coordinate(requested_x) + width / 2,
                 finite_coordinate(requested_y) + min(height / 3, 76),
-                list(self._screens()),
+                self.screen_areas(),
                 width=width,
                 height=height,
             )
@@ -345,9 +368,11 @@ class BuddyWindowHost:
         self._log("docked")
         return self.close()
 
-    def moved(self, x: object, y: object) -> None:
+    def moved(self, x: Any, y: Any) -> None:
+        """pywebview reports a moved window in physical pixels."""
         try:
-            self._save(self.placement(), x=int(x), y=int(y))  # type: ignore[arg-type]
+            factor = self._factor()
+            self._save(self.placement(), x=round(float(x) / factor), y=round(float(y) / factor))
         except Exception:
             pass
 

@@ -88,6 +88,7 @@ def overlay_lifecycle(webview: Any, script: Any, report: dict[str, Any]) -> None
 
     # Closing the main window while Buddy is on the desktop only hides it.
     report["closing_torn_off"] = main.events.closing.fire()
+    report["scale"] = script._screen_scale()
     report["moved"] = buddy.events.moved.fire(1234, 567)
     report["config_after_move"] = _config()
 

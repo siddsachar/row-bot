@@ -1744,6 +1744,16 @@ def _screen_areas():
     except Exception:
         return []
 
+def _screen_scale():
+    # The factor pywebview itself applies when it creates or moves a window.
+    if sys.platform != "win32":
+        return 1.0
+    try:
+        import ctypes
+        return max(1.0, ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100)
+    except Exception:
+        return 1.0
+
 def _track_foreground_apps():
     while True:
         try:
@@ -2109,6 +2119,7 @@ _BUDDY = BuddyWindowHost(
     attach=lambda window: _attach_client_v2(window, _native_instance_id(), role="buddy"),
     port=_APP_PORT,
     log=_buddy_window_log,
+    scale=_screen_scale,
 )
 enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
