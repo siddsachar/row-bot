@@ -379,19 +379,20 @@
   padding: 0 12px 16px;
 }
 
-/* Narrow panels: the inspector is a sheet over the canvas. */
+/* Narrow panels: the inspector is a sheet docked under the canvas, which
+   refits above it so the page stays in view. */
 @container design (max-width: 719px) {
   .design-pages {
     display: none;
   }
+  .design-body {
+    flex-direction: column;
+  }
   .design-side {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    position: relative;
     z-index: 6;
     width: auto;
-    max-height: min(62%, 460px);
+    height: min(58%, 460px);
     border-top: 1px solid var(--border-hairline);
     border-left: 0;
     border-radius: 14px 14px 0 0;
@@ -999,6 +1000,8 @@
 .dev-list,
 .dev-detail {
   display: grid;
+  /* One shrinkable column: long titles truncate instead of widening it. */
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 8px;
   min-width: 0;
@@ -1053,6 +1056,7 @@
 }
 .dev-group {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 .dev-group-header {
@@ -1114,6 +1118,7 @@
 .dev-worktrees,
 .dev-commit-files {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1px;
   margin: 0;
   padding: 0;
