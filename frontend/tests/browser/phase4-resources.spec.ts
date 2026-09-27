@@ -225,7 +225,7 @@ test('Phase 4 reviewed sharing submits once to an isolated fake channel and pres
     .getByRole('combobox', { name: 'Delivery', exact: true })
     .selectOption('html');
   await sharing
-    .getByRole('button', { name: 'Review sharing', exact: true })
+    .getByRole('button', { name: 'Prepare channel send', exact: true })
     .click();
   await expect(
     sharing.getByText('Recipient: synthetic-recipient', { exact: true }),
@@ -248,7 +248,7 @@ test('Phase 4 reviewed sharing submits once to an isolated fake channel and pres
     });
   }
   await sharing
-    .getByRole('button', { name: 'Send to channel', exact: true })
+    .getByRole('button', { name: 'Confirm send to channel', exact: true })
     .click();
   await expect(
     sharing.getByText('Submitted 1 of 1 items to the destination adapter.', {
@@ -359,7 +359,8 @@ for (const [mode, label] of [
       exact: true,
     });
     await expect(region).toBeVisible();
-    const frame = region.locator('iframe');
+    // The canvas frame; page-strip thumbnails are separate static frames.
+    const frame = region.locator('iframe[title*=" preview: "]');
     await expect(frame).toHaveCount(1);
     const interactive = ['landing', 'app_mockup', 'storyboard'].includes(mode);
     await expect(frame).toHaveAttribute(
@@ -383,9 +384,9 @@ for (const [mode, label] of [
         },
       );
       expect(seeded.ok()).toBe(true);
-      await region
-        .getByRole('button', { name: 'Refresh preview', exact: true })
-        .click();
+      // No manual refresh outside an error: reopening the canvas reads it.
+      await region.getByRole('radio', { name: 'Edit', exact: true }).click();
+      await region.getByRole('radio', { name: 'Preview', exact: true }).click();
       const artwork = frame.contentFrame();
       await region
         .getByRole('combobox', { name: 'Preview zoom', exact: true })
@@ -452,54 +453,46 @@ for (const [mode, label] of [
       parentDenied: true,
       authoredScriptExecuted: false,
     });
-    const pages = region.getByRole('combobox', {
-      name: mode === 'deck' ? 'Slide' : 'Page',
-      exact: true,
+    const pageLabel = mode === 'deck' ? 'Slide' : 'Page';
+    const pageMenu = region.getByRole('button', {
+      name: new RegExp(`^${pageLabel} 1 of \\d+`),
     });
-    const options = await pages.locator('option').all();
-    if (options.length > 1) {
-      await pages.selectOption({ index: 1 });
-      await expect(region.getByText(/(?:Slide|Page) 2 of/)).toBeVisible();
+    if (!/ 1 of 1:/.test((await pageMenu.getAttribute('aria-label')) ?? '')) {
+      await pageMenu.click();
+      await page.getByRole('menuitem').nth(1).click();
+      await expect(
+        region.getByRole('button', {
+          name: new RegExp(`^${pageLabel} 2 of`),
+        }),
+      ).toBeVisible();
     }
     await region
       .getByRole('button', { name: 'Design properties', exact: true })
       .click();
-    const editing = region.getByRole('region', {
-      name: 'Design editing',
+    const inspector = region.getByRole('complementary', {
+      name: 'Design inspector',
       exact: true,
     });
-    await expect(editing).toBeVisible();
+    await expect(inspector).toBeVisible();
     await expect(
-      editing.getByRole('tab', { name: 'Properties', exact: true }),
+      inspector.getByRole('tab', { name: 'Properties', exact: true }),
     ).toHaveAttribute('aria-selected', 'true');
+    // The name is edited in place in the top bar; Enter saves it.
     const renamed = `Edited ${label} ${conversation}`;
-    await editing
-      .getByRole('textbox', { name: 'Design name', exact: true })
-      .fill(renamed);
-    await editing
-      .getByRole('button', { name: 'Save design name', exact: true })
-      .click();
-    await expect(
-      editing.getByRole('textbox', { name: 'Design name', exact: true }),
-    ).toHaveValue(renamed);
-    await expect(
-      editing.getByText('Changes saved.', { exact: true }),
-    ).toBeVisible();
-    await editing
-      .getByRole('button', { name: 'Refresh properties', exact: true })
-      .click();
-    await expect(editing.getByLabel('Loading design properties')).toHaveCount(
-      0,
-    );
-    await expect(
-      editing.getByRole('textbox', { name: 'Design name', exact: true }),
-    ).toHaveValue(renamed);
+    const nameBox = region.getByRole('textbox', {
+      name: 'Design name',
+      exact: true,
+    });
+    await nameBox.fill(renamed);
+    await nameBox.press('Enter');
+    await expect(region.getByText('Renamed.', { exact: true })).toBeVisible();
+    await expect(nameBox).toHaveValue(renamed);
     await screenshot(page, info, `${mode}-saved-properties`);
     await accessibility(page, info, `${mode}-saved-properties`, {
       opaquePreview: true,
     });
     await region
-      .getByRole('button', { name: 'Design properties', exact: true })
+      .getByRole('button', { name: 'Close inspector', exact: true })
       .click();
     await region.getByRole('button', { name: 'Export', exact: true }).click();
     const exporting = region.getByRole('region', {
@@ -548,37 +541,28 @@ for (const [mode, label] of [
     expect(
       (await conversationState(page, conversation)).workspace.controls,
     ).toEqual(before.workspace.controls);
+    // Brand colours live in the inspector's Properties and save on their own.
     await region
-      .getByRole('button', { name: 'Design controls', exact: true })
+      .getByRole('button', { name: 'Design properties', exact: true })
       .click();
     const designControls = region.getByRole('region', {
       name: 'Design controls',
       exact: true,
     });
-    await designControls.getByText('Brand and fonts', { exact: true }).click();
-    await designControls
-      .getByRole('textbox', { name: 'primary color', exact: true })
-      .fill('#654321');
-    await designControls
-      .getByRole('button', { name: 'Apply brand', exact: true })
-      .click();
-    await expect(
-      designControls.getByRole('textbox', {
-        name: 'primary color',
-        exact: true,
-      }),
-    ).toHaveValue('#654321');
-    await expect(
-      region.getByText('Changes saved.', { exact: true }),
-    ).toBeVisible();
+    const primary = designControls.getByRole('textbox', {
+      name: 'Primary colour',
+      exact: true,
+    });
+    await primary.fill('#654321');
+    await primary.blur();
+    await expect(designControls.getByRole('status')).toHaveText('Saved.');
+    await expect(primary).toHaveValue('#654321');
     await screenshot(page, info, `${mode}-advanced-brand`);
     await region
-      .getByRole('button', { name: 'Design controls', exact: true })
+      .getByRole('button', { name: 'Close inspector', exact: true })
       .click();
+    // Present starts at once from the current page.
     await region.getByRole('button', { name: 'Present', exact: true }).click();
-    await region
-      .getByRole('button', { name: 'Start presentation', exact: true })
-      .click();
     const slide = region.locator('iframe[title^="Presentation:"]');
     await expect(slide).toHaveCount(1);
     await expect(slide).toHaveAttribute('sandbox', '');
@@ -668,9 +652,19 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     { headers: fixtureHeaders() },
   );
   expect(seed.ok()).toBe(true);
-  await page
-    .getByRole('button', { name: 'Sandbox changes', exact: true })
-    .click();
+  // Sandbox imports sit under the agent changes in the Changes tab.
+  const inspector = page.getByRole('region', { name: / inspector$/ });
+  await inspector.getByRole('button', { name: 'Refresh inspector' }).click();
+  await inspector.getByRole('tab', { name: /^Changes/ }).click();
+  const sandboxChanges = inspector
+    .locator('summary')
+    .filter({ hasText: 'Sandbox changes' });
+  const toggleSandboxChanges = async (open: boolean) => {
+    const details = sandboxChanges.locator('xpath=..');
+    if (((await details.getAttribute('open')) !== null) !== open)
+      await sandboxChanges.click();
+  };
+  await toggleSandboxChanges(true);
   const imports = page.getByRole('region', {
     name: 'Sandbox imports',
     exact: true,
@@ -702,12 +696,8 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
   await imports
     .getByRole('button', { name: 'Review import', exact: true })
     .click();
-  await page
-    .getByRole('button', { name: 'Hide sandbox changes', exact: true })
-    .click();
-  await page
-    .getByRole('button', { name: 'Sandbox changes', exact: true })
-    .click();
+  await toggleSandboxChanges(false);
+  await toggleSandboxChanges(true);
   await expect(folders.getByRole('listitem')).toHaveText(['new', 'new/nested']);
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
@@ -735,26 +725,29 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     change_sets: 1,
     retained_original: true,
   });
-  await page
-    .getByRole('button', { name: 'Load agent changes', exact: true })
-    .click();
-  await page
-    .getByRole('button', {
-      name: 'Review Undo Import sandbox changes',
-      exact: true,
-    })
-    .click();
+  // The import is an agent change the panel can undo, after a confirmation.
+  const openUndo = async () => {
+    await inspector
+      .getByRole('button', {
+        name: 'More actions for Import sandbox changes',
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole('menuitem', {
+        name: 'Undo Import sandbox changes',
+        exact: true,
+      })
+      .click();
+  };
+  await openUndo();
   const undo = page.getByRole('region', {
     name: 'Undo workspace changes',
     exact: true,
   });
-  await undo.getByRole('button', { name: 'Review Undo', exact: true }).click();
-  await expect(
-    undo.getByText('These created folders will remain:', { exact: true }),
-  ).toBeVisible();
-  await undo
-    .getByRole('button', { name: 'Cancel review', exact: true })
-    .click();
+  await expect(undo).toContainText('Undo “Import sandbox changes”?');
+  await undo.getByRole('button', { name: 'Keep changes', exact: true }).click();
+  await expect(undo).toHaveCount(0);
   expect(
     await (
       await page.request.get(
@@ -767,7 +760,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
     empty_created: true,
     reverted: false,
   });
-  await undo.getByRole('button', { name: 'Review Undo', exact: true }).click();
+  await openUndo();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -779,9 +772,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
       response.url().endsWith('/undo/commands') &&
       response.request().method() === 'POST',
   );
-  await undo
-    .getByRole('button', { name: 'Undo these changes', exact: true })
-    .click();
+  await undo.getByRole('button', { name: 'Undo change', exact: true }).click();
   const undone = await undoneResponse;
   expect(undone.ok()).toBe(true);
   expect(await undone.json()).toMatchObject({
@@ -792,6 +783,7 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
   await expect(undo.getByRole('status')).toHaveText(
     'Original files restored. Created directories remain.',
   );
+  await expect(undo.getByText('These created folders stay:')).toBeVisible();
   expect(
     await (
       await page.request.get(

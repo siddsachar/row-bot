@@ -465,27 +465,38 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
 
   const inspector = page.getByRole('region', { name: / inspector$/ });
   await expect(inspector).toBeVisible();
-  const advanced = page.locator('summary').filter({
-    hasText: 'Workspace tools and settings',
-  });
-  await expect(advanced).toBeVisible();
-  await advanced.click();
-  await page
-    .getByRole('button', { name: 'Repository controls', exact: true })
-    .click();
-
-  const repository = page.getByRole('region', {
-    name: 'Developer repository controls',
-    exact: true,
-  });
-  await expect(repository).toBeVisible();
-  await screenshot(page, info, 'developer-repository-controls');
-  await repository
-    .getByRole('button', { name: 'Refresh', exact: true })
+  // The Git tab owns branches, commits and the repository settings.
+  const openGit = async () => {
+    await inspector.getByRole('tab', { name: /^Git/ }).click();
+    const controls = page.getByRole('region', {
+      name: 'Developer repository controls',
+      exact: true,
+    });
+    await expect(controls).toBeVisible();
+    return controls;
+  };
+  const openAdvanced = async (controls: ReturnType<Page['getByRole']>) => {
+    const summary = controls.locator('summary').filter({ hasText: 'Advanced' });
+    if ((await summary.locator('xpath=..').getAttribute('open')) === null)
+      await summary.click();
+  };
+  // The fixture made the repository after the inspector read the folder.
+  await inspector
+    .getByRole('button', { name: 'Refresh inspector', exact: true })
     .click();
   await expect(
-    repository.getByText('main · Clean', { exact: true }),
-  ).toBeVisible();
+    inspector.getByRole('group', { name: 'Repository status' }),
+  ).not.toContainText('not a Git repository');
+  const repository = await openGit();
+  await screenshot(page, info, 'developer-repository-controls');
+  const branchMenu = repository.getByRole('button', {
+    name: 'Switch branch',
+    exact: true,
+  });
+  await expect(branchMenu).toContainText('main');
+  await expect(
+    repository.getByRole('region', { name: 'Branch', exact: true }),
+  ).toContainText('Clean');
   await expect(
     repository.getByRole('button', { name: 'Push branch', exact: true }),
   ).toBeDisabled();
@@ -495,10 +506,10 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   await repository
     .getByRole('button', { name: 'Create branch', exact: true })
     .click();
-  await expect(
-    repository.getByText(`${branch} · Clean`, { exact: true }),
-  ).toBeVisible();
+  await expect(repository.getByRole('status')).toHaveText('Branch created.');
+  await expect(branchMenu).toContainText(branch);
 
+  await openAdvanced(repository);
   await repository
     .getByLabel('Worktree objective', { exact: true })
     .fill('Isolated browser worktree');
@@ -517,7 +528,6 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
     })
     .click();
   await expect(repository.getByText(/preserved · preserve/)).toBeVisible();
-
   await repository
     .getByRole('combobox', { name: 'Execution mode', exact: true })
     .selectOption('docker');
@@ -541,20 +551,13 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   ).toBeEnabled();
 
   await page.reload();
-  await page
-    .locator('summary')
-    .filter({
-      hasText: 'Workspace tools and settings',
-    })
-    .click();
-  await page
-    .getByRole('button', { name: 'Repository controls', exact: true })
-    .click();
+  const reopened = await openGit();
   await expect(
-    repository.getByText(`${branch} · Clean`, { exact: true }),
-  ).toBeVisible();
+    reopened.getByRole('button', { name: 'Switch branch', exact: true }),
+  ).toContainText(branch);
+  await openAdvanced(reopened);
   await expect(
-    repository.getByRole('combobox', { name: 'Execution mode', exact: true }),
+    reopened.getByRole('combobox', { name: 'Execution mode', exact: true }),
   ).toHaveValue('docker');
   await visualCheck(page, info, 'developer-repository-saved');
   const observed = await page.request
@@ -631,63 +634,78 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     name: 'Design preview',
     exact: true,
   });
-  const lifecycle = preview.getByRole('region', {
-    name: 'Design lifecycle',
-    exact: true,
+  await expect(preview.locator('iframe')).toBeVisible();
+  // Capabilities and review requirements live in an info popover.
+  await preview
+    .getByRole('button', { name: 'Design capabilities', exact: true })
+    .click();
+  const capabilities = page.getByRole('dialog', {
+    name: 'Design capabilities',
   });
-  await expect(lifecycle.getByRole('status')).toContainText('Saved version');
-  const inventory = lifecycle.locator('details');
-  await expect(inventory).not.toHaveAttribute('open');
-  await inventory.locator('summary').click();
-  await expect(lifecycle.getByText(/HTML export:.*Ready\./)).toBeVisible();
-  await expect(
-    lifecycle.getByText(/Local published link:.*Ready\./),
-  ).toBeVisible();
-  await expect(
-    lifecycle.getByText(/Remote access link:.*Unavailable\./),
-  ).toBeVisible();
-  await inventory.locator('summary').click();
+  const availability = capabilities.getByRole('list', {
+    name: 'Lifecycle availability',
+  });
+  const capability = (name: string) =>
+    availability.getByRole('listitem').filter({ hasText: name });
+  await expect(capability('HTML export')).toContainText('Ready');
+  await expect(capability('Local published link')).toContainText('Ready');
+  await expect(capability('Remote access link')).toContainText('Unavailable');
+  await page.keyboard.press('Escape');
+  await expect(capabilities).toBeHidden();
   await expect(
     preview.getByRole('toolbar', { name: 'Design preview controls' }),
   ).toBeVisible();
   await expect(
     preview.getByRole('combobox', { name: 'Preview zoom' }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Maximize panel' }).focus();
+  // Maximize is a focus mode; an Escape that closes a menu stays in it.
+  await page.getByRole('button', { name: 'Focus mode' }).focus();
   await page.keyboard.press('Enter');
+  const exitFocus = page.getByRole('button', { name: 'Exit focus mode' });
+  await expect(exitFocus).toBeVisible();
   await expect(preview.locator('iframe')).toBeVisible();
+  await preview
+    .getByRole('button', { name: 'More design actions', exact: true })
+    .click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(exitFocus).toBeVisible();
   await visualCheck(page, info, 'design-slice8-maximized');
-  await page.getByRole('button', { name: 'Restore panel size' }).focus();
+  await exitFocus.focus();
   await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Focus mode' })).toBeVisible();
 
-  await lifecycle.getByRole('button', { name: 'Present', exact: true }).click();
+  const actions = preview.getByRole('toolbar', { name: 'Design actions' });
+  await actions.getByRole('button', { name: 'Present', exact: true }).click();
   await expect(
     preview.getByRole('heading', { name: 'Presentation', exact: true }),
   ).toBeVisible();
-  await lifecycle.getByRole('button', { name: 'Export', exact: true }).click();
+  await actions.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(
     preview.getByRole('region', { name: 'Design export', exact: true }),
   ).toBeVisible();
-  await lifecycle.getByRole('button', { name: 'Share', exact: true }).click();
+  await actions.getByRole('button', { name: 'Share', exact: true }).click();
   await expect(
     preview.getByRole('region', { name: 'Design sharing', exact: true }),
   ).toBeVisible();
   await visualCheck(page, info, 'artifact-lifecycle-sharing');
-  await lifecycle.getByRole('button', { name: 'Share', exact: true }).click();
+  await actions.getByRole('button', { name: 'Share', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(preview.locator('iframe')).toBeVisible();
   for (const name of [
-    'Search design tools, pages & assets',
-    'Design properties',
     'Design history',
-    'Design controls',
-    'Refresh preview',
+    'Design properties',
+    'Present',
+    'Export',
+    'Design capabilities',
     'More design actions',
   ])
-    await expect(preview.getByRole('button', { name })).toBeVisible();
+    await expect(
+      preview.getByRole('button', { name, exact: true }),
+    ).toBeVisible();
   await visualCheck(page, info, 'design-slice8-narrow', async () => {
     await expect(preview.locator('iframe')).toBeVisible();
-    await expect(lifecycle.getByRole('status')).toContainText('Saved version');
   });
 
   if (page.viewportSize()!.width < 1024) {

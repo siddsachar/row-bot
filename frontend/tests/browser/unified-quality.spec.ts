@@ -523,16 +523,14 @@ test('actual state messages and recovery controls remain readable in light and d
           exact: true,
         });
         await expect(preview.locator('iframe')).toBeVisible();
-        const refreshPreview = preview.getByRole('button', {
-          name: 'Refresh preview',
-          exact: true,
-        });
-        // Opening a freshly created resource may still be applying its saved
-        // revision after the first iframe appears. Intercept only after that
-        // owner-driven refresh settles, otherwise this test holds the request
-        // that must enable the very button it is about to click.
+        // No manual refresh outside an error: switching Preview | Edit reads
+        // the canvas again, and the panel says so while it does.
+        const mode = (name: 'Preview' | 'Edit') =>
+          preview.getByRole('radio', { name, exact: true });
         await expect(preview).toHaveAttribute('aria-busy', 'false');
-        await expect(refreshPreview).toBeEnabled();
+        await expect(
+          preview.getByRole('button', { name: /^Refresh/ }),
+        ).toHaveCount(0);
         const previewPath = `**/api/v1/conversations/${conversation}/artifacts/*/preview*`;
         let release!: () => void;
         const held = new Promise<void>((resolve) => {
@@ -542,33 +540,26 @@ test('actual state messages and recovery controls remain readable in light and d
           await held;
           await route.continue();
         });
-        await refreshPreview.click();
+        await mode('Edit').click();
         await expect(preview).toHaveAttribute('aria-busy', 'true');
-        const refreshExplanation = preview.getByText(
-          'The saved preview is refreshing. Refresh preview is available again once this request settles.',
-          { exact: true },
-        );
-        await expect(refreshExplanation).toBeVisible();
-        await expect(refreshExplanation).toHaveAttribute('role', 'status');
-        await expect(refreshPreview).toHaveAttribute(
-          'aria-describedby',
-          'design-preview-refresh-status',
-        );
+        const updating = preview.getByText('Updating preview…', {
+          exact: true,
+        });
+        await expect(updating).toBeVisible();
+        await expect(updating).toHaveAttribute('role', 'status');
         await screenshot(page, info, `${label}-preview-loading`);
         release();
         await expect(preview).toHaveAttribute('aria-busy', 'false');
-        await expect(refreshExplanation).toHaveCount(0);
-        await expect(refreshPreview).toBeEnabled();
-        await expect(refreshPreview).not.toHaveAttribute('aria-describedby');
+        await expect(updating).toHaveCount(0);
         await page.unroute(previewPath);
+        let next: 'Preview' | 'Edit' = 'Preview';
         for (const [status, code] of [
           [404, 'resource_unavailable'],
           [403, 'resource_binding_revoked'],
         ] as const) {
           const fired = await injectOnce(previewPath, status, code);
-          await preview
-            .getByRole('button', { name: 'Refresh preview', exact: true })
-            .click();
+          await mode(next).click();
+          next = next === 'Preview' ? 'Edit' : 'Preview';
           await expect(
             preview.getByText('Preview unavailable', { exact: true }),
           ).toBeVisible();
@@ -595,7 +586,16 @@ test('actual state messages and recovery controls remain readable in light and d
           exact: true,
         });
         await expect(inspector).toContainText('Folder is not a Git repository');
-        await fileButton.click();
+        // A narrow inspector shows the file in place of the list.
+        const openFile = async () => {
+          const back = page.getByRole('button', {
+            name: 'Back to files',
+            exact: true,
+          });
+          if (await back.isVisible()) await back.click();
+          await fileButton.click();
+        };
+        await openFile();
         await expect(
           page.getByLabel('File text', { exact: true }),
         ).toHaveJSProperty('textContent', fixtureText);
@@ -606,7 +606,7 @@ test('actual state messages and recovery controls remain readable in light and d
           'resource_binding_revoked',
         );
         // Reload the same populated file, so this proves cached content clears.
-        await fileButton.click();
+        await openFile();
         await expect(
           page.getByText('Workspace access changed', { exact: true }),
         ).toBeVisible();
@@ -631,7 +631,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await page.unroute(filePath);
         await retryInspector.click();
         await expect(inspector).toContainText('Folder is not a Git repository');
-        await fileButton.click();
+        await openFile();
         await expect(
           page.getByLabel('File text', { exact: true }),
         ).toHaveJSProperty('textContent', fixtureText);

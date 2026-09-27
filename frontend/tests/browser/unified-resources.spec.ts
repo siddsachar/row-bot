@@ -117,15 +117,13 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
   await expect
     .poll(async () => (await readLayout(page)).side.size)
     .not.toBe(sideBefore);
-  await page.getByRole('button', { name: 'Maximize panel' }).click();
+  await page.getByRole('button', { name: 'Focus mode' }).click();
   await expect(
-    page.getByRole('button', { name: 'Restore panel' }),
+    page.getByRole('button', { name: 'Exit focus mode' }),
   ).toBeVisible();
   await screenshot(page, testInfo, 'code-detail-maximized');
   await page.keyboard.press('Escape');
-  await expect(
-    page.getByRole('button', { name: 'Maximize panel' }),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Focus mode' })).toBeVisible();
   await page.evaluate(() => {
     localStorage.setItem(
       'row-bot.appearance.v1',
