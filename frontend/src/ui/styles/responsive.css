@@ -408,16 +408,26 @@
     ):not([type='file']),
   .settings-shell select,
   .settings-shell textarea {
-    min-height: 44px;
+    /* A floor, not a size: it must beat compact component rules. */
+    min-height: 44px !important;
   }
   .settings-shell button,
   .settings-shell .icon-button {
-    min-width: 44px;
+    min-width: 44px !important;
   }
-  /* Inline help links keep their line; their hit area grows vertically. */
-  .settings-shell :is(p, small, li, dd) a[href]:not(.button) {
+  /* Links keep their line; their hit area grows vertically. */
+  .settings-page-content a[href]:not(.button):not(.icon-button) {
     padding-block: 14px;
     margin-block: -14px;
+  }
+  /* The whole drop zone is the tap target for choosing documents. */
+  .document-dropzone-input {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    clip-path: none;
+    opacity: 0;
+    cursor: pointer;
   }
   .composer-queue-button.button,
   .composer-setup-model.button {
