@@ -636,7 +636,9 @@ export default function BuddyOverlay({
             </span>
           </div>
         ) : unanswered && phase !== 'interrupted' && phase !== 'failed' ? (
-          <p className="buddy-overlay-empty">Waiting for a reply…</p>
+          <p className="buddy-overlay-empty">
+            {busy ? 'Sending…' : 'Your last message has no reply.'}
+          </p>
         ) : unanswered ? null : (
           <p className="buddy-overlay-empty">
             {!id

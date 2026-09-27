@@ -443,6 +443,24 @@ describe('BuddyOverlay', () => {
     );
   });
 
+  it('says a message has no reply when nothing is running (after a restart)', async () => {
+    const controller = fakeController({
+      projection: {
+        rows: [
+          row('u1', 'user', 'Earlier'),
+          row('a1', 'assistant', 'Old'),
+          row('u2', 'user', 'Lost in a restart'),
+        ],
+        generation: null,
+      } as unknown as ClientState['projection'],
+    });
+    renderOverlay(controller);
+    expect(
+      await screen.findByText('Your last message has no reply.'),
+    ).toBeVisible();
+    expect(screen.queryByText('Old')).toBeNull();
+  });
+
   it('names the running step while no words have arrived', async () => {
     const controller = fakeController({
       projection: {
