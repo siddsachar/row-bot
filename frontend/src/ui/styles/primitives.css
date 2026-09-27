@@ -30,6 +30,18 @@ time {
   border-radius: 2px;
 }
 
+/* Surfaces animate in only. A closing surface drops its animation so Radix
+   unmounts it at once; otherwise closing during the opening animation keeps
+   it mounted until the animation ends, and a modal one swallows the next
+   tap (a quick pick in the model picker, then a tap elsewhere). */
+[role='dialog'][data-state='closed'],
+[role='alertdialog'][data-state='closed'],
+[role='menu'][data-state='closed'],
+.overlay-backdrop[data-state='closed'],
+[data-radix-popper-content-wrapper] > [data-state='closed'] {
+  animation: none !important;
+}
+
 @keyframes popover-in {
   from {
     opacity: 0;
