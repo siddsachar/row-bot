@@ -25,8 +25,10 @@ import {
   AlertCircle,
   Info,
   Check,
+  Copy,
   MoreHorizontal,
   Search,
+  type LucideIcon,
 } from 'lucide-react';
 import { ariaKeyShortcut, shortcutKeys, type ShortcutPlatform } from './format';
 export { Brand } from './Brand';
@@ -618,6 +620,38 @@ export type Tone =
   'neutral' | 'accent' | 'info' | 'success' | 'warning' | 'danger';
 
 /** Status as shape, then word. The label is always available to assistive tech. */
+/**
+ * A copy icon that turns into a check drawn in one stroke after a successful
+ * copy. Reduced motion shows the finished check at once.
+ */
+export function CopyGlyph({
+  copied,
+  size = 15,
+  idle: Idle = Copy,
+}: {
+  copied: boolean;
+  size?: number;
+  /** The resting icon when it is not a plain copy glyph (e.g. a table). */
+  idle?: LucideIcon;
+}) {
+  return copied ? (
+    <Check size={size} className="icon-draw" aria-hidden />
+  ) : (
+    <Idle size={size} aria-hidden />
+  );
+}
+
+/** `copied` stays true for a short moment after `markCopied()`. */
+export function useCopyFeedback(duration = 1600) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), duration);
+    return () => window.clearTimeout(timer);
+  }, [copied, duration]);
+  return [copied, setCopied] as const;
+}
+
 export function StatusDot({
   tone = 'neutral',
   label,

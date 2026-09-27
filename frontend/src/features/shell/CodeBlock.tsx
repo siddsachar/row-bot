@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Check, Copy, Download, WrapText } from 'lucide-react';
+import { Download, WrapText } from 'lucide-react';
 import { saveTextDownload } from '../../platform/download';
-import { IconButton } from '../../ui/primitives';
+import { CopyGlyph, IconButton } from '../../ui/primitives';
 import type { Token } from './syntax';
 import { languageLabel, resolveLanguage } from './syntax-languages';
 
@@ -121,11 +121,7 @@ export function CodeBlock({
             <Download size={15} aria-hidden />
           </IconButton>
           <IconButton size="sm" label="Copy code" onClick={() => void copy()}>
-            {copied ? (
-              <Check size={15} aria-hidden />
-            ) : (
-              <Copy size={15} aria-hidden />
-            )}
+            <CopyGlyph copied={copied} />
           </IconButton>
         </span>
       </figcaption>

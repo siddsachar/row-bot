@@ -333,3 +333,53 @@ it('names generated media without rendering a second copy (B22) and flags unavai
   expect(screen.queryByRole('img')).toBeNull();
   expect(download).not.toHaveBeenCalled();
 });
+
+function summaryIcon() {
+  return row().querySelector('.activity-summary-icon svg')!;
+}
+
+it('draws the turn check only when this client watched it finish', () => {
+  const item = { ...groups[0].items[0], call_id: 'call-draw', content_ref: '' };
+  const running: TranscriptTraceGroup[] = [
+    {
+      ...groups[0],
+      status: 'pending',
+      items: [{ ...item, status: 'pending' }],
+    },
+  ];
+  const done: TranscriptTraceGroup[] = [{ ...groups[0], items: [item] }];
+  const live = render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={running}
+      live={{ running: true }}
+    />,
+  );
+  live.rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={done}
+      live={{ running: false }}
+    />,
+  );
+  expect(summaryIcon()).toHaveClass('icon-draw');
+  live.unmount();
+  // The stored row that replaces the live one keeps the motion.
+  render(<TranscriptTrace conversation="conversation-a" groups={done} />);
+  expect(summaryIcon()).toHaveClass('icon-draw');
+});
+
+it('never animates history it did not watch', () => {
+  const item = { ...groups[0].items[0], call_id: 'call-history' };
+  render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[{ ...groups[0], items: [item] }]}
+    />,
+  );
+  expect(summaryIcon()).not.toHaveClass('icon-draw');
+  openRow();
+  expect(step().querySelector('.activity-node svg')).not.toHaveClass(
+    'icon-draw-settle',
+  );
+});

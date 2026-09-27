@@ -68,6 +68,8 @@
   /* Motion: popovers 120ms, panels 180ms, ease-out. Reduced motion disables all. */
   --motion-popover: 120ms;
   --motion-panel: 180ms;
+  /* A check or state glyph drawn in (copy → check, a finished step). */
+  --motion-draw: 280ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-fast: var(--motion-popover);
@@ -91,5 +93,6 @@
   :root {
     --motion-popover: 0ms;
     --motion-panel: 0ms;
+    --motion-draw: 0ms;
   }
 }

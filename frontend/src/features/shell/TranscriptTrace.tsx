@@ -5,20 +5,13 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import {
-  Check,
-  ChevronDown,
-  CircleAlert,
-  Copy,
-  LoaderCircle,
-  X,
-} from 'lucide-react';
+import { Check, ChevronDown, CircleAlert, LoaderCircle, X } from 'lucide-react';
 import type {
   TranscriptTraceGroup,
   TranscriptTraceItem,
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
-import { Button } from '../../ui/primitives';
+import { Button, CopyGlyph, useCopyFeedback } from '../../ui/primitives';
 import {
   activityLabel,
   formatElapsed,
@@ -51,6 +44,17 @@ function observeTiming(steps: TranscriptTraceItem[], now: number) {
   }
   while (timing.size > 512) timing.delete(timing.keys().next().value!);
   return changed;
+}
+/** How long after this client saw a step finish its glyph still draws in. */
+const FRESH_FINISH_MS = 2500;
+/**
+ * True when this client watched the step run and saw it finish moments ago.
+ * A reload or a later visit never replays the motion: durable rows carry no
+ * timing, and old observations are too old.
+ */
+function finishedMoments(step: TranscriptTraceItem, now: number) {
+  const end = timing.get(step.call_id)?.end;
+  return end !== undefined && now - end < FRESH_FINISH_MS;
 }
 function stepDuration(step: TranscriptTraceItem) {
   const value = timing.get(step.call_id);
@@ -105,6 +109,15 @@ function specialization(item: TranscriptTraceItem) {
 }
 
 function StepNode({ item }: { item: TranscriptTraceItem }) {
+  // A step this client watched finish settles in; history never animates.
+  const [fresh, setFresh] = useState(false);
+  const previous = useRef(item.status);
+  useLayoutEffect(() => {
+    const was = previous.current;
+    previous.current = item.status;
+    if (item.status === 'pending') return;
+    if (was === 'pending' || finishedMoments(item, Date.now())) setFresh(true);
+  }, [item]);
   if (item.status === 'pending')
     return (
       <span className="activity-node" data-state="running" aria-hidden>
@@ -120,7 +133,7 @@ function StepNode({ item }: { item: TranscriptTraceItem }) {
   const Icon = stepIcon(item.canonical_name);
   return (
     <span className="activity-node" data-state="done" aria-hidden>
-      <Icon />
+      <Icon className={fresh ? 'icon-draw-settle' : undefined} />
     </span>
   );
 }
@@ -140,6 +153,7 @@ function TraceItem({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
+  const [resultCopied, setResultCopied] = useCopyFeedback();
   const request = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const attempted = useRef(false);
@@ -229,11 +243,9 @@ function TraceItem({
 
   async function copy() {
     try {
-      setCopyStatus(
-        (await platform.writeClipboard(text)).status === 'ok'
-          ? 'Result copied.'
-          : 'Copy is unavailable.',
-      );
+      const ok = (await platform.writeClipboard(text)).status === 'ok';
+      setResultCopied(ok);
+      setCopyStatus(ok ? 'Result copied.' : 'Copy is unavailable.');
     } catch {
       setCopyStatus('Copy is unavailable.');
     }
@@ -299,7 +311,7 @@ function TraceItem({
                 className="activity-copy"
                 onClick={() => void copy()}
               >
-                <Copy aria-hidden="true" /> Copy result
+                <CopyGlyph copied={resultCopied} size={14} /> Copy result
               </Button>
             )}
           </div>
@@ -394,6 +406,16 @@ export default function TranscriptTrace({
       : null;
   const attention = summary.failed + summary.skipped;
   const status = running ? 'pending' : attention ? 'failed' : 'succeeded';
+  // The turn's check draws itself when this client watched it finish (the
+  // live row and the stored row that replaces it share the step timing).
+  const [drawCheck, setDrawCheck] = useState(false);
+  useLayoutEffect(() => {
+    if (status !== 'succeeded') return;
+    const now = Date.now();
+    if (steps.some((step) => finishedMoments(step, now))) setDrawCheck(true);
+    // The signature captures every status change that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, signature]);
   const current = summary.current;
   const text = live?.stopping
     ? 'Stopping…'
@@ -428,7 +450,7 @@ export default function TranscriptTrace({
               ) : attention ? (
                 <CircleAlert />
               ) : (
-                <Check />
+                <Check className={drawCheck ? 'icon-draw' : undefined} />
               )}
             </span>
             <span

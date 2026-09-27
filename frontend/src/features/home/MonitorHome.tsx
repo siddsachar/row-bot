@@ -25,12 +25,14 @@ import { writeClipboardText } from '../../platform/clipboard';
 import { Drawer } from '../../ui/overlays';
 import {
   Button,
+  CopyGlyph,
   ErrorState,
   IconButton,
   InlineEmpty,
   Segmented,
   StatusDot,
   Toggle,
+  useCopyFeedback,
   type Tone,
 } from '../../ui/primitives';
 import { clientError } from '../../api/errors';
@@ -323,6 +325,7 @@ function LogConsole({
   const [follow, setFollow] = useState(true);
   const [collapse, setCollapse] = useState(true);
   const [notice, setNotice] = useState('');
+  const [logCopied, setLogCopied] = useCopyFeedback();
   const [error, setError] = useState('');
   const body = useRef<HTMLOListElement>(null);
   const canLoad =
@@ -481,12 +484,13 @@ function LogConsole({
                 )
                 .join('\n'),
               writeClipboard,
-            ).then((ok) =>
-              setNotice(ok ? 'Log lines copied.' : 'Clipboard unavailable.'),
-            )
+            ).then((ok) => {
+              setLogCopied(ok);
+              setNotice(ok ? 'Log lines copied.' : 'Clipboard unavailable.');
+            })
           }
         >
-          <ClipboardCopy size={14} aria-hidden />
+          <CopyGlyph copied={logCopied} size={14} idle={ClipboardCopy} />
         </IconButton>
       </div>
       {error && <p className="home-caption">{error}</p>}
@@ -854,6 +858,7 @@ export default function MonitorHome({
   const [diagnosisBusy, setDiagnosisBusy] = useState(false);
   const [diagnosisError, setDiagnosisError] = useState('');
   const [copyNotice, setCopyNotice] = useState('');
+  const [diagnosisCopied, setDiagnosisCopied] = useCopyFeedback();
   const [drawer, setDrawer] = useState<TileKey | null>(null);
   const [range, setRange] = useState<'24h' | '7d'>('24h');
   const [history, setHistory] = useState<'dream' | 'extraction'>('dream');
@@ -902,8 +907,10 @@ export default function MonitorHome({
         (check) => `${check.name}: ${check.status} — ${check.detail}`,
       ),
     ].join('\n');
+    const ok = await writeClipboardText(report, writeClipboard);
+    setDiagnosisCopied(ok);
     setCopyNotice(
-      (await writeClipboardText(report, writeClipboard))
+      ok
         ? 'Diagnosis report copied.'
         : 'Could not copy the report. Check clipboard permission and retry.',
     );
@@ -1130,7 +1137,11 @@ export default function MonitorHome({
             label="Copy diagnosis report"
             onClick={() => void copyDiagnosis()}
           >
-            <ClipboardCopy size={14} aria-hidden />
+            <CopyGlyph
+              copied={diagnosisCopied}
+              size={14}
+              idle={ClipboardCopy}
+            />
           </IconButton>
         )}
         <IconButton

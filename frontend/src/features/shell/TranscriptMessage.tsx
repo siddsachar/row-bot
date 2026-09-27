@@ -1,7 +1,5 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Check,
-  Copy,
   Pencil,
   RotateCcw,
   Square,
@@ -12,7 +10,7 @@ import {
 import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
-import { Button, IconButton } from '../../ui/primitives';
+import { Button, CopyGlyph, IconButton } from '../../ui/primitives';
 import { MediaPreview } from './MediaPreview';
 import {
   speak,
@@ -316,11 +314,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
               label={copied ? 'Copied message' : 'Copy message'}
               onClick={() => void copy()}
             >
-              {copied ? (
-                <Check size={15} aria-hidden />
-              ) : (
-                <Copy size={15} aria-hidden />
-              )}
+              <CopyGlyph copied={copied} />
             </IconButton>
             {row.role === 'assistant' && canSpeak && (
               <IconButton

@@ -1,6 +1,6 @@
 import { Fragment, useState, type JSX, type ReactNode } from 'react';
-import { Check, Table } from 'lucide-react';
-import { Hint, IconButton } from '../../ui/primitives';
+import { Table } from 'lucide-react';
+import { CopyGlyph, Hint, IconButton } from '../../ui/primitives';
 import { CodeBlock } from './CodeBlock';
 
 // Underscore emphasis never starts or ends inside a word, so snake_case
@@ -224,11 +224,10 @@ function MarkdownTable({
       {copyText && (
         <span className="markdown-table-tools">
           <IconButton size="sm" label="Copy as CSV" onClick={() => void copy()}>
-            {status === 'Table copied as CSV.' ? (
-              <Check size={15} aria-hidden />
-            ) : (
-              <Table size={15} aria-hidden />
-            )}
+            <CopyGlyph
+              copied={status === 'Table copied as CSV.'}
+              idle={Table}
+            />
           </IconButton>
         </span>
       )}
