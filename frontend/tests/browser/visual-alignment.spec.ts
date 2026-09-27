@@ -434,6 +434,10 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
   // Thinking lives in the model picker's footer as a segmented choice. A
   // one-line (phone) composer opens the picker from + › Model.
   const model = page.getByRole('button', { name: 'Model', exact: true });
+  // The composer controls arrive with the conversation's workspace.
+  await expect(
+    page.getByRole('button', { name: 'Add files and more', exact: true }),
+  ).toBeVisible();
   if (await model.isVisible()) await model.click();
   else {
     await page

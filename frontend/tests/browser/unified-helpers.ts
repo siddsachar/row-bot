@@ -699,13 +699,17 @@ export async function clickNewChat(page: Page): Promise<void> {
   const newChat = page
     .getByRole('button', { name: 'New chat', exact: true })
     .filter({ visible: true });
+  const toggle = page.getByRole('button', {
+    name: 'Toggle navigation',
+    exact: true,
+  });
+  // Wait for the shell before choosing: the sidebar, or the drawer toggle.
+  await expect(newChat.or(toggle).first()).toBeVisible();
   if ((await newChat.count()) > 0) {
     await newChat.first().click();
     return;
   }
-  await page
-    .getByRole('button', { name: 'Toggle navigation', exact: true })
-    .click();
+  await toggle.click();
   await page
     .getByRole('dialog', { name: 'Conversations' })
     .getByRole('button', { name: 'New chat', exact: true })
@@ -721,14 +725,25 @@ export async function revealContextControl(
   name: string,
 ): Promise<void> {
   const control = page.getByRole('button', { name, exact: true });
-  if (await control.isVisible()) return;
+  const card = page.getByRole('complementary', {
+    name: 'Conversation context',
+  });
   const context = page.getByRole('button', { name: 'Context', exact: true });
-  if (await context.isVisible()) await context.click();
-  else {
-    await page
-      .getByRole('button', { name: 'Conversation menu', exact: true })
-      .click();
-    await page.getByRole('menuitem', { name: 'Context', exact: true }).click();
+  const menu = page.getByRole('button', {
+    name: 'Conversation menu',
+    exact: true,
+  });
+  // Wait for the card or the header before choosing; an open card whose row
+  // has not arrived yet must not be toggled closed.
+  await expect(control.or(card).or(context).or(menu).first()).toBeVisible();
+  if (!(await control.isVisible()) && !(await card.isVisible())) {
+    if (await context.isVisible()) await context.click();
+    else {
+      await menu.click();
+      await page
+        .getByRole('menuitem', { name: 'Context', exact: true })
+        .click();
+    }
   }
   await expect(control).toBeVisible();
 }
@@ -740,14 +755,16 @@ export async function revealContextControl(
  */
 export async function headerAction(page: Page, name: string): Promise<Locator> {
   const button = page.getByRole('button', { name, exact: true });
-  if (await button.isVisible()) {
-    await button.click();
-    return button;
-  }
   const menu = page.getByRole('button', {
     name: 'Conversation menu',
     exact: true,
   });
+  // The header re-renders after navigation; wait for it before choosing.
+  await expect(button.or(menu).first()).toBeVisible();
+  if (await button.isVisible()) {
+    await button.click();
+    return button;
+  }
   await menu.click();
   await page
     .getByRole('menuitem', {

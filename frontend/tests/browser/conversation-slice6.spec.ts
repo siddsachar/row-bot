@@ -4,17 +4,27 @@ import { openPanel } from './panel-helpers';
 
 async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
   const toolbar = page.locator('.composer-toolbar');
-  await expect(toolbar).toBeVisible();
+  await expect(toolbar).toBeAttached();
   const layout = await toolbar.evaluate((element) => {
-    const children = Array.from(element.children).filter(
-      (child) => getComputedStyle(child).display !== 'none',
-    );
-    const bounds = children.map((child) => child.getBoundingClientRect());
     const composer = element.closest('.composer')!;
+    // A one-line composer places +, the field and the actions in the field's
+    // grid (the toolbar is display: contents); compare their centres.
+    const single = composer.hasAttribute('data-single-line');
+    const row = single
+      ? ['.composer-control-cluster', '.message-composer', '.composer-actions']
+          .map((selector) => composer.querySelector(selector)!)
+          .filter(Boolean)
+      : Array.from(element.children).filter(
+          (child) => getComputedStyle(child).display !== 'none',
+        );
+    const container = single
+      ? composer.querySelector('.composer-field')!
+      : element;
+    const bounds = row.map((child) => child.getBoundingClientRect());
     return {
-      tops: bounds.map((box) => box.top),
+      tops: bounds.map((box) => (single ? box.top + box.height / 2 : box.top)),
       right: Math.max(...bounds.map((box) => box.right)),
-      toolbarRight: element.getBoundingClientRect().right,
+      toolbarRight: container.getBoundingClientRect().right,
       overflow: getComputedStyle(composer).overflowY,
       scrollWidth: composer.scrollWidth,
       clientWidth: composer.clientWidth,
