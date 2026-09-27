@@ -326,8 +326,11 @@ export default function Workspace() {
   });
   useEffect(() => {
     if (!maximizedPanelId) return;
+    // An Escape that closed a menu, a presentation or a selection inside
+    // the panel was already handled (marked as such); only a free one leaves.
     const restore = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setMaximizedPanelId(null);
+      if (event.key === 'Escape' && !event.defaultPrevented)
+        setMaximizedPanelId(null);
     };
     document.addEventListener('keydown', restore);
     return () => document.removeEventListener('keydown', restore);

@@ -784,6 +784,7 @@ export default function ArtifactPreview({
             onKeyDown={(event) => {
               if (event.key === 'Enter') event.currentTarget.blur();
               if (event.key === 'Escape') {
+                event.preventDefault();
                 setNameDraft(null);
                 event.currentTarget.blur();
               }

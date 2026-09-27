@@ -224,8 +224,10 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
           event.target instanceof HTMLTextAreaElement
         )
           return;
-        if (event.key === 'Escape') end();
-        else if (
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          end();
+        } else if (
           event.key === 'ArrowRight' &&
           state &&
           state.page_index + 1 < state.page_count
