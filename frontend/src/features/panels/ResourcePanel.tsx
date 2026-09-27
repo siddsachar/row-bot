@@ -30,6 +30,7 @@ import DeveloperRepositoryPanel, {
 } from '../developer/DeveloperRepositoryPanel';
 import CustomToolBuilder from '../developer/CustomToolBuilder';
 import { sendPrompt } from '../shell/composer-bridge';
+import type { AskOutcome } from './DesignSelection';
 import type { WorkspaceEditScope } from './workspace-edit-sessions';
 
 export const resourcePanelMetrics = { mounted: 0, renders: 0 };
@@ -507,8 +508,22 @@ function ResourcePanel({
     if (combined.length > 200000) throw new Error('draft_full');
     controller.setDraft(conversation, { ...draft, text: combined });
   };
+  // "Ask Row-Bot to change this…" goes through the open conversation's
+  // composer; the preview falls back to the draft when it cannot send.
+  const askDesign = (text: string): AskOutcome => {
+    try {
+      designSession?.guard();
+    } catch {
+      return 'unavailable';
+    }
+    if (controller.getSnapshot().selectedConversationId !== conversation)
+      return 'unavailable';
+    return sendPrompt(conversation, text) ? 'sent' : 'unavailable';
+  };
   return (
     <Preview
+      title={resource.title}
+      onAsk={askDesign}
       resourceId={resource.binding.resource_id}
       resourceRevision={resource.resource_revision}
       visible={visible}

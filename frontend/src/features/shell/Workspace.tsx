@@ -1078,9 +1078,10 @@ export default function Workspace() {
                   size="sm"
                   label={
                     maximizedPanelId === active.instance_id
-                      ? 'Restore panel size'
-                      : 'Maximize panel'
+                      ? 'Exit focus mode'
+                      : 'Focus mode'
                   }
+                  pressed={maximizedPanelId === active.instance_id}
                   onClick={() =>
                     setMaximizedPanelId((current) =>
                       current === active.instance_id

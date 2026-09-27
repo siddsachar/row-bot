@@ -195,6 +195,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
         </p>
       )}
       <Button
+        variant="primary"
         disabled={
           busy || props.pageCount < 1 || (pages === 'range' && !range.trim())
         }

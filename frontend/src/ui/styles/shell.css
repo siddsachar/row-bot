@@ -732,10 +732,12 @@
   box-shadow: none;
   background: var(--surface);
 }
+/* Focus mode: the panel fills the window; Escape or the header control exits. */
 .dock.maximized {
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-modal);
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 .dock-header {
   display: flex;

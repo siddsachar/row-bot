@@ -3,7 +3,19 @@ import {
   DesignFormSession,
   type DesignFormState,
 } from './artifact-design-sessions';
-import { Button, ErrorState, Field, Input, Select } from '../../ui/primitives';
+import { MoreHorizontal } from 'lucide-react';
+import { humanizeToken } from '../../ui/format';
+import {
+  Button,
+  Disclosure,
+  ErrorState,
+  Field,
+  Input,
+  Menu,
+  Segmented,
+  Select,
+  StatusDot,
+} from '../../ui/primitives';
 
 export type DesignBrand = {
   primary_color: string;
@@ -67,7 +79,10 @@ export type DesignReviewState = {
   finding_count: number;
   next_cursor: string | null;
 };
+export type DesignControlsView = 'properties' | 'library' | 'review';
 export type DesignControlsProps = {
+  /** Which inspector section this instance shows (all three by default). */
+  view?: DesignControlsView;
   resourceId: string;
   session?: DesignFormSession;
   blocked?: boolean;
@@ -126,12 +141,43 @@ export type DesignControlsProps = {
 };
 
 const colors = [
-  'primary_color',
-  'secondary_color',
-  'accent_color',
-  'bg_color',
-  'text_color',
+  ['primary_color', 'Primary colour'],
+  ['secondary_color', 'Secondary colour'],
+  ['accent_color', 'Accent colour'],
+  ['bg_color', 'Background colour'],
+  ['text_color', 'Text colour'],
 ] as const;
+const styleFields = [
+  ['color', 'Text colour'],
+  ['background-color', 'Fill'],
+  ['font-size', 'Font size'],
+  ['font-weight', 'Weight'],
+  ['line-height', 'Line height'],
+  ['padding', 'Padding'],
+  ['margin', 'Margin'],
+  ['gap', 'Gap'],
+  ['border-radius', 'Radius'],
+  ['width', 'Width'],
+  ['height', 'Height'],
+] as const;
+const sectionWords: Record<DesignSection, string> = {
+  elements: 'Elements',
+  assets: 'Assets',
+  fonts: 'Fonts',
+  presets: 'Presets',
+  interactions: 'Interactions',
+  blocks: 'Blocks',
+};
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+/** Brand colours apply this long after the last change (auto-save). */
+const BRAND_DELAY = 700;
+/** A native colour picker needs #rrggbb. */
+function pickerValue(value: string) {
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value;
+  if (/^#[0-9a-f]{3}$/i.test(value))
+    return `#${[...value.slice(1)].map((c) => c + c).join('')}`;
+  return '#000000';
+}
 export default function ArtifactDesignControls(props: DesignControlsProps) {
   const {
     resourceId,
@@ -528,22 +574,93 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       }
     }
   }
+  // Auto-save: brand colours apply shortly after the last change, other
+  // fields when they lose focus. A change made while another save runs waits
+  // for it and then applies against the reloaded revision.
+  const brandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queued = useRef<{ brand: boolean; styles: boolean }>({
+    brand: false,
+    styles: false,
+  });
+  useEffect(
+    () => () => {
+      if (brandTimer.current) clearTimeout(brandTimer.current);
+    },
+    [],
+  );
+  function commit(kind: 'brand' | 'styles') {
+    if (kind === 'brand' && brandTimer.current) {
+      clearTimeout(brandTimer.current);
+      brandTimer.current = null;
+    }
+    const snapshot = session.getSnapshot();
+    if (!snapshot.dirtyFields.includes(kind) || staleDraft || props.blocked)
+      return;
+    if (
+      kind === 'brand' &&
+      (!snapshot.brand ||
+        !colors.every(([key]) => HEX.test(snapshot.brand![key])))
+    )
+      return;
+    if (operation.current || !snapshot.state) {
+      queued.current[kind] = true;
+      return;
+    }
+    queued.current[kind] = false;
+    void apply(
+      kind === 'brand' ? 'brand' : 'style',
+      kind === 'brand' ? snapshot.brand! : snapshot.styles,
+    );
+  }
+  useEffect(() => {
+    if (saving || !state) return;
+    if (queued.current.brand) commit('brand');
+    else if (queued.current.styles) commit('styles');
+    // Only a settled save or a reload releases queued changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saving, state]);
+  function changeBrand(next: DesignBrand, delay = BRAND_DELAY) {
+    setBrand(next);
+    if (brandTimer.current) clearTimeout(brandTimer.current);
+    brandTimer.current = setTimeout(() => commit('brand'), delay);
+  }
+
   if (!props.visible) return null;
   const busy = loading || saving || staleDraft || Boolean(props.blocked);
+  const view = props.view;
+  const showProperties = !view || view === 'properties';
+  const showLibrary = !view || view === 'library';
+  const showReview = !view || view === 'review';
+  const pendingFields = retained.dirtyFields.filter((field) =>
+    ['brand', 'styles'].includes(field),
+  );
+  const status = saving
+    ? 'Saving…'
+    : notice === 'Changes saved.'
+      ? 'Saved.'
+      : notice;
   return (
     <section
-      className="studio-section stack"
-      aria-label="Design controls"
+      className="design-controls"
+      aria-label={
+        view === 'library'
+          ? 'Design library'
+          : view === 'review'
+            ? 'Design review'
+            : 'Design controls'
+      }
       aria-busy={busy}
     >
       {staleDraft && (
-        <p role="status">
-          Your unsaved design draft belongs to an earlier page, element or
-          revision. Return to that selection or explicitly discard the draft
-          before editing the current design.
-        </p>
+        <div className="inspector-callout" role="status">
+          <p>
+            Your unsaved design change belongs to an earlier page, element or
+            version. Go back to it, or discard the change to edit the current
+            design.
+          </p>
+        </div>
       )}
-      {retained.dirtySource && (
+      {retained.dirtySource && (staleDraft || error) && (
         <Button
           disabled={saving || Boolean(props.blocked)}
           onClick={() => session.reset()}
@@ -552,152 +669,49 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         </Button>
       )}
       {error && (
-        <ErrorState title="Design controls unavailable">{error}</ErrorState>
+        <ErrorState
+          title="Design controls unavailable"
+          action={
+            <Button
+              disabled={saving}
+              onClick={() => setReload((value) => value + 1)}
+            >
+              Retry
+            </Button>
+          }
+        >
+          {error}
+        </ErrorState>
       )}
-      {notice && <p role="status">{notice}</p>}
-      <Button disabled={busy} onClick={() => setReload((value) => value + 1)}>
-        Reload controls
-      </Button>
-      {brand && state && (
-        <details className="capability-section stack">
-          <summary>Brand and fonts</summary>
-          {colors.map((key) => (
-            <Field label={key.replaceAll('_', ' ')} key={key}>
-              <Input
-                aria-label={key.replaceAll('_', ' ')}
-                value={brand[key]}
-                disabled={busy}
-                maxLength={7}
-                onChange={(event) =>
-                  setBrand({ ...brand, [key]: event.target.value })
-                }
-              />
-            </Field>
-          ))}
-          {(['heading_font', 'body_font'] as const).map((key) => (
-            <Field label={key.replaceAll('_', ' ')} key={key}>
-              <Input
-                aria-label={key.replaceAll('_', ' ')}
-                value={brand[key]}
-                disabled={busy}
-                maxLength={128}
-                onChange={(event) =>
-                  setBrand({ ...brand, [key]: event.target.value })
-                }
-              />
-            </Field>
-          ))}
-          <p>
-            Use a bundled, cached or system font from the font list. Opening
-            this panel does not download fonts.
-          </p>
-          <Field label="Logo asset">
-            <Input
-              aria-label="Logo asset"
-              disabled={busy}
-              value={brand.logo_asset_id}
-              maxLength={256}
-              onChange={(event) =>
-                setBrand({ ...brand, logo_asset_id: event.target.value })
-              }
-            />
-          </Field>
-          <Field label="Logo placement">
-            <Select
-              aria-label="Logo placement"
-              disabled={busy}
-              value={brand.logo_position}
-              onChange={(event) =>
-                setBrand({ ...brand, logo_position: event.target.value })
-              }
-            >
-              {['top_left', 'top_right', 'bottom_left', 'bottom_right'].map(
-                (key) => (
-                  <option key={key} value={key}>
-                    {key.replaceAll('_', ' ')}
-                  </option>
-                ),
-              )}
-            </Select>
-          </Field>
-          <Field label="Logo mode">
-            <Select
-              aria-label="Logo mode"
-              disabled={busy}
-              value={brand.logo_mode}
-              onChange={(event) =>
-                setBrand({ ...brand, logo_mode: event.target.value })
-              }
-            >
-              <option value="auto">Automatic overlay</option>
-              <option value="manual">Manual placeholder</option>
-            </Select>
-          </Field>
-          <Field label="Logo scope">
-            <Select
-              aria-label="Logo scope"
-              disabled={busy}
-              value={brand.logo_scope}
-              onChange={(event) =>
-                setBrand({ ...brand, logo_scope: event.target.value })
-              }
-            >
-              <option value="all">All pages</option>
-              <option value="first">First page</option>
-            </Select>
-          </Field>
-          {(['logo_max_height', 'logo_padding'] as const).map((key) => (
-            <Field key={key} label={key.replaceAll('_', ' ')}>
-              <Input
-                type="number"
-                aria-label={key.replaceAll('_', ' ')}
-                disabled={busy}
-                value={brand[key]}
-                onChange={(event) =>
-                  setBrand({ ...brand, [key]: Number(event.target.value) })
-                }
-              />
-            </Field>
-          ))}
-          <Button disabled={busy} onClick={() => void apply('brand', brand)}>
-            Apply brand
-          </Button>
-        </details>
-      )}
-      {state?.element && (
-        <details className="capability-section stack" open>
-          <summary>Selected element properties</summary>
-          <p>{state.element.tag}</p>
-          {[
-            'color',
-            'background-color',
-            'font-size',
-            'font-weight',
-            'line-height',
-            'padding',
-            'margin',
-            'gap',
-            'border-radius',
-            'width',
-            'height',
-          ].map((key) => (
-            <Field key={key} label={key}>
-              <Input
-                aria-label={`Element ${key}`}
-                maxLength={256}
-                disabled={busy}
-                value={styles[key] ?? ''}
-                onChange={(event) =>
-                  setStyles({ ...styles, [key]: event.target.value })
-                }
-              />
-            </Field>
-          ))}
-          <Button disabled={busy} onClick={() => void apply('style', styles)}>
-            Apply properties
-          </Button>
+      {showProperties && state?.element && (
+        <section className="inspector-section" aria-label="Selection">
+          <h4>
+            Selection <span className="inspector-tag">{state.element.tag}</span>
+          </h4>
+          <div className="inspector-grid">
+            {styleFields.map(([key, label]) => (
+              <label key={key} className="inspector-field">
+                <span>{label}</span>
+                <Input
+                  aria-label={`Element ${key}`}
+                  maxLength={256}
+                  disabled={busy}
+                  value={styles[key] ?? ''}
+                  placeholder="—"
+                  onChange={(event) =>
+                    setStyles({ ...styles, [key]: event.target.value })
+                  }
+                  onBlur={() => commit('styles')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+              </label>
+            ))}
+          </div>
           {['landing', 'app_mockup', 'storyboard'].includes(state.mode) && (
-            <>
+            <div className="inspector-subsection">
+              <h5>Interaction</h5>
               <Field label="Hotspot action">
                 <Select
                   aria-label="Hotspot action"
@@ -705,10 +719,10 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                   value={action}
                   onChange={(event) => setAction(event.target.value)}
                 >
-                  <option value="navigate">Navigate to screen</option>
+                  <option value="navigate">Go to screen</option>
                   <option value="toggle_state">Toggle state</option>
                   <option value="play_media">Play media</option>
-                  <option value="clear">Clear interaction</option>
+                  <option value="clear">No interaction</option>
                 </Select>
               </Field>
               {action !== 'clear' && (
@@ -726,278 +740,538 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                 disabled={busy}
                 onClick={() => void apply('hotspot', { action, target })}
               >
-                Apply hotspot
+                Apply interaction
               </Button>
-            </>
+            </div>
           )}
-        </details>
+        </section>
       )}
-      <Field label="Design catalog">
-        <Select
-          aria-label="Design catalog"
-          disabled={busy}
-          value={section}
-          onChange={(event) => setSection(event.target.value as DesignSection)}
-        >
-          {(
-            ['elements', 'assets', 'fonts', 'presets', 'interactions'] as const
-          ).map((key) => (
-            <option key={key} value={key}>
-              {key}
-            </option>
-          ))}
-          {(state?.mode === 'deck' || state?.mode === 'landing') && (
-            <option value="blocks">Curated blocks</option>
-          )}
-        </Select>
-      </Field>
-      {section === 'presets' && props.mutatePreset && (
+      {showProperties && brand && state && (
         <>
-          <Field label="New global preset name">
-            <Input
-              aria-label="New global preset name"
-              value={presetName}
-              maxLength={256}
-              disabled={busy}
-              onChange={(event) => setPresetName(event.target.value)}
-            />
-          </Field>
-          <Button
-            disabled={busy || !state || !presetName.trim()}
-            onClick={() =>
-              void changePreset({ action: 'save', name: presetName.trim() })
-            }
-          >
-            Save current brand as preset
-          </Button>
-          {presetReview?.action === 'delete' && (
-            <div role="group" aria-label="Confirm global preset deletion">
-              <p>
-                Delete global preset “{presetReview.name}”. This changes the
-                shared catalog for all projects; saved project brands stay
-                unchanged.
-              </p>
-              <Button disabled={busy} onClick={() => void changePreset()}>
-                Confirm preset deletion
-              </Button>
-              <Button disabled={busy} onClick={() => setPresetReview(null)}>
-                Keep preset
+          <section className="inspector-section" aria-label="Brand">
+            <h4>Brand</h4>
+            <div className="inspector-swatches">
+              {colors.map(([key, label]) => (
+                <div key={key} className="inspector-swatch">
+                  <input
+                    type="color"
+                    aria-label={`${label} picker`}
+                    disabled={busy}
+                    value={pickerValue(brand[key])}
+                    onChange={(event) =>
+                      changeBrand({ ...brand, [key]: event.target.value })
+                    }
+                  />
+                  <span className="inspector-swatch-name" aria-hidden>
+                    {label.replace(' colour', '')}
+                  </span>
+                  <Input
+                    aria-label={label}
+                    className="inspector-hex"
+                    value={brand[key]}
+                    disabled={busy}
+                    maxLength={7}
+                    aria-invalid={!HEX.test(brand[key]) || undefined}
+                    onChange={(event) =>
+                      changeBrand(
+                        { ...brand, [key]: event.target.value },
+                        BRAND_DELAY * 2,
+                      )
+                    }
+                    onBlur={() => commit('brand')}
+                  />
+                </div>
+              ))}
+            </div>
+            {!colors.every(([key]) => HEX.test(brand[key])) && (
+              <p className="muted">Use hex colours such as #2563EB.</p>
+            )}
+          </section>
+          <section className="inspector-section" aria-label="Type">
+            <h4>Type</h4>
+            {(
+              [
+                ['heading_font', 'Heading font'],
+                ['body_font', 'Body font'],
+              ] as const
+            ).map(([key, label]) => (
+              <Field label={label} key={key}>
+                <Input
+                  aria-label={label}
+                  value={brand[key]}
+                  disabled={busy}
+                  maxLength={128}
+                  onChange={(event) =>
+                    setBrand({ ...brand, [key]: event.target.value })
+                  }
+                  onBlur={() => commit('brand')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+              </Field>
+            ))}
+            <p className="muted">
+              Bundled, cached or system fonts only. Opening this panel downloads
+              nothing.
+            </p>
+          </section>
+          <Disclosure summary="Logo" className="inspector-disclosure">
+            <Field label="Logo asset">
+              <Input
+                aria-label="Logo asset"
+                disabled={busy}
+                value={brand.logo_asset_id}
+                maxLength={256}
+                onChange={(event) =>
+                  setBrand({ ...brand, logo_asset_id: event.target.value })
+                }
+                onBlur={() => commit('brand')}
+              />
+            </Field>
+            <Field label="Logo placement">
+              <Select
+                aria-label="Logo placement"
+                disabled={busy}
+                value={brand.logo_position}
+                onChange={(event) =>
+                  changeBrand(
+                    { ...brand, logo_position: event.target.value },
+                    0,
+                  )
+                }
+              >
+                {(
+                  [
+                    ['top_left', 'Top left'],
+                    ['top_right', 'Top right'],
+                    ['bottom_left', 'Bottom left'],
+                    ['bottom_right', 'Bottom right'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Logo mode">
+              <Select
+                aria-label="Logo mode"
+                disabled={busy}
+                value={brand.logo_mode}
+                onChange={(event) =>
+                  changeBrand({ ...brand, logo_mode: event.target.value }, 0)
+                }
+              >
+                <option value="auto">Automatic overlay</option>
+                <option value="manual">Manual placeholder</option>
+              </Select>
+            </Field>
+            <Field label="Logo scope">
+              <Select
+                aria-label="Logo scope"
+                disabled={busy}
+                value={brand.logo_scope}
+                onChange={(event) =>
+                  changeBrand({ ...brand, logo_scope: event.target.value }, 0)
+                }
+              >
+                <option value="all">All pages</option>
+                <option value="first">First page</option>
+              </Select>
+            </Field>
+            {(
+              [
+                ['logo_max_height', 'Logo height'],
+                ['logo_padding', 'Logo padding'],
+              ] as const
+            ).map(([key, label]) => (
+              <Field key={key} label={label}>
+                <Input
+                  type="number"
+                  aria-label={label}
+                  disabled={busy}
+                  value={brand[key]}
+                  onChange={(event) =>
+                    setBrand({ ...brand, [key]: Number(event.target.value) })
+                  }
+                  onBlur={() => commit('brand')}
+                />
+              </Field>
+            ))}
+          </Disclosure>
+          {pendingFields.length > 0 && !saving && !staleDraft && (
+            <div className="inspector-action">
+              <span className="muted">Unsaved change</span>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  pendingFields.includes('brand')
+                    ? commit('brand')
+                    : commit('styles')
+                }
+              >
+                Apply now
               </Button>
             </div>
           )}
         </>
       )}
-      {section === 'assets' && (
-        <>
-          {file && <p>Selected local asset: {file.name}</p>}
-          <Field label="Choose asset">
-            <Input
-              type="file"
-              aria-label="Choose asset"
-              disabled={busy}
-              accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.m4v,.webm,.wav,.ogg,.mp3"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-          </Field>
-          <Button
-            disabled={busy || !file || !state}
-            onClick={() => void upload()}
-          >
-            Add asset
-          </Button>
-          <p>
-            Assets remain saved when removed from a page. Original files are
-            retained for history and recovery.
-          </p>
-        </>
-      )}
-      {state && (
-        <>
-          <p>
-            {state.items.length} of {state.item_count} {section}
-          </p>
-          <ul>
-            {state.items.map((item) => (
-              <li key={item.id}>
-                <span>
-                  {item.label} · {item.detail}
-                </span>
-                {section === 'elements' && (
-                  <Button
-                    disabled={busy || !item.available}
-                    onClick={() => props.onSelectElement(item.id)}
-                  >
-                    Select {item.label}
-                  </Button>
-                )}
-                {section === 'presets' && (
-                  <>
-                    <Button
-                      disabled={busy || !item.available}
-                      onClick={() =>
-                        void apply('preset', { preset_id: item.id })
-                      }
-                    >
-                      Apply {item.label}
-                    </Button>
-                    {props.mutatePreset && (
-                      <>
-                        <Button
-                          disabled={busy || !item.available}
-                          onClick={() =>
-                            void changePreset({
-                              action: 'save',
-                              name: item.label,
-                              preset_id: item.id,
-                            })
-                          }
-                        >
-                          Replace {item.label} with current brand
-                        </Button>
-                        <Button
-                          disabled={busy || !item.available}
-                          onClick={() =>
-                            setPresetReview({
-                              action: 'delete',
-                              name: item.label,
-                              preset_id: item.id,
-                            })
-                          }
-                        >
-                          Delete {item.label} preset
-                        </Button>
-                      </>
-                    )}
-                  </>
-                )}
-                {section === 'assets' && (
-                  <>
-                    <Button
-                      disabled={busy || !item.available}
-                      onClick={() =>
-                        void apply('asset_insert', { asset_id: item.id })
-                      }
-                    >
-                      Insert {item.label}
-                    </Button>
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void apply('asset_remove', { asset_id: item.id })
-                      }
-                    >
-                      Remove {item.label} from page
-                    </Button>
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void apply('asset_forget', { asset_id: item.id })
-                      }
-                    >
-                      Remove {item.label} from list
-                    </Button>
-                  </>
-                )}
-                {section === 'blocks' && (
-                  <Button
-                    disabled={busy || !item.available}
-                    onClick={() =>
-                      void apply('block_insert', { component_name: item.id })
-                    }
-                  >
-                    Insert {item.label}
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-          {retained.controlPage && (
-            <Button
-              disabled={busy}
-              onClick={() => setReload((value) => value + 1)}
+      {showLibrary && (
+        <section className="inspector-section" aria-label="Library">
+          <Segmented
+            size="sm"
+            label="Library section"
+            className="inspector-segmented"
+            value={section}
+            onChange={(value) => setSection(value)}
+            options={(
+              [
+                'elements',
+                'assets',
+                'fonts',
+                'presets',
+                'interactions',
+                ...(state?.mode === 'deck' || state?.mode === 'landing'
+                  ? (['blocks'] as const)
+                  : []),
+              ] as DesignSection[]
+            ).map((key) => ({
+              value: key,
+              label: sectionWords[key],
+              disabled: busy,
+            }))}
+          />
+          {section === 'presets' && props.mutatePreset && (
+            <div className="inspector-inline-form">
+              <Input
+                aria-label="New global preset name"
+                placeholder="Preset name"
+                value={presetName}
+                maxLength={256}
+                disabled={busy}
+                onChange={(event) => setPresetName(event.target.value)}
+              />
+              <Button
+                disabled={busy || !state || !presetName.trim()}
+                onClick={() =>
+                  void changePreset({ action: 'save', name: presetName.trim() })
+                }
+              >
+                Save current brand as preset
+              </Button>
+            </div>
+          )}
+          {presetReview?.action === 'delete' && (
+            <div
+              className="inspector-callout"
+              role="group"
+              aria-label="Confirm global preset deletion"
             >
-              First controls page
-            </Button>
+              <p>
+                Delete global preset “{presetReview.name}”? This changes the
+                shared catalog for all projects; saved project brands stay
+                unchanged.
+              </p>
+              <div className="action-cluster">
+                <Button disabled={busy} onClick={() => setPresetReview(null)}>
+                  Keep preset
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => void changePreset()}
+                >
+                  Confirm preset deletion
+                </Button>
+              </div>
+            </div>
           )}
-          {state.next_cursor && (
-            <Button disabled={busy} onClick={() => void more()}>
-              Next controls page
-            </Button>
+          {section === 'assets' && (
+            <div className="inspector-inline-form">
+              <Input
+                type="file"
+                aria-label="Choose asset"
+                disabled={busy}
+                accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.m4v,.webm,.wav,.ogg,.mp3"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              <Button
+                disabled={busy || !file || !state}
+                onClick={() => void upload()}
+              >
+                Add asset
+              </Button>
+              {file && (
+                <p className="muted">Selected local asset: {file.name}</p>
+              )}
+              <p className="muted">
+                Assets stay saved when removed from a page; original files are
+                kept for history and recovery.
+              </p>
+            </div>
           )}
-        </>
-      )}
-      <Field label="Review scope">
-        <Select
-          aria-label="Review scope"
-          disabled={busy}
-          value={scope}
-          onChange={(event) => {
-            setScope(event.target.value as 'page' | 'project');
-            setReview(null);
-          }}
-        >
-          <option value="page">Current page</option>
-          <option value="project">Whole project</option>
-        </Select>
-      </Field>
-      <Button disabled={busy || !state} onClick={() => void scan()}>
-        Run design review
-      </Button>
-      <p>
-        Heuristic critique and brand lint report representative findings. They
-        do not replace visual or accessibility verification. Safe fixes apply
-        the selected category across its page.
-      </p>
-      {review && (
-        <div role="group" aria-label="Design review">
-          <p>
-            Heuristic score {review.score} · {review.findings.length} of{' '}
-            {review.finding_count} findings
-          </p>
-          <ul>
-            {review.findings.map((finding) => (
-              <li key={finding.id}>
-                <p>
-                  {finding.severity}: {finding.message}
+          {state && (
+            <>
+              <p className="inspector-meta">
+                {state.items.length} of {state.item_count}{' '}
+                {sectionWords[section].toLowerCase()}
+              </p>
+              <ul className="inspector-list">
+                {state.items.map((item) => (
+                  <li key={item.id}>
+                    <span className="inspector-list-text">
+                      <span className="inspector-list-name">{item.label}</span>
+                      {item.detail && (
+                        <span className="inspector-list-detail">
+                          {item.detail}
+                        </span>
+                      )}
+                    </span>
+                    <span className="inspector-list-actions">
+                      {section === 'elements' && (
+                        <Button
+                          disabled={busy || !item.available}
+                          aria-label={`Select ${item.label}`}
+                          onClick={() => props.onSelectElement(item.id)}
+                        >
+                          Select
+                        </Button>
+                      )}
+                      {section === 'presets' && (
+                        <>
+                          <Button
+                            disabled={busy || !item.available}
+                            aria-label={`Apply ${item.label}`}
+                            onClick={() =>
+                              void apply('preset', { preset_id: item.id })
+                            }
+                          >
+                            Apply
+                          </Button>
+                          {props.mutatePreset && (
+                            <Menu
+                              label={`More actions for ${item.label}`}
+                              iconOnly
+                              actions={[
+                                {
+                                  label: `Replace ${item.label} with current brand`,
+                                  disabled: busy || !item.available,
+                                  onSelect: () =>
+                                    void changePreset({
+                                      action: 'save',
+                                      name: item.label,
+                                      preset_id: item.id,
+                                    }),
+                                },
+                                {
+                                  label: `Delete ${item.label} preset`,
+                                  danger: true,
+                                  disabled: busy || !item.available,
+                                  onSelect: () =>
+                                    setPresetReview({
+                                      action: 'delete',
+                                      name: item.label,
+                                      preset_id: item.id,
+                                    }),
+                                },
+                              ]}
+                            >
+                              <MoreHorizontal size={15} aria-hidden />
+                            </Menu>
+                          )}
+                        </>
+                      )}
+                      {section === 'assets' && (
+                        <>
+                          <Button
+                            disabled={busy || !item.available}
+                            aria-label={`Insert ${item.label}`}
+                            onClick={() =>
+                              void apply('asset_insert', { asset_id: item.id })
+                            }
+                          >
+                            Insert
+                          </Button>
+                          <Menu
+                            label={`More actions for ${item.label}`}
+                            iconOnly
+                            actions={[
+                              {
+                                label: `Remove ${item.label} from page`,
+                                disabled: busy,
+                                onSelect: () =>
+                                  void apply('asset_remove', {
+                                    asset_id: item.id,
+                                  }),
+                              },
+                              {
+                                label: `Remove ${item.label} from list`,
+                                disabled: busy,
+                                onSelect: () =>
+                                  void apply('asset_forget', {
+                                    asset_id: item.id,
+                                  }),
+                              },
+                            ]}
+                          >
+                            <MoreHorizontal size={15} aria-hidden />
+                          </Menu>
+                        </>
+                      )}
+                      {section === 'blocks' && (
+                        <Button
+                          disabled={busy || !item.available}
+                          aria-label={`Insert ${item.label}`}
+                          onClick={() =>
+                            void apply('block_insert', {
+                              component_name: item.id,
+                            })
+                          }
+                        >
+                          Insert
+                        </Button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {!state.items.length && (
+                <p className="muted">
+                  Nothing in {sectionWords[section].toLowerCase()} yet.
                 </p>
-                <p>{finding.suggested_fix}</p>
-                {props.draftFix && props.onDraftText && (
-                  <Button disabled={busy} onClick={() => void draft(finding)}>
-                    Draft AI fix in chat
-                  </Button>
-                )}
-                {finding.auto_fixable && (
+              )}
+              <div className="action-cluster">
+                {retained.controlPage && (
                   <Button
                     disabled={busy}
-                    onClick={() =>
-                      void apply(
-                        'review_fix',
-                        { finding_id: finding.id },
-                        finding.page_id,
-                      )
-                    }
+                    onClick={() => setReload((value) => value + 1)}
                   >
-                    Apply safe {finding.category} fix
+                    First controls page
                   </Button>
                 )}
-              </li>
-            ))}
-          </ul>
-          {retained.reviewPage && (
-            <Button disabled={busy} onClick={() => void scan()}>
-              First findings page
-            </Button>
+                {state.next_cursor && (
+                  <Button disabled={busy} onClick={() => void more()}>
+                    Next controls page
+                  </Button>
+                )}
+              </div>
+            </>
           )}
-          {review.next_cursor && (
-            <Button
-              disabled={busy}
-              onClick={() => void scan(review.next_cursor ?? undefined)}
-            >
-              Next findings page
-            </Button>
-          )}
-        </div>
+        </section>
       )}
+      {showReview && (
+        <section className="inspector-section" aria-label="Review">
+          <div className="inspector-inline-form">
+            <Segmented
+              size="sm"
+              label="Review scope"
+              value={scope}
+              onChange={(value) => {
+                setScope(value);
+                setReview(null);
+              }}
+              options={[
+                { value: 'page', label: 'This page', disabled: busy },
+                { value: 'project', label: 'Whole design', disabled: busy },
+              ]}
+            />
+            <Button
+              variant="primary"
+              disabled={busy || !state}
+              onClick={() => void scan()}
+            >
+              Run design review
+            </Button>
+          </div>
+          <p className="muted">
+            A heuristic critique and brand check. It does not replace visual or
+            accessibility checks; a safe fix applies its category across the
+            page.
+          </p>
+          {review && (
+            <div
+              className="design-review"
+              role="group"
+              aria-label="Design review findings"
+            >
+              <p className="inspector-meta">
+                Score {review.score} · {review.findings.length} of{' '}
+                {review.finding_count} findings
+              </p>
+              <ul className="inspector-list">
+                {review.findings.map((finding) => (
+                  <li key={finding.id} className="design-finding">
+                    <StatusDot
+                      tone={
+                        /high|error|critical/i.test(finding.severity)
+                          ? 'danger'
+                          : /medium|warn/i.test(finding.severity)
+                            ? 'warning'
+                            : 'neutral'
+                      }
+                      label={humanizeToken(finding.severity)}
+                    />
+                    <span className="inspector-list-text">
+                      <span className="inspector-list-name">
+                        {finding.message}
+                      </span>
+                      <span className="inspector-list-detail">
+                        {finding.suggested_fix}
+                      </span>
+                    </span>
+                    <span className="inspector-list-actions">
+                      {props.draftFix && props.onDraftText && (
+                        <Button
+                          disabled={busy}
+                          aria-label={`Draft AI fix in chat: ${finding.message}`}
+                          onClick={() => void draft(finding)}
+                        >
+                          Draft fix
+                        </Button>
+                      )}
+                      {finding.auto_fixable && (
+                        <Button
+                          disabled={busy}
+                          aria-label={`Apply safe ${finding.category} fix`}
+                          onClick={() =>
+                            void apply(
+                              'review_fix',
+                              { finding_id: finding.id },
+                              finding.page_id,
+                            )
+                          }
+                        >
+                          Apply fix
+                        </Button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="action-cluster">
+                {retained.reviewPage && (
+                  <Button disabled={busy} onClick={() => void scan()}>
+                    First findings page
+                  </Button>
+                )}
+                {review.next_cursor && (
+                  <Button
+                    disabled={busy}
+                    onClick={() => void scan(review.next_cursor ?? undefined)}
+                  >
+                    Next findings page
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+      <p className="inspector-status" role="status">
+        {status}
+      </p>
     </section>
   );
 }

@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { Button, ErrorState } from '../../ui/primitives';
-import ArtifactDesignControls from './ArtifactDesignControls';
+import ArtifactDesignControls, {
+  type DesignControlsView,
+} from './ArtifactDesignControls';
 import type { ArtifactDesignSession } from './artifact-design-sessions';
 
 export type ArtifactDesignPanelProps = {
@@ -11,6 +13,8 @@ export type ArtifactDesignPanelProps = {
   onSelectElement: (elementId: string) => void;
   visible: boolean;
   onDraftText: (text: string) => void;
+  /** Which inspector section to show; all of them when omitted. */
+  view?: DesignControlsView;
 };
 
 export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
@@ -29,27 +33,26 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
     );
   const attempt = state.attempt;
   return (
-    <section
-      className="studio-section stack"
-      aria-label="Artifact design panel"
-    >
-      {state.notice && <p role="status">{state.notice}</p>}
+    <div className="design-controls-host">
+      {state.notice && (
+        <p className="inspector-status" role="status">
+          {state.notice}
+        </p>
+      )}
       {attempt && (
         <div
-          className="capability-section stack"
+          className="inspector-callout"
           role="group"
           aria-label="Original design command"
         >
           <p>
             {['preparing', 'pending'].includes(attempt.status)
-              ? 'The original design command is in progress.'
-              : 'The original design command is not confirmed. New changes are paused to protect the saved design.'}
+              ? 'The original design change is still in progress.'
+              : 'The original design change is not confirmed. New changes wait so the saved design stays safe.'}{' '}
+            Checking looks up this exact change; it is never repeated
+            automatically.
           </p>
-          <p>Command {attempt.commandId}</p>
-          <p>
-            Recovery checks this exact command. Unconfirmed saved effects are
-            not automatically repeated.
-          </p>
+          <p className="muted">Change {attempt.commandId}</p>
           <div className="action-cluster">
             <Button
               disabled={
@@ -71,6 +74,7 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
         </div>
       )}
       <ArtifactDesignControls
+        view={props.view}
         resourceId={session.scope.resource_id}
         resourceRevision={props.resourceRevision}
         pageId={props.pageId}
@@ -90,6 +94,6 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
           props.onDraftText(text);
         }}
       />
-    </section>
+    </div>
   );
 }

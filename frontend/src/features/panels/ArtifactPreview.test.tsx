@@ -9,10 +9,12 @@ import { Profiler } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type {
+  ArtifactAuthoring,
   ArtifactEditingState,
   ArtifactPreview as Preview,
+  CommandReceipt,
 } from '../../api/types';
-import ArtifactPreview from './ArtifactPreview';
+import ArtifactPreview, { type ArtifactPreviewProps } from './ArtifactPreview';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -62,7 +64,86 @@ function snapshot(resource = 'deck-a', index = 0): Preview {
   };
 }
 
-it('keeps the preview toolbar compact while exposing mode, page, search, history, properties and zoom', async () => {
+function editing(
+  overrides: Partial<ArtifactEditingState> = {},
+): ArtifactEditingState {
+  return {
+    resource_id: 'deck-a',
+    resource_revision: 'resource-1',
+    mode: 'deck',
+    name: 'Launch deck',
+    canvas_width: 1920,
+    canvas_height: 1080,
+    page_id: 'slide-0',
+    page_title: 'Opening',
+    page_notes: '',
+    pages: [{ id: 'slide-0', title: 'Opening', index: 0 }],
+    page_count: 2,
+    page_next_cursor: null,
+    elements: [],
+    element_count: 0,
+    element_next_cursor: null,
+    history: [],
+    history_count: 0,
+    history_next_cursor: null,
+    ...overrides,
+  };
+}
+
+const receipt = (revision: string): CommandReceipt => ({
+  command_id: `command-${revision}`,
+  status: 'completed',
+  resource_id: 'deck-a',
+  resource_revision: revision,
+});
+
+it('shows a top bar, a floating dock and a canvas without loading anything else', async () => {
+  const load = vi.fn(async () => snapshot());
+  const loadEditing = vi.fn(() => new Promise<ArtifactEditingState>(() => {}));
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible
+      load={load}
+      loadEditing={loadEditing}
+      edit={vi.fn()}
+      loadPalette={vi.fn()}
+      onDraftText={vi.fn()}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  expect(screen.getByRole('textbox', { name: 'Design name' })).toHaveValue(
+    'Launch deck',
+  );
+  const dock = screen.getByRole('toolbar', { name: 'Design preview controls' });
+  expect(dock).toHaveClass('design-dock');
+  expect(screen.getByRole('radio', { name: 'Preview' })).toBeChecked();
+  expect(screen.getByRole('radio', { name: 'Edit' })).not.toBeChecked();
+  for (const name of [
+    'Previous slide',
+    'Next slide',
+    'Undo',
+    'Redo',
+    'Design history',
+    'Design properties',
+    'More design actions',
+  ])
+    expect(screen.getByRole('button', { name })).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: /^Slide 1 of 2: Opening/ }),
+  ).toBeEnabled();
+  expect(screen.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue(
+    'fit',
+  );
+  // A manual refresh exists only on an error card.
+  expect(screen.queryByRole('button', { name: /Refresh/ })).toBeNull();
+  expect(screen.queryByRole('complementary')).toBeNull();
+  expect(loadEditing).not.toHaveBeenCalled();
+});
+
+it('switches to Edit with an authoring identity and opens the inspector', async () => {
   const load = vi.fn(async () => snapshot());
   render(
     <ArtifactPreview
@@ -70,38 +151,12 @@ it('keeps the preview toolbar compact while exposing mode, page, search, history
       resourceRevision="resource-1"
       visible
       load={load}
-      loadEditing={vi.fn(() => new Promise<ArtifactEditingState>(() => {}))}
+      loadEditing={vi.fn(async () => editing())}
       edit={vi.fn()}
-      loadPalette={vi.fn()}
-      onDraftText={vi.fn()}
     />,
   );
   await screen.findByTitle('Slide preview: Opening');
-  const toolbar = screen.getByRole('toolbar', {
-    name: 'Design preview controls',
-  });
-  expect(toolbar).toHaveClass('preview-toolbar');
-  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-  for (const name of [
-    'Previous slide',
-    'Next slide',
-    'Search design tools, pages & assets',
-    'Design history',
-    'Design properties',
-    'Refresh preview',
-  ])
-    expect(screen.getByRole('button', { name })).toBeInTheDocument();
-  expect(screen.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue(
-    'fit',
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Edit' }));
   await waitFor(() =>
     expect(load).toHaveBeenCalledWith(
       undefined,
@@ -113,13 +168,22 @@ it('keeps the preview toolbar compact while exposing mode, page, search, history
       }),
     ),
   );
-  expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute(
-    'aria-pressed',
+  expect(screen.getByRole('radio', { name: 'Edit' })).toBeChecked();
+  expect(
+    screen.getByRole('complementary', { name: 'Design inspector' }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Properties' })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
+  fireEvent.click(screen.getByRole('radio', { name: 'Preview' }));
+  expect(
+    screen.queryByRole('complementary', { name: 'Design inspector' }),
+  ).toBeNull();
 });
 
-it('opens the bound Designer palette on click and picks a page or draft', async () => {
+it('opens the bound Designer palette from the menu and picks a page or draft', async () => {
+  const user = userEvent.setup();
   const load = vi.fn(async (pageId?: string) =>
     snapshot('deck-a', pageId === 'slide-1' ? 1 : 0),
   );
@@ -143,13 +207,6 @@ it('opens the bound Designer palette on click and picks a page or draft', async 
         identity: 'slide-1',
         prefill: '',
       },
-      {
-        category: 'asset' as const,
-        label: 'image: Chart',
-        hint: 'asset-chart',
-        identity: 'asset-chart',
-        prefill: 'Reuse asset asset-chart on the current page: ',
-      },
     ],
   }));
   const draft = vi.fn();
@@ -166,17 +223,19 @@ it('opens the bound Designer palette on click and picks a page or draft', async 
     ),
   );
   expect(palette).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: /Search design tools, pages/ }),
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(
+    screen.getByRole('menuitem', { name: /Search design tools, pages/ }),
   );
-  fireEvent.click(
+  await user.click(
     await screen.findByRole('button', { name: /Go to: Closing/ }),
   );
   await waitFor(() =>
     expect(load.mock.calls.some((call) => call[0] === 'slide-1')).toBe(true),
   );
-  fireEvent.click(
-    screen.getByRole('button', { name: /Search design tools, pages/ }),
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(
+    screen.getByRole('menuitem', { name: /Search design tools, pages/ }),
   );
   fireEvent.change(
     screen.getByRole('searchbox', {
@@ -191,7 +250,7 @@ it('opens the bound Designer palette on click and picks a page or draft', async 
       expect.any(AbortSignal),
     ),
   );
-  fireEvent.click(
+  await user.click(
     await screen.findByRole('button', { name: /Generate notes/ }),
   );
   expect(draft).toHaveBeenCalledWith(
@@ -258,33 +317,43 @@ it.each([
       'sandbox',
       sandbox,
     );
-    expect(screen.getByRole('combobox', { name: label })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: new RegExp(`^${label} 1 of 2`) }),
+    ).toBeEnabled();
+    // Only responsive web designs offer device widths.
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Device width' }) !== null,
+    ).toBe(['landing', 'app_mockup'].includes(mode));
   },
 );
 
-it('does no hidden loading and retains exact HTML on unchanged refresh', async () => {
+it('refreshes itself when the saved revision changes and keeps the same frame when unchanged', async () => {
   const load = vi.fn(async (_pageId?: string, revision?: string) =>
     revision ? { ...snapshot(), html: null, unchanged: true } : snapshot(),
   );
-  const props = { resourceId: 'deck-a', resourceRevision: '1', load };
-  const view = render(<ArtifactPreview {...props} visible={false} />);
+  const props = { resourceId: 'deck-a', load };
+  const view = render(
+    <ArtifactPreview {...props} resourceRevision="1" visible={false} />,
+  );
   expect(load).not.toHaveBeenCalled();
-  await act(async () => view.rerender(<ArtifactPreview {...props} visible />));
+  await act(async () =>
+    view.rerender(<ArtifactPreview {...props} resourceRevision="1" visible />),
+  );
   const frame = screen.getByTitle('Slide preview: Opening');
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' })),
+    view.rerender(<ArtifactPreview {...props} resourceRevision="2" visible />),
   );
   expect(load.mock.calls[1]?.[1]).toBe(snapshot().preview_revision);
   expect(screen.getByTitle('Slide preview: Opening')).toBe(frame);
   expect(frame).toHaveAttribute('srcdoc', snapshot().html);
   view.rerender(
-    <ArtifactPreview {...props} resourceRevision="2" visible={false} />,
+    <ArtifactPreview {...props} resourceRevision="3" visible={false} />,
   );
   expect(load).toHaveBeenCalledTimes(2);
   expect(screen.queryByTitle('Slide preview: Opening')).not.toBeInTheDocument();
 });
 
-it('explains a busy saved-preview refresh and restores the same action eligibility when it settles', async () => {
+it('announces an automatic refresh and restores navigation when it settles', async () => {
   let finish!: (value: Preview) => void;
   const load = vi
     .fn()
@@ -295,42 +364,27 @@ it('explains a busy saved-preview refresh and restores the same action eligibili
           finish = resolve;
         }),
     );
-  await act(async () =>
-    render(
-      <ArtifactPreview
-        resourceId="deck-a"
-        resourceRevision="resource-1"
-        visible
-        load={load}
-      />,
-    ),
+  const props = { resourceId: 'deck-a', load, visible: true };
+  const view = render(
+    <ArtifactPreview {...props} resourceRevision="resource-1" />,
   );
+  await screen.findByTitle('Slide preview: Opening');
   const preview = screen.getByRole('region', { name: 'Design preview' });
-  const refresh = screen.getByRole('button', { name: 'Refresh preview' });
   const previous = screen.getByRole('button', { name: 'Previous slide' });
   const next = screen.getByRole('button', { name: 'Next slide' });
-  expect(refresh).toBeEnabled();
-  expect(previous).toBeDisabled();
+  expect(preview).toHaveAttribute('aria-busy', 'false');
   expect(next).toBeEnabled();
-  await act(async () => fireEvent.click(refresh));
-  const explanation = screen.getByText(
-    'The saved preview is refreshing. Refresh preview is available again once this request settles.',
+  await act(async () =>
+    view.rerender(<ArtifactPreview {...props} resourceRevision="resource-2" />),
   );
+  const status = screen.getByText('Updating preview…');
   expect(preview).toHaveAttribute('aria-busy', 'true');
-  expect(explanation).toBeVisible();
-  expect(explanation).toHaveAttribute('role', 'status');
-  expect(refresh).toBeDisabled();
-  expect(refresh).toHaveAttribute(
-    'aria-describedby',
-    'design-preview-refresh-status',
-  );
+  expect(status).toHaveAttribute('role', 'status');
   expect(previous).toBeDisabled();
   expect(next).toBeDisabled();
   await act(async () => finish({ ...snapshot(), html: null, unchanged: true }));
   expect(preview).toHaveAttribute('aria-busy', 'false');
-  expect(screen.queryByText(/saved preview is refreshing/i)).toBeNull();
-  expect(refresh).toBeEnabled();
-  expect(refresh).not.toHaveAttribute('aria-describedby');
+  expect(screen.queryByText('Updating preview…')).toBeNull();
   expect(previous).toBeDisabled();
   expect(next).toBeEnabled();
 });
@@ -375,35 +429,38 @@ it('aborts and fences reversed resource responses', async () => {
   );
 });
 
-it('clears revoked preview and retries reads without creating anything', async () => {
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(snapshot())
-    .mockRejectedValueOnce({ code: 'capability_revoked' })
-    .mockResolvedValueOnce(snapshot());
-  await act(async () =>
-    render(
-      <ArtifactPreview
-        resourceId="deck-a"
-        resourceRevision="1"
-        visible
-        load={load}
-      />,
-    ),
-  );
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' })),
-  );
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    'Access to this design changed',
-  );
-  expect(screen.queryByTitle('Slide preview: Opening')).not.toBeInTheDocument();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Reload preview' })),
-  );
-  expect(screen.getByTitle('Slide preview: Opening')).toBeVisible();
-  expect(load.mock.calls[2]?.[1]).toBeUndefined();
-});
+it.each([
+  [{ code: 'capability_revoked' }, 'Access to this design changed'],
+  [
+    { status: 403, code: 'resource_binding_revoked' },
+    'Access to this design changed. Review its binding before continuing.',
+  ],
+])(
+  'removes a revoked preview and offers one explicit scoped retry (%j)',
+  async (reason, message) => {
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce(snapshot())
+      .mockRejectedValueOnce(reason)
+      .mockResolvedValueOnce(snapshot());
+    const props = { resourceId: 'deck-a', load, visible: true };
+    const view = render(<ArtifactPreview {...props} resourceRevision="1" />);
+    await screen.findByTitle('Slide preview: Opening');
+    await act(async () =>
+      view.rerender(<ArtifactPreview {...props} resourceRevision="2" />),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+    expect(
+      screen.queryByTitle('Slide preview: Opening'),
+    ).not.toBeInTheDocument();
+    expect(load).toHaveBeenCalledTimes(2);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Reload preview' })),
+    );
+    expect(load.mock.calls[2]?.[1]).toBeUndefined();
+    expect(screen.getByTitle('Slide preview: Opening')).toBeVisible();
+  },
+);
 
 it('rejects mismatched response identity', async () => {
   const load = vi.fn(async () => snapshot('another-design'));
@@ -456,10 +513,9 @@ it('fits the native isolated canvas to both viewport dimensions without refetchi
   expect(frame.style.top).toBe('0px');
   expect(host.style.minHeight).toBe('180px');
   expect(host.style.overflow).toBe('clip');
-  expect(screen.getByRole('group', { name: 'Slide navigation' })).toHaveClass(
-    'preview-toolbar-pages',
-  );
-  expect(screen.getByRole('combobox', { name: 'Slide' })).toBeEnabled();
+  expect(
+    screen.getByRole('toolbar', { name: 'Design preview controls' }),
+  ).toContainElement(screen.getByRole('button', { name: /^Slide 1 of 2/ }));
   const count = commits.mock.calls.length;
   await act(async () => {
     for (let index = 0; index < 100; index++) observers[0].notify();
@@ -524,7 +580,7 @@ it('ignores queued measurement callbacks after hiding and unmounting without loa
   expect(load).toHaveBeenCalledTimes(2);
 });
 
-it('offers readable actual-size and width zoom without replacing the frame or fetching again', async () => {
+it('offers readable zoom levels without replacing the frame or fetching again', async () => {
   const observers = resizeFixture();
   const load = vi.fn(async () => snapshot());
   await act(async () =>
@@ -542,30 +598,29 @@ it('offers readable actual-size and width zoom without replacing the frame or fe
   Object.defineProperty(host, 'clientWidth', { value: 480 });
   Object.defineProperty(host, 'clientHeight', { value: 320 });
   await act(async () => observers[0].notify());
-  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
-    target: { value: 'actual' },
-  });
+  const zoom = screen.getByRole('combobox', { name: 'Preview zoom' });
+  expect(zoom).toHaveDisplayValue('Fit · 25%');
+  fireEvent.change(zoom, { target: { value: 'actual' } });
   expect(frame.style.transform).toBe('scale(1)');
   expect(host.style.overflow).toBe('auto');
   expect(frame.parentElement!.style.width).toBe('1920px');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
-    target: { value: 'width' },
-  });
+  fireEvent.change(zoom, { target: { value: 'width' } });
   expect(frame.style.transform).toBe('scale(0.25)');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
-    target: { value: 'fit' },
-  });
+  fireEvent.change(zoom, { target: { value: '0.5' } });
+  expect(frame.style.transform).toBe('scale(0.5)');
+  fireEvent.change(zoom, { target: { value: 'fit' } });
   expect(host.style.overflow).toBe('clip');
   expect(screen.getByTitle('Slide preview: Opening')).toBe(frame);
   expect(load).toHaveBeenCalledTimes(1);
 });
 
-it('removes cached private preview after binding revocation and offers an explicit scoped retry', async () => {
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(snapshot())
-    .mockRejectedValueOnce({ status: 403, code: 'resource_binding_revoked' })
-    .mockResolvedValueOnce(snapshot());
+it('fits a tall web page to its width and offers device widths', async () => {
+  const load = vi.fn(async () => ({
+    ...snapshot(),
+    mode: 'landing' as const,
+    canvas_width: 1440,
+    canvas_height: 3200,
+  }));
   await act(async () =>
     render(
       <ArtifactPreview
@@ -576,24 +631,201 @@ it('removes cached private preview after binding revocation and offers an explic
       />,
     ),
   );
-  expect(screen.getByTitle('Slide preview: Opening')).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue(
+    'width',
+  );
+  const frame = screen.getByTitle<HTMLIFrameElement>('Page preview: Opening');
+  expect(frame.style.width).toBe('1440px');
+  fireEvent.click(screen.getByRole('radio', { name: 'Phone' }));
+  expect(frame.style.width).toBe('390px');
+  expect(frame.style.height).toBe('844px');
+  expect(screen.getByTitle('Page preview: Opening')).toBe(frame);
+  expect(load).toHaveBeenCalledTimes(1);
+});
+
+it('renames the design once, under the revision on screen', async () => {
+  const edit = vi.fn(async () => receipt('resource-2'));
+  const load = vi.fn(async () => snapshot());
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' })),
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        title="Launch deck"
+        visible
+        load={load}
+        loadEditing={vi.fn(async () => editing())}
+        edit={edit}
+      />,
+    ),
   );
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    'Access to this design changed. Review its binding before continuing.',
+  const name = screen.getByRole('textbox', { name: 'Design name' });
+  fireEvent.change(name, { target: { value: 'Launch deck' } });
+  await act(async () => fireEvent.blur(name));
+  expect(edit).not.toHaveBeenCalled();
+  fireEvent.change(name, { target: { value: '  Spring launch  ' } });
+  await act(async () => fireEvent.keyDown(name, { key: 'Enter' }));
+  await act(async () => fireEvent.blur(name));
+  expect(edit).toHaveBeenCalledTimes(1);
+  expect(edit).toHaveBeenCalledWith(
+    { operation: 'project_properties', name: 'Spring launch' },
+    'resource-1',
   );
-  expect(screen.queryByTitle('Slide preview: Opening')).not.toBeInTheDocument();
-  expect(load).toHaveBeenCalledTimes(2);
+  expect(name).toHaveValue('Spring launch');
+  expect(screen.getByText('Renamed.')).toBeInTheDocument();
+});
+
+it('undoes by restoring the newest snapshot and redoes the state it replaced', async () => {
+  let revision = 'resource-1';
+  const history = [{ id: '100.000001', label: 'Before panel text' }];
+  const load = vi.fn(async () => ({
+    ...snapshot(),
+    resource_revision: revision,
+  }));
+  const loadEditing = vi.fn(async () =>
+    editing({
+      resource_revision: revision,
+      history: history.map((item) => ({
+        ...item,
+        author: 'user',
+        page_count: 2,
+        available: true,
+      })),
+      history_count: history.length,
+    }),
+  );
+  const edit = vi.fn(async () => {
+    revision = revision === 'resource-1' ? 'resource-2' : 'resource-3';
+    history.unshift({
+      id: revision === 'resource-2' ? '200.000001' : '300.000001',
+      label: 'Before panel restore',
+    });
+    return receipt(revision);
+  });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Reload preview' })),
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadEditing={loadEditing}
+        edit={edit}
+      />,
+    ),
   );
-  expect(load.mock.calls[2][1]).toBeUndefined();
-  expect(screen.getByTitle('Slide preview: Opening')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' })),
+  );
+  expect(edit).toHaveBeenCalledWith(
+    { operation: 'restore', snapshot_id: '100.000001' },
+    'resource-1',
+  );
+  await screen.findByText('Undone.');
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled(),
+  );
+  await act(async () =>
+    fireEvent.keyDown(screen.getByRole('region', { name: 'Design preview' }), {
+      key: 'z',
+      ctrlKey: true,
+      shiftKey: true,
+    }),
+  );
+  expect(edit).toHaveBeenLastCalledWith(
+    { operation: 'restore', snapshot_id: '200.000001' },
+    'resource-2',
+  );
+  await screen.findByText('Redone.');
+});
+
+it('says so when there is nothing to undo and changes nothing', async () => {
+  const edit = vi.fn();
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        loadEditing={vi.fn(async () => editing())}
+        edit={edit}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' })),
+  );
+  expect(screen.getByText('Nothing to undo yet.')).toBeInTheDocument();
+  expect(edit).not.toHaveBeenCalled();
+});
+
+it('opens history, export and sharing as side sheets inside the panel', async () => {
+  const lifecycleLoad = vi.fn(
+    async (_id: string, resourceRevision: string) => ({
+      resource_id: 'deck-a',
+      resource_revision: resourceRevision,
+      mode: 'deck' as const,
+      page_count: 2,
+      capabilities: (['export.html', 'share.channel'] as const).map((id) => ({
+        id,
+        label: id,
+        state: 'ready' as const,
+        detail: '',
+        review_required: id === 'share.channel',
+      })),
+    }),
+  );
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        loadEditing={vi.fn(async () => editing())}
+        edit={vi.fn()}
+        lifecycle={{ load: lifecycleLoad }}
+        createExport={vi.fn()}
+        downloadExport={vi.fn()}
+        sharing={{
+          prepare: vi.fn(),
+          execute: vi.fn(),
+          loadChannels: vi
+            .fn()
+            .mockResolvedValue({ items: [], next_cursor: null }),
+        }}
+      />,
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Design history' }));
+  expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await screen.findByRole('region', { name: 'Design history' });
+  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  const preview = screen.getByRole('region', { name: 'Design preview' });
+  expect(
+    screen.getByRole('complementary', { name: 'Export design' }),
+  ).toBeInTheDocument();
+  expect(preview).toContainElement(
+    screen.getByRole('region', { name: 'Design export' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+  expect(
+    await screen.findByRole('region', { name: 'Design sharing' }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Design export' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close sharing' }));
+  expect(screen.queryByRole('complementary')).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Design capabilities' }),
+  ).toBeInTheDocument();
 });
 
 it('waits for the newly saved preview revision before allowing presentation', async () => {
-  const user = userEvent.setup();
   let finish!: (value: Preview) => void;
   const load = vi
     .fn()
@@ -615,11 +847,7 @@ it('waits for the newly saved preview revision before allowing presentation', as
     />,
   );
   await act(async () => {});
-  await user.click(screen.getByRole('button', { name: 'More design actions' }));
-  expect(
-    screen.getByRole('menuitem', { name: 'Present design' }),
-  ).toBeEnabled();
-  await user.keyboard('{Escape}');
+  expect(screen.getByRole('button', { name: 'Present' })).toBeEnabled();
   view.rerender(
     <ArtifactPreview
       resourceId="deck-a"
@@ -629,22 +857,58 @@ it('waits for the newly saved preview revision before allowing presentation', as
       presentation={presentation}
     />,
   );
-  await user.click(screen.getByRole('button', { name: 'More design actions' }));
-  expect(
-    screen.getByRole('menuitem', { name: 'Present design' }),
-  ).toHaveAttribute('aria-disabled', 'true');
-  await user.keyboard('{Escape}');
+  expect(screen.getByRole('button', { name: 'Present' })).toBeDisabled();
   await act(async () =>
     finish({ ...snapshot(), resource_revision: 'resource-2' }),
   );
-  await user.click(screen.getByRole('button', { name: 'More design actions' }));
-  expect(
-    screen.getByRole('menuitem', { name: 'Present design' }),
-  ).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Present' })).toBeEnabled();
   expect(presentation.load).not.toHaveBeenCalled();
 });
 
-it('does not remount lifecycle controls against a stale preview revision', async () => {
+it('presents at once from the current page and returns to the canvas when it ends', async () => {
+  resizeFixture();
+  const presentation = {
+    load: vi.fn(async () => ({
+      resource_id: 'deck-a',
+      resource_revision: 'resource-1',
+      page_id: 'slide-0',
+      title: 'Opening',
+      notes: '',
+      page_index: 0,
+      page_count: 2,
+      pages: [],
+      next_cursor: null,
+    })),
+    preview: vi.fn(() => new Promise<Preview>(() => {})),
+  };
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        presentation={presentation}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Present' })),
+  );
+  expect(presentation.load).toHaveBeenCalledWith(
+    { page_index: 0, cursor: undefined, limit: 25 },
+    expect.any(AbortSignal),
+  );
+  expect(
+    screen.getByRole('heading', { name: 'Presentation' }),
+  ).toBeInTheDocument();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'End presentation' })),
+  );
+  expect(screen.getByTitle('Slide preview: Opening')).toBeInTheDocument();
+});
+
+it('reads capabilities only for the saved revision the preview shows', async () => {
   let finish!: (value: Preview) => void;
   const load = vi
     .fn()
@@ -668,14 +932,6 @@ it('does not remount lifecycle controls against a stale preview revision', async
     resourceId: 'deck-a',
     load,
     lifecycle: { load: lifecycleLoad },
-    presentation: { load: vi.fn(), preview: vi.fn() },
-    createExport: vi.fn(),
-    downloadExport: vi.fn(),
-    sharing: {
-      prepare: vi.fn(),
-      execute: vi.fn(),
-      loadChannels: vi.fn(),
-    },
   };
   const view = render(
     <ArtifactPreview {...props} resourceRevision="resource-1" visible />,
@@ -687,13 +943,6 @@ it('does not remount lifecycle controls against a stale preview revision', async
       expect.any(AbortSignal),
     ),
   );
-  const frame = screen.getByTitle('Slide preview: Opening');
-  const lifecycle = await screen.findByRole('region', {
-    name: 'Design lifecycle',
-  });
-  expect(
-    lifecycle.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
   view.rerender(
     <ArtifactPreview
       {...props}
@@ -715,6 +964,176 @@ it('does not remount lifecycle controls against a stale preview revision', async
       'deck-a',
       'resource-2',
       expect.any(AbortSignal),
+    ),
+  );
+});
+
+function bridgeEvent(
+  frame: HTMLIFrameElement,
+  identity: ArtifactAuthoring,
+  data: Record<string, unknown>,
+) {
+  return new MessageEvent('message', {
+    source: frame.contentWindow,
+    origin: 'null',
+    data: { ...identity, revision: snapshot().preview_revision, ...data },
+  });
+}
+
+it('selects an element on the canvas and hands a request about it to the chat', async () => {
+  const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());
+  const onAsk = vi.fn(() => 'sent' as const);
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadEditing={vi.fn(async () => editing())}
+        edit={vi.fn()}
+        onAsk={onAsk}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Edit' })),
+  );
+  const identity = load.mock.calls.at(-1)![3]!;
+  const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
+  await act(async () =>
+    window.dispatchEvent(
+      bridgeEvent(frame, identity, {
+        type: 'element-click',
+        detail: {
+          tag: 'h1',
+          text: 'Launch day',
+          elementId: '',
+          xpath: '/html/body/h1[1]',
+          rect: { x: 40, y: 60, w: 400, h: 80 },
+        },
+      }),
+    ),
+  );
+  const ask = screen.getByRole('textbox', {
+    name: 'Ask Row-Bot to change this',
+  });
+  expect(
+    screen.getByRole('group', { name: 'Selected heading' }),
+  ).toBeInTheDocument();
+  fireEvent.change(ask, { target: { value: 'Make it shorter' } });
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Row-Bot' })),
+  );
+  expect(onAsk).toHaveBeenCalledWith(
+    'In this design, on slide 1 (“Opening”), change the heading that reads “Launch day”: Make it shorter',
+  );
+  expect(screen.getByText(/Row-Bot is on it in the chat/)).toBeInTheDocument();
+  // A message from any other frame or with a stale identity is ignored.
+  await act(async () =>
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: window,
+        origin: 'null',
+        data: { ...identity, type: 'designer-undo-shortcut' },
+      }),
+    ),
+  );
+  expect(
+    screen.getByRole('textbox', { name: 'Ask Row-Bot to change this' }),
+  ).toBeInTheDocument();
+});
+
+it('puts the request in the draft when the chat cannot take it', async () => {
+  const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());
+  const draft = vi.fn();
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadEditing={vi.fn(async () => editing())}
+        edit={vi.fn()}
+        onAsk={() => 'unavailable'}
+        onDraftText={draft}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Edit' })),
+  );
+  const identity = load.mock.calls.at(-1)![3]!;
+  const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
+  await act(async () =>
+    window.dispatchEvent(
+      bridgeEvent(frame, identity, {
+        type: 'element-click',
+        detail: {
+          tag: 'img',
+          text: '',
+          elementId: '',
+          xpath: '/html/body/img[1]',
+        },
+      }),
+    ),
+  );
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Ask Row-Bot to change this' }),
+    { target: { value: 'Use a warmer photo' } },
+  );
+  await act(async () =>
+    fireEvent.submit(screen.getByRole('group', { name: 'Selected image' })),
+  );
+  expect(draft).toHaveBeenCalledWith(
+    'In this design, on slide 1 (“Opening”), change the selected image (img): Use a warmer photo',
+  );
+  expect(screen.getByText(/Added to your message/)).toBeInTheDocument();
+});
+
+it('runs the canvas undo shortcut through the same reviewed restore', async () => {
+  const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());
+  const edit = vi.fn(async () => receipt('resource-2'));
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadEditing={vi.fn(async () =>
+          editing({
+            history: [
+              {
+                id: '100.1',
+                label: 'Before panel text',
+                author: 'user',
+                page_count: 2,
+                available: true,
+              },
+            ],
+            history_count: 1,
+          }),
+        )}
+        edit={edit}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Edit' })),
+  );
+  const identity = load.mock.calls.at(-1)![3]!;
+  const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
+  await act(async () =>
+    window.dispatchEvent(
+      bridgeEvent(frame, identity, { type: 'designer-undo-shortcut' }),
+    ),
+  );
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      { operation: 'restore', snapshot_id: '100.1' },
+      'resource-1',
     ),
   );
 });

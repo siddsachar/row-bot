@@ -138,18 +138,18 @@ it.each(['deck', 'document', 'landing', 'app_mockup', 'storyboard'])(
   async (mode) => {
     const f = fixture(mode);
     const first = render(<ArtifactDesignPanel {...f.props} />);
-    await screen.findByText('Brand and fonts');
-    fireEvent.change(screen.getByLabelText('primary color'), {
+    await screen.findByRole('region', { name: 'Brand' });
+    fireEvent.change(screen.getByLabelText('Primary colour'), {
       target: { value: '#445566' },
     });
     first.unmount();
     render(<ArtifactDesignPanel {...f.props} />);
-    await screen.findByText('Brand and fonts');
-    expect(screen.getByLabelText('primary color')).toHaveValue('#445566');
+    await screen.findByRole('region', { name: 'Brand' });
+    expect(screen.getByLabelText('Primary colour')).toHaveValue('#445566');
     expect(f.owner.execute).not.toHaveBeenCalled();
     expect(f.owner.stageUpload).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole('button', { name: 'Apply hotspot' }) !== null,
+      screen.queryByRole('button', { name: 'Apply interaction' }) !== null,
     ).toBe(['landing', 'app_mockup', 'storyboard'].includes(mode));
   },
 );
@@ -163,16 +163,16 @@ it('retains pending original command through remount and accepts its late comple
     }),
   );
   const first = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
-  fireEvent.change(screen.getByLabelText('primary color'), {
+  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply brand' }));
+  fireEvent.blur(screen.getByLabelText('Primary colour'));
   const id = f.session.getSnapshot().attempt!.commandId;
   first.unmount();
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('The original design command is in progress.');
-  expect(screen.getByRole('button', { name: 'Apply brand' })).toBeDisabled();
+  await screen.findByText(/The original design change is still in progress/);
+  expect(screen.getByLabelText('Primary colour')).toBeDisabled();
   await act(async () => finish(f.success(id)));
   await screen.findByText('Original design command confirmed.');
   expect(f.owner.execute).toHaveBeenCalledTimes(1);
@@ -182,13 +182,16 @@ it('keeps uncertainty visible across remount and only explicitly checks the orig
   const f = fixture();
   vi.mocked(f.owner.execute).mockRejectedValue(new Error('Lost response'));
   const first = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
+  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.change(screen.getByLabelText('Primary colour'), {
+    target: { value: '#445566' },
+  });
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Apply brand' })),
+    fireEvent.blur(screen.getByLabelText('Primary colour')),
   );
   first.unmount();
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText(/New changes are paused/);
+  await screen.findByText(/New changes wait so the saved design stays safe/);
   expect(f.owner.receipt).not.toHaveBeenCalled();
   await act(async () =>
     fireEvent.click(
@@ -208,11 +211,11 @@ it('does not resurrect a private draft or pending command after auth loss and la
     }),
   );
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
-  fireEvent.change(screen.getByLabelText('primary color'), {
+  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply brand' }));
+  fireEvent.blur(screen.getByLabelText('Primary colour'));
   const id = f.session.getSnapshot().attempt!.commandId;
   act(() => {
     f.snapshot.identity = '';
@@ -227,31 +230,31 @@ it('does not resurrect a private draft or pending command after auth loss and la
 it('blocks a stale draft until the user explicitly discards it', async () => {
   const f = fixture();
   const view = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
-  fireEvent.change(screen.getByLabelText('primary color'), {
+  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
   f.state.resource_revision = 'r2';
   view.rerender(<ArtifactDesignPanel {...f.props} resourceRevision="r2" />);
-  await screen.findByText(/unsaved design draft belongs/);
-  expect(screen.getByRole('button', { name: 'Apply brand' })).toBeDisabled();
+  await screen.findByText(/unsaved design change belongs/);
+  expect(screen.getByLabelText('Primary colour')).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Discard design draft' }));
-  await screen.findByText('Brand and fonts');
-  expect(screen.getByLabelText('primary color')).toHaveValue('#112233');
+  await screen.findByRole('region', { name: 'Brand' });
+  expect(screen.getByLabelText('Primary colour')).toHaveValue('#112233');
   expect(f.owner.execute).not.toHaveBeenCalled();
 });
 
 it('drafts into the existing composer only after the explicit button and never executes a design command', async () => {
   const f = fixture();
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
+  await screen.findByRole('region', { name: 'Brand' });
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Run design review' })),
   );
   expect(f.props.onDraftText).not.toHaveBeenCalled();
   await act(async () =>
     fireEvent.click(
-      screen.getByRole('button', { name: 'Draft AI fix in chat' }),
+      screen.getByRole('button', { name: /Draft AI fix in chat/ }),
     ),
   );
   expect(f.props.onDraftText).toHaveBeenCalledWith('Review this local draft');
@@ -274,19 +277,19 @@ it('keeps each catalog page bounded and makes the first page explicitly reachabl
     next_cursor: options.cursor ? null : 'next',
   }));
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Earlier 0 ·');
+  await screen.findByText('Earlier 0');
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Next controls page' })),
   );
-  expect(screen.queryByText('Earlier 0 ·')).not.toBeInTheDocument();
+  expect(screen.queryByText('Earlier 0')).not.toBeInTheDocument();
   expect(screen.getAllByRole('listitem')).toHaveLength(50);
   await act(async () =>
     fireEvent.click(
       screen.getByRole('button', { name: 'First controls page' }),
     ),
   );
-  await screen.findByText('Earlier 0 ·');
-  expect(screen.queryByText('Later 0 ·')).not.toBeInTheDocument();
+  await screen.findByText('Earlier 0');
+  expect(screen.queryByText('Later 0')).not.toBeInTheDocument();
 });
 
 it('replaces review pages without hiding later findings and exposes First findings page', async () => {
@@ -312,31 +315,29 @@ it('replaces review pages without hiding later findings and exposes First findin
     next_cursor: options.cursor ? null : 'next',
   }));
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
+  await screen.findByRole('region', { name: 'Brand' });
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Run design review' })),
   );
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Next findings page' })),
   );
-  expect(screen.queryByText('low: First finding 0')).not.toBeInTheDocument();
+  expect(screen.queryByText('First finding 0')).not.toBeInTheDocument();
   expect(screen.getAllByRole('listitem')).toHaveLength(50);
   await act(async () =>
     fireEvent.click(
       screen.getByRole('button', { name: 'First findings page' }),
     ),
   );
-  expect(screen.getByText('low: First finding 0')).toBeInTheDocument();
-  expect(screen.queryByText('low: Later finding 0')).not.toBeInTheDocument();
+  expect(screen.getByText('First finding 0')).toBeInTheDocument();
+  expect(screen.queryByText('Later finding 0')).not.toBeInTheDocument();
 });
 
 it('preserves the selected local asset and name through remount without uploading', async () => {
   const f = fixture();
   const first = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
-  fireEvent.change(screen.getByLabelText('Design catalog'), {
-    target: { value: 'assets' },
-  });
+  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.click(screen.getByRole('radio', { name: 'Assets' }));
   const file = new File(['123'], 'local.png', { type: 'image/png' });
   await screen.findByLabelText('Choose asset');
   fireEvent.change(screen.getByLabelText('Choose asset'), {
@@ -368,13 +369,11 @@ it('does not discard an unrelated unsaved brand draft when an asset upload succe
     },
   }));
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Brand and fonts');
-  fireEvent.change(screen.getByLabelText('primary color'), {
+  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
-  fireEvent.change(screen.getByLabelText('Design catalog'), {
-    target: { value: 'assets' },
-  });
+  fireEvent.click(screen.getByRole('radio', { name: 'Assets' }));
   await screen.findByLabelText('Choose asset');
   fireEvent.change(screen.getByLabelText('Choose asset'), {
     target: { files: [new File(['123'], 'asset.png')] },
@@ -382,7 +381,7 @@ it('does not discard an unrelated unsaved brand draft when an asset upload succe
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Add asset' })),
   );
-  expect(screen.getByLabelText('primary color')).toHaveValue('#445566');
+  expect(screen.getByLabelText('Primary colour')).toHaveValue('#445566');
   expect(f.session.form.getSnapshot().dirtyFields).toEqual(['brand']);
   expect(f.session.form.getSnapshot().dirtySource).not.toBeNull();
 });

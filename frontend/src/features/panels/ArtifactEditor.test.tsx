@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ArtifactEditingState, CommandReceipt } from '../../api/types';
-import ArtifactEditor, { type ArtifactEditorProps } from './ArtifactEditor';
+import ArtifactEditor, {
+  historyLabel,
+  type ArtifactEditorProps,
+} from './ArtifactEditor';
 
 function view(
   overrides: Partial<ArtifactEditingState> = {},
@@ -49,40 +52,65 @@ function props(
   };
 }
 
-it('reads properties without submitting a mutation or enabling authoring', async () => {
-  const current = props({ onAuthoringChange: vi.fn() });
+async function commit(label: string, value: string) {
+  const field = screen.getByLabelText(label);
+  fireEvent.change(field, { target: { value } });
+  await act(async () => fireEvent.blur(field));
+}
+
+it('reads page properties without submitting a mutation', async () => {
+  const current = props();
   await act(async () => render(<ArtifactEditor {...current} />));
-  expect(screen.getByLabelText('Design name')).toHaveValue('Saved design');
+  expect(screen.getByLabelText('Page title')).toHaveValue('Opening');
   expect(screen.getByLabelText('Page notes')).toHaveValue('Saved notes');
+  expect(screen.getByText(/Slide deck · 1920 × 1080/)).toBeInTheDocument();
+  // Nothing is selected yet, so no text field shows until one is chosen.
+  expect(screen.queryByLabelText('Element text')).not.toBeInTheDocument();
   expect(current.edit).not.toHaveBeenCalled();
-  expect(current.onAuthoringChange).not.toHaveBeenCalled();
+});
+
+it('shows saved versions in the history view without mutating the design', async () => {
+  const current = props({
+    view: 'history',
+    load: vi.fn(async () =>
+      view({
+        history_count: 1,
+        history: [
+          {
+            id: '1700000000.1',
+            label: 'Before panel text',
+            author: 'agent',
+            page_count: 3,
+            available: true,
+          },
+        ],
+      }),
+    ),
+  });
+  await act(async () => render(<ArtifactEditor {...current} />));
   expect(
-    screen.getByRole('button', { name: 'Edit in preview' }),
-  ).toHaveAttribute('aria-pressed', 'false');
-});
-
-it('opens the requested history tab from the preview toolbar without mutating the design', async () => {
-  const current = props({ requestedTab: 'history', requestedTabKey: 1 });
-  const rendered = render(<ArtifactEditor {...current} />);
-  await screen.findByRole('tab', { name: 'History' });
-  expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  rendered.rerender(<ArtifactEditor {...current} requestedTab="properties" />);
-  expect(screen.getByRole('tab', { name: 'Properties' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  rendered.rerender(<ArtifactEditor {...current} requestedTabKey={2} />);
-  expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+    screen.getByRole('region', { name: 'Design history' }),
+  ).toBeInTheDocument();
+  expect(screen.getByText('Before a text edit')).toBeInTheDocument();
+  expect(screen.getByText(/Row-Bot · 3 pages/)).toBeInTheDocument();
+  expect(screen.queryByLabelText('Page title')).not.toBeInTheDocument();
   expect(current.edit).not.toHaveBeenCalled();
 });
 
-it('generates speaker notes only on click and protects unsaved edits', async () => {
+it('describes saved versions in words', () => {
+  expect(historyLabel('Before panel project_properties')).toBe(
+    'Before renaming',
+  );
+  expect(historyLabel('Before panel brand')).toBe('Before a brand change');
+  expect(historyLabel('inline_text_edit_page_0')).toBe(
+    'Before: inline text edit (page 1)',
+  );
+  expect(historyLabel('apply_brand_ui')).toBe('Before: apply brand');
+  expect(historyLabel('Before document import')).toBe('Before document import');
+  expect(historyLabel('')).toBe('Saved version');
+});
+
+it('generates speaker notes only on click and never over an unsaved draft', async () => {
   const generateNotes = vi.fn(async () => ({ resource_revision: 'r2' }));
   const current = props({ generateNotes });
   await act(async () => render(<ArtifactEditor {...current} />));
@@ -93,17 +121,10 @@ it('generates speaker notes only on click and protects unsaved edits', async () 
   expect(
     screen.getByRole('button', { name: 'Generate speaker notes' }),
   ).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Page notes'), {
-    target: { value: 'Saved notes' },
-  });
-  // Saving or clearing the local draft is required before provider generation.
-  expect(
-    screen.getByRole('button', { name: 'Generate speaker notes' }),
-  ).toBeDisabled();
-  await act(async () =>
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save page properties' }),
-    ),
+  await act(async () => fireEvent.blur(screen.getByLabelText('Page notes')));
+  expect(current.edit).toHaveBeenCalledWith(
+    { operation: 'page_properties', page_id: 'page-a', notes: 'Unsaved notes' },
+    'r1',
   );
   await act(async () =>
     fireEvent.click(
@@ -113,16 +134,14 @@ it('generates speaker notes only on click and protects unsaved edits', async () 
   expect(generateNotes).toHaveBeenCalledWith('page-a', 'r1');
 });
 
-it('submits exact captured resource revision and plain text only after explicit Apply', async () => {
-  const current = props();
+it('sends the exact revision and plain text only when the field is committed', async () => {
+  const current = props({ selectedElementId: 'element-a' });
   await act(async () => render(<ArtifactEditor {...current} />));
   fireEvent.change(screen.getByLabelText('Element text'), {
     target: { value: '<img onerror="bad()">' },
   });
   expect(current.edit).not.toHaveBeenCalled();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Apply text edit' })),
-  );
+  await act(async () => fireEvent.blur(screen.getByLabelText('Element text')));
   expect(current.edit).toHaveBeenCalledWith(
     {
       operation: 'text',
@@ -134,7 +153,17 @@ it('submits exact captured resource revision and plain text only after explicit 
   );
 });
 
-it('keeps a draft through failure and disables stale resubmission after refresh', async () => {
+it('does not save a field that returns to its saved value or an empty title', async () => {
+  const current = props();
+  await act(async () => render(<ArtifactEditor {...current} />));
+  await commit('Page title', 'Opening');
+  await commit('Page title', '   ');
+  expect(current.edit).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Page title')).toHaveValue('Opening');
+  expect(screen.getByText(/A page needs a title/)).toBeInTheDocument();
+});
+
+it('keeps a draft through a conflict and blocks editing until saved values are reloaded', async () => {
   const load = vi
     .fn()
     .mockResolvedValueOnce(view())
@@ -145,27 +174,22 @@ it('keeps a draft through failure and disables stale resubmission after refresh'
     load,
     edit: vi.fn().mockRejectedValue({ code: 'resource_revision_conflict' }),
   });
-  await act(async () => render(<ArtifactEditor {...current} />));
-  fireEvent.change(screen.getByLabelText('Page notes'), {
-    target: { value: 'My unsaved note' },
-  });
+  const rendered = await act(async () =>
+    render(<ArtifactEditor {...current} />),
+  );
+  await commit('Page notes', 'My unsaved note');
+  expect(screen.getByLabelText('Page notes')).toHaveValue('My unsaved note');
+  expect(screen.getByRole('alert')).toHaveTextContent('Your draft is kept');
   await act(async () =>
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save page properties' }),
-    ),
+    rendered.rerender(<ArtifactEditor {...current} resourceRevision="r2" />),
   );
   expect(screen.getByLabelText('Page notes')).toHaveValue('My unsaved note');
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh properties' })),
-  );
-  expect(screen.getByLabelText('Page notes')).toHaveValue('My unsaved note');
-  expect(
-    screen.getByRole('button', { name: 'Save page properties' }),
-  ).toBeDisabled();
+  expect(screen.getByLabelText('Page notes')).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Reload saved values' }));
   expect(screen.getByLabelText('Page notes')).toHaveValue(
     'A concurrent saved note',
   );
+  expect(current.edit).toHaveBeenCalledTimes(1);
 });
 
 it('clears revoked saved content and cannot send another edit', async () => {
@@ -173,14 +197,12 @@ it('clears revoked saved content and cannot send another edit', async () => {
     edit: vi.fn().mockRejectedValue({ code: 'resource_binding_revoked' }),
   });
   await act(async () => render(<ArtifactEditor {...current} />));
-  fireEvent.change(screen.getByLabelText('Design name'), {
-    target: { value: 'My name' },
-  });
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save design name' })),
-  );
-  expect(screen.queryByLabelText('Design name')).not.toBeInTheDocument();
+  await commit('Page title', 'My title');
+  expect(screen.queryByLabelText('Page title')).not.toBeInTheDocument();
   expect(screen.queryByText('Original text')).not.toBeInTheDocument();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Access to this design changed',
+  );
   expect(current.edit).toHaveBeenCalledTimes(1);
 });
 
@@ -192,20 +214,20 @@ it('ignores a delayed result after the resource is replaced', async () => {
   const load = vi
     .fn()
     .mockReturnValueOnce(first)
-    .mockResolvedValue(view({ resource_id: 'design-b', name: 'Other design' }));
+    .mockResolvedValue(
+      view({ resource_id: 'design-b', page_title: 'Other page' }),
+    );
   const current = props({ load });
   const rendered = render(<ArtifactEditor {...current} />);
   await act(async () =>
     rendered.rerender(<ArtifactEditor {...current} resourceId="design-b" />),
   );
   await act(async () => resolve(view()));
-  expect(screen.getByLabelText('Design name')).toHaveValue('Other design');
+  expect(screen.getByLabelText('Page title')).toHaveValue('Other page');
 });
 
-it('follows page, element and history continuation cursors without duplicate rows', async () => {
+it('follows element and history continuation cursors without duplicate rows', async () => {
   const initial = view({
-    page_count: 2,
-    page_next_cursor: 'page-cursor',
     element_count: 2,
     element_next_cursor: 'element-cursor',
     history_count: 2,
@@ -221,70 +243,62 @@ it('follows page, element and history continuation cursors without duplicate row
     history_next_cursor: 'history-cursor',
   });
   const load = vi.fn(async (options) =>
-    options.pageCursor
+    options.elementCursor
       ? view({
-          pages: [{ id: 'page-b', title: 'Closing', index: 1 }],
-          page_count: 2,
+          elements: [
+            {
+              id: 'element-b',
+              tag: 'p',
+              text: 'Second text',
+              editable: true,
+            },
+          ],
+          element_count: 2,
         })
-      : options.elementCursor
+      : options.historyCursor
         ? view({
-            elements: [
+            history: [
               {
-                id: 'element-b',
-                tag: 'p',
-                text: 'Second text',
-                editable: true,
+                id: '12.2',
+                label: 'Second',
+                author: 'agent',
+                page_count: 1,
+                available: true,
               },
             ],
-            element_count: 2,
+            history_count: 2,
           })
-        : options.historyCursor
-          ? view({
-              history: [
-                {
-                  id: '12.2',
-                  label: 'Second',
-                  author: 'agent',
-                  page_count: 1,
-                  available: true,
-                },
-              ],
-              history_count: 2,
-            })
-          : initial,
+        : initial,
   );
-  const current = props({ load });
-  await act(async () => render(<ArtifactEditor {...current} />));
+  const onSelectElement = vi.fn();
+  const current = props({ load, onSelectElement });
+  const rendered = await act(async () =>
+    render(<ArtifactEditor {...current} />),
+  );
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Load more elements' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Load more text' })),
   );
-  expect(
-    screen.getByRole('option', { name: 'p: Second text' }),
-  ).toBeInTheDocument();
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Pages' }), {
-    button: 0,
+  const option = screen.getByRole('option', { name: 'p · Second text' });
+  fireEvent.change(screen.getByLabelText('Text element'), {
+    target: { value: (option as HTMLOptionElement).value },
   });
+  expect(onSelectElement).toHaveBeenCalledWith('element-b');
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Load more pages' })),
+    rendered.rerender(<ArtifactEditor {...current} view="history" />),
   );
-  fireEvent.click(screen.getByRole('button', { name: '2. Closing' }));
-  expect(current.onPageChange).toHaveBeenCalledWith('page-b');
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'History' }), {
-    button: 0,
-  });
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Load more history' })),
   );
   expect(screen.getByRole('button', { name: 'Restore Second' })).toBeEnabled();
+  expect(screen.getAllByRole('button', { name: /^Restore/ })).toHaveLength(2);
   expect(load.mock.calls.map(([options]) => options)).toEqual([
     { pageId: undefined, elementId: undefined },
     { pageId: 'page-a', elementCursor: 'element-cursor' },
-    { pageId: 'page-a', pageCursor: 'page-cursor' },
     { pageId: 'page-a', historyCursor: 'history-cursor' },
   ]);
 });
 
-it('requests the exact selected element and disables an oversized source', async () => {
+it('requests the exact selected element and does not offer an oversized source', async () => {
   const current = props({
     selectedElementId: 'large-element',
     load: vi.fn(async () =>
@@ -301,11 +315,14 @@ it('requests the exact selected element and disables an oversized source', async
     expect.any(AbortSignal),
   );
   expect(screen.queryByLabelText('Element text')).not.toBeInTheDocument();
-  expect(screen.getByText(/complete source is preserved/)).toBeInTheDocument();
+  expect(
+    screen.getByText(/too long to edit here\. Double-click/),
+  ).toBeVisible();
 });
 
 it('restores only an available explicit history choice and keeps the captured revision', async () => {
   const current = props({
+    view: 'history',
     load: vi.fn(async () =>
       view({
         history_count: 2,
@@ -329,9 +346,6 @@ it('restores only an available explicit history choice and keeps the captured re
     ),
   });
   await act(async () => render(<ArtifactEditor {...current} />));
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'History' }), {
-    button: 0,
-  });
   expect(
     screen.getByRole('button', { name: 'Restore Unavailable' }),
   ).toBeDisabled();
@@ -344,34 +358,34 @@ it('restores only an available explicit history choice and keeps the captured re
     { operation: 'restore', snapshot_id: '12.1' },
     'r1',
   );
+  expect(screen.getByText('Version restored.')).toBeInTheDocument();
 });
 
-it('keeps other draft fields when saving just the design name', async () => {
+it('keeps other draft fields when saving just the page title', async () => {
   const load = vi
     .fn()
     .mockResolvedValueOnce(view())
-    .mockResolvedValue(view({ name: 'New name', resource_revision: 'r2' }));
+    .mockResolvedValue(
+      view({ page_title: 'New title', resource_revision: 'r2' }),
+    );
   const current = props({ load });
   await act(async () => render(<ArtifactEditor {...current} />));
-  fireEvent.change(screen.getByLabelText('Design name'), {
-    target: { value: 'New name' },
-  });
   fireEvent.change(screen.getByLabelText('Page notes'), {
     target: { value: 'Keep this unsaved note' },
   });
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save design name' })),
+  await commit('Page title', 'New title');
+  expect(current.edit).toHaveBeenCalledWith(
+    { operation: 'page_properties', page_id: 'page-a', title: 'New title' },
+    'r1',
   );
   expect(screen.getByLabelText('Page notes')).toHaveValue(
     'Keep this unsaved note',
   );
-  expect(
-    screen.getByRole('button', { name: 'Save page properties' }),
-  ).toBeEnabled();
+  expect(screen.getByLabelText('Page notes')).toBeEnabled();
 });
 
 it.each(['completed', 'denied'] as const)(
-  'holds save admission through selection and revision changes and ignores late %s results',
+  'holds save admission through selection and revision changes, ignores late %s results and then sends the queued edit once',
   async (outcome) => {
     let finish!: (receipt: CommandReceipt) => void;
     let reject!: (reason: unknown) => void;
@@ -379,14 +393,20 @@ it.each(['completed', 'denied'] as const)(
       finish = resolve;
       reject = fail;
     });
-    const current = props({ edit: vi.fn(() => pending), onEdited: vi.fn() });
+    const edit = vi
+      .fn()
+      .mockImplementationOnce(() => pending)
+      .mockResolvedValue({
+        command_id: 'cmd-2',
+        status: 'completed',
+        resource_id: 'design-a',
+        resource_revision: 'r4',
+      });
+    const current = props({ edit, onEdited: vi.fn() });
     const rendered = await act(async () =>
       render(<ArtifactEditor {...current} />),
     );
-    fireEvent.change(screen.getByLabelText('Design name'), {
-      target: { value: 'Pending name' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save design name' }));
+    await commit('Page title', 'Pending title');
     const updated = {
       ...current,
       resourceRevision: 'r3',
@@ -396,7 +416,7 @@ it.each(['completed', 'denied'] as const)(
         view({
           resource_revision: 'r3',
           page_id: 'page-b',
-          name: 'Current name',
+          page_title: 'Current title',
           elements: [
             { id: 'element-b', tag: 'p', text: 'Current text', editable: true },
           ],
@@ -404,12 +424,12 @@ it.each(['completed', 'denied'] as const)(
       ),
     };
     await act(async () => rendered.rerender(<ArtifactEditor {...updated} />));
-    expect(screen.getByLabelText('Design name')).toBeDisabled();
+    expect(screen.getByLabelText('Page title')).toBeDisabled();
     expect(
       screen.getByRole('region', { name: 'Design editing' }),
     ).toHaveAttribute('aria-busy', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'Save design name' }));
-    expect(current.edit).toHaveBeenCalledTimes(1);
+    await commit('Element text', 'Another change');
+    expect(edit).toHaveBeenCalledTimes(1);
     await act(async () => {
       if (outcome === 'completed')
         finish({
@@ -420,14 +440,24 @@ it.each(['completed', 'denied'] as const)(
         });
       else reject({ code: 'capability_revoked' });
     });
-    expect(screen.getByLabelText('Design name')).toHaveValue('Current name');
-    expect(screen.getByLabelText('Element text')).toHaveValue('Current text');
-    expect(screen.getByLabelText('Design name')).toBeEnabled();
-    expect(screen.queryByText('Changes saved.')).not.toBeInTheDocument();
+    // The late result of the first save changes nothing it no longer owns;
+    // the edit made meanwhile is sent once, for the element and revision now
+    // on screen.
+    expect(edit).toHaveBeenCalledTimes(2);
+    expect(edit).toHaveBeenLastCalledWith(
+      {
+        operation: 'text',
+        page_id: 'page-b',
+        element_id: 'element-b',
+        text: 'Another change',
+      },
+      'r3',
+    );
+    expect(screen.getByLabelText('Page title')).toHaveValue('Current title');
     expect(
       screen.queryByText('Design update unavailable'),
     ).not.toBeInTheDocument();
-    expect(current.onEdited).not.toHaveBeenCalled();
+    expect(current.onEdited).toHaveBeenCalledTimes(1);
   },
 );
 
@@ -440,22 +470,19 @@ it('reconciles its confirmed receipt when its own resource event arrives before 
   const rendered = await act(async () =>
     render(<ArtifactEditor {...current} />),
   );
-  fireEvent.change(screen.getByLabelText('Design name'), {
-    target: { value: 'Saved name' },
-  });
   fireEvent.change(screen.getByLabelText('Page notes'), {
     target: { value: 'Keep unsaved notes' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save design name' }));
+  await commit('Page title', 'Saved title');
   const updated = {
     ...current,
     resourceRevision: 'r2',
     load: vi.fn(async () =>
-      view({ resource_revision: 'r2', name: 'Saved name' }),
+      view({ resource_revision: 'r2', page_title: 'Saved title' }),
     ),
   };
   await act(async () => rendered.rerender(<ArtifactEditor {...updated} />));
-  expect(screen.getByLabelText('Design name')).toBeDisabled();
+  expect(screen.getByLabelText('Page title')).toBeDisabled();
   await act(async () =>
     finish({
       command_id: 'cmd',
@@ -464,11 +491,9 @@ it('reconciles its confirmed receipt when its own resource event arrives before 
       resource_revision: 'r2',
     }),
   );
-  expect(screen.getByText('Changes saved.')).toBeVisible();
-  expect(screen.getByLabelText('Design name')).toHaveValue('Saved name');
+  expect(screen.getByText('Saved.')).toBeVisible();
+  expect(screen.getByLabelText('Page title')).toHaveValue('Saved title');
   expect(screen.getByLabelText('Page notes')).toHaveValue('Keep unsaved notes');
-  expect(
-    screen.getByRole('button', { name: 'Save page properties' }),
-  ).toBeEnabled();
+  expect(screen.getByLabelText('Page notes')).toBeEnabled();
   expect(screen.queryByText(/saved design changed/)).not.toBeInTheDocument();
 });

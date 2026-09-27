@@ -1,9 +1,36 @@
 import type { ArtifactAuthoring } from '../../api/types';
 
+export type ArtifactBridgeRect = { x: number; y: number; w: number; h: number };
+
 export type ArtifactBridgeMessage =
-  | { type: 'select'; elementId: string }
+  | {
+      type: 'select';
+      /** Editable text elements carry an id; other elements select for Ask only. */
+      elementId: string | null;
+      tag: string;
+      text: string;
+      rect: ArtifactBridgeRect | null;
+    }
   | { type: 'edit'; elementId: string; text: string }
-  | { type: 'unavailable' };
+  | { type: 'unavailable' }
+  | { type: 'undo' }
+  | { type: 'redo' };
+
+function rectOf(value: unknown): ArtifactBridgeRect | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { x, y, w, h } = value as Record<string, unknown>;
+  const numbers = [x, y, w, h];
+  if (
+    !numbers.every(
+      (item) =>
+        typeof item === 'number' &&
+        Number.isFinite(item) &&
+        Math.abs(item) < 1_000_000,
+    )
+  )
+    return null;
+  return { x: x as number, y: y as number, w: w as number, h: h as number };
+}
 
 /** A sandbox message is a proposal, never authority to select another resource. */
 export function artifactBridgeMessage(
@@ -34,6 +61,14 @@ export function artifactBridgeMessage(
     value.revision !== revision
   )
     return null;
+  // Undo/redo pressed while the canvas has focus; the panel owns both.
+  if (
+    value.type === 'designer-undo-shortcut' ||
+    value.type === 'designer-redo-shortcut'
+  )
+    return value.detail === undefined
+      ? { type: value.type === 'designer-undo-shortcut' ? 'undo' : 'redo' }
+      : null;
   const detail = value.detail;
   if (!detail || typeof detail !== 'object' || Array.isArray(detail))
     return null;
@@ -42,15 +77,38 @@ export function artifactBridgeMessage(
     return { type: 'unavailable' };
   const info = value.type === 'text-edit' ? fields.elementInfo : fields;
   if (!info || typeof info !== 'object' || Array.isArray(info)) return null;
-  const elementId = (info as Record<string, unknown>).elementId;
-  if (typeof elementId !== 'string' || !/^[a-f0-9]{64}$/.test(elementId))
-    return null;
-  if (value.type === 'element-click') return { type: 'select', elementId };
+  const element = info as Record<string, unknown>;
+  const elementId = element.elementId;
+  const validId =
+    typeof elementId === 'string' && /^[a-f0-9]{64}$/.test(elementId);
+  if (value.type === 'element-click') {
+    const tag =
+      typeof element.tag === 'string' &&
+      /^[a-z][a-z0-9-]{0,31}$/.test(element.tag)
+        ? element.tag
+        : '';
+    if (!tag || (elementId !== '' && !validId)) return null;
+    return {
+      type: 'select',
+      elementId: validId ? (elementId as string) : null,
+      tag,
+      text:
+        typeof element.text === 'string'
+          ? element.text.replace(/\s+/g, ' ').trim().slice(0, 200)
+          : '',
+      rect: rectOf(element.rect),
+    };
+  }
   if (
     value.type === 'text-edit' &&
+    validId &&
     typeof fields.newText === 'string' &&
     fields.newText.length <= 20000
   )
-    return { type: 'edit', elementId, text: fields.newText };
+    return {
+      type: 'edit',
+      elementId: elementId as string,
+      text: fields.newText,
+    };
   return null;
 }

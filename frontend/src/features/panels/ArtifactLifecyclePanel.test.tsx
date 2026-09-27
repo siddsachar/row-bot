@@ -1,8 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import ArtifactLifecyclePanel, {
+import {
+  DesignCapabilities,
+  useDesignLifecycle,
   type ArtifactLifecyclePanelProps,
   type ArtifactLifecycleState,
+  type LifecycleView,
 } from './ArtifactLifecyclePanel';
 
 const state: ArtifactLifecycleState = {
@@ -56,6 +60,23 @@ const state: ArtifactLifecycleState = {
   ],
 };
 
+function Harness(props: ArtifactLifecyclePanelProps) {
+  const lifecycle = useDesignLifecycle(props);
+  return (
+    <>
+      <DesignCapabilities lifecycle={lifecycle} />
+      {(['presentation', 'export', 'sharing'] as LifecycleView[]).map(
+        (view) => (
+          <p key={view}>
+            {view}: {lifecycle.available(view) ? 'available' : 'unavailable'}
+          </p>
+        ),
+      )}
+      <p>state: {lifecycle.state ? 'loaded' : 'none'}</p>
+    </>
+  );
+}
+
 function props(
   overrides: Partial<ArtifactLifecyclePanelProps> = {},
 ): ArtifactLifecyclePanelProps {
@@ -64,86 +85,43 @@ function props(
     resourceRevision: 'r1',
     visible: true,
     load: vi.fn(async () => state),
-    renderPresentation: vi.fn(() => <p>Presentation controls</p>),
-    renderExport: vi.fn(() => <p>Export controls</p>),
-    renderSharing: vi.fn(() => <p>Sharing controls</p>),
     ...overrides,
   };
 }
 
-it('loads readiness passively and mounts an owner only after its explicit view action', async () => {
-  const current = props();
-  render(<ArtifactLifecyclePanel {...current} />);
-  await screen.findByText(/Presentation:/);
+async function openPopover() {
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Design capabilities' }),
+  );
+  return screen.findByRole('dialog', { name: 'Design capabilities' });
+}
 
+it('reads readiness once while visible and lists every capability in words', async () => {
+  const current = props();
+  render(<Harness {...current} />);
+  await screen.findByText('state: loaded');
   expect(current.load).toHaveBeenCalledWith(
     'design-a',
     'r1',
     expect.any(AbortSignal),
   );
-  expect(current.renderPresentation).not.toHaveBeenCalled();
-  expect(current.renderExport).not.toHaveBeenCalled();
-  expect(current.renderSharing).not.toHaveBeenCalled();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Present' }));
-  expect(screen.getByText('Presentation controls')).toBeInTheDocument();
-  expect(current.renderPresentation).toHaveBeenCalledWith(state);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
-  expect(screen.queryByText('Presentation controls')).not.toBeInTheDocument();
-  expect(screen.getByText('Export controls')).toBeInTheDocument();
-  expect(current.renderExport).toHaveBeenCalledWith(state);
-});
-
-it('shows check-on-use and unavailable states without claiming success', async () => {
-  render(<ArtifactLifecyclePanel {...props()} />);
-  await screen.findByText('Saved version · 3 pages');
-  const details = screen
-    .getByText('Capabilities and review requirements')
-    .closest('details');
-  expect(details).not.toHaveAttribute('open');
-  fireEvent.click(screen.getByText('Capabilities and review requirements'));
-  expect(details).toHaveAttribute('open');
-  await screen.findByText(/PDF export:/);
-  expect(screen.getByText(/PDF export:/).parentElement).toHaveTextContent(
-    'Checked when used.',
-  );
-  expect(screen.getByText(/Channel delivery:/).parentElement).toHaveTextContent(
-    'Unavailable.',
+  const popover = await openPopover();
+  expect(popover).toHaveTextContent('Capabilities and review requirements');
+  const pdf = screen.getByText('PDF export').closest('li')!;
+  expect(pdf).toHaveTextContent('Checked when used');
+  expect(screen.getByText('Channel delivery').closest('li')).toHaveTextContent(
+    'Unavailable · Review required',
   );
   expect(
-    screen.getByText(/Local published link:/).parentElement,
-  ).toHaveTextContent('Review required.');
+    screen.getByText('Local published link').closest('li'),
+  ).toHaveTextContent('Ready · Review required');
+  expect(popover).toHaveTextContent(
+    'Publishing and delivery require a separate review.',
+  );
+  expect(current.load).toHaveBeenCalledTimes(1);
 });
 
-it('refreshes readiness explicitly when local runtimes or destinations change', async () => {
-  const changed: ArtifactLifecycleState = {
-    ...state,
-    capabilities: state.capabilities.map((item) =>
-      item.id === 'share.channel'
-        ? { ...item, state: 'ready' as const, detail: 'Channel is running.' }
-        : item,
-    ),
-  };
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(state)
-    .mockResolvedValueOnce(changed);
-  render(<ArtifactLifecyclePanel {...props({ load })} />);
-  await screen.findByText(/Channel delivery:/);
-  expect(screen.getByText(/Channel delivery:/).parentElement).toHaveTextContent(
-    'Unavailable.',
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh options' }));
-  await vi.waitFor(() =>
-    expect(
-      screen.getByText(/Channel delivery:/).parentElement,
-    ).toHaveTextContent('Ready. Channel is running.'),
-  );
-  expect(load).toHaveBeenCalledTimes(2);
-});
-
-it('disables a lifecycle group when every canonical operation in it is unavailable', async () => {
+it('treats a view as available while unknown and unavailable only when every operation is', async () => {
   const unavailable: ArtifactLifecycleState = {
     ...state,
     capabilities: state.capabilities.map((item) =>
@@ -152,27 +130,36 @@ it('disables a lifecycle group when every canonical operation in it is unavailab
         : item,
     ),
   };
-  const current = props({ load: vi.fn(async () => unavailable) });
-  render(<ArtifactLifecyclePanel {...current} />);
-  await screen.findByText(/Local published link:/);
-  expect(screen.getByRole('button', { name: 'Share' })).toBeDisabled();
-  expect(current.renderSharing).not.toHaveBeenCalled();
+  let finish!: (value: ArtifactLifecycleState) => void;
+  const load = vi.fn(
+    () =>
+      new Promise<ArtifactLifecycleState>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<Harness {...props({ load })} />);
+  expect(screen.getByText('sharing: available')).toBeInTheDocument();
+  await act(async () => finish(unavailable));
+  expect(screen.getByText('sharing: unavailable')).toBeInTheDocument();
+  expect(screen.getByText('export: available')).toBeInTheDocument();
+  expect(screen.getByText('presentation: available')).toBeInTheDocument();
 });
 
-it('rejects a stale readiness response and only retries after an explicit reload', async () => {
+it('rejects a stale readiness response and retries only from the popover', async () => {
   const load = vi
     .fn()
     .mockResolvedValueOnce({ ...state, resource_revision: 'old' })
     .mockResolvedValueOnce(state);
-  render(<ArtifactLifecyclePanel {...props({ load })} />);
+  render(<Harness {...props({ load })} />);
+  await openPopover();
   await screen.findByText(/saved design changed/i);
   expect(load).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-  await screen.findByText(/Presentation:/);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await screen.findByText('state: loaded');
   expect(load).toHaveBeenCalledTimes(2);
 });
 
-it('aborts the old read and clears mounted lifecycle controls when authority changes', async () => {
+it('aborts the old read when authority changes and ignores its late answer', async () => {
   let finish!: (value: ArtifactLifecycleState) => void;
   const signals: AbortSignal[] = [];
   const load = vi.fn((_id: string, _revision: string, signal: AbortSignal) => {
@@ -182,25 +169,21 @@ it('aborts the old read and clears mounted lifecycle controls when authority cha
     });
   });
   const current = props({ load });
-  const view = render(<ArtifactLifecyclePanel {...current} />);
+  const view = render(<Harness {...current} />);
   expect(signals[0]?.aborted).toBe(false);
   view.rerender(
-    <ArtifactLifecyclePanel
-      {...current}
-      resourceId="design-b"
-      resourceRevision="r2"
-    />,
+    <Harness {...current} resourceId="design-b" resourceRevision="r2" />,
   );
   expect(signals[0]?.aborted).toBe(true);
   await act(async () => finish(state));
-  expect(screen.queryByText(/Presentation:/)).not.toBeInTheDocument();
+  expect(screen.getByText('state: none')).toBeInTheDocument();
   view.unmount();
   expect(signals.at(-1)?.aborted).toBe(true);
 });
 
-it('renders nothing and makes no request while the parent panel is hidden', () => {
+it('makes no request while the parent panel is hidden', () => {
   const current = props({ visible: false });
-  const { container } = render(<ArtifactLifecyclePanel {...current} />);
-  expect(container).toBeEmptyDOMElement();
+  render(<Harness {...current} />);
   expect(current.load).not.toHaveBeenCalled();
+  expect(screen.getByText('state: none')).toBeInTheDocument();
 });
