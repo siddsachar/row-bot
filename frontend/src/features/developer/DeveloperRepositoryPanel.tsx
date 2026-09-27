@@ -180,6 +180,7 @@ export function createDeveloperRepositorySession(scope: string) {
     message: '',
   };
   let read: AbortController | null = null;
+  let reviewing = false;
   const listeners = new Set<() => void>();
   const update = (patch: Partial<State>) => {
     if (!state.active) return;
@@ -194,14 +195,19 @@ export function createDeveloperRepositorySession(scope: string) {
       return () => listeners.delete(listener);
     },
     update,
-    beginRead: () => {
+    beginRead: (review = false) => {
       read?.abort();
       read = new AbortController();
+      reviewing = review;
       return read;
     },
     endRead: (current: AbortController) => {
-      if (read === current) read = null;
+      if (read !== current) return;
+      read = null;
+      reviewing = false;
     },
+    /** A review the person started is in flight. */
+    isReviewing: () => reviewing,
     hasRetained: () =>
       state.active && Boolean(state.reviewed || state.pending || state.busy),
     dispose: () => {
@@ -376,9 +382,17 @@ export default function DeveloperRepositoryPanel(
     }
   };
 
+  // A re-read that arrives while a review is in flight waits for it: aborting
+  // the review would silently drop the person's click.
+  const deferredRead = useRef(false);
   useEffect(() => {
+    if (!props.visible || !inScope) return;
+    if (session.isReviewing()) {
+      deferredRead.current = true;
+      return;
+    }
     // A re-read after the inspector refreshes keeps the last outcome line.
-    if (props.visible && inScope) void refresh(true);
+    void refresh(true);
     // The authenticated owner owns callback identity; the exact scope and
     // visibility transitions are the only automatic read triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -408,7 +422,8 @@ export default function DeveloperRepositoryPanel(
       });
       return;
     }
-    const request = session.beginRead();
+    const request = session.beginRead(true);
+    deferredRead.current = false;
     session.update({ reviewed: null, error: '', message: '', reading: true });
     const payload = { revision: current.snapshot.revision, ...extra };
     let direct: Attempt | null = null;
@@ -448,7 +463,11 @@ export default function DeveloperRepositoryPanel(
       session.endRead(request);
       if (!request.signal.aborted) session.update({ reading: false });
     }
+    const reread = deferredRead.current && !request.signal.aborted;
+    deferredRead.current = false;
+    // A completed change re-reads anyway; otherwise catch up on the skipped read.
     if (direct) await apply(false, direct);
+    else if (reread) await refresh(true);
   };
 
   const apply = async (recover = false, direct?: Attempt) => {

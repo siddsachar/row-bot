@@ -396,6 +396,38 @@ it('re-reads the repository when the inspector reads the folder again', async ()
   expect(props.review).not.toHaveBeenCalled();
 });
 
+it('lets a review finish before re-reading for a new inspector revision', async () => {
+  const user = userEvent.setup();
+  const props = options();
+  const answer = props.review.getMockImplementation()!;
+  let finish = () => undefined as unknown;
+  let signal: AbortSignal | undefined;
+  props.review.mockImplementationOnce(
+    (action, payload, reviewSignal: AbortSignal) =>
+      new Promise((resolve) => {
+        signal = reviewSignal;
+        finish = () => resolve(answer(action, payload, reviewSignal));
+      }),
+  );
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  await user.click(screen.getByRole('button', { name: 'Push branch' }));
+  await waitFor(() => expect(props.review).toHaveBeenCalledOnce());
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  expect(signal?.aborted).toBe(false);
+  expect(props.load).toHaveBeenCalledOnce();
+  await act(async () => {
+    finish();
+  });
+  // The review stands, and the skipped read runs afterwards.
+  await screen.findByRole('group', { name: 'Confirm repository change' });
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  expect(signal?.aborted).toBe(false);
+  expect(props.execute).not.toHaveBeenCalled();
+});
+
 it('does not read or reuse a session outside its exact binding scope', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} scope="another-scope" />);
