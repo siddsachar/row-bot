@@ -102,6 +102,13 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const resumeFocus = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const current = confirmation ?? task;
+  const shownClass = `dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : task?.kind === 'palette' ? 'palette' : ''} ${current?.className ?? ''}`;
+  // A closing surface keeps its presentation. Dropping the kind class would
+  // switch it to the base dialog animation, which Radix treats as an exit
+  // animation: an empty card would fade in for a moment and its outside-
+  // dismiss would swallow the next tap (reopening the drawer at once).
+  const [closingClass, setClosingClass] = useState(shownClass);
+  if (current && closingClass !== shownClass) setClosingClass(shownClass);
   const palette = !confirmation && task?.kind === 'palette';
   const level = confirmation ? 2 : task ? 1 : 0;
   const activeElement = () =>
@@ -175,7 +182,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Dialog.Content
                 aria-modal="true"
                 role={confirmation ? 'alertdialog' : 'dialog'}
-                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : task?.kind === 'palette' ? 'palette' : ''} ${current?.className ?? ''}`}
+                className={current ? shownClass : closingClass}
                 onOpenAutoFocus={(event) => {
                   const search = document.querySelector<HTMLElement>(
                     '[role="dialog"] [data-initial-focus]',
