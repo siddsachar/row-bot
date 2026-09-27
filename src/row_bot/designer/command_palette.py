@@ -33,6 +33,7 @@ _TOOL_PREFILL: dict[str, str] = {
     "designer_add_chart": "Use designer_add_chart with chart_type=bar, data_csv=",
     "designer_insert_component": "Use designer_insert_component with component_name=",
     "designer_set_brand": "Use designer_set_brand to update ",
+    "designer_rename_project": "Use designer_rename_project to name the design ",
     "designer_resize_project": "Use designer_resize_project to switch to ",
     "designer_export": "Use designer_export with format=",
     "designer_publish_link": "Use designer_publish_link",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from row_bot.brand import APP_BRAND_ACCENT
 from row_bot.designer.components import list_components
+from row_bot.designer.setup_flow import is_placeholder_project_name
 from row_bot.designer.state import DesignerProject, normalize_designer_mode
 
 
@@ -402,6 +403,13 @@ def build_designer_prompt(project: DesignerProject) -> str:
             )
 
     mode_label = _mode_header(project.mode)
+    naming_line = (
+        "Name: this is a placeholder nobody chose. Once you know what the design is, "
+        "name it with designer_rename_project (the name the user gave, or a short "
+        "descriptive one).\n"
+        if is_placeholder_project_name(project.name)
+        else ""
+    )
     interactive_tool_lines = _interactive_tools_block(project.mode)
     rendering_rule = _rules_for_mode(project.mode)
     canvas_rules = _canvas_rules_for_mode(project)
@@ -410,6 +418,7 @@ def build_designer_prompt(project: DesignerProject) -> str:
     return (
         f"[DESIGNER MODE]\n"
         f"You are helping the user with a design project: \"{project.name}\"\n"
+        f"{naming_line}"
         f"Project type: {mode_label}\n"
         f"Canvas: {project.canvas_width}×{project.canvas_height} ({project.aspect_ratio})\n"
         f"Published link: {project.publish_url or 'not published yet'}\n"
@@ -434,6 +443,7 @@ def build_designer_prompt(project: DesignerProject) -> str:
         f"- designer_critique_page: Review the current page for hierarchy, overflow, contrast, readability, and spacing issues.\n"
         f"- designer_apply_repairs: Apply safe deterministic repairs for selected critique categories on the current page.\n"
         f"- designer_set_brand: Update brand colors/fonts.\n"
+        f"- designer_rename_project: Name the design; the name shows in its panel and the conversation.\n"
         f"- designer_resize_project: Resize the canvas for presentation, social, or document presets.\n"
         f"- designer_export: Export as PDF/HTML/PNG/PPTX.\n"
         f"- designer_publish_link: Publish a self-contained HTML deck link through Row-Bot.\n"

@@ -112,7 +112,10 @@ def ensure_for_submission(service: Any, conversation_id: str, text: str,
         authorized_folder = _draft_parent()
         payload["empty_workspace"] = {"folder_name": f"Draft-{command_id[:12]}"}
     else:
-        payload["artifact"] = {"mode": mode, "name": f"Design {command_id[:8]}", "brief": text[:20000]}
+        from row_bot.designer.setup_flow import placeholder_project_name
+
+        # The agent names the design once it knows what it is (designer_rename_project).
+        payload["artifact"] = {"mode": mode, "name": placeholder_project_name(command_id), "brief": text[:20000]}
     command = {"type": "resource.setup", "command_id": command_id,
                "expected_revision": str(service._metadata(conversation_id)["client_revision"]),
                "payload": payload}

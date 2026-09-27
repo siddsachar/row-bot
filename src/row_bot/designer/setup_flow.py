@@ -6,6 +6,8 @@ without relying on UI interactions.
 
 from __future__ import annotations
 
+import re
+
 from row_bot.designer.brand import get_all_presets
 from row_bot.designer.briefing import build_initial_design_request, project_has_build_brief
 from row_bot.designer.state import (
@@ -24,6 +26,18 @@ from row_bot.designer.templates import get_template
 
 
 DEFAULT_PROJECT_NAME = "Untitled Design"
+_PLACEHOLDER_NAME = re.compile(r"Design [0-9a-f]{8}")
+
+
+def placeholder_project_name(seed: str) -> str:
+    """Name for a design set up before anyone named it (first-turn setup)."""
+    return f"Design {seed[:8]}"
+
+
+def is_placeholder_project_name(name: str) -> bool:
+    """True for names nobody chose: first-turn setup and blank starters."""
+    name = name.strip()
+    return name in {"", DEFAULT_PROJECT_NAME} or _PLACEHOLDER_NAME.fullmatch(name) is not None
 _INFERRED_OUTPUT_TYPES = {
     "pitch_deck": "pitch deck",
     "status_report": "status report",
