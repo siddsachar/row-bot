@@ -229,6 +229,9 @@ html[data-platform='macos'] .buddy-overlay {
 .buddy-overlay-empty {
   color: var(--text-muted);
 }
+.buddy-overlay-response + .buddy-overlay-progress {
+  margin-top: 6px;
+}
 .buddy-overlay-progress {
   background: linear-gradient(
       90deg,
@@ -254,6 +257,12 @@ html[data-platform='macos'] .buddy-overlay {
   margin-top: 6px;
   font-size: var(--text-12);
   line-height: 16px;
+}
+.buddy-overlay-notice:first-child {
+  margin-top: 0;
+}
+.buddy-overlay-notice[data-tone='neutral'] {
+  color: var(--text-secondary);
 }
 .buddy-overlay-notice[data-tone='warning'] {
   color: var(--status-warning-text);

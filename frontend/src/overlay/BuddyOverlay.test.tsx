@@ -390,6 +390,23 @@ describe('BuddyOverlay', () => {
     );
   });
 
+  it('never shows an older answer for a turn stopped before its reply', async () => {
+    const controller = fakeController({
+      projection: {
+        rows: [
+          row('u1', 'user', 'First'),
+          row('a1', 'assistant', 'Old answer'),
+          row('u2', 'user', 'Second'),
+        ],
+        generation: generation({ status: 'stopped' }),
+      } as ClientState['projection'],
+    });
+    renderOverlay(controller);
+    expect(await screen.findByText(/Stopped before a reply/)).toBeVisible();
+    expect(screen.queryByText('Old answer')).toBeNull();
+    expect(screen.getByText('Chat · Stopped')).toBeVisible();
+  });
+
   it('names the running step while no words have arrived', async () => {
     const controller = fakeController({
       projection: {

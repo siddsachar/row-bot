@@ -9,6 +9,7 @@ import {
   phaseLabel,
   plainText,
   progressLabel,
+  stepsText,
 } from './overlay-model';
 
 const row = (
@@ -87,6 +88,56 @@ describe('latestResponse', () => {
       text: '',
       current: false,
     });
+  });
+});
+
+describe('tool-only turns', () => {
+  const traced = (items: Array<[string, string, string]>) =>
+    ({
+      id: 'a2',
+      role: 'assistant',
+      blocks: [],
+      traces: [
+        {
+          group_id: 'g',
+          items: items.map(([canonical_name, status, safe_summary], index) => ({
+            call_id: `c${index}`,
+            canonical_name,
+            status,
+            safe_summary,
+          })),
+        },
+      ],
+    }) as unknown as TranscriptRow;
+
+  it('reports what the steps did when the turn has no words', () => {
+    expect(
+      latestResponse([
+        row('1', 'assistant', 'Earlier answer'),
+        row('2', 'user', 'Delete it'),
+        traced([['workspace_file_delete', 'failed', 'Error: no such file']]),
+      ]),
+    ).toEqual({
+      text: "Couldn't delete a file · Error: no such file",
+      current: true,
+    });
+    expect(
+      stepsText(
+        traced([
+          ['web_search', 'succeeded', ''],
+          ['web_search', 'succeeded', ''],
+          ['read_file', 'cancelled', ''],
+          ['workspace_file_delete', 'succeeded', ''],
+        ]).traces![0].items,
+      ),
+    ).toBe(
+      [
+        'Used 4 tools',
+        'Searched the web',
+        "Didn't read a file",
+        'Deleted a file',
+      ].join('\n'),
+    );
   });
 });
 

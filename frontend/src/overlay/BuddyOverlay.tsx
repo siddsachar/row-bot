@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
   ArrowUp,
+  CircleStop,
   EyeOff,
   PanelLeft,
   Play,
@@ -482,9 +483,24 @@ export default function BuddyOverlay({
   const title =
     conversation?.title?.trim() ||
     (target ? 'Opening conversation…' : 'No conversation yet');
+  // The running step, under any words the turn already has.
   const progress =
-    live && !response.current ? progressLabel(state.activity) : '';
-  const shownText = live && !response.current ? '' : response.text;
+    live && (phase === 'tool' || !response.current)
+      ? progressLabel(state.activity)
+      : '';
+  // The latest turn has no reply yet (or was stopped before one): never pass
+  // an older answer off as this turn's.
+  const unanswered =
+    !live &&
+    phase !== 'approval' &&
+    !response.current &&
+    Boolean(rows?.some((row) => row.role === 'user'));
+  const shownText =
+    live || unanswered
+      ? response.current
+        ? response.text
+        : ''
+      : response.text;
   const statusLine = `${kindLabel(conversation?.category)} · ${
     !connected
       ? 'Reconnecting…'
@@ -590,16 +606,25 @@ export default function BuddyOverlay({
             element.scrollHeight - element.scrollTop - element.clientHeight < 8;
         }}
       >
-        {shownText ? (
+        {shownText && (
           <p
             className="buddy-overlay-response"
-            data-live={live ? 'true' : 'false'}
+            data-live={live && !progress ? 'true' : 'false'}
           >
             {shownText}
           </p>
-        ) : progress ? (
-          <p className="buddy-overlay-progress">{progress}</p>
-        ) : (
+        )}
+        {progress && <p className="buddy-overlay-progress">{progress}</p>}
+        {shownText || progress ? null : unanswered && phase === 'stopped' ? (
+          <div className="buddy-overlay-notice" data-tone="neutral">
+            <CircleStop size={14} aria-hidden />
+            <span>
+              Stopped before a reply. Your last message wasn’t answered.
+            </span>
+          </div>
+        ) : unanswered && phase !== 'interrupted' && phase !== 'failed' ? (
+          <p className="buddy-overlay-empty">Waiting for a reply…</p>
+        ) : unanswered ? null : (
           <p className="buddy-overlay-empty">
             {!id
               ? target

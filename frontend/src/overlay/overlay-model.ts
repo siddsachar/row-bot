@@ -54,18 +54,52 @@ export function rowText(row: TranscriptRow): string {
   return plainText(row.blocks.map(blockText).filter(Boolean).join('\n'));
 }
 
-/** The latest assistant words, and whether they belong to the latest turn. */
+type TraceItem = NonNullable<TranscriptRow['traces']>[number]['items'][number];
+
+/** "Couldn't delete a file · no such file or directory: notes.txt", per step. */
+export function stepsText(steps: readonly TraceItem[]): string {
+  const shown = steps.slice(-3).map((step) => {
+    const summary = plainText(step.safe_summary ?? '').replace(/\s+/g, ' ');
+    const clipped =
+      summary.length > 160 ? `${summary.slice(0, 159)}…` : summary;
+    return clipped
+      ? `${stepVerb(step.canonical_name, step.status)} · ${clipped}`
+      : stepVerb(step.canonical_name, step.status);
+  });
+  return steps.length > 3
+    ? [`Used ${steps.length} tools`, ...shown].join('\n')
+    : shown.join('\n');
+}
+
+/**
+ * What the latest turn produced: its newest words, or — when it ended with
+ * tool steps only — what those steps did. `current` is false when the
+ * latest message has no reply yet; `text` then holds the previous answer.
+ */
 export function latestResponse(rows: readonly TranscriptRow[]): {
   text: string;
   current: boolean;
 } {
-  let afterUser = true;
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    if (row.role === 'user') afterUser = false;
-    if (row.role !== 'assistant') continue;
-    const text = rowText(row);
-    if (text) return { text, current: afterUser };
+  let lastUser = -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1)
+    if (rows[index].role === 'user') {
+      lastUser = index;
+      break;
+    }
+  const turn = rows.slice(lastUser + 1);
+  for (let index = turn.length - 1; index >= 0; index -= 1) {
+    if (turn[index].role !== 'assistant') continue;
+    const text = rowText(turn[index]);
+    if (text) return { text, current: true };
+  }
+  const steps = turn.flatMap((row) =>
+    (row.traces ?? []).flatMap((group) => group.items),
+  );
+  if (steps.length) return { text: stepsText(steps), current: true };
+  for (let index = lastUser - 1; index >= 0; index -= 1) {
+    if (rows[index].role !== 'assistant') continue;
+    const text = rowText(rows[index]);
+    if (text) return { text, current: false };
   }
   return { text: '', current: false };
 }
