@@ -179,6 +179,13 @@ VALID_RELATION_TYPES = {
     "builds_on", "cites", "extends", "contradicts",
 }
 
+# Relation labels that say nothing about how two entries relate. Writers
+# refuse them (after normalisation); the entity editor explains why.
+VAGUE_RELATION_TYPES = frozenset({
+    "related_to", "associated_with", "connected_to", "linked_to",
+    "has_relation", "involves", "correlates_with",
+})
+
 # Aliases map common LLM-produced variants to their canonical form.
 # Checked *before* the VALID_RELATION_TYPES warning so normalised types
 # never produce a warning.
@@ -2571,12 +2578,8 @@ def add_relation(
         return None
 
     # Block vague/meaningless relation types
-    _BANNED_RELATION_TYPES = {
-        "related_to", "associated_with", "connected_to", "linked_to",
-        "has_relation", "involves", "correlates_with",
-    }
     _norm_check = normalize_relation_type(relation_type)
-    if _norm_check in _BANNED_RELATION_TYPES:
+    if _norm_check in VAGUE_RELATION_TYPES:
         logger.debug(
             "Rejected vague relation type '%s': %s → %s",
             relation_type, source_id, target_id,

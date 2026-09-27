@@ -79,6 +79,22 @@ type State = {
   revoked: boolean;
   error: string;
 };
+// The graph refuses labels that say nothing about how entries relate (the
+// server names the refusal too); explain it before anything is sent.
+const VAGUE_RELATION_TYPES = new Set([
+  'related_to',
+  'associated_with',
+  'connected_to',
+  'linked_to',
+  'has_relation',
+  'involves',
+  'correlates_with',
+]);
+export function isVagueRelationType(value: string): boolean {
+  const normal = value.trim().toLowerCase().replaceAll(' ', '_');
+  return VAGUE_RELATION_TYPES.has(normal);
+}
+
 /** Root retains this bounded session through panel remount and purges on auth loss. */
 export function createKnowledgeRelationsSession(
   entityId: string,
@@ -411,6 +427,7 @@ export default function KnowledgeRelations({
     void call().catch(() => {});
   };
   if (state.revoked) return <p>Sign in again to open knowledge relations.</p>;
+  const vague = isVagueRelationType(state.relationType);
   const locked = state.busy || state.pending;
   return (
     <section
@@ -532,9 +549,17 @@ export default function KnowledgeRelations({
                   maxLength={64}
                   value={state.relationType}
                   disabled={locked}
+                  aria-invalid={vague || undefined}
+                  aria-describedby={vague ? 'relation-type-vague' : undefined}
                   onChange={(e) => session.setRelationType(e.target.value)}
                 />
               </Field>
+              {vague && (
+                <p className="relation-type-note" id="relation-type-vague">
+                  Too vague to be useful. Name how the entries relate, such as
+                  part_of, uses or works_on.
+                </p>
+              )}
               <Field label="Direction">
                 <Select
                   value={state.direction}
@@ -550,7 +575,7 @@ export default function KnowledgeRelations({
                 </Select>
               </Field>
               <Button
-                disabled={locked || !state.relationType.trim()}
+                disabled={locked || !state.relationType.trim() || vague}
                 onClick={() => perform(() => session.add())}
               >
                 Add relation

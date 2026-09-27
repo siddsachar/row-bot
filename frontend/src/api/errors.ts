@@ -1,6 +1,12 @@
 import type { ClientError, ClientStatus } from './types';
 
 const descriptions: Record<string, ClientError> = {
+  relation_type_too_vague: {
+    code: 'relation_type_too_vague',
+    message:
+      'That relation type is too vague to be useful. Name how the entries relate, such as part_of, uses or works_on.',
+    recovery: 'review',
+  },
   route_changed: {
     code: 'route_changed',
     message: 'The connection route changed. Refresh routes and try again.',

@@ -137,6 +137,20 @@ describe('retained knowledge relations', () => {
       },
     );
   });
+  it('explains a vague relation type and never sends it', async () => {
+    const context = setup();
+    await select(context);
+    render(<KnowledgeRelations session={context.session} />);
+    const type = await screen.findByRole('textbox', { name: 'Relation type' });
+    fireEvent.change(type, { target: { value: 'Related to' } });
+    expect(type).toHaveAttribute('aria-invalid', 'true');
+    expect(type).toHaveAccessibleDescription(/Too vague to be useful/);
+    expect(screen.getByRole('button', { name: 'Add relation' })).toBeDisabled();
+    fireEvent.change(type, { target: { value: 'part of' } });
+    expect(screen.queryByText(/Too vague/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add relation' })).toBeEnabled();
+    expect(context.transport.review).not.toHaveBeenCalled();
+  });
   it('keeps original command through response loss and remount without replay', async () => {
     const context = setup();
     await select(context);

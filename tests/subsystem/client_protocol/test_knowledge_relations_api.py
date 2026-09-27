@@ -93,3 +93,18 @@ def test_relation_review_rejects_changed_entity_before_command_claim(service, kn
         result = relation_send(client, headers, command)
         assert result.status_code == 409 and result.json()['code'] == 'knowledge_changed', result.text
         assert admissions.read_command_metadata(headers['X-Client-Session'], command['command_id']) is None
+
+
+def test_relation_review_names_a_vague_relation_type(service, knowledge_env):
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        entities = []
+        for subject in ('Synthetic vague first', 'Synthetic vague second'):
+            saved = send(client, headers, review(client, headers, 'knowledge.create', values=fields(subject)))
+            entities.append(client.get(BASE + '/editor', headers=headers,
+                params={'entity_id': saved.json()['entity_id']}).json()['entity'])
+        first, second = entities
+        result = client.post(RELATIONS + '/review', headers=headers, json={'action': 'knowledge.relation.add', 'payload': {
+            'source_id': first['id'], 'target_id': second['id'], 'source_revision': first['revision'],
+            'target_revision': second['revision'], 'relation_type': 'related to'}})
+        assert result.status_code == 422 and result.json()['code'] == 'relation_type_too_vague', result.text

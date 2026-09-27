@@ -2691,3 +2691,11 @@
     forced-color-adjust: none;
   }
 }
+
+/* A relation type the graph would refuse (related_to, linked_to…). */
+.relation-type-note {
+  margin: -4px 0 0;
+  color: var(--status-warning-text);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}

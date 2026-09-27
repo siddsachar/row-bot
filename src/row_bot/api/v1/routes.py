@@ -676,6 +676,7 @@ _STATUS.update(
             "invalid_relation_page",
             "invalid_relation_command",
             "invalid_relation_type",
+            "relation_type_too_vague",
             "invalid_relation_target",
         ),
         422,
