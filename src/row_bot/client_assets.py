@@ -162,6 +162,7 @@ def default_client_asset_root() -> Path:
 
 
 def _shell_headers(content: bytes) -> dict[str, str]:
+    from row_bot.designer.interaction import bridge_script_csp_sources
     from row_bot.designer.runtime.loader import runtime_script_csp_source
 
     parser = _ShellScripts()
@@ -171,6 +172,8 @@ def _shell_headers(content: bytes) -> dict[str, str]:
     # srcdoc inherits this policy. The exact packaged runtime is injected after
     # sanitation; arbitrary generated scripts never receive permission.
     hashes += " " + runtime_script_csp_source()
+    # The Edit-mode bridge is static as well; its identity is a data block.
+    hashes += " " + bridge_script_csp_sources()
     # frame-src blob: lets the transcript show an attached PDF inline. Only this
     # origin's scripts can mint blob URLs, and the client frames only bytes it
     # verified as PDF and re-typed as application/pdf. Designer previews keep

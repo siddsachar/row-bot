@@ -7,7 +7,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from row_bot.designer.html_ops import sanitize_agent_html
-from row_bot.designer.interaction import inject_bridge_js, validate_bridge_event
+from row_bot.designer.interaction import bridge_script_csp_sources, inject_bridge_js, validate_bridge_event
 from row_bot.designer.preview import isolate_preview_html, preview_fingerprint, render_multi_route_html
 from row_bot.designer.runtime.loader import build_routes_payload
 from row_bot.designer.state import BrandConfig, DesignerAsset, DesignerPage, DesignerProject
@@ -66,8 +66,33 @@ def test_interactive_runtime_matches_the_only_added_shell_script_hash():
     assert actual == runtime_script_csp_source()
     policy = _shell_headers(b"<html></html>")["Content-Security-Policy"]
     script_policy = next(part.strip() for part in policy.split(";") if part.strip().startswith("script-src"))
-    assert script_policy.split() == ["script-src", "'self'", actual]
+    assert script_policy.split() == ["script-src", "'self'", actual, *bridge_script_csp_sources().split()]
     assert "parent.unsafe=true" not in executable[0]
+
+
+def test_edit_bridge_is_static_allowed_by_digest_and_carries_identity_as_data():
+    import base64
+    import hashlib
+    from row_bot.client_assets import _shell_headers
+
+    page = isolate_preview_html('<body><script>parent.unsafe=true</script><h1>Safe</h1></body>', scripts=True)
+    hostile = 'frame</script><script>parent.unsafe=true</script>'
+    html = inject_bridge_js(page, preview_id=hostile, revision="rev-a", capability="token-a", plain_text=True)
+    soup = BeautifulSoup(html, "html.parser")
+    bridge = soup.find_all("script", attrs={"data-row-bot-bridge": "1"})
+    assert [tag.get("type") for tag in bridge] == ["application/json", None]
+    assert json.loads(bridge[0].string) == {"previewId": hostile, "revision": "rev-a", "capability": "token-a"}
+    assert "</script><script>" not in bridge[0].decode_contents()
+    executable = bridge[1].get_text()
+    # The executable text never varies with the preview: the policy allows it by digest.
+    digest = "'sha256-" + base64.b64encode(hashlib.sha256(executable.encode()).digest()).decode() + "'"
+    assert digest in bridge_script_csp_sources().split()
+    assert "token-a" not in executable and "rev-a" not in executable
+    policy = _shell_headers(b"<html></html>")["Content-Security-Policy"]
+    assert digest in policy
+    other = inject_bridge_js(page, preview_id="frame-b", revision="rev-b", capability="token-b", plain_text=True)
+    assert BeautifulSoup(other, "html.parser").find_all(
+        "script", attrs={"data-row-bot-bridge": "1"})[1].get_text() == executable
 
 
 def test_preview_policy_denies_network_and_non_fragment_navigation():

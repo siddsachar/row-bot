@@ -240,23 +240,48 @@ BRIDGE_JS = r"""
 BRIDGE_JS = BRIDGE_JS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
+def bridge_script(plain_text: bool = False) -> str:
+    """The exact executable bridge text.
+
+    It is static, so the React client's page policy can allow it by hash
+    (srcdoc frames inherit that policy); the per-preview identity travels in
+    the JSON block right before it, which is data and never executes.
+    """
+    source = BRIDGE_JS.strip()
+    source = source[len("<script>"):-len("</script>")]
+    source = source.replace("window.parent.postMessage(", "sendToOwner(")
+    if plain_text:
+        source = source.replace("var plainTextEdits = false;", "var plainTextEdits = true;", 1)
+    return source.replace("(function() {", "(function() {\n"
+        "const config = document.currentScript && document.currentScript.previousElementSibling;\n"
+        "const identity = config && config.type === 'application/json' ? JSON.parse(config.textContent || '{}') : {};\n"
+        "function sendToOwner(message) { window.parent.postMessage("
+        "Object.assign({}, identity, message), '*'); }\n", 1)
+
+
+def bridge_script_csp_sources() -> str:
+    """Digests of both bridge variants for the client page policy."""
+    import base64
+    import hashlib
+
+    return " ".join("'sha256-" + base64.b64encode(hashlib.sha256(bridge_script(plain).encode("utf-8")).digest())
+                    .decode("ascii") + "'" for plain in (False, True))
+
+
 def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
                      capability: str = "", plain_text: bool = False) -> str:
     """Inject the interaction bridge JS into page HTML.
 
-    Inserts before </body> if present, otherwise appends.
+    Inserts before </body> if present, otherwise appends. Call after any HTML
+    sanitation so the executable text stays byte-identical to its digest.
     """
     if not preview_id or not revision or not capability:
         return html
     identity = json.dumps({"previewId": preview_id, "revision": revision,
-                           "capability": capability}).replace("<", "\\u003c")
-    bridge_js = BRIDGE_JS.replace("window.parent.postMessage(", "sendToOwner(")
-    if plain_text:
-        bridge_js = bridge_js.replace("var plainTextEdits = false;", "var plainTextEdits = true;", 1)
-    bridge_js = bridge_js.replace("(function() {", "(function() {\n"
-        f"const identity = {identity};\n"
-        "function sendToOwner(message) { window.parent.postMessage("
-        "Object.assign({}, identity, message), '*'); }\n", 1)
+                           "capability": capability})
+    identity = identity.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    bridge_js = ('<script type="application/json" data-row-bot-bridge="1">' + identity + "</script>"
+                 '<script data-row-bot-bridge="1">' + bridge_script(plain_text) + "</script>")
     if "</body>" in html.lower():
         # Insert before </body>
         idx = html.lower().rfind("</body>")

@@ -297,8 +297,6 @@ def read_preview(project_id: str, *, page_id: str | None = None,
                 from row_bot.designer.interaction import inject_bridge_js
 
                 rendered = render_page_html(project, authoring_page_html(project, pages[index].id), page_index=index)
-                rendered = inject_bridge_js(rendered, preview_id=preview_id, revision=revision, capability=capability,
-                                           plain_text=True)
             else:
                 rendered = (render_multi_route_html(project, active_route_id=pages[index].id)
                             if scripts_allowed else
@@ -307,6 +305,10 @@ def read_preview(project_id: str, *, page_id: str | None = None,
             markup = isolate_preview_html(rendered, scripts=scripts_allowed, brand=project.brand, strict_fonts=True)
         except FontReadError as exc:
             raise ArtifactError(str(exc)) from None
+        if authoring:
+            # After sanitation, so the bridge text matches the client policy's digest.
+            markup = inject_bridge_js(markup, preview_id=preview_id, revision=revision, capability=capability,
+                                      plain_text=True)
         if len(markup.encode()) > 2 * 1024 * 1024:
             raise ArtifactError("preview_too_large")
     metadata = storage.get_project_metadata(project_id)
