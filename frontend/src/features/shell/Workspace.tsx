@@ -851,6 +851,18 @@ export default function Workspace() {
           }}
           onOpenSearchHit={openSearchHit}
           onOpenSetting={go}
+          loadWorkflows={async (signal) =>
+            (
+              await controller.savedTasks('', undefined, undefined, signal)
+            ).items.map((task) => ({
+              id: task.id,
+              label: task.name,
+              description: task.description ?? undefined,
+            }))
+          }
+          onOpenWorkflow={(workflow) =>
+            go(`/?tab=workflows&workflow=${encodeURIComponent(workflow.id)}`)
+          }
         />
       ),
     });

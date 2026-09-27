@@ -28,7 +28,11 @@ async function setup(commands: PaletteCommand[] = []) {
     onOpenSearchHit: vi.fn(),
     onOpenSetting: vi.fn(),
     onStartAgent: vi.fn(),
+    onOpenWorkflow: vi.fn(),
   };
+  const loadWorkflows = vi.fn(async () => [
+    { id: 'task-brief', label: 'Morning brief', description: 'Daily summary' },
+  ]);
   const loadAgents = vi.fn(async () => [
     { id: 'researcher', label: 'Researcher', description: 'Finds sources' },
   ]);
@@ -40,6 +44,7 @@ async function setup(commands: PaletteCommand[] = []) {
         <CommandPalette
           commands={commands}
           loadAgents={loadAgents}
+          loadWorkflows={loadWorkflows}
           {...handlers}
         />
       </RuntimeContext.Provider>
@@ -144,4 +149,14 @@ it('shows message snippets as one line of plain text', () => {
       '## Plan\n\n**local** prospect → `tour` and [pricing](https://example.com)\n- next',
     ),
   ).toBe('Plan local prospect → tour and pricing next');
+});
+
+it('finds saved workflows and opens their runs rather than starting them', async () => {
+  const { onOpenWorkflow } = await setup();
+  fireEvent.change(field(), { target: { value: 'morning brief' } });
+  const option = screen.getByRole('option', { name: /^Run Morning brief…/ });
+  fireEvent.click(option);
+  expect(onOpenWorkflow).toHaveBeenCalledWith(
+    expect.objectContaining({ id: 'task-brief' }),
+  );
 });

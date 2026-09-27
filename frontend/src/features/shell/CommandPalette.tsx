@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Search,
   Settings,
+  Workflow,
 } from 'lucide-react';
 import { useClientState, useRuntime } from '../../runtime';
 import { Kbd } from '../../ui/primitives';
@@ -40,7 +41,12 @@ import {
 } from '../settings/model';
 
 export type PaletteGroup =
-  'Conversations' | 'Messages' | 'Commands' | 'Settings' | 'Agents';
+  | 'Conversations'
+  | 'Messages'
+  | 'Commands'
+  | 'Settings'
+  | 'Agents'
+  | 'Workflows';
 
 export type PaletteCommand = {
   id: string;
@@ -88,6 +94,7 @@ const GROUP_ORDER: readonly PaletteGroup[] = [
   'Conversations',
   'Commands',
   'Agents',
+  'Workflows',
   'Settings',
   'Messages',
 ];
@@ -101,6 +108,7 @@ const LIMITS: Record<PaletteGroup, number> = {
   Commands: 8,
   Settings: 6,
   Agents: 5,
+  Workflows: 5,
 };
 
 /**
@@ -111,18 +119,24 @@ const LIMITS: Record<PaletteGroup, number> = {
 export default function CommandPalette({
   commands,
   loadAgents,
+  loadWorkflows,
   onOpenConversation,
   onOpenSearchHit,
   onOpenSetting,
   onStartAgent,
+  onOpenWorkflow,
 }: {
   commands: PaletteCommand[];
   /** Read once when the palette opens; agents join the results. */
   loadAgents?: (signal: AbortSignal) => Promise<PaletteAgent[]>;
+  /** Read once when the palette opens; saved workflows join the results. */
+  loadWorkflows?: (signal: AbortSignal) => Promise<PaletteAgent[]>;
   onOpenConversation: (conversation: ConversationView) => void;
   onOpenSearchHit: (hit: SearchHit) => void;
   onOpenSetting: (href: string) => void;
   onStartAgent?: (agent: PaletteAgent) => void;
+  /** Opens the workflow's runs, where Run now starts it. */
+  onOpenWorkflow?: (workflow: PaletteAgent) => void;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -144,6 +158,17 @@ export default function CommandPalette({
       .catch(() => undefined);
     return () => abort.abort();
   }, [loadAgents]);
+  const [workflows, setWorkflows] = useState<PaletteAgent[]>([]);
+  useEffect(() => {
+    if (!loadWorkflows) return;
+    const abort = new AbortController();
+    loadWorkflows(abort.signal)
+      .then((value) => {
+        if (!abort.signal.aborted) setWorkflows(value);
+      })
+      .catch(() => undefined);
+    return () => abort.abort();
+  }, [loadWorkflows]);
 
   // Full-text history search runs after a short pause in typing.
   useEffect(() => {
@@ -273,6 +298,24 @@ export default function CommandPalette({
               run: () => onStartAgent(agent),
             });
         }
+      if (onOpenWorkflow)
+        for (const workflow of workflows) {
+          const score = fuzzyScore(
+            trimmed,
+            workflow.label,
+            `workflow run launch ${workflow.description ?? ''}`,
+          );
+          if (score !== null)
+            results.push({
+              id: `workflow:${workflow.id}`,
+              group: 'Workflows',
+              label: `Run ${workflow.label}…`,
+              detail: workflow.description,
+              icon: <Workflow size={16} />,
+              score,
+              run: () => onOpenWorkflow(workflow),
+            });
+        }
       const search = state.search;
       if (search)
         search.items.forEach((hit, index) =>
@@ -320,9 +363,11 @@ export default function CommandPalette({
     onOpenSearchHit,
     onOpenSetting,
     onStartAgent,
+    onOpenWorkflow,
     state.conversations,
     state.search,
     trimmed,
+    workflows,
   ]);
 
   useEffect(() => setActive(0), [trimmed]);
