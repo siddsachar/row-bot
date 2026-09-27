@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -102,6 +103,12 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const resumeFocus = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const current = confirmation ?? task;
+  // Handlers inside an overlay's content were created when it opened; closing
+  // and dismissing act on the overlays shown now, not on that render's state.
+  const shown = useRef({ task, confirmation });
+  useLayoutEffect(() => {
+    shown.current = { task, confirmation };
+  });
   const shownClass = `dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : task?.kind === 'palette' ? 'palette' : ''} ${current?.className ?? ''}`;
   // A closing surface keeps its presentation. Dropping the kind class would
   // switch it to the base dialog animation, which Radix treats as an exit
@@ -130,6 +137,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
     }
   }
   function closeInternal(returnFocusTo?: HTMLElement | null) {
+    const { task, confirmation } = shown.current;
     if (confirmation) {
       if (task) resumeFocus.current = confirmation.opener;
       else returningTo.current = confirmation.opener;
@@ -163,7 +171,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
         open,
         close,
         dismiss: (key) => {
-          if (task?.key === key) close();
+          if (shown.current.task?.key === key) close();
         },
         notify,
       }}

@@ -332,3 +332,44 @@ it('deduplicates and bounds notices while preserving F8 focus and explicit dismi
   expect(within(viewport).queryByText('Two')).not.toBeInTheDocument();
   expect(viewport.querySelectorAll('.toast')).toHaveLength(2);
 });
+
+function KeyedSheet() {
+  const overlay = useOverlay();
+  // The sheet's content keeps the handlers of the render that opened it,
+  // like Context's rail inside its sheet.
+  const content = (
+    <Button onClick={() => overlay.dismiss('keyed-sheet')}>
+      Open something else
+    </Button>
+  );
+  return (
+    <Button
+      onClick={() =>
+        overlay.open({
+          kind: 'sheet',
+          key: 'keyed-sheet',
+          title: 'Keyed sheet',
+          description: 'A sheet whose own content dismisses it.',
+          content,
+        })
+      }
+    >
+      Open sheet
+    </Button>
+  );
+}
+
+it('dismisses a keyed sheet from a handler created before it opened', async () => {
+  const user = userEvent.setup();
+  render(
+    <OverlayProvider>
+      <KeyedSheet />
+    </OverlayProvider>,
+  );
+  await user.click(screen.getByRole('button', { name: 'Open sheet' }));
+  expect(screen.getByRole('dialog', { name: 'Keyed sheet' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Open something else' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Keyed sheet' })).toBeNull(),
+  );
+});
