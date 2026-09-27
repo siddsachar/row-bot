@@ -384,6 +384,18 @@ it('rejects a response for another resource and retains the original recovery id
   ).toBeVisible();
 });
 
+it('re-reads the repository when the inspector reads the folder again', async () => {
+  const props = options();
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  expect(props.load).toHaveBeenCalledOnce();
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  expect(props.review).not.toHaveBeenCalled();
+});
+
 it('does not read or reuse a session outside its exact binding scope', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} scope="another-scope" />);

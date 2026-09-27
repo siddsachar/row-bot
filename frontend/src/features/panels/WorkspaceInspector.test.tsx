@@ -584,6 +584,7 @@ describe('Developer inspector', () => {
     expect(screen.getByText('Git owner')).toBeVisible();
     const context = renderGit.mock.lastCall![0];
     expect(context).toMatchObject({
+      revision: expect.any(String),
       isGit: true,
       branch: 'fixture',
       changedFiles: [{ path: 'file-1.txt', status: 'M' }],

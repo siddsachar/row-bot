@@ -317,7 +317,7 @@ function WorkspaceSurface({
                   changedFiles={git.changedFiles}
                   commitSuggestion={git.commitSuggestion}
                   pullRequestSuggestion={git.pullRequestSuggestion}
-                  revisionKey={String(refreshToken)}
+                  revisionKey={`${refreshToken}:${git.revision}`}
                   onChanged={bump}
                   load={(signal) =>
                     controller.developerRepository(

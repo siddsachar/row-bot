@@ -80,6 +80,8 @@ export type InspectorTab = 'changes' | 'files' | 'run' | 'git';
 export type InspectorCheck = { label: string; kind: string; command: string };
 export type RunContext = { checks: InspectorCheck[] };
 export type GitContext = {
+  /** The inspector's snapshot; the Git tab re-reads when it changes. */
+  revision: string;
   isGit: boolean;
   branch: string;
   changedFiles: { path: string; status: string }[];
@@ -606,6 +608,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   );
   const gitContext: GitContext = useMemo(
     () => ({
+      revision: current?.snapshot_revision ?? '',
       isGit: !!current?.is_git,
       branch: current?.branch ?? '',
       changedFiles: changedItems.map((item) => ({
@@ -621,7 +624,13 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
     }),
     // changedItems derives from `changed`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [current?.is_git, current?.branch, changed, suggestionSets],
+    [
+      current?.snapshot_revision,
+      current?.is_git,
+      current?.branch,
+      changed,
+      suggestionSets,
+    ],
   );
 
   if (!props.visible) return null;
