@@ -40,6 +40,7 @@ import {
   MoreHorizontal,
   Palette,
   Paperclip,
+  CircleStop,
   Square,
   TriangleAlert,
   X,
@@ -2370,7 +2371,7 @@ export default function Conversation({
               // A stop can land after queued guidance was delivered: say so
               // instead of leaving the last message silently unanswered.
               <div className="turn-notice" data-tone="neutral">
-                <Square className="turn-notice-icon" aria-hidden />
+                <CircleStop className="turn-notice-icon" aria-hidden />
                 <div className="turn-notice-text">
                   <strong>Stopped before a reply</strong>
                   <span>Your last message wasn't answered.</span>

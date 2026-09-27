@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Pencil,
   RotateCcw,
-  Square,
+  CircleStop,
   TriangleAlert,
   Volume2,
   VolumeX,
@@ -270,7 +270,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
         )}
         {stop.label && (
           <span className="turn-chip" data-tone="neutral">
-            <Square aria-hidden />
+            <CircleStop aria-hidden />
             {stop.label}
           </span>
         )}
