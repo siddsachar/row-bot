@@ -219,11 +219,24 @@ test('context card and composer stay compact through panels, narrowing, keyboard
     ).toBeVisible();
     await extras.click();
   }
-  // Approvals are a shield glyph; profile and mode sit in the + menu.
-  await page.getByRole('button', { name: 'Approvals', exact: true }).click();
-  await expect(
-    page.getByRole('menuitem', { name: 'Ask', exact: true }),
-  ).toHaveAttribute('aria-current', 'true');
+  // Approvals are a shield glyph; profile and mode sit in the + menu. A
+  // composer this narrow (200% zoom) is one line and keeps approvals in +.
+  const shield = page.getByRole('button', { name: 'Approvals', exact: true });
+  if (await shield.isVisible()) {
+    await shield.click();
+    await expect(
+      page.getByRole('menuitem', { name: 'Ask', exact: true }),
+    ).toHaveAttribute('aria-current', 'true');
+  } else {
+    await page
+      .getByRole('button', { name: 'Add files and more', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: /^Approvals/ }).click();
+    await expect(
+      page.getByRole('menuitemradio', { name: 'Ask', exact: true }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+  }
   await page.keyboard.press('Escape');
   await page
     .getByRole('button', { name: 'Add files and more', exact: true })

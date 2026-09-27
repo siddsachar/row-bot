@@ -236,7 +236,11 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(settingsPath('providers'));
   await waitForSettings(page, 'Providers');
-  await expect(navigation).toBeHidden();
+  // Compact: the picker replaces the page links; the search stays.
+  await expect(navigation.getByRole('link')).toHaveCount(0);
+  await expect(
+    navigation.getByRole('searchbox', { name: 'Find a setting' }),
+  ).toBeVisible();
   const picker = page.getByRole('combobox', { name: 'Settings section' });
   await picker.focus();
   await page.keyboard.press('ArrowDown');

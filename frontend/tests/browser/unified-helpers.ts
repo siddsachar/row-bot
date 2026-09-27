@@ -708,12 +708,16 @@ export async function openAddResource(page: Page): Promise<void> {
 
 /** New chat from the sidebar, opening the drawer below the desktop width. */
 export async function clickNewChat(page: Page): Promise<void> {
-  const newChat = page
-    .getByRole('navigation', { name: 'Workspace navigation' })
-    .getByRole('button', { name: 'New chat', exact: true });
-  if (!(await newChat.isVisible()))
-    await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
-      .click();
-  await newChat.click();
+  const newChat = page.getByRole('button', { name: 'New chat', exact: true });
+  if (await newChat.first().isVisible()) {
+    await newChat.first().click();
+    return;
+  }
+  await page
+    .getByRole('button', { name: 'Toggle navigation', exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Conversations' })
+    .getByRole('button', { name: 'New chat', exact: true })
+    .click();
 }
