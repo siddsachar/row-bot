@@ -300,10 +300,14 @@ html[data-platform='macos'] .buddy-overlay {
   background: var(--accent-solid);
   color: var(--accent-on-solid);
 }
-.buddy-overlay-text-action:disabled {
+/* As the shared .button: a disabled action (Approve while the approval's
+   details load) sits on the disabled surface, never a faded accent. */
+.buddy-overlay-text-action:disabled,
+.buddy-overlay-text-action[data-variant='primary']:disabled {
+  border-color: var(--border-subtle);
+  background: var(--surface-disabled);
   color: var(--text-disabled);
   cursor: default;
-  opacity: 0.6;
 }
 
 /* Approval: one line with the question and the three decisions. */
