@@ -1040,6 +1040,15 @@ export default function ArtifactPreview({
                   <div
                     ref={frameHost}
                     className="design-canvas"
+                    // A zoomed or width-fitted page scrolls; keyboard users
+                    // reach and scroll it too.
+                    {...(zoomMode === 'fit'
+                      ? {}
+                      : {
+                          tabIndex: 0,
+                          role: 'group',
+                          'aria-label': `${pageLabel} canvas`,
+                        })}
                     style={{
                       width: '100%',
                       flex: '1 1 auto',

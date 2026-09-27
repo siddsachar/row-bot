@@ -137,6 +137,18 @@ it('shows a top bar, a floating dock and a canvas without loading anything else'
   expect(screen.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue(
     'fit',
   );
+  // A fitted page never scrolls; a zoomed one is reachable by keyboard.
+  expect(screen.queryByRole('group', { name: 'Slide canvas' })).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
+    target: { value: 'actual' },
+  });
+  expect(screen.getByRole('group', { name: 'Slide canvas' })).toHaveAttribute(
+    'tabindex',
+    '0',
+  );
+  fireEvent.change(screen.getByRole('combobox', { name: 'Preview zoom' }), {
+    target: { value: 'fit' },
+  });
   // Page thumbnails keep the design's own shape (16:9 here).
   expect(
     screen
