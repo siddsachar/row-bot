@@ -430,6 +430,23 @@ describe('Developer inspector', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('reads the folder afresh whenever it opens', async () => {
+    const options = props();
+    const view = render(<WorkspaceInspector {...options} />);
+    await screen.findByRole('group', { name: 'Repository status' });
+    expect(options.load).toHaveBeenLastCalledWith(
+      true,
+      expect.any(AbortSignal),
+    );
+    view.rerender(<WorkspaceInspector {...options} visible={false} />);
+    view.rerender(<WorkspaceInspector {...options} />);
+    await waitFor(() => expect(options.load).toHaveBeenCalledTimes(2));
+    expect(options.load).toHaveBeenLastCalledWith(
+      true,
+      expect.any(AbortSignal),
+    );
+  });
+
   it('opens a plain folder on Files and says it is not a repository', async () => {
     const options = props();
     options.load = vi.fn(async () => ({

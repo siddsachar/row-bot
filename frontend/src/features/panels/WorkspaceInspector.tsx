@@ -564,7 +564,9 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   }
 
   useEffect(() => {
-    if (props.visible) void refresh(Boolean(props.refreshToken));
+    // Opening (or reopening) reads the folder as it is now: the agent, an
+    // editor or Git may have changed it while no panel was watching.
+    if (props.visible) void refresh(true);
     else cancelQueries();
     return cancelQueries;
     // Callback identity changes do not create another subscription or Git scan.
