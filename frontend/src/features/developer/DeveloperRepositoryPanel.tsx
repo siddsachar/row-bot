@@ -348,7 +348,14 @@ export default function DeveloperRepositoryPanel(
     session.getSnapshot,
   );
   const inScope = props.scope === session.scope;
-  const locked = !state.active || !inScope || state.reading || state.busy;
+  // A background re-read keeps the controls usable (the person's next
+  // action supersedes it); a review, a change in flight or the first read
+  // locks them.
+  const locked =
+    !state.active ||
+    !inScope ||
+    state.busy ||
+    (state.reading && (session.isReviewing() || !state.snapshot));
 
   const refresh = async (preserveMessage = false) => {
     if (!props.visible || !state.active || !inScope) return;
@@ -408,8 +415,8 @@ export default function DeveloperRepositoryPanel(
     const current = session.getSnapshot();
     if (
       locked ||
-      current.reading ||
       current.busy ||
+      session.isReviewing() ||
       !current.snapshot ||
       current.pending ||
       current.reviewed
@@ -422,8 +429,10 @@ export default function DeveloperRepositoryPanel(
       });
       return;
     }
+    // Superseding a background re-read (beginRead aborts it) re-runs it
+    // after the review.
     const request = session.beginRead(true);
-    deferredRead.current = false;
+    deferredRead.current = current.reading;
     session.update({ reviewed: null, error: '', message: '', reading: true });
     const payload = { revision: current.snapshot.revision, ...extra };
     let direct: Attempt | null = null;

@@ -428,6 +428,33 @@ it('lets a review finish before re-reading for a new inspector revision', async 
   expect(props.execute).not.toHaveBeenCalled();
 });
 
+it('lets a click during a background re-read supersede it and re-read afterwards', async () => {
+  const user = userEvent.setup();
+  const props = options();
+  let backgroundSignal: AbortSignal | undefined;
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  // The inspector's next revision starts a re-read that is still in flight.
+  props.load.mockImplementationOnce(
+    (signal: AbortSignal) =>
+      new Promise(() => {
+        backgroundSignal = signal;
+      }),
+  );
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  const push = screen.getByRole('button', { name: 'Push branch' });
+  expect(push).toBeEnabled();
+  await user.click(push);
+  await screen.findByRole('group', { name: 'Confirm repository change' });
+  expect(props.review).toHaveBeenCalledOnce();
+  expect(backgroundSignal?.aborted).toBe(true);
+  // The superseded read runs again once the review is in.
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(3));
+});
+
 it('does not read or reuse a session outside its exact binding scope', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} scope="another-scope" />);
