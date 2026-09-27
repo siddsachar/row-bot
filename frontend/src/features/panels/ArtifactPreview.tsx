@@ -110,6 +110,8 @@ const DEVICES: Record<Exclude<Device, 'desktop'>, [number, number]> = {
   phone: [390, 844],
 };
 const ZOOMS = ['fit', 'width', '0.5', '0.75', 'actual', '1.5', '2'] as const;
+/** Panel width from which the inspector sits beside the canvas (panels.css). */
+const SIDE_BY_SIDE = 720;
 const noLifecycle = () => new Promise<never>(() => {});
 
 function failureText(error: unknown): string {
@@ -205,11 +207,20 @@ export default function ArtifactPreview({
     name: string;
   } | null>(null);
   const [nameSaving, setNameSaving] = useState(false);
+  // The saved name shows until the server's title moves on; after that the
+  // title leads, so an undo that restores the old name shows it again.
+  const [titleSeen, setTitleSeen] = useState(title);
+  if (titleSeen !== title) {
+    setTitleSeen(title);
+    if (renamed) setRenamed(null);
+  }
   const frame = useRef<HTMLIFrameElement>(null);
   const inlineOperation = useRef(false);
   const historyOperation = useRef(false);
   const [viewport, setViewport] = useState({ width: 400, height: 225 });
   const measured = useRef(viewport);
+  const panel = useRef<HTMLElement>(null);
+  const presentButton = useRef<HTMLButtonElement>(null);
   const frameHost = useRef<HTMLDivElement>(null);
   const latest = useRef<Preview | null>(null);
   const loader = useRef(load);
@@ -529,8 +540,12 @@ export default function ArtifactPreview({
   function setMode(next: 'preview' | 'edit') {
     setAuthoring(next === 'edit');
     setPicked(null);
-    if (next === 'edit') openInspector('properties');
-    else if (sideView === 'inspector') openSide(null);
+    // Beside the canvas the inspector helps; as a sheet over a narrow panel
+    // it would cover what you are about to select, so there it waits.
+    const width = panel.current?.getBoundingClientRect().width ?? 0;
+    if (next === 'edit') {
+      if (width >= SIDE_BY_SIDE) openInspector('properties');
+    } else if (sideView === 'inspector') openSide(null);
   }
 
   // ------------------------------------------------ undo, redo and rename
@@ -738,6 +753,7 @@ export default function ArtifactPreview({
           : `${Math.round(Number(value) * 100)}%`;
   return (
     <section
+      ref={panel}
       aria-label="Design preview"
       aria-busy={loading}
       className="design-panel"
@@ -851,6 +867,7 @@ export default function ArtifactPreview({
           {(presentation || sharing || createExport) && <ToolbarSeparator />}
           {presentation && (
             <IconButton
+              ref={presentButton}
               size="sm"
               label="Present"
               pressed={presenting}
@@ -969,6 +986,7 @@ export default function ArtifactPreview({
             pageLabel={pageLabel}
             disabled={loading}
             onSelect={goToPage}
+            aspect={current.canvas_width / current.canvas_height}
             renderThumbnail={
               presentation && typeof IntersectionObserver !== 'undefined'
                 ? (id) => (
@@ -993,7 +1011,11 @@ export default function ArtifactPreview({
               visible={visible}
               autoStart
               startIndex={current.page_index}
-              onEnded={() => setPresenting(false)}
+              onEnded={() => {
+                setPresenting(false);
+                // Back to where presenting started.
+                requestAnimationFrame(() => presentButton.current?.focus());
+              }}
             />
           ) : (
             <>

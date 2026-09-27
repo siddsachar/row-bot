@@ -169,7 +169,9 @@ export default function DesignSelection({
           aria-hidden
         >
           {label}
-          {selection.text ? ` · ${selection.text.slice(0, 32)}` : ''}
+          {selection.text
+            ? ` · ${selection.text.length > 32 ? `${selection.text.slice(0, 31)}…` : selection.text}`
+            : ''}
         </span>
       )}
       <form

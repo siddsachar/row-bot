@@ -165,6 +165,14 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.autoStart, visible, active, resourceId, resourceRevision]);
 
+  // Presenting takes the keyboard at once, so arrows and Escape work
+  // without first clicking into the slide.
+  useEffect(() => {
+    const element = host.current;
+    if (active && element && !element.contains(document.activeElement))
+      element.focus({ preventScroll: true });
+  }, [active]);
+
   function end() {
     props.onEnded?.();
     request.current?.abort();
@@ -203,6 +211,9 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
   return (
     <div
       ref={host}
+      tabIndex={-1}
+      role="group"
+      aria-label="Presentation"
       className="artifact-presentation"
       data-active={active ? 'true' : undefined}
       onKeyDown={(event) => {

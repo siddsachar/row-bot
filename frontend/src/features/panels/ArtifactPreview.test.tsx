@@ -137,6 +137,12 @@ it('shows a top bar, a floating dock and a canvas without loading anything else'
   expect(screen.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue(
     'fit',
   );
+  // Page thumbnails keep the design's own shape (16:9 here).
+  expect(
+    screen
+      .getByRole('navigation', { name: 'Slides' })
+      .style.getPropertyValue('--page-aspect'),
+  ).toBe('1.7778');
   // A manual refresh exists only on an error card.
   expect(screen.queryByRole('button', { name: /Refresh/ })).toBeNull();
   expect(screen.queryByRole('complementary')).toBeNull();
@@ -156,6 +162,8 @@ it('switches to Edit with an authoring identity and opens the inspector', async 
     />,
   );
   await screen.findByTitle('Slide preview: Opening');
+  const region = screen.getByRole('region', { name: 'Design preview' });
+  region.getBoundingClientRect = () => ({ width: 900 }) as DOMRect;
   fireEvent.click(screen.getByRole('radio', { name: 'Edit' }));
   await waitFor(() =>
     expect(load).toHaveBeenCalledWith(
@@ -177,6 +185,13 @@ it('switches to Edit with an authoring identity and opens the inspector', async 
     'true',
   );
   fireEvent.click(screen.getByRole('radio', { name: 'Preview' }));
+  expect(
+    screen.queryByRole('complementary', { name: 'Design inspector' }),
+  ).toBeNull();
+  // A narrow panel keeps the canvas clear to select on; the sheet waits.
+  region.getBoundingClientRect = () => ({ width: 420 }) as DOMRect;
+  fireEvent.click(screen.getByRole('radio', { name: 'Edit' }));
+  expect(screen.getByRole('radio', { name: 'Edit' })).toBeChecked();
   expect(
     screen.queryByRole('complementary', { name: 'Design inspector' }),
   ).toBeNull();
@@ -646,7 +661,7 @@ it('fits a tall web page to its width and offers device widths', async () => {
 it('renames the design once, under the revision on screen', async () => {
   const edit = vi.fn(async () => receipt('resource-2'));
   const load = vi.fn(async () => snapshot());
-  await act(async () =>
+  const view = await act(async () =>
     render(
       <ArtifactPreview
         resourceId="deck-a"
@@ -673,6 +688,19 @@ it('renames the design once, under the revision on screen', async () => {
   );
   expect(name).toHaveValue('Spring launch');
   expect(screen.getByText('Renamed.')).toBeInTheDocument();
+  const props = {
+    resourceId: 'deck-a',
+    resourceRevision: 'resource-2',
+    visible: true,
+    load,
+    loadEditing: vi.fn(async () => editing()),
+    edit,
+  };
+  // The server's title follows the rename, then an undo takes it back.
+  view.rerender(<ArtifactPreview {...props} title="Spring launch" />);
+  expect(name).toHaveValue('Spring launch');
+  view.rerender(<ArtifactPreview {...props} title="Launch deck" />);
+  expect(name).toHaveValue('Launch deck');
 });
 
 it('undoes by restoring the newest snapshot and redoes the state it replaced', async () => {

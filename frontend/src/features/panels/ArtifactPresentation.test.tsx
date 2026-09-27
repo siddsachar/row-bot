@@ -83,6 +83,19 @@ it('navigates with exact page index and announces notes without changing saved s
   );
 });
 
+it('takes the keyboard when it starts on its own so arrows and Escape work', async () => {
+  const p = props();
+  const onEnded = vi.fn();
+  render(<ArtifactPresentation {...p} autoStart onEnded={onEnded} />);
+  await screen.findByText('stage:one');
+  const presentation = screen.getByRole('group', { name: 'Presentation' });
+  expect(presentation).toHaveFocus();
+  fireEvent.keyDown(presentation, { key: 'ArrowRight' });
+  await screen.findByText('stage:two');
+  fireEvent.keyDown(presentation, { key: 'Escape' });
+  expect(onEnded).toHaveBeenCalledOnce();
+});
+
 it('lazily renders real paginated thumbnails only after explicit choice', async () => {
   const p = props();
   render(<ArtifactPresentation {...p} />);

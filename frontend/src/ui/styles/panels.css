@@ -213,7 +213,7 @@
 .design-page-thumb {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: var(--page-aspect, 16 / 10);
   border-radius: 4px;
   background: #fff;
   box-shadow: 0 0 0 1px var(--border-hairline);
@@ -692,7 +692,8 @@
 }
 .design-capabilities-list li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* Names stay on one line; a long state wraps instead of squeezing them. */
+  grid-template-columns: auto minmax(max-content, 1fr) auto;
   align-items: baseline;
   gap: 2px 8px;
   font-size: var(--text-12);
@@ -703,7 +704,7 @@
 }
 .design-capabilities-state {
   color: var(--text-muted);
-  white-space: nowrap;
+  text-align: end;
 }
 .design-capabilities-detail {
   grid-column: 2 / -1;
@@ -733,6 +734,10 @@
   gap: 10px;
   min-height: 0;
   overflow: auto;
+}
+/* Focused only to take arrow keys and Escape; its controls show focus. */
+.artifact-presentation:focus {
+  outline: none;
 }
 .artifact-presentation:fullscreen {
   padding: 16px;
