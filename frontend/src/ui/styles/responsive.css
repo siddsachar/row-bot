@@ -348,3 +348,18 @@
     min-height: 44px;
   }
 }
+
+/* ---------------------------------------------------------- narrow Home */
+
+/* On a phone an insight's title wraps instead of shrinking to one word
+   beside its category. */
+@container home (max-width: 640px) {
+  .insight-title-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .insight-title {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
