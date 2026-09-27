@@ -618,7 +618,7 @@ describe('native selection at a cold start (B95)', () => {
   const nativeAdapter = {
     native_adapter: {
       available: true,
-      proof_required: true,
+      proof_required: true as const,
       instance_id: 'instance-a',
       attestation: 'a'.repeat(32),
     },
