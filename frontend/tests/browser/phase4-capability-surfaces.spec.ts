@@ -82,9 +82,7 @@ async function openSettingThroughCommands(
   route: { label: string; path: string },
 ) {
   const navigated = page.waitForURL((url) => url.pathname === route.path);
-  await page
-    .getByRole('button', { name: 'Workspace commands', exact: true })
-    .click();
+  await headerAction(page, 'Workspace commands');
   const commands = page.getByRole('dialog', {
     name: 'Workspace commands',
     exact: true,

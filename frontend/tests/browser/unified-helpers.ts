@@ -533,15 +533,12 @@ export async function captureActualResourcePanels(
   label: string,
 ): Promise<void> {
   const desktop = page.viewportSize()!.width >= 1024;
-  const contextToggle = page.getByRole('button', {
-    name: 'Context',
-    exact: true,
-  });
   const context = page.getByRole('complementary', {
     name: 'Conversation context',
   });
-  if (!(await context.isVisible()) && (await contextToggle.isVisible()))
-    await contextToggle.click();
+  // Context is inline on desktop, a header button on tablets and an item in
+  // the header's menu on phones; reveal it only when hidden.
+  if (!(await context.isVisible())) await headerAction(page, 'Context');
   await context.getByRole('button', { name: `${deck} Design` }).click();
   const preview = page.getByRole('region', {
     name: 'Design preview',
@@ -633,9 +630,7 @@ export async function captureActualResourcePanels(
       .getByRole('button', { name: 'Back to conversation', exact: true })
       .click();
   }
-  // The header Context button toggles the card; reveal it only when hidden.
-  if (!(await context.isVisible()) && (await contextToggle.isVisible()))
-    await contextToggle.click();
+  if (!(await context.isVisible())) await headerAction(page, 'Context');
   await page
     .getByRole('complementary', { name: 'Conversation context' })
     .getByRole('button', { name: 'Phase 1 workspace Developer' })
@@ -700,8 +695,11 @@ export async function openAddResource(page: Page): Promise<void> {
 
 /** New chat from the sidebar, opening the drawer below the desktop width. */
 export async function clickNewChat(page: Page): Promise<void> {
-  const newChat = page.getByRole('button', { name: 'New chat', exact: true });
-  if (await newChat.first().isVisible()) {
+  // The collapsed rail and the full sidebar each have one; use the shown one.
+  const newChat = page
+    .getByRole('button', { name: 'New chat', exact: true })
+    .filter({ visible: true });
+  if ((await newChat.count()) > 0) {
     await newChat.first().click();
     return;
   }

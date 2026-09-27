@@ -47,10 +47,18 @@ async function navigation(page: Page): Promise<Locator> {
     name: 'Workspace navigation',
     exact: true,
   });
-  if (!(await nav.isVisible()))
+  if (!(await nav.isVisible())) {
+    // Below 1024px a panel is a full-height sheet over the conversation and
+    // its header; return to the conversation to reach the drawer.
+    const back = page.getByRole('button', {
+      name: 'Back to conversation',
+      exact: true,
+    });
+    if (await back.isVisible()) await back.click();
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
+  }
   await expect(nav).toBeVisible();
   return nav;
 }
