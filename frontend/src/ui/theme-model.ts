@@ -10,7 +10,9 @@ export type ThemePreference = {
 export const THEME_KEY = 'row-bot.appearance.v1';
 export const DEFAULT_THEME: ThemePreference = {
   version: 1,
-  appearance: 'dark',
+  // Follow the operating system until the person chooses; dark stays the
+  // showcase appearance for captures and marketing.
+  appearance: 'system',
   accent: 'blue',
   density: 'compact',
   reduce_transparency: false,
@@ -179,7 +181,7 @@ export function bootstrapTheme(
 ): ThemePreference {
   const preference: ThemePreference = {
     version: 1,
-    appearance: 'dark',
+    appearance: 'system',
     accent: 'blue',
     density: 'compact',
     reduce_transparency: false,

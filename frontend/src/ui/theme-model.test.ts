@@ -10,32 +10,45 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 it.each([false, true])(
-  'starts a fresh device dark/blue/compact regardless of system dark=%s',
+  'starts a fresh device following the system (dark=%s), blue and compact',
   (systemDark) => {
     vi.spyOn(window, 'matchMedia').mockImplementation(
       (query) =>
         ({ matches: query.includes('dark') && systemDark }) as MediaQueryList,
     );
     const write = vi.spyOn(Storage.prototype, 'setItem');
+    const mode = systemDark ? 'dark' : 'light';
     expect(bootstrapTheme(TOKENS)).toEqual({
       version: 1,
-      appearance: 'dark',
+      appearance: 'system',
       accent: 'blue',
       density: 'compact',
       reduce_transparency: false,
     });
     expect(document.documentElement.dataset).toMatchObject({
-      appearance: 'dark',
-      theme: 'dark',
+      appearance: 'system',
+      theme: mode,
       accent: 'blue',
       density: 'compact',
     });
     expect(document.documentElement.style.getPropertyValue('--canvas')).toBe(
-      TOKENS.dark.canvas,
+      TOKENS[mode].canvas,
     );
     expect(write).not.toHaveBeenCalled();
   },
 );
+
+it('lets an explicit choice win over the system appearance', () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (query) => ({ matches: query.includes('dark') }) as MediaQueryList,
+  );
+  localStorage.setItem(
+    THEME_KEY,
+    JSON.stringify({ version: 1, appearance: 'light' }),
+  );
+  expect(bootstrapTheme(TOKENS).appearance).toBe('light');
+  expect(document.documentElement.dataset.theme).toBe('light');
+});
 
 it.each(['system', 'light', 'dark'] as const)(
   'preserves a saved explicit %s/comfortable preference and accent unchanged',

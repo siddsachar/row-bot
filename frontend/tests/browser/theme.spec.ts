@@ -130,7 +130,13 @@ test('unavailable or corrupt local storage leaves a usable shell', async ({
     });
   }, size);
   await openFixture(page);
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // Unreadable preferences fall back to the default, which follows the
+  // system appearance (the fixture context emulates light).
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-appearance',
+    'system',
+  );
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.goto('/app-v2/settings/appearance?fixture=normal');
   await page
     .getByRole('combobox', { name: 'Appearance', exact: true })
