@@ -103,6 +103,12 @@ function intentVerifier(
     );
 }
 
+/** A BroadcastChannel (or a test double) shared by same-origin windows. */
+export type DraftChannel = Pick<
+  BroadcastChannel,
+  'postMessage' | 'addEventListener' | 'removeEventListener' | 'close'
+>;
+
 /** One authenticated connection owner. Presentation stores never receive session proofs. */
 export class ClientController {
   private state: ClientState = { ...INITIAL };
@@ -1466,6 +1472,7 @@ export class ClientController {
         );
         if (authentication !== this.authenticationNumber) break;
         this.draftRevisions.set(id, result.revision);
+        this.announceDraft(id, result.revision);
         if (this.drafts.get(id) === draft) {
           this.dirtyDrafts.delete(id);
           this.setDraftStatus(id, 'saved');
@@ -1548,6 +1555,98 @@ export class ClientController {
   }
   retryDraft(id: string): Promise<void> {
     return this.saveDraft(id);
+  }
+  /**
+   * Another window of this app (the desktop Buddy, a second tab) saved a
+   * draft. Adopt the server copy unless this window has unsaved work or an
+   * unresolved conflict of its own; the server revision stays authoritative.
+   */
+  async refreshDraft(id: string): Promise<boolean> {
+    const settled = () =>
+      !this.dirtyDrafts.has(id) &&
+      !this.draftWrites.has(id) &&
+      this.draftStates.get(id) !== 'conflict';
+    if (
+      this.disposed ||
+      !this.state.handshake ||
+      !this.draftRevisions.has(id) ||
+      !settled()
+    )
+      return false;
+    const authentication = this.authenticationNumber;
+    let saved: import('./types').DraftView | null | undefined;
+    try {
+      saved = await this.savedDraft(id, this.lifetime.signal);
+    } catch {
+      return false;
+    }
+    if (
+      !saved ||
+      saved.conversation_id !== id ||
+      this.disposed ||
+      authentication !== this.authenticationNumber ||
+      !this.draftRevisions.has(id) ||
+      saved.revision === this.draftRevisions.get(id) ||
+      // Typing may have started while the read was in flight.
+      !settled()
+    )
+      return false;
+    this.drafts.set(id, { text: saved.text, attachments: saved.attachments });
+    this.draftRevisions.set(id, saved.revision);
+    this.draftStates.set(id, 'saved');
+    if (this.state.selectedConversationId === id)
+      this.update({ draftStatus: 'saved' });
+    return true;
+  }
+  /**
+   * Same-origin windows tell each other which draft changed (ids only, never
+   * text) so each re-reads the server copy. Returns the unbind function.
+   */
+  bindDraftChannel(channel: DraftChannel): () => void {
+    this.draftChannel?.close();
+    this.draftChannel = channel;
+    const listener = (event: MessageEvent) => {
+      const data: unknown = event.data;
+      if (
+        !data ||
+        typeof data !== 'object' ||
+        (data as { type?: unknown }).type !== 'draft'
+      )
+        return;
+      const { conversationId, instance } = data as {
+        conversationId?: unknown;
+        instance?: unknown;
+      };
+      if (
+        typeof conversationId === 'string' &&
+        conversationId.length <= 256 &&
+        instance === this.state.handshake?.instance_id
+      )
+        void this.refreshDraft(conversationId);
+    };
+    channel.addEventListener('message', listener);
+    return () => {
+      channel.removeEventListener('message', listener);
+      if (this.draftChannel === channel) {
+        this.draftChannel = null;
+        channel.close();
+      }
+    };
+  }
+  private draftChannel: DraftChannel | null = null;
+  private announceDraft(id: string, revision: string): void {
+    const instance = this.state.handshake?.instance_id;
+    if (!instance) return;
+    try {
+      this.draftChannel?.postMessage({
+        type: 'draft',
+        conversationId: id,
+        revision,
+        instance,
+      });
+    } catch {
+      /* A closed channel only costs the other window a focus re-read. */
+    }
   }
   hasUnsavedDraft(): boolean {
     return this.dirtyDrafts.size > 0;
@@ -4633,5 +4732,7 @@ export class ClientController {
     this.seen.clear();
     this.sequences.clear();
     this.retiredSubscriptions.clear();
+    this.draftChannel?.close();
+    this.draftChannel = null;
   }
 }
