@@ -25,7 +25,13 @@ async function start() {
   ].includes(query ?? '')
     ? (query as 'normal' | 'incompatible' | 'unauthorized' | 'disconnected')
     : undefined;
-  const controller = await createClientController({ fixture });
+  let fixtureTransport: unknown;
+  const controller = await createClientController({
+    fixture,
+    onFixture: (transport) => {
+      fixtureTransport = transport;
+    },
+  });
   await controller.start();
   let platform = await selectClientPlatform(
     controller,
@@ -40,6 +46,13 @@ async function start() {
     const { createFakePlatform } = await import('../platform/fake');
     platform = createFakePlatform();
   }
+  if (import.meta.env.VITE_ENABLE_FIXTURES === '1' && fixtureTransport)
+    // The browser suite drives overlay states through the same fixture
+    // handle as the workspace; production builds compile this out.
+    Object.defineProperty(window, '__ROW_BOT_FIXTURE__', {
+      value: { controller, transport: fixtureTransport, platform },
+      configurable: true,
+    });
   const unbindDrafts = bindDraftSync(controller);
   const releaseLease = keepNativeLease(controller, platform);
   platform = reloadWhenLeaseLapses(platform, () => location.reload());

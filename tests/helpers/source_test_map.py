@@ -856,7 +856,9 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "frontend/src/features/buddy/**",
             "frontend/src/features/shell/Buddy*.tsx",
             "src/row_bot/ui/buddy.py",
-            "static/buddy/runtime/buddy.js",
+            "frontend/src/overlay/**",
+            "frontend/buddy-overlay.html",
+            "frontend/tests/browser/buddy-overlay.spec.ts",
         ),
         (
             "tests/test_buddy_core.py",
@@ -865,8 +867,10 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_buddy_ui.py",
             "tests/test_buddy_overlay.py",
             "tests/test_generation_stop.py",
+            "tests/subsystem/client_host/test_native.py",
+            "tests/subsystem/client_host/test_assets.py",
         ),
-        "Buddy placement, native projection, lifecycle events, and generation controls share one local-first companion contract.",
+        "Buddy placement, the React desktop overlay and its attested bridge, lifecycle events, and generation controls share one local-first companion contract; the overlay's browser spec runs through `run_test_matrix.py browser-buddy-overlay`.",
     ),
     SourceTestRule(
         "approvals",

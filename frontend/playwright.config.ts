@@ -117,6 +117,12 @@ const phase5Projects =
           },
         },
         {
+          // The desktop Buddy window's own size (Phase 7).
+          name: 'chromium-buddy-overlay',
+          testMatch: /buddy-overlay\.spec\.ts/,
+          use: { viewport: { width: 380, height: 230 } },
+        },
+        {
           name: 'chromium-p5-remote-artifact-resource',
           testMatch: /phase5-remote-resource\.spec\.ts/,
           use: { viewport: { width: 1440, height: 900 } },
@@ -169,7 +175,7 @@ export default defineConfig({
       .flatMap((engine) =>
         viewports.map(({ name, width, height, touch }) => ({
           name: `${engine}-${name}`,
-          testIgnore: /phase5-.*\.spec\.ts/,
+          testIgnore: /(?:phase5-.*|buddy-overlay)\.spec\.ts/,
           use: {
             browserName: engine,
             viewport: { width, height },

@@ -99,6 +99,13 @@ def _write_migrated_coverage_config() -> Path:
 
 COMMANDS: dict[str, CommandSpec] = {
     "client-foundation": _cmd("client-foundation", "python", "scripts/run_client_checks.py", env=TEST_ENV),
+    # The desktop Buddy overlay at its native 380x230 size, both appearances,
+    # against the isolated fixture backend (needs a local Chromium or Edge).
+    "browser-buddy-overlay": _cmd(
+        "browser-buddy-overlay", "uv", "run", "python", "tests/browser/client_workspace/run_browser.py",
+        "--engine", "chromium", "--", "--project=chromium-buddy-overlay", "buddy-overlay.spec",
+        env=TEST_ENV,
+    ),
     "dependency-requirements": _cmd("dependency-requirements", "uv", "run", "python", "scripts/dependency_requirements.py", env=TEST_ENV),
     "client-platform-boundaries": _cmd(
         "client-platform-boundaries", "uv", "run", "python", "scripts/check_client_platform_boundaries.py",
@@ -253,6 +260,7 @@ COMMANDS: dict[str, CommandSpec] = {
 TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "client-foundation": ("client-foundation",),
+    "browser-buddy-overlay": ("browser-buddy-overlay",),
     "contract-subsystem": ("contracts", "subsystem"),
     "contracts": ("contracts",),
     "subsystem": ("subsystem",),

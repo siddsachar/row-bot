@@ -230,6 +230,18 @@ def test_buddy_overlay_change_selects_state_ui_and_stop_regressions() -> None:
     assert not selection.unmatched_files
 
 
+def test_react_buddy_overlay_change_selects_the_host_bridge_and_buddy_suites() -> None:
+    selection = select_tests_for_changes(
+        ["frontend/src/overlay/BuddyOverlay.tsx", "frontend/buddy-overlay.html", "src/row_bot/buddy/native_host.py"]
+    )
+
+    assert "buddy_lifecycle" in selection.matched_rules
+    assert "tests/subsystem/buddy" in selection.test_paths
+    assert "tests/subsystem/client_host/test_native.py" in selection.test_paths
+    assert "tests/test_buddy_ui.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_app_port_change_selects_startup_and_mobile_regressions() -> None:
     selection = select_tests_for_changes(["src/row_bot/app_port.py"])
 
