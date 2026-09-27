@@ -179,13 +179,20 @@ def test_custom_git_clean_filter_never_runs_from_diff(tmp_path, monkeypatch):
     import io
     from row_bot.developer import review
     (tmp_path / "file.txt").write_text("fixture")
+    # The configured driver is selected by an attribute, so a diff would run it.
+    (tmp_path / ".gitattributes").write_text("*.txt filter=fixture\n")
     calls = []
     class Process:
-        returncode = 0
         def __init__(self, command, **kwargs):
             calls.append(command)
-            assert "config" in command or "--is-inside-work-tree" in command
-            self.stdout = io.BytesIO(b"true\n" if "--is-inside-work-tree" in command else b"filter.fixture.clean\n")
+            assert "diff" not in command and "status" not in command
+            self.returncode = 1 if "core.attributesFile" in command else 0
+            self.stdout = io.BytesIO(
+                b"true\n" if "--is-inside-work-tree" in command
+                else b".gitattributes\0" if "ls-files" in command
+                else b".git/info/attributes\n" if "--git-path" in command
+                else b"" if "core.attributesFile" in command
+                else b"filter.fixture.clean\n")
         def __enter__(self):
             return self
         def __exit__(self, *args):
@@ -198,7 +205,8 @@ def test_custom_git_clean_filter_never_runs_from_diff(tmp_path, monkeypatch):
             return 0
     monkeypatch.setattr(review.subprocess, "Popen", Process)
     assert review.read_bounded_diff(str(tmp_path), "file.txt").status == "unavailable"
-    assert len(calls) == 2
+    # Only metadata reads ran (discovery, config, attribute sources); no diff.
+    assert len(calls) == 5
 
 
 def test_plain_folder_ignores_global_filters_but_actual_repository_remains_guarded(domain, tmp_path, monkeypatch):
