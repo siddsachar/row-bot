@@ -60,17 +60,36 @@ targets (`tabindex="-1"` route headings, landmark regions, transcript messages)
 receive focus for assistive technology but draw the ring only when
 `data-input-modality="keyboard"` is set on the root by `installInputModality`.
 
+### Appearance (light theme and OS default)
+
+A device that has never chosen an appearance follows the operating system:
+the default preference is `system`, resolved through `prefers-color-scheme`
+before the first stylesheet and again whenever the system changes. Choosing
+Light or Dark in Settings › Appearance stores that choice per device and it
+wins over the system until the person picks System again. Dark stays the
+showcase for captures and marketing; both themes are first-class.
+
+Light and dark share every semantic token. Surfaces separate by tone in both
+(light chrome sits on a slightly darker canvas, the overlay layer is the
+lightest), text keeps 4.5:1 and essential non-text 3:1, and status is always
+a shape plus a word. Canvas visuals that cannot read CSS variables directly
+(the knowledge graph, charts, design previews) take per-theme values from the
+token model. Verify a visual change in light and dark, and with System under
+both OS schemes.
+
 ## Public primitive inventory
 
 | Surface | Contribution contract |
 | --- | --- |
 | `Button`, `Input`, `Select`, `Field` | Native semantics and labels; primary/secondary/ghost/danger actions; disabled states and named icon buttons. Select stays a native browser control. |
-| `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Menu actions may carry a 16px monochrome `icon`, a keycap `shortcut` (announced through `aria-keyshortcuts`, kept out of the item's name) and `separatorBefore`; destructive actions always render last, in red, after a separator. Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
+| `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Menu actions may carry a 16px monochrome `icon`, a keycap `shortcut` (announced through `aria-keyshortcuts`, kept out of the item's name) and `separatorBefore`; destructive actions always render last, in red, after a separator. An action with `afterClose` runs once the menu has released focus instead of returning focus to the trigger (for items that focus a field they open, such as Rename). Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
 | `OverlayProvider`, `useOverlay` | One Radix modal scope with title/description; dialogs, short sheets, navigation drawers, the command palette (`kind: 'palette'`: no header or footer chrome, title kept for assistive tech) and alert-dialog semantics share it. |
 | Notifications | `notify` coalesces duplicate text and retains at most three notices. Notices wait while a modal is open, so they cannot cover its footer or consume Escape; Radix pauses dismissal on focus/hover after display. Errors also need a persistent inline recovery action. |
 | `Skeleton`, `EmptyState`, `ErrorState`, `Progress` | Name the operation; delay skeleton visuals 150ms with cancellation; never invent percentage progress. Empty states explain a useful next step. |
 | `Surface` | Opaque by default. The optional elevated effect has a 94% overlay backing and bounded blur only with supporting CSS and appropriate preferences. |
 | `IconButton`, `Kbd` | Icons for verbs: 28px (`sm`) or 32px (`md`) on fine pointers and 44px on touch. The `label` is required and is both the accessible name and the tooltip; an optional `shortcut` such as `Mod+K` renders keycaps (⌘ on macOS, Ctrl elsewhere) and sets `aria-keyshortcuts`. When a text button becomes an icon button, keep its accessible name. |
+| `ProgressRing` | Counted progress as a ring with the count inside ("4/11"); `role="progressbar"` with the label as its value text. Turns to the success tone when complete. |
+| `CopyGlyph`, `useCopyFeedback` | A copy action's icon becomes a check drawn in one stroke for 1.6s after a successful copy; the resting style is the finished glyph. |
 | `StatusDot` | Status as shape, then word. The label is always present, visually hidden unless `showLabel`. Tones: neutral, accent, info, success, warning, danger. |
 | `Segmented` | Single-choice radio group with one tab stop and arrow/Home/End keys that skip disabled options. Icon-only options keep their label as accessible name and tooltip. |
 | `Disclosure` | Native `details`/`summary` with a rotating chevron and optional meta, for "Advanced" sections and quiet rail groups. Pass a plain string summary so the summary text stays queryable. |
@@ -98,9 +117,12 @@ dock restores a surviving tab or the Open panel trigger. Commands read the
 current layout when invoked, including after an open command surface changes
 breakpoint.
 
-Desktop dialogs are bounded to 560px and viewport minus 48px. Compact forms use
-a full task surface. Short sheets use at most 85dvh; navigation uses a 280px
-tablet drawer and a full-screen phone list with Back. Overlay keys allow an owner
+Desktop and tablet dialogs are bounded to 560px and viewport minus 48px (the
+palette to 640px); on tablets only large tasks (the workflow builder, an
+expanded chart) take the whole screen, and phones use a full task surface with
+the footer at the bottom edge. Short sheets use at most 85dvh (Context is a
+full-height sheet on phones and a side sheet on tablets); navigation uses a
+280px tablet drawer and a full-screen phone list, both closed from the header. Overlay keys allow an owner
 to dismiss its responsive surface without dismissing an unrelated task.
 Fixed surfaces also respect their containing viewport at zoom; the header text
 can wrap and the body scrolls within the height left by the header and footer.
@@ -120,7 +142,9 @@ labelled icons. A compact icon `Segmented` filters conversations by the server
 `category` (All, Chats, Designs, Code, Workflows) and persists per device.
 Rows keep server order; Pinned comes first, and a Today / Yesterday / This week
 / Older label starts each recency run inside the `Recent conversations` list, so
-the list still holds one item per conversation. Rows show a monochrome type
+the list still holds one item per conversation. The open conversation stays
+listed when the preview hides it, inserted where the order puts it, but only if
+it matches the type filter. Rows show a monochrome type
 glyph, a short time, and pin/⋯ over the time on hover or focus.
 
 The sidebar previews ten conversations in server order. Show more
@@ -185,7 +209,8 @@ visually collapsed pane alone does not prove persisted state is correct.
 
 ### Conversation surface
 
-The conversation is airy; tools inside it stay dense. The transcript and the
+The conversation is airy; tools inside it stay dense (phones and tablets:
+see Responsive below). The transcript and the
 composer share one centred column (`--chat-column`, 760px, with a 24px gutter;
 12px under 768px) and prose is capped at `--prose-width` (72ch) on the 15/24
 reading type. The header is one 48px row: the title (rename in place), a
@@ -218,7 +243,9 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   dictation with a Talk chevron, send/stop (34px round). The context ring is
   neutral ink until it nears the compaction threshold. `/` opens commands and
   `@` opens agent profiles, write targets and files. Status lines are
-  announced, not printed, except a failed or conflicting draft. Floating
+  announced, not printed, except a failed or conflicting draft. Send and
+  Stop are one button that morphs between the two. A composer narrower than
+  480px is one line with the model, approvals and context usage under `+`. Floating
   composer menus (slash commands, model picker, Skills) open above the field
   and stay inside the viewport.
 
@@ -418,6 +445,83 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
   Worktree, sandbox image and network sit under Advanced. Errors are neutral
   cards with the cause and one Retry.
 
+### Responsive (phone and tablet)
+
+Width classes come from the panel model: desktop from 1024px, tablet
+768–1023px, phone below 768px (checked at 1440, 1280, 820, 390 and 360).
+Phones and tablets are touch layouts: controls are 44px, hover-only actions
+are always shown.
+
+- **One header.** In a conversation the conversation header is the only top
+  bar (48px). Phones show the navigation button (a back chevron to the
+  conversation list), the title and a `Conversation menu` (⋯) holding
+  Workspace commands (Mod+K), one entry per panel the thread has
+  ("Open …"), Find in conversation, Context, Share or export and Rename.
+  Tablets keep the icon actions in the same row (Find, Share, Workspace
+  commands, Open panel, Context). Home and routed views keep one compact bar
+  (navigation, title, search).
+- **Drawer.** The navigation drawer is full width on phones and 280px on
+  tablets, slides in from the left and closes from its header. It hosts the
+  same sidebar: Pinned / Today / Yesterday / This week / Older and the type
+  filter (All · Chats · Designs · Code · Workflows).
+- **Panels as sheets.** Below 1024px a Design, Developer, terminal or
+  browser panel opens as a full-height sheet over the conversation with its
+  own header (Back to conversation, the panel kind, Close panel); the
+  conversation and its draft stay mounted underneath, and the panel rail
+  keeps other open panels one tap away. Tablets use the same sheet rather
+  than a narrow dock: at 820px a dock would leave the chat at 400px and the
+  panel at 420px, below the 720px the Design page strip and inspector need.
+- **Context** is a full-height bottom sheet on phones and a 400px side sheet
+  on tablets.
+- **One-line composer.** A composer narrower than 480px (phones, or a chat
+  squeezed by panels) is a single line: `+`, the field, dictation with its
+  Talk chevron, and Send. The model, approvals and context usage move into
+  `+` (the model picker then opens above the field); chips (agents, write
+  targets, attachments, Set up a model) scroll on one row above.
+- **Touch.** On coarse pointers (phones and touch tablets alike) controls
+  keep 44px targets: every composer action and chip, the context ring,
+  switch inputs (grown invisibly around their track), Settings buttons,
+  disclosures, checkbox rows and fields; inline help links extend their hit
+  area without moving the text, and a user message's actions sit under the
+  bubble rather than beside it. The one-line composer's hint shortens to
+  "Message" so it stays on one line at 360px.
+- **Dialogs.** Tablets keep ordinary dialogs and the palette as centred
+  cards; phones use full-screen tasks. Settings below 900px replaces the
+  side navigation with a section picker but keeps its search above it.
+
+### Setup Center
+
+`/setup` (also in the command palette and Home › Overview while setup is
+open) follows the settings page anatomy: an icon header with a progress ring
+("4 of 11 areas handled"), then, until a working model is chosen, one
+highlighted first-model card whose primary action is "Use selected model and
+continue". "What would you like to use?" is a grid of selectable tiles
+(native checkboxes; each change saves at once). Every area is a tile with an
+icon, a one-line description, a status chip (Done, Skipped, Recommended, To
+do) and one primary action (Choose models, Open Knowledge, Add missing
+starter workflows, Start a design, Turn on Developer tools, Open Channels,
+Run diagnosis…); Mark done and Skip sit in its ⋯. Areas that match the
+chosen uses are recommended and come first. Every choice is one reviewed,
+idempotent command; an uncertain one is kept for "Check setup action".
+
+## Motion
+
+Motion confirms a state change; it never delays one. Tokens: 120ms popovers,
+180ms panels and sheets, 280ms drawn glyphs (`--motion-draw`), `--ease-out`.
+Under reduced motion every token is 0ms and animations are removed, and the
+resting style is always the finished state, so nothing is lost.
+
+- **Send ↔ Stop** is one button: the arrow lifts away as the square settles
+  in and the fill turns from accent to ink, so its place and keyboard focus
+  hold while a response starts and ends.
+- **A finished turn draws its check.** When this client watched a turn's
+  tools finish, the activity row's check strokes itself in and each finished
+  step's glyph settles; history loaded later never animates.
+- **Copy turns into a check** (`CopyGlyph`) on messages, code, tables, step
+  results and Monitor copies, then returns after 1.6s.
+- Sheets slide up, the drawer slides in from the left, popovers fade and
+  lift by 2px. CSS only; no motion library.
+
 ## Accessibility, effects and visual regression
 
 The `/app-v2/primitives` route exercises every public primitive and token family.
@@ -435,6 +539,14 @@ samples at 1440×900, 1280×720, 820×1180, 390×844 and 360×800. Keep failures
 correct the component; do not broaden error allowlists or replace golden evidence
 to make a failing check pass. Record source/asset hashes with each evidence cut.
 Regenerate the normal production bundle before payload/reproducibility checks.
+
+`tests/browser/polish-snapshots.spec.ts` holds pixel baselines only for fully
+synthetic surfaces (the component gallery in both appearances, the in-browser
+fixture conversation and the Setup Center on the fixture server) with the clock
+frozen, bundled fonts and finished animations, for Chromium desktop and phone on
+the platform that recorded them. Elsewhere they skip rather than compare
+different font rasterisation; record new ones with `--update-snapshots`. Views
+over real or time-relative data stay in the manual capture sets.
 
 Browser emulation, CSS zoom, axe and fake native drivers do not certify physical
 keyboards/safe areas, screen readers, actual browser chrome zoom or OS dialogs.
