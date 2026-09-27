@@ -71,6 +71,7 @@ import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
 import ApprovalCard from './ApprovalCard';
 import ChatEmpty from './ChatEmpty';
+import { registerPromptSender } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import { TranscriptMessage } from './TranscriptMessage';
 import { publicBlockText } from './TranscriptBlocks';
@@ -1121,6 +1122,30 @@ export default function Conversation({
     draft,
     onFirstPromptConsumed,
   ]);
+  // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
+  // short request to this composer, which sends it with its model and write
+  // targets, queued behind a running turn like any other message.
+  const sendPanelPrompt = useEffectEvent((text: string) => {
+    if (
+      !id ||
+      !historyReady ||
+      state.status !== 'ready' ||
+      !sendActionReady ||
+      !controls?.model_selection ||
+      busy ||
+      talkBusy ||
+      pendingSubmit ||
+      pendingSteering ||
+      pendingResume
+    )
+      return false;
+    send(text, true);
+    return true;
+  });
+  useEffect(() => {
+    if (!id) return;
+    return registerPromptSender(id, (text) => sendPanelPrompt(text));
+  }, [id]);
   async function action(
     type: 'conversation.stop' | 'conversation.steer' | 'conversation.resume',
   ) {
