@@ -15,9 +15,11 @@ import { join, resolve } from 'node:path';
 const script = resolve('scripts/asset-manifest.mjs');
 const ownedNames = [
   'index.html',
+  'buddy-overlay.html',
   'asset-manifest.json',
   '.vite/manifest.json',
   'assets/index-abcdefgh.js',
+  'assets/buddy-overlay-abcdefgh.js',
   'app.webmanifest',
   'service-worker.js',
   'icon-192.png',
@@ -35,6 +37,7 @@ beforeEach(() => {
   mkdirSync(join(build, 'assets'), { recursive: true });
   mkdirSync(join(build, '.vite'));
   writeFileSync(join(build, 'index.html'), '<html>fixture</html>');
+  writeFileSync(join(build, 'buddy-overlay.html'), '<html>buddy</html>');
   for (const name of [
     'app.webmanifest',
     'service-worker.js',
@@ -47,9 +50,17 @@ beforeEach(() => {
     'export const fixture = true;',
   );
   writeFileSync(
+    join(build, 'assets/buddy-overlay-abcdefgh.js'),
+    'export const buddy = true;',
+  );
+  writeFileSync(
     join(build, '.vite/manifest.json'),
     JSON.stringify({
       'index.html': { file: 'assets/index-abcdefgh.js', isEntry: true },
+      'buddy-overlay.html': {
+        file: 'assets/buddy-overlay-abcdefgh.js',
+        isEntry: true,
+      },
     }),
   );
 });
@@ -89,6 +100,21 @@ it('stages exactly the inventoried assets and both private manifests', () => {
   expect(existsSync(join(stage, 'private.txt'))).toBe(false);
 });
 
+it('refuses a build without the desktop Buddy document', () => {
+  writeFileSync(
+    join(build, '.vite/manifest.json'),
+    JSON.stringify({
+      'index.html': { file: 'assets/index-abcdefgh.js', isEntry: true },
+    }),
+  );
+  const result = packageFixture();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(
+    'Missing shell document entry: buddy-overlay.html',
+  );
+  expect(existsSync(stage)).toBe(false);
+});
+
 it('refuses to merge or delete an existing staging directory', () => {
   mkdirSync(stage);
   writeFileSync(join(stage, 'private.txt'), 'preserved fixture');
@@ -111,6 +137,10 @@ it('rejects a traversal manifest before creating staging', () => {
     join(build, '.vite/manifest.json'),
     JSON.stringify({
       'index.html': { file: '../private.txt', isEntry: true },
+      'buddy-overlay.html': {
+        file: 'assets/buddy-overlay-abcdefgh.js',
+        isEntry: true,
+      },
     }),
   );
   const result = packageFixture();

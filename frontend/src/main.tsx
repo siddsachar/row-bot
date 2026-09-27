@@ -1,4 +1,9 @@
 import { createBuddySessions } from './features/buddy/buddy-sessions';
+import {
+  OpenConversationRequests,
+  publishBuddyTarget,
+} from './features/buddy/BuddyFollow';
+import { bindDraftSync } from './draft-sync';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -193,6 +198,9 @@ async function start() {
     controller,
     controller.getSnapshot().handshake,
   );
+  // The desktop Buddy follows this window's conversation and shares drafts.
+  const unpublishBuddyTarget = publishBuddyTarget(controller, platform);
+  const unbindDraftSync = bindDraftSync(controller);
   const workspaceEditSessions = createWorkspaceEditSessions(controller, {
     capacity: 8,
   });
@@ -355,6 +363,7 @@ async function start() {
         >
           <BrowserRouter basename="/app-v2">
             <OverlayProvider>
+              <OpenConversationRequests />
               <Suspense fallback={<Skeleton label="Opening workspace" />}>
                 <Routes>
                   <Route path="/" element={<Workspace />}>
@@ -460,6 +469,8 @@ async function start() {
       providerConfigurationOwner.dispose();
       artifactDesignSessions.dispose();
       disposeActiveConversationSession();
+      unpublishBuddyTarget();
+      unbindDraftSync();
       controller.dispose();
     },
   });

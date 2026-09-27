@@ -22,6 +22,10 @@ _PUBLIC_SHELL_ASSETS = frozenset(
     {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
 )
 _DIGEST = re.compile(r"[a-f0-9]{64}")
+# Shell documents: the workspace, and the desktop Buddy served at
+# /app-v2/buddy-overlay (its own small entry, never the workspace shell).
+_SHELL_DOCUMENTS = frozenset({"index.html", "buddy-overlay.html"})
+_OVERLAY_ROUTES = frozenset({"buddy-overlay", "buddy-overlay/", "buddy-overlay.html"})
 _MIME = {".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
          ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
          ".webp": "image/webp", ".ico": "image/x-icon", ".woff": "font/woff",
@@ -113,7 +117,7 @@ def load_client_assets(root: Path) -> dict[str, ClientAsset]:
         total = 0
         for name, entry in entries.items():
             if (
-                name != "index.html"
+                name not in _SHELL_DOCUMENTS
                 and name not in _PUBLIC_SHELL_ASSETS
                 and not _HASHED_ASSET.fullmatch(name)
             ):
@@ -125,7 +129,7 @@ def load_client_assets(root: Path) -> dict[str, ClientAsset]:
             total += entry["size"]
             if total > _MAX_TOTAL_BYTES:
                 raise AssetValidationError("build_too_large")
-            content = _read_regular(root, name, 256 * 1024 if name == "index.html" else _MAX_FILE_BYTES)
+            content = _read_regular(root, name, 256 * 1024 if name in _SHELL_DOCUMENTS else _MAX_FILE_BYTES)
             digest = hashlib.sha256(content).hexdigest()
             if len(content) != entry["size"] or digest != entry["sha256"]:
                 raise AssetValidationError("asset_integrity_mismatch")
@@ -133,6 +137,11 @@ def load_client_assets(root: Path) -> dict[str, ClientAsset]:
         vite = json.loads(_read_regular(root, ".vite/manifest.json", 256 * 1024))
         if (not isinstance(vite, dict) or not isinstance(vite.get("index.html"), dict)
                 or vite["index.html"].get("isEntry") is not True):
+            raise AssetValidationError("invalid_vite_manifest")
+        # A shipped overlay document must be the entry the build declared.
+        if "buddy-overlay.html" in result and (
+                not isinstance(vite.get("buddy-overlay.html"), dict)
+                or vite["buddy-overlay.html"].get("isEntry") is not True):
             raise AssetValidationError("invalid_vite_manifest")
         for entry in vite.values():
             if not isinstance(entry, dict) or entry.get("file") not in result:
@@ -228,9 +237,13 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
     try:
         assets = load_client_assets(asset_root or default_client_asset_root())
         shell_headers = _shell_headers(assets["index.html"].content)
+        overlay = assets.get("buddy-overlay.html")
+        overlay_headers = _shell_headers(overlay.content) if overlay is not None else {}
     except (AssetValidationError, UnicodeError, OSError):
         assets = {}
         shell_headers = {}
+        overlay = None
+        overlay_headers = {}
     runtime_assets = _client_runtime_assets()
 
     async def serve(request: Request, path: str = "") -> Response:
@@ -259,8 +272,17 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
                     "X-Content-Type-Options": "nosniff",
                 },
             )
+        if path in _OVERLAY_ROUTES:
+            # Each shell document carries a policy for its own inline scripts.
+            if overlay is None:
+                return Response("Buddy is not built. Build the local frontend and restart the host.",
+                                503, media_type="text/plain", headers=headers)
+            if "text/html" not in request.headers.get("accept", "") and request.method != "HEAD":
+                return Response("Not found", 404, headers=headers)
+            return Response(overlay.content if request.method != "HEAD" else b"", media_type="text/html",
+                            headers={**overlay_headers, "Content-Length": str(len(overlay.content))})
         asset = assets.get(path)
-        if asset is not None and path != "index.html":
+        if asset is not None and path not in _SHELL_DOCUMENTS:
             cache_control = (
                 "no-cache"
                 if path == "service-worker.js"

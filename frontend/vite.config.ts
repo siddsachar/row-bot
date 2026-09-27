@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import { bootstrapTheme, TOKENS } from './src/ui/theme-model';
@@ -43,6 +44,22 @@ export default defineConfig({
   plugins: [
     react(),
     {
+      // Dev only: serve the desktop Buddy document at the route the native
+      // host opens (/app-v2/buddy-overlay), as the backend does when built.
+      name: 'row-bot-buddy-overlay-route',
+      configureServer(server) {
+        server.middlewares.use((request, _response, next) => {
+          const url = request.url ?? '';
+          if (/^\/app-v2\/buddy-overlay\/?(?:\?|$)/.test(url))
+            request.url = url.replace(
+              /^\/app-v2\/buddy-overlay\/?/,
+              '/app-v2/buddy-overlay.html',
+            );
+          next();
+        });
+      },
+    },
+    {
       name: 'row-bot-theme-bootstrap',
       transformIndexHtml(html) {
         return html.replace(
@@ -72,6 +89,12 @@ export default defineConfig({
     target: 'es2022',
     emptyOutDir: false,
     rollupOptions: {
+      // The workspace shell and the desktop Buddy (a 380×230 native window
+      // that must not load the shell) are separate documents.
+      input: {
+        index: resolve(import.meta.dirname, 'index.html'),
+        'buddy-overlay': resolve(import.meta.dirname, 'buddy-overlay.html'),
+      },
       output: {
         manualChunks(id) {
           // Syntax highlighting loads on first use: each grammar is its own
