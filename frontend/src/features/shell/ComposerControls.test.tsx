@@ -401,3 +401,37 @@ it.each([
     expect(mock.controller.intent).not.toHaveBeenCalled();
   },
 );
+
+it('folds the model, approvals and context usage into + on a one-line composer', async () => {
+  const anchor = { current: document.createElement('div') };
+  document.body.append(anchor.current);
+  render(
+    <ComposerControls
+      onError={vi.fn()}
+      singleLine
+      anchor={anchor}
+      contextUsage={null}
+    />,
+  );
+  expect(screen.queryByRole('button', { name: 'Model' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Approvals' })).toBeNull();
+  const more = await menu('Add files and more');
+  expect(
+    more.getByText('Context will appear after the next response'),
+  ).toBeInTheDocument();
+  expect(more.getByRole('menuitem', { name: /^Model/ })).toHaveTextContent(
+    'Exact effort model',
+  );
+  const approvals = await submenu(more, /^Approvals/);
+  expect(approvals.getByRole('menuitemradio', { name: 'Ask' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await act(async () =>
+    fireEvent.click(approvals.getByRole('menuitemradio', { name: 'Auto' })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe(
+    'allow_all',
+  );
+  anchor.current.remove();
+});

@@ -9,7 +9,13 @@ function tokens(value: number | null | undefined) {
 const RADIUS = 7;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-function Ring({ percent, threshold }: { percent: number; threshold: number }) {
+export function Ring({
+  percent,
+  threshold,
+}: {
+  percent: number;
+  threshold: number;
+}) {
   const angle = (threshold / 100) * 2 * Math.PI - Math.PI / 2;
   return (
     <svg className="context-ring-svg" viewBox="0 0 20 20" aria-hidden>
@@ -33,6 +39,40 @@ function Ring({ percent, threshold }: { percent: number; threshold: number }) {
       )}
     </svg>
   );
+}
+
+/**
+ * One line for a menu or tooltip: "43% of context · compacts at 80%", with the
+ * ring's values. A one-line composer shows it in its + menu.
+ */
+export function describeContextUsage(usage?: ContextUsageView | null): {
+  percent: number;
+  threshold: number;
+  text: string;
+} {
+  if (!usage || usage.state === 'unknown')
+    return {
+      percent: 0,
+      threshold: 0,
+      text: 'Context will appear after the next response',
+    };
+  const used = usage.estimated_input_tokens ?? 0;
+  const usable = usage.usable_input_tokens ?? 0;
+  const percent = usable > 0 ? Math.min(100, (used / usable) * 100) : 0;
+  const threshold =
+    usable > 0 && usage.compact_at_tokens
+      ? Math.min(100, (usage.compact_at_tokens / usable) * 100)
+      : 0;
+  const percentLabel =
+    percent > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`;
+  const stale = usage.freshness === 'stale' || usage.state === 'stale';
+  const text =
+    usage.status === 'compacting'
+      ? 'Compacting context…'
+      : usable
+        ? `${stale ? '~' : ''}${percentLabel} of context${threshold ? ` · compacts at ${Math.round(threshold)}%` : ''}`
+        : 'Context unavailable';
+  return { percent, threshold, text };
 }
 
 /**

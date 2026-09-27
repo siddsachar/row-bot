@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Cpu, PanelRight, Pencil, Search, Share } from 'lucide-react';
-import { IconButton } from '../../ui/primitives';
+import {
+  Cpu,
+  MoreHorizontal,
+  PanelRight,
+  Pencil,
+  Share,
+  TextSearch,
+} from 'lucide-react';
+import { IconButton, Menu, type MenuAction } from '../../ui/primitives';
 
 /**
  * The conversation header: the title (click to rename), the current model as
- * a chip, and icon actions for find, share/export and the context panel.
+ * a chip, and icon actions for find, share/export and the context panel. On
+ * phones it is one 48px row: `leading` (back to the conversation list), the
+ * title and a ⋯ menu that holds every other action (`menuActions` first).
  */
 export default function ConversationHeader({
   title,
@@ -17,6 +26,8 @@ export default function ConversationHeader({
   contextPressed,
   contextDisabled = false,
   actions,
+  leading,
+  menuActions,
   children,
 }: {
   title: string;
@@ -32,6 +43,13 @@ export default function ConversationHeader({
   contextDisabled?: boolean;
   /** Workspace-owned icon actions (Open panel). */
   actions?: ReactNode;
+  /** Shown before the title on compact layouts (the navigation button). */
+  leading?: ReactNode;
+  /**
+   * Phone layout: fold the actions into one ⋯ menu. The workspace's own
+   * entries (search, panels) come first.
+   */
+  menuActions?: MenuAction[];
   /** Rare, urgent actions such as checking a pending receipt. */
   children?: ReactNode;
 }) {
@@ -66,8 +84,56 @@ export default function ConversationHeader({
       setSaving(false);
     }
   }
+  const phone = menuActions !== undefined;
+  const menu: MenuAction[] = phone
+    ? [
+        ...menuActions,
+        ...(onFind
+          ? [
+              {
+                label: 'Find in conversation',
+                icon: <TextSearch size={16} />,
+                separatorBefore: menuActions.length > 0,
+                onSelect: onFind,
+              },
+            ]
+          : []),
+        ...(onContext
+          ? [
+              {
+                label: 'Context',
+                icon: <PanelRight size={16} />,
+                disabled: contextDisabled,
+                onSelect: onContext,
+              },
+            ]
+          : []),
+        ...(onShare
+          ? [
+              {
+                label: 'Share or export',
+                icon: <Share size={16} />,
+                onSelect: onShare,
+              },
+            ]
+          : []),
+        ...(canRename
+          ? [
+              {
+                label: 'Rename conversation',
+                icon: <Pencil size={16} />,
+                onSelect: () => setEditing(true),
+              },
+            ]
+          : []),
+      ]
+    : [];
   return (
-    <header className="conversation-heading">
+    <header
+      className="conversation-heading"
+      data-layout={phone ? 'phone' : leading ? 'compact' : undefined}
+    >
+      {leading}
       <div className="conversation-title-block">
         {editing ? (
           <input
@@ -99,7 +165,7 @@ export default function ConversationHeader({
             {title}
           </h1>
         )}
-        {canRename && !editing && (
+        {canRename && !editing && !phone && (
           <IconButton
             size="sm"
             label="Rename conversation"
@@ -109,7 +175,7 @@ export default function ConversationHeader({
             <Pencil size={14} aria-hidden />
           </IconButton>
         )}
-        {model && (
+        {model && !phone && (
           // The composer's model pill is the control; this chip only says
           // which model the conversation uses.
           <span className="conversation-model-chip" title={`Model: ${model}`}>
@@ -124,18 +190,29 @@ export default function ConversationHeader({
         aria-label="Conversation actions"
       >
         {children}
-        {onFind && (
+        {phone && menu.length > 0 && (
+          <Menu
+            label="Conversation menu"
+            iconOnly
+            variant="ghost"
+            className="conversation-menu"
+            actions={menu}
+          >
+            <MoreHorizontal size={18} aria-hidden />
+          </Menu>
+        )}
+        {!phone && onFind && (
           <IconButton label="Find" onClick={onFind}>
-            <Search size={16} aria-hidden />
+            <TextSearch size={16} aria-hidden />
           </IconButton>
         )}
-        {onShare && (
+        {!phone && onShare && (
           <IconButton label="Share or export" onClick={onShare}>
             <Share size={16} aria-hidden />
           </IconButton>
         )}
-        {actions}
-        {onContext && (
+        {!phone && actions}
+        {!phone && onContext && (
           <IconButton
             label="Context"
             data-context-toggle=""

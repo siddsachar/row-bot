@@ -46,5 +46,6 @@ it('loads bundled Geist fonts from local package files, never a remote origin', 
     './home.css',
     './panels.css',
     './setup.css',
+    './responsive.css',
   ]);
 });

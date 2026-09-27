@@ -51,6 +51,7 @@ import {
   IconButton,
   Menu,
   Skeleton,
+  type MenuAction,
 } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import { useClientSelector, useRuntime } from '../../runtime';
@@ -109,6 +110,19 @@ function panelIcon(descriptor: PanelDescriptor): LucideIcon {
         : descriptor.panel_kind === 'browser.live'
           ? Globe
           : BookOpen;
+}
+
+/** The sheet header names the kind; the panel itself shows the resource. */
+function panelKindLabel(descriptor: PanelDescriptor): string {
+  return descriptor.panel_kind === 'artifact.preview'
+    ? 'Design'
+    : descriptor.panel_kind === 'workspace.inspector'
+      ? 'Developer'
+      : descriptor.panel_kind === 'native.terminal'
+        ? 'Terminal'
+        : descriptor.panel_kind === 'browser.live'
+          ? 'Browser'
+          : descriptor.title;
 }
 
 /** Keyboard shortcut match: Mod is Command on macOS and Control elsewhere. */
@@ -367,6 +381,9 @@ export default function Workspace() {
   const sideRef = usePanelRef();
   const bottomRef = usePanelRef();
   const desktop = layout.widthClass === 'desktop';
+  // Phones get one 48px conversation header (back, title, ⋯); tablets keep
+  // their icon actions in the same single row.
+  const phone = layout.widthClass === 'phone';
   const sidePanels = layout.panels.filter(
     (panel) =>
       panel.placement === 'side' &&
@@ -619,11 +636,12 @@ export default function Workspace() {
         overlay.notify('That result is no longer available. Search again.'),
       );
   }
-  function openCommands() {
+  function openCommands(from?: HTMLElement | null) {
     const opener =
-      document.activeElement instanceof HTMLElement
+      from ??
+      (document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
     const go = (to: string) => {
       navigate(to, { replace: true });
       overlay.close();
@@ -1216,33 +1234,66 @@ export default function Workspace() {
       size="sm"
       label="Workspace commands"
       shortcut="Mod+K"
-      onClick={openCommands}
+      onClick={() => openCommands()}
     >
       <Search size={16} aria-hidden />
     </IconButton>
   );
-  const navigationToggle = (
-    <IconButton
-      size="sm"
-      label={
-        desktop && layout.navigation.collapsed
-          ? 'Expand navigation'
-          : 'Toggle navigation'
-      }
-      onClick={() =>
-        desktop
-          ? update((previous) => toggleRegion(previous, 'navigation'))
-          : overlay.open({
-              kind: 'drawer',
-              title: 'Conversations',
-              description: 'Choose a conversation',
-              content: navigation(false),
-            })
-      }
-    >
-      <PanelLeft size={16} aria-hidden />
-    </IconButton>
-  );
+  const navigationToggle = navigationButton(false);
+  function navigationButton(back: boolean) {
+    return (
+      <IconButton
+        size="sm"
+        label={
+          desktop && layout.navigation.collapsed
+            ? 'Expand navigation'
+            : 'Toggle navigation'
+        }
+        onClick={() =>
+          desktop
+            ? update((previous) => toggleRegion(previous, 'navigation'))
+            : overlay.open({
+                kind: 'drawer',
+                title: 'Conversations',
+                description: 'Choose a conversation',
+                content: navigation(false),
+              })
+        }
+      >
+        {back ? (
+          <ChevronLeft size={20} aria-hidden />
+        ) : (
+          <PanelLeft size={16} aria-hidden />
+        )}
+      </IconButton>
+    );
+  }
+  const panelChoices: PanelDescriptor[] = [
+    ...(state.workspace?.resources ?? []).map((resource) => ({
+      panel_kind:
+        resource.binding.kind === 'artifact'
+          ? 'artifact.preview'
+          : 'workspace.inspector',
+      title: resource.title.slice(0, 160),
+      resource_ref: resource.resource_ref,
+      resource_kind: resource.binding.kind,
+      resource_revision: resource.resource_revision,
+    })),
+    ...(state.handshake?.application_capabilities?.includes('native:terminal')
+      ? [{ panel_kind: 'native.terminal', title: 'Interactive terminal' }]
+      : []),
+    ...(import.meta.env.VITE_ENABLE_FIXTURES === '1' ? samplePanels : []),
+  ];
+  const panelActions = (label: (title: string) => string): MenuAction[] =>
+    panelChoices.map((panel) => {
+      const Icon = panelIcon(panel);
+      return {
+        label: label(panel.title),
+        icon: <Icon size={16} />,
+        onSelect: (opener: HTMLButtonElement | null) =>
+          showPanel(panel, opener),
+      };
+    });
   const openPanelMenu = (
     <Menu
       label="Open panel"
@@ -1251,36 +1302,25 @@ export default function Workspace() {
       variant="ghost"
       className="open-panel-menu"
       hint="Open panel"
-      actions={[
-        ...(state.workspace?.resources ?? []).map((resource) => ({
-          panel_kind:
-            resource.binding.kind === 'artifact'
-              ? 'artifact.preview'
-              : 'workspace.inspector',
-          title: resource.title.slice(0, 160),
-          resource_ref: resource.resource_ref,
-          resource_kind: resource.binding.kind,
-          resource_revision: resource.resource_revision,
-        })),
-        ...(state.handshake?.application_capabilities?.includes(
-          'native:terminal',
-        )
-          ? [{ panel_kind: 'native.terminal', title: 'Interactive terminal' }]
-          : []),
-        ...(import.meta.env.VITE_ENABLE_FIXTURES === '1' ? samplePanels : []),
-      ].map((panel) => {
-        const Icon = panelIcon(panel);
-        return {
-          label: panel.title,
-          icon: <Icon size={16} />,
-          onSelect: (opener: HTMLButtonElement | null) =>
-            showPanel(panel, opener),
-        };
-      })}
+      actions={panelActions((title) => title)}
     >
       <Columns3 size={16} aria-hidden />
     </Menu>
   );
+  // The phone header's ⋯: search first, then every panel this thread has.
+  const phoneMenu: MenuAction[] = [
+    {
+      label: 'Workspace commands',
+      icon: <Search size={16} />,
+      shortcut: 'Mod+K',
+      onSelect: (opener) => openCommands(opener),
+    },
+    ...panelActions((title) => `Open ${title}`).map((action, index) =>
+      index === 0 ? { ...action, separatorBefore: true } : action,
+    ),
+  ];
+  const conversationVisible =
+    Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
   const navigation = (inPane: boolean) => (
     <Navigation
       showBuddy={!layout.navigation.collapsed}
@@ -1322,16 +1362,18 @@ export default function Workspace() {
           Skip to conversation
         </a>
         <div className="context-parking" ref={contextParking} hidden />
-        {!desktop && (
+        {!desktop && !conversationVisible && !compact && (
+          // Home and routed views: one 48px bar. A conversation carries these
+          // controls in its own header; a panel sheet covers the whole height.
           <div className="compact-controls">
             <div
               className="workspace-controls"
               role="group"
               aria-label="Workspace controls"
             >
-              {commandsButton}
               {navigationToggle}
-              {openPanelMenu}
+              {homeOpen && <span className="compact-controls-title">Home</span>}
+              {commandsButton}
             </div>
           </div>
         )}
@@ -1525,33 +1567,67 @@ export default function Workspace() {
                       onFirstPromptConsumed={creation.onFirstPromptConsumed}
                       contextPlacement={desktop ? 'inline' : 'compact'}
                       contextToggle={contextToggle}
-                      headerActions={desktop ? openPanelMenu : undefined}
+                      headerActions={
+                        desktop ? (
+                          openPanelMenu
+                        ) : phone ? undefined : (
+                          <>
+                            {commandsButton}
+                            {openPanelMenu}
+                          </>
+                        )
+                      }
+                      headerLeading={
+                        desktop ? undefined : navigationButton(phone)
+                      }
+                      headerMenu={phone ? phoneMenu : undefined}
                     />
                   </section>
                   {homeOpen && <Home />}
                   {compact && !routeOpen && (
-                    <section className="compact-tab" aria-label="Compact panel">
-                      <Button
-                        onClick={() => {
-                          openPanelRef.current?.focus({ preventScroll: true });
-                          update((previous) => focusPanel(previous, null));
-                        }}
-                      >
-                        <ChevronLeft size={18} aria-hidden />
-                        Back to conversation
-                      </Button>
-                      <PanelContent panel={compact} visible />
-                      <Button
-                        onClick={() => {
-                          openPanelRef.current?.focus({ preventScroll: true });
-                          update((previous) =>
-                            closePanel(previous, compact.instance_id),
-                          );
-                          update((previous) => focusPanel(previous, null));
-                        }}
-                      >
-                        Close panel
-                      </Button>
+                    <section
+                      className="compact-tab panel-sheet"
+                      aria-label="Compact panel"
+                    >
+                      <header className="panel-sheet-header">
+                        <IconButton
+                          label="Back to conversation"
+                          onClick={() => {
+                            openPanelRef.current?.focus({
+                              preventScroll: true,
+                            });
+                            update((previous) => focusPanel(previous, null));
+                          }}
+                        >
+                          <ChevronLeft size={18} aria-hidden />
+                        </IconButton>
+                        <span className="panel-sheet-title">
+                          {(() => {
+                            const Icon = panelIcon(compact.descriptor);
+                            return <Icon size={15} aria-hidden />;
+                          })()}
+                          <span title={compact.descriptor.title}>
+                            {panelKindLabel(compact.descriptor)}
+                          </span>
+                        </span>
+                        <IconButton
+                          label="Close panel"
+                          onClick={() => {
+                            openPanelRef.current?.focus({
+                              preventScroll: true,
+                            });
+                            update((previous) =>
+                              closePanel(previous, compact.instance_id),
+                            );
+                            update((previous) => focusPanel(previous, null));
+                          }}
+                        >
+                          <X size={18} aria-hidden />
+                        </IconButton>
+                      </header>
+                      <div className="panel-sheet-body">
+                        <PanelContent panel={compact} visible />
+                      </div>
                     </section>
                   )}
                   {routeOpen && (

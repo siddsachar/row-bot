@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ConversationHeader from './ConversationHeader';
 
@@ -40,4 +46,47 @@ it('does not rename when the title is unchanged or blank', () => {
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(onRename).not.toHaveBeenCalled();
   expect(screen.getByRole('heading', { name: 'Kept' })).toBeVisible();
+});
+
+it('is one phone row: back, title and a ⋯ that holds every action', async () => {
+  const onFind = vi.fn();
+  const onContext = vi.fn();
+  const onSearch = vi.fn();
+  render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename
+      onRename={vi.fn(async () => {})}
+      model="Local model"
+      onFind={onFind}
+      onShare={vi.fn()}
+      onContext={onContext}
+      leading={<button type="button">Toggle navigation</button>}
+      menuActions={[{ label: 'Workspace commands', onSelect: onSearch }]}
+    />,
+  );
+  const header = screen.getByRole('banner');
+  expect(header).toHaveAttribute('data-layout', 'phone');
+  expect(
+    screen.getByRole('button', { name: 'Toggle navigation' }),
+  ).toBeVisible();
+  // Icon actions and the model chip fold away; the title stays.
+  expect(screen.queryByRole('button', { name: 'Find' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Context' })).toBeNull();
+  expect(screen.queryByText('Local model')).toBeNull();
+  const more = screen.getByRole('button', { name: 'Conversation menu' });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  expect(
+    screen.getAllByRole('menuitem').map((item) => item.textContent),
+  ).toEqual([
+    'Workspace commands',
+    'Find in conversation',
+    'Context',
+    'Share or export',
+    'Rename conversation',
+  ]);
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Context' })),
+  );
+  expect(onContext).toHaveBeenCalledTimes(1);
 });

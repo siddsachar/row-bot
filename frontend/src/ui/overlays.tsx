@@ -9,7 +9,7 @@ import {
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Toast from '@radix-ui/react-toast';
-import { X } from 'lucide-react';
+import { PanelLeftClose, X } from 'lucide-react';
 import { Button, IconButton } from './primitives';
 
 type Overlay = {
@@ -207,7 +207,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                   </div>
                   {!confirmation && !palette && (
                     <Button
-                      iconOnly={task?.kind !== 'drawer'}
+                      iconOnly
                       variant="ghost"
                       aria-label={
                         task?.kind === 'drawer'
@@ -217,7 +217,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                       onClick={() => close()}
                     >
                       {task?.kind === 'drawer' ? (
-                        'Back'
+                        <PanelLeftClose size={20} aria-hidden />
                       ) : (
                         <X size={20} aria-hidden />
                       )}

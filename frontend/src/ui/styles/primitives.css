@@ -131,14 +131,14 @@ time {
 .progress-ring-count {
   position: relative;
   color: var(--text-primary);
-  font-size: var(--text-13);
+  font-size: var(--text-12);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 .progress-ring-count small {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
 }
 

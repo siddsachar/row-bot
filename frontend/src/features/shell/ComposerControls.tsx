@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
   Bot,
   Check,
   ChevronRight,
+  Cpu,
   FolderPlus,
   Paperclip,
   Plus,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type {
+  ContextUsageView,
   ConversationComposer,
   ConversationControls,
   ReasoningSelectionValue,
@@ -27,7 +29,12 @@ import ComposerSkills, {
   type ComposerSkillAction,
 } from './ComposerSkills';
 import ModelPicker from './ModelPicker';
-import { rememberRecentModel } from './model-choices';
+import {
+  modelRefName,
+  rememberRecentModel,
+  splitModelLabel,
+} from './model-choices';
+import { describeContextUsage, Ring } from './ContextUsage';
 import { currentProfileChoice, profileChoices } from './agent-profiles';
 
 const APPROVAL_LABELS = { approve: 'Ask', block: 'Block', allow_all: 'Auto' };
@@ -41,7 +48,9 @@ const APPROVAL_ICONS = {
  * The composer's left cluster: a + menu (attach, add resource, skills, agent
  * profile, mode), the model pill with its picker, and an approval shield whose
  * glyph shows Ask/Auto/Block. The server supplies exact-model choices;
- * presentation never invents efforts.
+ * presentation never invents efforts. A one-line composer (`singleLine`)
+ * keeps only the +: the model, approvals and context usage move into it and
+ * the picker opens above the field.
  */
 export default function ComposerControls({
   composer,
@@ -55,6 +64,9 @@ export default function ComposerControls({
   attachDisabled = false,
   modelPickerOpen,
   onModelPickerOpenChange,
+  singleLine = false,
+  contextUsage,
+  anchor,
 }: {
   composer?: ConversationComposer;
   onSkillAction?: ComposerSkillAction;
@@ -67,6 +79,10 @@ export default function ComposerControls({
   attachDisabled?: boolean;
   modelPickerOpen?: boolean;
   onModelPickerOpenChange?(open: boolean): void;
+  singleLine?: boolean;
+  contextUsage?: ContextUsageView | null;
+  /** The field the picker opens above in a one-line composer. */
+  anchor?: RefObject<HTMLElement | null>;
 }) {
   const state = useClientState();
   const { controller } = useRuntime();
@@ -77,6 +93,8 @@ export default function ComposerControls({
   const setPickerOpen = onModelPickerOpenChange ?? setLocalPickerOpen;
   const operation = useRef(false);
   const openSkillsAfterMenu = useRef(false);
+  const openPickerAfterMenu = useRef(false);
+  const plusRef = useRef<HTMLButtonElement>(null);
   const workspace = state.workspace;
   const controls = workspace?.controls;
   const id = state.selectedConversationId;
@@ -96,6 +114,13 @@ export default function ComposerControls({
   const mode = controls.approval_mode ?? 'approve';
   const approval = APPROVAL_LABELS[mode];
   const Shield = APPROVAL_ICONS[mode];
+  const currentModel = state.handshake?.models?.find(
+    (model) => model.model_ref === controls.model_selection?.model_ref,
+  );
+  const modelName = currentModel
+    ? splitModelLabel(currentModel.label).name
+    : modelRefName(controls.model_selection?.model_ref) || 'Choose model';
+  const context = describeContextUsage(contextUsage);
   async function save(patch: Partial<ConversationControls>) {
     if (operation.current || blocked || !id || !controls) return;
     operation.current = true;
@@ -143,6 +168,7 @@ export default function ComposerControls({
   const trigger = (
     <Dropdown.Trigger asChild>
       <Button
+        ref={plusRef}
         iconOnly
         variant="ghost"
         className="composer-plus"
@@ -184,12 +210,83 @@ export default function ComposerControls({
             sideOffset={8}
             collisionPadding={12}
             onCloseAutoFocus={(event) => {
+              if (openPickerAfterMenu.current) {
+                openPickerAfterMenu.current = false;
+                event.preventDefault();
+                setPickerOpen(true);
+                return;
+              }
               if (!openSkillsAfterMenu.current) return;
               openSkillsAfterMenu.current = false;
               event.preventDefault();
               onSkillsOpenChange(true);
             }}
           >
+            {singleLine && (
+              <>
+                <Dropdown.Label className="composer-plus-context">
+                  <Ring
+                    percent={context.percent}
+                    threshold={context.threshold}
+                  />
+                  <span>{context.text}</span>
+                </Dropdown.Label>
+                <Dropdown.Item
+                  className="menu-item"
+                  disabled={blocked}
+                  onSelect={() => {
+                    openPickerAfterMenu.current = true;
+                  }}
+                >
+                  <Cpu size={16} aria-hidden />
+                  <span className="menu-item-label">Model</span>
+                  <span className="menu-item-meta">{modelName}</span>
+                </Dropdown.Item>
+                <Dropdown.Sub>
+                  <Dropdown.SubTrigger className="menu-item" disabled={blocked}>
+                    <Shield size={16} aria-hidden data-mode={mode} />
+                    <span className="menu-item-label">Approvals</span>
+                    <span className="menu-item-meta">{approval}</span>
+                    <ChevronRight size={14} aria-hidden />
+                  </Dropdown.SubTrigger>
+                  <Dropdown.Portal>
+                    <Dropdown.SubContent
+                      className="menu surface-effect"
+                      sideOffset={4}
+                      collisionPadding={12}
+                    >
+                      <Dropdown.RadioGroup
+                        value={mode}
+                        onValueChange={(value) =>
+                          void save({
+                            approval_mode:
+                              value as ConversationControls['approval_mode'],
+                          })
+                        }
+                      >
+                        {(['approve', 'allow_all', 'block'] as const).map(
+                          (value) => (
+                            <Dropdown.RadioItem
+                              key={value}
+                              value={value}
+                              className="menu-item"
+                            >
+                              <span className="menu-item-label">
+                                {APPROVAL_LABELS[value]}
+                              </span>
+                              <Dropdown.ItemIndicator>
+                                <Check size={16} aria-hidden />
+                              </Dropdown.ItemIndicator>
+                            </Dropdown.RadioItem>
+                          ),
+                        )}
+                      </Dropdown.RadioGroup>
+                    </Dropdown.SubContent>
+                  </Dropdown.Portal>
+                </Dropdown.Sub>
+                <Dropdown.Separator className="menu-separator" />
+              </>
+            )}
             {onAttach && (
               <Dropdown.Item
                 className="menu-item"
@@ -326,22 +423,28 @@ export default function ComposerControls({
         onThinking={(selection) => void chooseThinking(selection)}
         onConnect={() => navigate('/settings/providers')}
         onManage={() => navigate('/settings/models')}
+        anchor={singleLine ? anchor : undefined}
+        returnFocusTo={singleLine ? () => plusRef.current : undefined}
       />
-      <Menu
-        label="Approvals"
-        hint={`Approvals: ${approval}`}
-        variant="ghost"
-        iconOnly
-        className="composer-shield"
-        disabled={blocked}
-        actions={(['approve', 'allow_all', 'block'] as const).map((value) => ({
-          label: APPROVAL_LABELS[value],
-          selected: mode === value,
-          onSelect: () => void save({ approval_mode: value }),
-        }))}
-      >
-        <Shield size={17} aria-hidden data-mode={mode} />
-      </Menu>
+      {!singleLine && (
+        <Menu
+          label="Approvals"
+          hint={`Approvals: ${approval}`}
+          variant="ghost"
+          iconOnly
+          className="composer-shield"
+          disabled={blocked}
+          actions={(['approve', 'allow_all', 'block'] as const).map(
+            (value) => ({
+              label: APPROVAL_LABELS[value],
+              selected: mode === value,
+              onSelect: () => void save({ approval_mode: value }),
+            }),
+          )}
+        >
+          <Shield size={17} aria-hidden data-mode={mode} />
+        </Menu>
+      )}
       {saving && (
         <small className="visually-hidden" role="status">
           Saving conversation controls…

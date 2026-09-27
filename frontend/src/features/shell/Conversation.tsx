@@ -23,7 +23,7 @@ import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Menu, Skeleton } from '../../ui/primitives';
+import { Button, Menu, Skeleton, type MenuAction } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
 import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
@@ -106,6 +106,9 @@ const FIELD_SIZING =
   typeof CSS.supports === 'function' &&
   CSS.supports('field-sizing', 'content');
 
+/** Below this composer width the composer is a single line. */
+const SINGLE_LINE_COMPOSER = 480;
+
 export default function Conversation({
   onPanel,
   completedDesignId,
@@ -119,6 +122,8 @@ export default function Conversation({
   contextPlacement = compactFromViewport ? 'compact' : 'inline',
   contextToggle = 0,
   headerActions,
+  headerLeading,
+  headerMenu,
   onStartProfileChat,
 }: {
   onPanel: (panel: PanelDescriptor) => void;
@@ -140,6 +145,10 @@ export default function Conversation({
   contextToggle?: number;
   /** Header icon actions owned by the workspace (Open panel). */
   headerActions?: ReactNode;
+  /** Compact layouts: the navigation button before the title. */
+  headerLeading?: ReactNode;
+  /** Phone layout: the header folds its actions into ⋯ (these come first). */
+  headerMenu?: MenuAction[];
   onStartProfileChat?: (profile: ProfileSummary) => void;
 }) {
   const state = useClientState();
@@ -444,13 +453,25 @@ export default function Conversation({
   const [composerBusy, setComposerBusy] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const composerFieldRef = useRef<HTMLDivElement>(null);
   const [compactToolbar, setCompactToolbar] = useState(false);
-  useEffect(() => {
+  // A narrow composer (phones, a squeezed chat) is one line: + field mic
+  // send, with the model, approvals and context usage under +.
+  const [singleLine, setSingleLine] = useState(false);
+  useLayoutEffect(() => {
     const composer = toolbarRef.current?.closest('.composer');
-    if (!composer || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(([entry]) => {
-      setCompactToolbar(entry.contentRect.width < 600);
-    });
+    if (!composer) return;
+    const measure = (width: number) => {
+      // A hidden conversation (Home, a route) measures 0: keep the mode.
+      if (width <= 0) return;
+      setCompactToolbar(width < 600);
+      setSingleLine(width < SINGLE_LINE_COMPOSER);
+    };
+    measure(composer.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) =>
+      measure(entry.contentRect.width),
+    );
     observer.observe(composer);
     return () => observer.disconnect();
   }, [id]);
@@ -2015,6 +2036,8 @@ export default function Conversation({
     overlay.open({
       kind: 'sheet',
       key: 'conversation-context',
+      // Full height on phones, a side sheet on tablets (responsive.css).
+      className: 'context-sheet',
       title: 'Conversation context',
       description: '',
       content: contextRail,
@@ -2052,6 +2075,38 @@ export default function Conversation({
     toggleFromShortcut();
   }, [contextToggle]);
   const contextShown = hosted ? cardActive : undefined;
+  const needsModel =
+    !isRunning &&
+    Boolean(state.workspace) &&
+    state.status === 'ready' &&
+    !sendActionReady;
+  const setupModelButton = (
+    <Button
+      className="composer-setup-model"
+      onClick={() => navigate('/settings/models')}
+    >
+      Set up a model
+    </Button>
+  );
+  const composerControls = (
+    <ComposerControls
+      key={id}
+      composer={composerSnapshot ?? undefined}
+      onSkillAction={skillAction}
+      skillsOpen={skillsOpen}
+      onSkillsOpenChange={setSkillsOpen}
+      disabled={isRunning || busy || talkBusy || composerBusy}
+      onError={setError}
+      onAttach={() => void attach()}
+      attachDisabled={busy}
+      onAddResource={setup}
+      modelPickerOpen={modelPickerOpen}
+      onModelPickerOpenChange={setModelPickerOpen}
+      singleLine={singleLine}
+      contextUsage={state.workspace?.context_usage}
+      anchor={composerFieldRef}
+    />
+  );
   const sendBlocked =
     busy ||
     Boolean(pendingSteering) ||
@@ -2094,6 +2149,8 @@ export default function Conversation({
           contextPressed={contextShown}
           contextDisabled={!contextReady}
           actions={headerActions}
+          leading={headerLeading}
+          menuActions={headerMenu}
         >
           {missingReceipt &&
             (missingReceipt.key === steeringKey ||
@@ -2453,6 +2510,7 @@ export default function Conversation({
       {id && (
         <form
           className="composer"
+          data-single-line={singleLine ? 'true' : undefined}
           aria-label="Message composer"
           aria-busy={busy || talkBusy}
           onSubmit={(e) => {
@@ -2519,15 +2577,17 @@ export default function Conversation({
               )}
             </details>
           )}
-          <div className="composer-field">
+          <div className="composer-field" ref={composerFieldRef}>
             {(!!resources.length ||
               !!draft.attachments.length ||
+              (singleLine && needsModel) ||
               Boolean(
                 composerSnapshot &&
                 (composerSnapshot.active_skills.length ||
                   composerSnapshot.suggestions.length),
               )) && (
               <div className="composer-chips">
+                {singleLine && needsModel && setupModelButton}
                 {!!resources.length && (
                   <ResourceTargets
                     resources={resources}
@@ -2570,6 +2630,7 @@ export default function Conversation({
                 )}
               </div>
             )}
+            {singleLine && composerControls}
             <label className="sr-only" htmlFor="message-composer">
               Message
             </label>
@@ -2657,20 +2718,7 @@ export default function Conversation({
               onConsume={(token) => replaceSlashToken(token)}
             />
             <div className="composer-toolbar" ref={toolbarRef}>
-              <ComposerControls
-                key={id}
-                composer={composerSnapshot ?? undefined}
-                onSkillAction={skillAction}
-                skillsOpen={skillsOpen}
-                onSkillsOpenChange={setSkillsOpen}
-                disabled={isRunning || busy || talkBusy || composerBusy}
-                onError={setError}
-                onAttach={() => void attach()}
-                attachDisabled={busy}
-                onAddResource={setup}
-                modelPickerOpen={modelPickerOpen}
-                onModelPickerOpenChange={setModelPickerOpen}
-              />
+              {!singleLine && composerControls}
               <div className="composer-actions">
                 {compactToolbar &&
                   (pendingSubmit || pendingResume || pendingSteering) && (
@@ -2726,7 +2774,9 @@ export default function Conversation({
                     Check queued message
                   </Button>
                 )}
-                <ContextUsage usage={state.workspace?.context_usage} />
+                {!singleLine && (
+                  <ContextUsage usage={state.workspace?.context_usage} />
+                )}
                 {voiceScope && (
                   <span className="composer-voice">
                     <VoiceControls
@@ -2824,17 +2874,7 @@ export default function Conversation({
                     <span>Queue</span>
                   </Button>
                 )}
-                {!isRunning &&
-                  state.workspace &&
-                  state.status === 'ready' &&
-                  !sendActionReady && (
-                    <Button
-                      className="composer-setup-model"
-                      onClick={() => navigate('/settings/models')}
-                    >
-                      Set up a model
-                    </Button>
-                  )}
+                {!singleLine && needsModel && setupModelButton}
                 <span className="composer-primary-slot">
                   {/* One button morphs between Send and Stop, so focus and
                       position hold while a response starts and ends. */}

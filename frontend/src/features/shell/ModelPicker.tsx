@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown, HardDrive, Search } from 'lucide-react';
@@ -61,6 +62,8 @@ export default function ModelPicker({
   onThinking,
   onConnect,
   onManage,
+  anchor,
+  returnFocusTo,
 }: {
   models: readonly ModelChoice[];
   current: string | undefined;
@@ -75,6 +78,13 @@ export default function ModelPicker({
   onConnect: () => void;
   /** Open the model catalog settings. */
   onManage: () => void;
+  /**
+   * Open over this element instead of from the pill: a one-line composer
+   * keeps the model in its + menu, so the picker opens above the field.
+   */
+  anchor?: RefObject<HTMLElement | null>;
+  /** Where focus goes when a triggerless picker closes. */
+  returnFocusTo?: () => HTMLElement | null;
 }) {
   const id = useId();
   const [query, setQuery] = useState('');
@@ -188,25 +198,29 @@ export default function ModelPicker({
   const hint = `Model: ${name}${reasoning?.available ? ` · Thinking: ${thinkingLabel}` : ''}`;
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Hint label={hint}>
-        <Popover.Trigger asChild>
-          <Button
-            variant="ghost"
-            className="composer-model-pill"
-            aria-label="Model"
-            aria-description={hint}
-            aria-haspopup="dialog"
-            disabled={disabled}
-          >
-            <StatusDot
-              tone={selected?.available === false ? 'warning' : 'success'}
-              label={selected?.available === false ? 'Needs setup' : 'Ready'}
-            />
-            <span className="composer-model-name">{name}</span>
-            <ChevronDown size={14} aria-hidden />
-          </Button>
-        </Popover.Trigger>
-      </Hint>
+      {anchor ? (
+        <Popover.Anchor virtualRef={anchor as RefObject<HTMLElement>} />
+      ) : (
+        <Hint label={hint}>
+          <Popover.Trigger asChild>
+            <Button
+              variant="ghost"
+              className="composer-model-pill"
+              aria-label="Model"
+              aria-description={hint}
+              aria-haspopup="dialog"
+              disabled={disabled}
+            >
+              <StatusDot
+                tone={selected?.available === false ? 'warning' : 'success'}
+                label={selected?.available === false ? 'Needs setup' : 'Ready'}
+              />
+              <span className="composer-model-name">{name}</span>
+              <ChevronDown size={14} aria-hidden />
+            </Button>
+          </Popover.Trigger>
+        </Hint>
+      )}
       <Popover.Portal>
         <Popover.Content
           className="model-picker surface-effect"
@@ -218,6 +232,12 @@ export default function ModelPicker({
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             input.current?.focus();
+          }}
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusTo?.();
+            if (!target?.isConnected) return;
+            event.preventDefault();
+            target.focus({ preventScroll: true });
           }}
         >
           <div className="model-picker-search">

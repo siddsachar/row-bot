@@ -1,0 +1,284 @@
+/*
+ * Phone and tablet layer (loaded last). Width classes follow the panel
+ * model: desktop from 1024px, tablet 768–1023px, phone below 768px.
+ *
+ * - One 48px header: in a conversation it is the conversation header itself
+ *   (navigation button, title, actions; a ⋯ on phones); elsewhere the compact
+ *   bar (navigation button, search).
+ * - Panels below 1024px open as full-height sheets with their own header.
+ * - Context opens as a full-height sheet on phones and a side sheet on
+ *   tablets. The conversation drawer slides in from the left.
+ * - A narrow composer is one line: + · field · mic · send (container width,
+ *   so a squeezed desktop chat folds the same way).
+ */
+
+@keyframes sheet-up {
+  from {
+    opacity: 0.6;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------- one-line composer */
+
+.composer[data-single-line] .composer-field {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'chips chips chips'
+    'plus text actions';
+  align-items: end;
+  column-gap: 4px;
+  row-gap: 6px;
+  padding: 5px;
+  border-radius: 24px;
+}
+.composer[data-single-line] .composer-chips {
+  grid-area: chips;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2px 4px 0;
+  scrollbar-width: none;
+}
+.composer[data-single-line] .composer-chips > *,
+.composer[data-single-line] .composer-chips li,
+.composer[data-single-line] .composer-chips .button {
+  flex: none;
+  white-space: nowrap;
+}
+.composer[data-single-line] .composer-control-cluster {
+  grid-area: plus;
+  flex: none;
+}
+.composer[data-single-line] .message-composer {
+  grid-area: text;
+  align-self: center;
+  padding: 6px 4px;
+}
+.composer[data-single-line] .composer-toolbar {
+  display: contents;
+}
+.composer[data-single-line] .composer-actions {
+  grid-area: actions;
+  gap: 0;
+}
+.composer[data-single-line] .composer-plus.button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border: 0;
+  background: var(--surface-raised);
+}
+.composer[data-single-line] .composer-primary.button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+}
+.composer[data-single-line] .composer-setup-model.button {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--accent-subtle);
+}
+@media (pointer: coarse) {
+  .composer[data-single-line] .composer-plus.button,
+  .composer[data-single-line] .composer-primary.button {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+  .composer[data-single-line] .composer-voice .button.icon-button {
+    width: 36px;
+    min-width: 36px;
+    height: 40px;
+    min-height: 40px;
+  }
+  .composer[data-single-line]
+    .composer-voice
+    .conversation-voice-toggle.button.icon-button {
+    width: 20px;
+    min-width: 20px;
+  }
+}
+/* Model, approvals and context usage live in the + menu. */
+.composer-plus-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.composer-plus-context .context-ring-svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+/* ------------------------------------------------------ compact headers */
+
+.chat-content > .conversation-heading[data-layout] {
+  gap: 2px;
+  min-height: 48px;
+  padding: calc(2px + env(safe-area-inset-top)) 4px 2px 4px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.conversation-heading[data-layout] .conversation-title-block {
+  padding-inline: 4px;
+}
+.conversation-heading[data-layout='phone'] .conversation-title-block h1 {
+  font-size: var(--text-15);
+}
+.conversation-heading[data-layout] .conversation-actions {
+  gap: 0;
+}
+.compact-controls {
+  align-items: center;
+  min-height: 48px;
+  padding: calc(2px + env(safe-area-inset-top)) 4px 2px;
+}
+.compact-controls .workspace-controls {
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+}
+.compact-controls-title {
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------------------------------------------------------- panel sheets */
+
+.compact-tab.panel-sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  animation: sheet-up var(--motion-panel) var(--ease-out);
+}
+.panel-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  padding: calc(2px + env(safe-area-inset-top)) 4px 2px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.panel-sheet-title {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.panel-sheet-title > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.panel-sheet-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.panel-sheet-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ------------------------------------------- Context sheet and the drawer */
+
+.dialog.drawer {
+  animation: drawer-in-left var(--motion-panel) var(--ease-out);
+}
+.dialog.drawer > .dialog-header {
+  align-items: center;
+  min-height: 48px;
+  padding: calc(4px + env(safe-area-inset-top)) 4px 0 16px;
+}
+.dialog.drawer .dialog-title {
+  font-size: var(--text-15);
+  line-height: 22px;
+}
+/* The header's Back closes the drawer; no second Close in a footer. */
+.dialog.drawer > .dialog-footer {
+  display: none;
+}
+.dialog.drawer .dialog-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .dialog.sheet {
+    animation: sheet-up var(--motion-panel) var(--ease-out);
+  }
+  .dialog.sheet > .dialog-header {
+    align-items: center;
+    min-height: 48px;
+    padding: 4px 4px 4px 16px;
+  }
+  .dialog.sheet .dialog-title {
+    font-size: var(--text-15);
+    line-height: 22px;
+  }
+  .dialog.sheet .dialog-description:empty {
+    display: none;
+  }
+  .dialog.sheet.context-sheet {
+    top: calc(8px + env(safe-area-inset-top));
+    height: auto;
+    max-height: none;
+  }
+  .dialog.sheet.context-sheet > .dialog-body {
+    flex: 1;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dialog.sheet.context-sheet {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    transform: none;
+    width: min(400px, 100vw);
+    height: 100dvh;
+    max-height: 100%;
+    border-radius: var(--radius-dialog) 0 0 var(--radius-dialog);
+    animation: drawer-in-right var(--motion-panel) var(--ease-out);
+  }
+}
+
+/* ------------------------------------------------------------ phone chat */
+
+@media (max-width: 767px) {
+  .composer {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+}

@@ -69,13 +69,19 @@ it.each([1440, 900, 390])(
       </MemoryRouter>,
     );
     expect(rendered.container.querySelector('.app-header')).toBeNull();
-    expect(Boolean(rendered.container.querySelector('.compact-controls'))).toBe(
-      width < 1024,
-    );
-    expect(
-      screen.getByRole('button', { name: 'Workspace commands' }),
-    ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Open panel' })).toBeVisible();
+    // A conversation carries the workspace controls in its own single header
+    // row; phones fold them into the header's ⋯.
+    expect(rendered.container.querySelector('.compact-controls')).toBeNull();
+    if (width >= 768) {
+      expect(
+        screen.getByRole('button', { name: 'Workspace commands' }),
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Open panel' })).toBeVisible();
+    } else {
+      expect(
+        screen.getByRole('button', { name: 'Conversation menu' }),
+      ).toBeVisible();
+    }
     const composer = screen.getByRole('textbox', {
       name: 'Message',
     });

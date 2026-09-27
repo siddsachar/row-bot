@@ -628,7 +628,7 @@ export function ProgressRing({
   value,
   total,
   label,
-  size = 44,
+  size = 48,
 }: {
   value: number;
   total: number;
