@@ -613,3 +613,83 @@ describe('desktop Buddy operations', () => {
     expect(fake.calls).toEqual(['moveWindow']);
   });
 });
+
+describe('native selection at a cold start (B95)', () => {
+  const nativeAdapter = {
+    native_adapter: {
+      available: true,
+      proof_required: true,
+      instance_id: 'instance-a',
+      attestation: 'a'.repeat(32),
+    },
+  };
+  const discovering = () => ({
+    dispatch: vi.fn().mockResolvedValue({
+      status: 'ok',
+      value: {
+        kind: 'pywebview',
+        platform: 'windows',
+        capabilities: ['buddy_placement'],
+        instanceId: 'instance-a',
+        windowId: 'window-a',
+        epoch: 1,
+      },
+    }),
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    Reflect.deleteProperty(window, '__ROW_BOT_NATIVE_CLIENT__');
+    Reflect.deleteProperty(window, 'chrome');
+    Reflect.deleteProperty(window, 'webkit');
+  });
+
+  it('waits in a WebView2 page for a bridge that arrives after the handshake', async () => {
+    vi.useFakeTimers();
+    // WebView2 exposes chrome.webview from the first script; window.pywebview
+    // and the bridge only arrive when the navigation completes.
+    Object.assign(window, { chrome: { webview: {} } });
+    let chosen: Awaited<ReturnType<typeof selectClientPlatform>> | null = null;
+    void selectClientPlatform(media(), nativeAdapter).then((value) => {
+      chosen = value;
+    });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(chosen).toBeNull();
+    Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', {
+      configurable: true,
+      value: discovering(),
+    });
+    window.dispatchEvent(new Event('row-bot-native-ready'));
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(chosen!.discover()).resolves.toMatchObject({
+      status: 'ok',
+      value: { kind: 'pywebview' },
+    });
+  });
+
+  it('recognises WKWebView and gives up after the bound', async () => {
+    vi.useFakeTimers();
+    Object.assign(window, { webkit: { messageHandlers: { jsBridge: {} } } });
+    let chosen: Awaited<ReturnType<typeof selectClientPlatform>> | null = null;
+    void selectClientPlatform(media(), nativeAdapter).then((value) => {
+      chosen = value;
+    });
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(chosen).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(chosen!.discover()).resolves.toMatchObject({
+      value: { kind: 'browser' },
+    });
+  });
+
+  it('never waits in an ordinary browser, even for the local owner', async () => {
+    vi.useFakeTimers();
+    let chosen: Awaited<ReturnType<typeof selectClientPlatform>> | null = null;
+    void selectClientPlatform(media(), nativeAdapter).then((value) => {
+      chosen = value;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(chosen!.discover()).resolves.toMatchObject({
+      value: { kind: 'browser' },
+    });
+  });
+});
