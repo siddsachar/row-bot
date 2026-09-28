@@ -332,7 +332,7 @@ def test_vision_degrades_when_cv2_native_import_fails(monkeypatch):
 
     svc = vision.VisionService()
 
-    assert svc.model
+    assert svc.enabled in (True, False)
     assert vision.list_cameras() == []
     assert vision.capture_frame() is None
     status = vision.native_backend_status()

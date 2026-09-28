@@ -84,7 +84,12 @@ _PROVIDERS = {
     "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
 }
 
-DEFAULT_MODEL = "openai/gpt-image-1.5"
+# No preset: image generation stays off and unset until the person chooses a
+# model in Settings › Models (decision 9).
+NO_IMAGE_MODEL = (
+    "No image model is chosen yet. Choose an image model in Settings › Models, "
+    "then ask again."
+)
 
 IMAGE_SIZES = ["auto", "1024x1024", "1536x1024", "1024x1536"]
 IMAGE_QUALITIES = ["auto", "low", "medium", "high"]
@@ -333,10 +338,10 @@ def _get_configured_selection() -> str:
         return val
     tool = registry.get_tool("image_gen")
     if tool:
-        val = tool.get_config("model", DEFAULT_MODEL)
+        val = tool.get_config("model", "")
         if val:
             return val
-    return DEFAULT_MODEL
+    return ""
 
 
 def _get_configured_model() -> str:
@@ -516,6 +521,8 @@ def _generate_image(
     """Generate an image from a text prompt."""
     global _last_generated_image
     _validate_generation()
+    if not _get_configured_selection():
+        return NO_IMAGE_MODEL
 
     try:
         client, provider_label, provider_id = _get_client()
@@ -726,6 +733,8 @@ def _edit_image(
 ) -> str:
     """Edit an existing image using a text prompt."""
     global _last_generated_image
+    if not _get_configured_selection():
+        return NO_IMAGE_MODEL
 
     try:
         client, provider_label, provider_id = _get_client()
@@ -988,9 +997,8 @@ class ImageGenTool(BaseTool):
 
     @property
     def enabled_by_default(self) -> bool:
-        # Only enable if a cloud key is available
-        from row_bot.models import is_cloud_available
-        return is_cloud_available()
+        # Off until the person turns it on and chooses a model (decision 11).
+        return False
 
     @property
     def config_schema(self) -> dict[str, dict]:

@@ -280,7 +280,7 @@ def test_seed_configured_media_quick_choices_updates_existing_defaults(monkeypat
     updated_choice = {**image_choice, "display_name": "GPT Image Updated"}
     image_calls = iter([image_choice, updated_choice])
 
-    monkeypatch.setattr(selection, "_media_tool_selection", lambda tool_name, default_model: "openai/gpt-image-1")
+    monkeypatch.setattr(selection, "_media_tool_selection", lambda tool_name: "openai/gpt-image-1")
     monkeypatch.setattr(
         selection,
         "_quick_choice_for_media_selection",

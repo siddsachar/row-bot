@@ -92,7 +92,8 @@ def native_backend_status() -> dict[str, str | bool]:
     }
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-DEFAULT_VISION_MODEL = "gemma3:4b"
+# No preset Vision model (decision 11): an empty choice means "Same as chat
+# model", resolved at the moment an image is analysed.
 
 POPULAR_VISION_MODELS = [
     "moondream:latest",
@@ -254,10 +255,20 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
     return result
 
 
+def _chat_model_for_vision() -> str:
+    """The chat model that "Same as chat model" follows right now."""
+    try:
+        from row_bot import models
+
+        return str(models._active_model_override.get() or models.get_current_model() or "")
+    except Exception:
+        return ""
+
+
 def vision_provider_disclosure(model: str | None = None) -> dict[str, Any]:
     """Return local-only provider disclosure for screenshot-bearing features."""
 
-    selected = str(model or _load_settings().get("model") or DEFAULT_VISION_MODEL)
+    selected = str(model or _load_settings().get("model") or _chat_model_for_vision())
     provider_id = _vision_provider_id(selected)
     is_cloud = provider_id not in {"", "local", "ollama"}
     return {
@@ -434,7 +445,8 @@ class VisionService:
 
     def __init__(self):
         saved = _load_settings()
-        self._model: str = saved.get("model", DEFAULT_VISION_MODEL)
+        # "" follows the chat model; a saved choice is kept exactly.
+        self._model: str = str(saved.get("model") or "")
         self._camera_index: int = saved.get("camera_index", 0)
         self._enabled: bool = saved.get("enabled", True)
         self._lock = threading.Lock()
@@ -447,8 +459,12 @@ class VisionService:
 
     @model.setter
     def model(self, value: str):
-        self._model = value
+        self._model = str(value or "")
         self._persist()
+
+    def effective_model(self, chat_model: str | None = None) -> str:
+        """The model that sees images: the chosen Vision model, else the chat model."""
+        return self._model or str(chat_model or "").strip() or _chat_model_for_vision()
 
     @property
     def camera_index(self) -> int:
@@ -491,7 +507,7 @@ class VisionService:
             self.last_capture = shot
         return shot
 
-    def analyze(self, image_bytes: bytes, question: str) -> str:
+    def analyze(self, image_bytes: bytes, question: str, *, chat_model: str | None = None) -> str:
         """Send an image + question to the vision model and return the
         text response.
 
@@ -509,24 +525,33 @@ class VisionService:
         """
         if not self._enabled:
             return "Vision is disabled. Enable it in Settings → Models."
+        model = self.effective_model(chat_model)
+        if not model:
+            return "No model is chosen yet, so Row-Bot can't look at images. Choose a model, then try again."
 
         with self._lock:
             try:
-                compatibility = vision_model_compatibility(self._model)
+                compatibility = vision_model_compatibility(model)
                 if compatibility.get("explicit") and not compatibility.get("usable"):
                     reason = str(compatibility.get("reason") or "not marked as image-capable")
+                    if not self._model:
+                        return (
+                            "The chat model can't see images. Choose a vision model in "
+                            f"Settings -> Models. ({reason})"
+                        )
                     return (
                         "The selected Vision model is no longer marked as image-capable. "
                         f"Choose a Vision-capable model in Settings -> Models. ({reason})"
                     )
                 b64 = base64.b64encode(image_bytes).decode("ascii")
-                provider_id = _vision_provider_id(self._model)
+                provider_id = _vision_provider_id(model)
                 if provider_id in {"", "local", "ollama"}:
-                    return self._analyze_ollama_local(b64, question)
+                    return self._analyze_ollama_local(b64, question, model=model)
                 return self._analyze_provider(
                     b64,
                     question,
                     mime_type=_encoded_image_mime(image_bytes),
+                    model=model,
                 )
             except Exception as exc:
                 logger.error("Vision model error: %s", exc)
@@ -538,18 +563,20 @@ class VisionService:
         question: str,
         *,
         mime_type: str = "image/jpeg",
+        model: str | None = None,
     ) -> str:
         """Send image to the selected provider-backed vision model."""
         from row_bot.models import get_llm_for
         from langchain_core.messages import HumanMessage
 
-        label = _vision_provider_label(self._model)
+        model = model or self.effective_model()
+        label = _vision_provider_label(model)
         try:
             msg = HumanMessage(content=[
                 {"type": "text", "text": question},
                 {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
             ])
-            llm = get_llm_for(self._model)
+            llm = get_llm_for(model)
             response = llm.invoke([msg])
             content = getattr(response, "content", "")
             if isinstance(content, list):
@@ -565,7 +592,7 @@ class VisionService:
             logger.error("Vision provider model error for %s: %s", label, exc)
             return f"Vision analysis failed for {label}: {exc}"
 
-    def _analyze_ollama_local(self, b64: str, question: str) -> str:
+    def _analyze_ollama_local(self, b64: str, question: str, model: str | None = None) -> str:
         """Send image to a local Ollama vision model."""
         if _ollama_mod is None:
             return "Ollama is not installed. Install it or switch to a provider-backed Vision model."
@@ -573,7 +600,7 @@ class VisionService:
         client = _ollama_client()
         if client is None:
             return "Ollama is not installed. Install it or switch to a provider-backed Vision model."
-        runtime_model = _runtime_vision_model(self._model)
+        runtime_model = _runtime_vision_model(model or self.effective_model())
         response = client.chat(
             model=runtime_model,
             messages=[{

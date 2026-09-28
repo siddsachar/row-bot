@@ -39,7 +39,7 @@ def _seed_app_config(data_dir: Path, *, first_run: bool) -> None:
         config = {
             "onboarding_seen": True,
             "setup_complete": True,
-            "onboarding_version": 3,
+            "onboarding_version": 4,
             "onboarding_profile": ["chat", "research", "workflows", "designer", "developer"],
             "onboarding_completed_steps": ["models", "knowledge", "workflows"],
             "onboarding_skipped_steps": [],

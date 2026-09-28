@@ -418,7 +418,7 @@ def test_custom_endpoint_delete_removes_only_matching_provider_quick_choices(tmp
     ]
 
 
-def test_custom_endpoint_delete_resets_stale_current_model(tmp_path, monkeypatch):
+def test_custom_endpoint_delete_keeps_the_saved_default_without_fallback(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
@@ -432,16 +432,17 @@ def test_custom_endpoint_delete_resets_stale_current_model(tmp_path, monkeypatch
 
     delete_custom_endpoint("old")
 
-    assert models.get_current_model() == model_choice_value(models.DEFAULT_MODEL, provider_id="ollama")
+    # No fallback (decision 9): the default reads as unavailable instead.
+    assert models.get_current_model() == f"model:{custom_provider_id('old')}:old-model"
 
 
-def test_get_current_model_resets_previously_deleted_custom_default(tmp_path, monkeypatch):
+def test_get_current_model_keeps_a_previously_deleted_custom_default(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
     monkeypatch.setattr(models, "_current_model", "model:custom_openai_deleted:ghost-model")
 
-    assert models.get_current_model() == model_choice_value(models.DEFAULT_MODEL, provider_id="ollama")
+    assert models.get_current_model() == "model:custom_openai_deleted:ghost-model"
 
 
 def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypatch):
@@ -556,7 +557,7 @@ def test_custom_endpoint_refresh_prunes_removed_model_quick_choices(tmp_path, mo
     assert [choice["id"] for choice in list_quick_choices("")] == [f"model:{provider_id}:new-chat"]
 
 
-def test_custom_endpoint_refresh_resets_default_for_removed_model(tmp_path, monkeypatch):
+def test_custom_endpoint_refresh_keeps_default_for_removed_model(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
@@ -585,11 +586,13 @@ def test_custom_endpoint_refresh_resets_default_for_removed_model(tmp_path, monk
 
     infos = refresh_custom_endpoint_models("dummy")
 
-    assert getattr(infos, "default_reset") is True
-    assert models.get_current_model() == f"model:{provider_id}:new-chat"
+    # No silent switch to another model (decisions 9, 10): the default stays
+    # and reads as unavailable until the person chooses another model.
+    assert getattr(infos, "default_reset") is False
+    assert models.get_current_model() == f"model:{provider_id}:old-chat"
 
 
-def test_custom_endpoint_refresh_resets_default_even_without_previous_model_cache(tmp_path, monkeypatch):
+def test_custom_endpoint_refresh_keeps_default_even_without_previous_model_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
@@ -614,8 +617,10 @@ def test_custom_endpoint_refresh_resets_default_even_without_previous_model_cach
 
     infos = refresh_custom_endpoint_models("dummy")
 
-    assert getattr(infos, "default_reset") is True
-    assert models.get_current_model() == f"model:{provider_id}:new-chat"
+    # No silent switch to another model (decisions 9, 10): the default stays
+    # and reads as unavailable until the person chooses another model.
+    assert getattr(infos, "default_reset") is False
+    assert models.get_current_model() == f"model:{provider_id}:old-chat"
 
 
 def test_custom_model_cache_sync_prunes_removed_custom_entries(tmp_path, monkeypatch):

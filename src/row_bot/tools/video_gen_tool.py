@@ -75,7 +75,12 @@ _PROVIDERS = {
     "xai":    {"key": "XAI_API_KEY",    "label": "xAI",    "emoji": "𝕏"},
 }
 
-DEFAULT_MODEL = "google/veo-3.1-generate-preview"
+# No preset: video generation stays off and unset until the person chooses a
+# model in Settings › Models (decision 9).
+NO_VIDEO_MODEL = (
+    "No video model is chosen yet. Choose a video model in Settings › Models, "
+    "then ask again."
+)
 
 # ── Google constraints ───────────────────────────────────────────────────
 _GOOGLE_ASPECT_RATIOS = {"16:9", "9:16"}
@@ -246,10 +251,10 @@ def _get_configured_selection() -> str:
         return val
     tool = registry.get_tool("video_gen")
     if tool:
-        val = tool.get_config("model", DEFAULT_MODEL)
+        val = tool.get_config("model", "")
         if val:
             return val
-    return DEFAULT_MODEL
+    return ""
 
 
 def _get_configured_model() -> str:
@@ -661,6 +666,8 @@ def _generate_video(
 ) -> str:
     """Generate a video from a text prompt."""
     _validate_generation()
+    if not _get_configured_selection():
+        return NO_VIDEO_MODEL
     provider, _ = _parse_model_config(_get_configured_selection())
 
     if provider == "google":
@@ -680,6 +687,8 @@ def _animate_image(
 ) -> str:
     """Turn a still image into a short video clip."""
     _validate_generation()
+    if not _get_configured_selection():
+        return NO_VIDEO_MODEL
     try:
         image_bytes = _resolve_image_source(image_source)
     except ValueError as e:
@@ -783,8 +792,8 @@ class VideoGenTool(BaseTool):
 
     @property
     def enabled_by_default(self) -> bool:
-        from row_bot.models import is_cloud_available
-        return is_cloud_available()
+        # Off until the person turns it on and chooses a model (decision 11).
+        return False
 
     @property
     def config_schema(self) -> dict[str, dict]:

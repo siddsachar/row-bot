@@ -890,6 +890,15 @@ async def _run_startup_sequence():
     with _startup_phase("apply_keys"):
         await asyncio.to_thread(apply_keys)
 
+    # Profiles that finished setup while presets applied keep the models they
+    # were running on, written once as their own choices (decision 9).
+    try:
+        from row_bot.application.model_choice_migration import migrate_legacy_presets
+        with _startup_phase("legacy_model_choices"):
+            await asyncio.to_thread(migrate_legacy_presets)
+    except Exception:
+        logger.warning("Could not keep the models this profile was using", exc_info=True)
+
     if is_cloud_available():
         _set("☁️ Loading cached model catalog...")
         with _startup_phase("load_cached_model_catalog"):

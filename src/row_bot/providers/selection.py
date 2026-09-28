@@ -1236,15 +1236,16 @@ def prune_stale_custom_quick_choices() -> int:
     return removed
 
 
-def _media_tool_selection(tool_name: str, default_model: str) -> str:
+def _media_tool_selection(tool_name: str) -> str:
+    """The chosen image/video model, or "" when none is chosen (no preset)."""
     try:
         from row_bot.tools import registry
         tool = registry.get_tool(tool_name)
         if tool:
-            return str(tool.get_config("model", default_model) or default_model)
+            return str(tool.get_config("model", "") or "")
     except Exception:
         pass
-    return default_model
+    return ""
 
 
 def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str, Any] | None:
@@ -1292,15 +1293,9 @@ def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str,
 
 
 def seed_configured_media_quick_choices() -> list[dict[str, Any]]:
-    try:
-        from row_bot.tools.image_gen_tool import DEFAULT_MODEL as IMAGE_DEFAULT
-        from row_bot.tools.video_gen_tool import DEFAULT_MODEL as VIDEO_DEFAULT
-    except Exception:
-        return load_provider_config().get("quick_choices", [])
-
     candidates = [
-        _quick_choice_for_media_selection(_media_tool_selection("image_gen", IMAGE_DEFAULT), "image"),
-        _quick_choice_for_media_selection(_media_tool_selection("video_gen", VIDEO_DEFAULT), "video"),
+        _quick_choice_for_media_selection(_media_tool_selection("image_gen"), "image"),
+        _quick_choice_for_media_selection(_media_tool_selection("video_gen"), "video"),
     ]
     cfg = load_provider_config()
     quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]

@@ -1380,9 +1380,16 @@ def _query_errors() -> str:
 def _query_vision() -> str:
     """Vision / camera model and settings."""
     try:
-        from row_bot.vision import _load_settings, DEFAULT_VISION_MODEL
+        from row_bot.vision import _load_settings
         settings = _load_settings()
-        model = settings.get("model", DEFAULT_VISION_MODEL)
+        # An empty Vision model means "Same as chat model" (decision 11).
+        chosen = settings.get("model") or ""
+        if chosen:
+            model = chosen
+        else:
+            from row_bot.models import get_current_model
+
+            model = get_current_model()
         enabled = settings.get("enabled", True)
         camera = settings.get("camera_index", 0)
         provider_id = ""
@@ -1446,7 +1453,7 @@ def _query_vision() -> str:
             readiness = "vision inferred"
         lines = [
             "**Vision**",
-            f"- Model: {model}",
+            f"- Model: {model or 'not chosen'}{'' if chosen else ' (same as chat model)'}",
             f"- Runtime model: {runtime_model}",
             f"- Provider: {provider_label}",
             f"- Enabled: {'yes' if enabled else 'no'}",
@@ -1487,16 +1494,14 @@ def _vision_probe_error_is_inconclusive(error: str) -> bool:
 def _query_image_gen() -> str:
     """Image generation model."""
     try:
-        from row_bot.tools.image_gen_tool import _get_configured_selection, DEFAULT_MODEL
+        from row_bot.tools.image_gen_tool import _get_configured_selection
         from row_bot.tools.registry import is_enabled
         selection = _get_configured_selection()
         lines = [
             "**Image Generation**",
             f"- Tool: {'enabled' if is_enabled('image_gen') else 'disabled'}",
-            f"- Model: {selection}",
+            f"- Model: {selection or 'not chosen (choose one in Settings → Models)'}",
         ]
-        if selection == DEFAULT_MODEL:
-            lines.append(f"- (default — change in Settings → Models)")
         lines.extend(_pinned_choice_status_lines(
             "image",
             "Pinned Image Model Choices",
@@ -1511,16 +1516,14 @@ def _query_image_gen() -> str:
 def _query_video_gen() -> str:
     """Video generation model."""
     try:
-        from row_bot.tools.video_gen_tool import _get_configured_selection, DEFAULT_MODEL
+        from row_bot.tools.video_gen_tool import _get_configured_selection
         from row_bot.tools.registry import is_enabled
         selection = _get_configured_selection()
         lines = [
             "**Video Generation**",
             f"- Tool: {'enabled' if is_enabled('video_gen') else 'disabled'}",
-            f"- Model: {selection}",
+            f"- Model: {selection or 'not chosen (choose one in Settings → Models)'}",
         ]
-        if selection == DEFAULT_MODEL:
-            lines.append("- (default — change in Settings → Models)")
         lines.extend(_pinned_choice_status_lines(
             "video",
             "Pinned Video Model Choices",

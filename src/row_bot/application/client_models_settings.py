@@ -66,16 +66,17 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     from row_bot.models import (get_cloud_context_override, get_context_policy,
                                 get_current_model, get_local_context_mode, get_user_context_size)
     from row_bot.tools import registry
-    from row_bot.tools.image_gen_tool import DEFAULT_MODEL as IMAGE_DEFAULT, get_available_image_models
-    from row_bot.tools.video_gen_tool import DEFAULT_MODEL as VIDEO_DEFAULT, get_available_video_models
+    from row_bot.tools.image_gen_tool import get_available_image_models
+    from row_bot.tools.video_gen_tool import get_available_video_models
     from row_bot.vision_runtime import get_vision_service
 
     default = read_default_model(validate=validate)
     vision = get_vision_service()
     image_tool = registry.get_tool("image_gen")
     video_tool = registry.get_tool("video_gen")
-    image_value = image_tool.get_config("model", IMAGE_DEFAULT) if image_tool else registry.get_tool_config("image_gen", "model", IMAGE_DEFAULT)
-    video_value = video_tool.get_config("model", VIDEO_DEFAULT) if video_tool else registry.get_tool_config("video_gen", "model", VIDEO_DEFAULT)
+    # Nothing is preset (decision 9): an unset surface reads as unset, not as a default.
+    image_value = image_tool.get_config("model", "") if image_tool else registry.get_tool_config("image_gen", "model", "")
+    video_value = video_tool.get_config("model", "") if video_tool else registry.get_tool_config("video_gen", "model", "")
     brain_ref = model_choice_value(get_current_model()) or default.selection_ref or ""
     vision_ref = model_choice_value(vision.model)
     image_ref = _media_ref(str(image_value), default_provider="openai")

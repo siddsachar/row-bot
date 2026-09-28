@@ -1999,7 +1999,7 @@ def open_settings(
         def _has_pinned_picker_choice(options: list[dict]) -> bool:
             return any(str(option.get("source") or "") != "included_value" for option in options)
 
-        from row_bot.tools.image_gen_tool import DEFAULT_MODEL
+        DEFAULT_MODEL = ""  # no preset image model (decision 9)
         from row_bot.providers.selection import seed_configured_media_quick_choices
         _ig_tool = tool_registry.get_tool("image_gen")
         _ig_enabled = tool_registry.is_enabled("image_gen") if _ig_tool else False
@@ -2022,7 +2022,7 @@ def open_settings(
         image_select_state = _safe_model_select_state("Image", _ig_model, _ig_valid_model_opts, warning=image_warning)
         _ig_model_opts = dict(image_select_state["options"])
 
-        from row_bot.tools.video_gen_tool import DEFAULT_MODEL as _VG_DEFAULT
+        _VG_DEFAULT = ""  # no preset video model (decision 9)
         _vg_tool = tool_registry.get_tool("video_gen")
         _vg_enabled = tool_registry.is_enabled("video_gen") if _vg_tool else False
         _vg_model = str(snapshot.get("video_model") or (_vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT))
@@ -2702,13 +2702,13 @@ def open_settings(
             image_model = ""
             video_model = ""
             try:
-                from row_bot.tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT
+                _IMAGE_DEFAULT = ""  # no preset image model (decision 9)
                 image_tool = tool_registry.get_tool("image_gen")
                 image_model = image_tool.get_config("model", _IMAGE_DEFAULT) if image_tool else _IMAGE_DEFAULT
             except Exception:
                 image_model = ""
             try:
-                from row_bot.tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT
+                _VIDEO_DEFAULT = ""  # no preset video model (decision 9)
                 video_tool = tool_registry.get_tool("video_gen")
                 video_model = video_tool.get_config("model", _VIDEO_DEFAULT) if video_tool else _VIDEO_DEFAULT
             except Exception:
@@ -2810,7 +2810,8 @@ def open_settings(
         current_model = get_current_model()
         vision_model = state.vision_service.model
         try:
-            from row_bot.tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT, get_available_image_models
+            from row_bot.tools.image_gen_tool import get_available_image_models
+            _IMAGE_DEFAULT = ""  # no preset image model (decision 9)
             image_tool = tool_registry.get_tool("image_gen")
             image_model = image_tool.get_config("model", _IMAGE_DEFAULT) if image_tool else _IMAGE_DEFAULT
             available_image = get_available_image_models()
@@ -2818,7 +2819,8 @@ def open_settings(
             image_model = ""
             available_image = {}
         try:
-            from row_bot.tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT, get_available_video_models
+            from row_bot.tools.video_gen_tool import get_available_video_models
+            _VIDEO_DEFAULT = ""  # no preset video model (decision 9)
             video_tool = tool_registry.get_tool("video_gen")
             video_model = video_tool.get_config("model", _VIDEO_DEFAULT) if video_tool else _VIDEO_DEFAULT
             available_video = get_available_video_models()
@@ -2924,8 +2926,8 @@ def open_settings(
                             on_click=lambda: _start_catalog_refresh_ui(reason="models_error_recovery", force=True),
                         ).props("flat dense color=primary no-caps")
                     try:
-                        from row_bot.tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT
-                        from row_bot.tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT
+                        _IMAGE_DEFAULT = ""  # no preset image model (decision 9)
+                        _VIDEO_DEFAULT = ""  # no preset video model (decision 9)
 
                         image_tool = tool_registry.get_tool("image_gen")
                         video_tool = tool_registry.get_tool("video_gen")

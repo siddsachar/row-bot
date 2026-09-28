@@ -27,6 +27,8 @@ if os.environ.get("ROW_BOT_TEST_MODE") != "1" or not TOKEN or not DATA.name.star
     raise RuntimeError("Browser fixture requires a disposable runner environment")
 DATA.mkdir(parents=True, exist_ok=True)
 
+FIXTURE_DEFAULT_MODEL = "model:ollama:qwen3:14b"
+
 
 def seed() -> None:
     from scripts.docs import seed_real_app_demo_data as seeder
@@ -34,6 +36,15 @@ def seed() -> None:
     from row_bot.threads import create_thread
 
     seeder._seed_app_config(DATA, first_run=False)
+    # Nothing is preset (decision 9): the synthetic profile has chosen its model.
+    from row_bot.providers import saved_model_settings
+
+    saved_model_settings.update_saved_model_settings(
+        lambda raw: {**raw, "model": FIXTURE_DEFAULT_MODEL}, path=DATA / "model_settings.json")
+    import sys
+
+    if "row_bot.models" in sys.modules:
+        sys.modules["row_bot.models"].adopt_saved_default(FIXTURE_DEFAULT_MODEL)
     from row_bot.tools.registry import set_tool_config
     set_tool_config("filesystem", "workspace_root", str(DATA / "attachment-workspace"))
     state = default_docs_capture_demo_state()
