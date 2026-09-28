@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 import { IconButton, Menu, type MenuAction } from '../../ui/primitives';
 
+/** The server keeps at most 120 characters of a title (B135). */
+export const TITLE_LIMIT = 120;
+
 /**
  * The conversation header: the title (click to rename), the current model as
  * a chip, and icon actions for find, share/export and the context panel. On
@@ -71,7 +74,7 @@ export default function ConversationHeader({
   }, [editing]);
   async function commit() {
     if (committing.current) return;
-    const next = value.trim().slice(0, 160);
+    const next = value.trim().slice(0, TITLE_LIMIT);
     if (!next || next === title) {
       setEditing(false);
       return;
@@ -145,7 +148,7 @@ export default function ConversationHeader({
             className="conversation-title-input"
             aria-label="Conversation title"
             value={value}
-            maxLength={160}
+            maxLength={TITLE_LIMIT}
             disabled={saving}
             onChange={(event) => setValue(event.target.value)}
             onBlur={() => void commit()}

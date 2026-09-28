@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import ConversationHeader from './ConversationHeader';
+import ConversationHeader, { TITLE_LIMIT } from './ConversationHeader';
 
 it('renames once when Enter commits and the input then blurs', async () => {
   let finish: () => void = () => {};
@@ -35,6 +35,18 @@ it('renames once when Enter commits and the input then blurs', async () => {
     ).not.toBeInTheDocument(),
   );
   expect(onRename).toHaveBeenCalledTimes(1);
+});
+
+it('keeps titles within the 120 characters the server saves (B135)', () => {
+  const onRename = vi.fn(async () => {});
+  render(<ConversationHeader title="Short" canRename onRename={onRename} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Rename conversation' }));
+  const input = screen.getByRole('textbox', { name: 'Conversation title' });
+  expect(TITLE_LIMIT).toBe(120);
+  expect(input).toHaveAttribute('maxlength', '120');
+  fireEvent.change(input, { target: { value: 'x'.repeat(150) } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(onRename).toHaveBeenCalledWith('x'.repeat(120));
 });
 
 it('does not rename when the title is unchanged or blank', () => {
