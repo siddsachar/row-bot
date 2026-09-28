@@ -270,20 +270,20 @@ function RunDetail({
     <>
       {error && (
         <p role="alert">
-          This delegated task is unavailable.{' '}
+          This agent's details didn't load.{' '}
           <Button onClick={() => setAttempt((value) => value + 1)}>
-            Retry task
+            Try again
           </Button>
         </p>
       )}
-      {!run && !error && <Skeleton label="Loading delegated task" />}
+      {!run && !error && <Skeleton label="Loading agent" />}
       {run && (
         <div className="delegated-run-detail">
           <p role="status" className="delegated-run-status">
             <span className="eyebrow">Status</span> {runStatus(run.status)}
           </p>
           <p className="delegated-run-summary">
-            {run.summary || 'No public summary is available yet.'}
+            {run.summary || 'Nothing to report yet.'}
           </p>
           <AgentControls
             run={run}
@@ -299,13 +299,10 @@ function RunDetail({
               Open full thread
             </Button>
           ) : (
-            <p>Child conversation history is unavailable.</p>
+            <p>Its thread isn't available.</p>
           )}
         </div>
       )}
-      <Button variant="ghost" onClick={close}>
-        Back to parent
-      </Button>
     </>
   );
 }
@@ -506,7 +503,7 @@ export default function DelegatedActivity(props: Props) {
                     overlay.open({
                       key,
                       title: run.name,
-                      description: 'Public delegated task status and history.',
+                      description: 'What this agent is doing and has found.',
                       content: (
                         <RunDetail
                           runId={run.run_id}

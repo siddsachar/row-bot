@@ -83,7 +83,9 @@ it('opens public detail with focus return and explicitly navigates retained chil
   fireEvent.click(opener);
   expect(await screen.findByText('Public result')).toBeInTheDocument();
   expect(open).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Back to parent' }));
+  // The dialog closes with its own Close; no second "Back to parent" there.
+  expect(screen.queryByRole('button', { name: 'Back to parent' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   await act(async () => {});
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await waitFor(() => expect(opener).toHaveFocus());
@@ -160,12 +162,12 @@ it('loads full continuation and provides the actual parent link without manufact
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Research task' }));
   expect(
-    await screen.findByText('Child conversation history is unavailable.'),
+    await screen.findByText("Its thread isn't available."),
   ).toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: 'Open full thread' }),
   ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Back to parent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(
     screen.getByRole('button', { name: 'Back to parent conversation' }),
   );
