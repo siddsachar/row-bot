@@ -61,6 +61,11 @@ function previewKind(declared: string, actual: string): PreviewKind {
   return 'download';
 }
 
+/** A file with no inline preview shows as a card with its name and size. */
+export function showsAsFileCard(mime: string): boolean {
+  return previewKind(mime, '') === 'download';
+}
+
 export function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;

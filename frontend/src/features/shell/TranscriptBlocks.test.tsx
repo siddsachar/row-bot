@@ -100,3 +100,26 @@ it('renders a durable attachment chip and authenticated local media preview', as
   );
   expect(publicBlockText(blocks[0])).toBe('fixture.wav');
 });
+
+it('names a plain file once, on its card (B111)', async () => {
+  download.mockResolvedValue(
+    new Blob(['notes'], { type: 'application/octet-stream' }),
+  );
+  const blocks: TranscriptRow['blocks'] = [
+    {
+      id: 'attachment:notes',
+      type: 'attachment',
+      attachment_ref: 'conversation-a:attachment-notes',
+      name: 'notes.bin',
+      mime_type: 'application/octet-stream',
+      size_bytes: 81,
+      revision: '1',
+    },
+  ];
+
+  const { container } = render(<TranscriptBlocks blocks={blocks} />);
+
+  expect(await screen.findByText('notes.bin')).toBeVisible();
+  expect(screen.getAllByText('notes.bin')).toHaveLength(1);
+  expect(container.querySelector('.rich-attachment-caption')).toBeNull();
+});
