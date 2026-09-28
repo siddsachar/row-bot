@@ -1235,6 +1235,43 @@ describe('connection and lifecycle ownership', () => {
     await vi.advanceTimersByTimeAsync(60000);
     expect(reads).toBe(2);
   });
+  it('holds notices read before the window listens, and shows them once it does', async () => {
+    // main.tsx starts the controller before React mounts the notice hook, so
+    // the first read (start-up warnings) lands before anything listens.
+    const epoch = '00000000-0000-4000-8000-00000000e90e';
+    class EarlyNotices extends FixtureTransport {
+      async notices(): Promise<NoticePage> {
+        return {
+          server_epoch: epoch,
+          latest: 2,
+          notices: [1, 2].map((id) => ({
+            id,
+            level: 'warning' as const,
+            title: 'Start-up warning',
+            message: `Warning ${id}`,
+            source: 'plugins',
+            requested: false,
+            startup: true,
+            count: 1,
+            at: '2026-09-28T12:00:00Z',
+          })),
+          startup_warnings: [],
+        };
+      }
+    }
+    sessionStorage.clear();
+    const value = client(new EarlyNotices());
+    await value.start();
+    await flush();
+    const first: string[] = [];
+    const stop = value.onNotice((item) => first.push(item.message));
+    expect(first).toEqual(['Warning 1', 'Warning 2']);
+    // Delivered once: a listener that comes later does not see them again.
+    stop();
+    const later: string[] = [];
+    value.onNotice((item) => later.push(item.message));
+    expect(later).toEqual([]);
+  });
   it('keeps an unsaved draft through a restart, hidden until a new session opens (B110)', async () => {
     vi.useFakeTimers();
     const transport = new FixtureTransport();

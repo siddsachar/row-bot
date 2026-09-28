@@ -155,6 +155,9 @@ export class ClientController {
   private noticeListeners = new Set<
     (notice: import('./types').Notice) => void
   >();
+  // Notices read before the window listens (the first read happens while
+  // the app is still mounting), handed to the first listener.
+  private heldNotices: import('./types').Notice[] = [];
   private noticeTimer: ReturnType<typeof setInterval> | null = null;
   /** The conversation to reopen once a lost session is replaced. */
   private recoverySelection: string | null = null;
@@ -659,6 +662,9 @@ export class ClientController {
     listener: (notice: import('./types').Notice) => void,
   ): (() => void) => {
     this.noticeListeners.add(listener);
+    const held = this.heldNotices;
+    this.heldNotices = [];
+    for (const notice of held) listener(notice);
     return () => {
       this.noticeListeners.delete(listener);
     };
@@ -682,6 +688,10 @@ export class ClientController {
       );
     } catch {
       // Kept in memory for this window.
+    }
+    if (!this.noticeListeners.size) {
+      this.heldNotices = [...this.heldNotices, ...fresh].slice(-20);
+      return;
     }
     for (const notice of fresh)
       this.noticeListeners.forEach((listener) => listener(notice));
