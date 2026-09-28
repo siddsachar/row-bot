@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { MoreHorizontal, Pause, Play, Target, CircleCheck } from 'lucide-react';
+import { CircleStop, Pause, Play, Target } from 'lucide-react';
 import type {
   GoalCommandPayload,
   GoalPage,
   GoalReceipt,
   GoalReview,
+  GoalSummary,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   Button,
   Disclosure,
   Input,
-  Menu,
   StatusDot,
   type Tone,
 } from '../../ui/primitives';
-import { ModalTask } from '../../ui/overlays';
 
 export type ContextGoalIO = {
   load: (conversation: string, signal?: AbortSignal) => Promise<GoalPage>;
@@ -34,39 +33,79 @@ export type ContextGoalIO = {
   ) => Promise<GoalReceipt>;
 };
 
-const statusWords: Record<string, { label: string; tone: Tone }> = {
-  active: { label: 'Working', tone: 'accent' },
-  waiting_approval: { label: 'Waiting for approval', tone: 'warning' },
-  paused: { label: 'Paused', tone: 'neutral' },
-  blocked: { label: 'Blocked', tone: 'danger' },
-  completed: { label: 'Completed', tone: 'success' },
-  cleared: { label: 'Cleared', tone: 'neutral' },
-};
+/** A new goal works for up to this many turns unless the person says. */
+export const DEFAULT_GOAL_TURNS = 10;
+
+/**
+ * The goal's state in words. "Working" only while a turn of this
+ * conversation actually runs; an active goal between turns is about to
+ * continue, never shown as working (B123).
+ */
+export function goalState(
+  goal: Pick<GoalSummary, 'status'>,
+  running: boolean,
+): { label: string; tone: Tone; pulse?: boolean } {
+  switch (goal.status) {
+    case 'active':
+      return running
+        ? { label: 'Working', tone: 'accent', pulse: true }
+        : { label: 'Continuing', tone: 'neutral' };
+    case 'waiting_approval':
+      return { label: 'Waiting for your approval', tone: 'warning' };
+    case 'paused':
+      return { label: 'Paused', tone: 'neutral' };
+    case 'blocked':
+      return { label: 'Needs you', tone: 'warning' };
+    case 'completed':
+      return { label: 'Done', tone: 'success' };
+    default:
+      return { label: 'Stopped', tone: 'neutral' };
+  }
+}
+
+/** "Turn 3 of 10": the turn under way, else the turns done. */
+export function goalTurn(
+  goal: Pick<GoalSummary, 'turns_used' | 'max_turns' | 'status'>,
+  running: boolean,
+) {
+  const working = running && goal.status === 'active';
+  const turn = working
+    ? Math.min(goal.turns_used + 1, goal.max_turns)
+    : goal.turns_used;
+  return `Turn ${turn} of ${goal.max_turns}`;
+}
 
 /** Goal pages read per conversation, reused across remounts in a session. */
 const pages = new Map<string, GoalPage>();
-const REFRESH_MS = 10_000;
 
 /**
- * The conversation's goal, in Context: its objective, progress and the
- * pause/resume/complete controls, plus a small form to set one. Goals are
- * reviewed by the server and applied in one step; clearing asks first.
+ * The conversation's goal, in Context (decision 16): the objective, "Turn 3
+ * of 10", the verifier's latest reason, and Pause / Resume / Stop. Starting
+ * one begins work at once and the server continues it turn after turn up to
+ * its limit; it stops for approvals and when it needs the person. It re-reads
+ * whenever a turn of this conversation starts or ends.
  */
 export default function ContextGoal({
   conversationId,
-  revision,
+  activity,
+  running,
   ready,
   io,
   compose,
   onComposeDone,
+  onStopTurn,
 }: {
   conversationId: string;
-  /** Changes as the conversation moves; a live goal re-reads (throttled). */
-  revision: string;
+  /** Changes when a turn of this conversation starts or ends. */
+  activity: string;
+  /** A turn of this conversation is running now. */
+  running: boolean;
   ready: boolean;
   io: ContextGoalIO;
   compose: boolean;
   onComposeDone: () => void;
+  /** Stop the running turn (Stop ends the goal and what it is doing). */
+  onStopTurn?: () => void;
 }) {
   const [page, setPage] = useState<GoalPage | null>(
     () => pages.get(conversationId) ?? null,
@@ -74,9 +113,7 @@ export default function ContextGoal({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [objective, setObjective] = useState('');
-  const [maxTurns, setMaxTurns] = useState('24');
-  const [confirmClear, setConfirmClear] = useState(false);
-  const lastRead = useRef(0);
+  const [maxTurns, setMaxTurns] = useState(String(DEFAULT_GOAL_TURNS));
   const ioRef = useRef(io);
   ioRef.current = io;
 
@@ -84,7 +121,6 @@ export default function ContextGoal({
     const next = await ioRef.current.load(conversationId, signal);
     if (signal?.aborted || next.conversation_id !== conversationId) return;
     pages.set(conversationId, next);
-    lastRead.current = Date.now();
     setPage(next);
   };
 
@@ -103,19 +139,24 @@ export default function ContextGoal({
     page?.items.find((goal) => goal.id === page.current_goal_id) ?? null;
   const live =
     current && ['active', 'waiting_approval'].includes(current.status);
+  // Each turn start and end moves a live goal (turns, reason, status); a
+  // command elsewhere (/goal in the composer) starts a turn too.
+  const seen = useRef(activity);
   useEffect(() => {
-    if (!ready || !live || Date.now() - lastRead.current < REFRESH_MS) return;
+    if (!ready || seen.current === activity) return;
+    seen.current = activity;
+    if (!live && !running && current) return;
     const abort = new AbortController();
     const timer = window.setTimeout(() => {
       read(abort.signal).catch(() => undefined);
-    }, 400);
+    }, 300);
     return () => {
       window.clearTimeout(timer);
       abort.abort();
     };
     // read is stable for a conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision, live, ready]);
+  }, [activity, live, ready, running]);
 
   async function run(
     operation: GoalCommandPayload['operation'],
@@ -147,7 +188,7 @@ export default function ContextGoal({
         payload: { ...payload, review_id: review.review_id },
       });
       if (receipt.status !== 'completed') {
-        setMessage('The goal change is unconfirmed. Refresh before retrying.');
+        setMessage("The goal change wasn't confirmed. Try again.");
         return;
       }
       pages.delete(conversationId);
@@ -163,34 +204,46 @@ export default function ContextGoal({
     }
   }
 
+  function stop() {
+    if (running) onStopTurn?.();
+    void run('clear', { reason: 'Stopped by you.' });
+  }
+
   const started = current && current.status !== 'cleared';
   const earlier =
     page?.items.filter(
       (goal) => goal.id !== current?.id || goal.status === 'cleared',
     ) ?? [];
   if (!started && !compose && !earlier.length) return null;
-  const state = current ? (statusWords[current.status] ?? null) : null;
+  const state = current ? goalState(current, running) : null;
   const turns = Number(maxTurns);
   const validTurns = Number.isInteger(turns) && turns >= 1 && turns <= 1000;
+  const reason = current?.last_reason || current?.last_progress || '';
   return (
     <div className="context-goal-slot">
       <Disclosure
         className="context-rail-section context-goal"
         summary="Goal"
         meta={
-          state ? (
-            <StatusDot tone={state.tone} label={state.label} showLabel />
+          state && started ? (
+            <StatusDot
+              tone={state.tone}
+              pulse={state.pulse}
+              label={state.label}
+              showLabel
+            />
           ) : undefined
         }
         defaultOpen
       >
         {started && current && (
-          <div className="context-goal-body">
+          <div className="context-goal-body" aria-label="Goal" role="group">
             <p className="context-goal-objective">{current.objective}</p>
             <div
               className="context-goal-progress"
               role="progressbar"
-              aria-label="Goal turns used"
+              aria-label="Goal turns"
+              aria-valuetext={goalTurn(current, running)}
               aria-valuemin={0}
               aria-valuemax={current.max_turns}
               aria-valuenow={current.turns_used}
@@ -202,59 +255,35 @@ export default function ContextGoal({
               />
             </div>
             <small className="context-goal-meta">
-              {current.turns_used} of {current.max_turns} turns
-              {current.last_progress ? ` · ${current.last_progress}` : ''}
+              {goalTurn(current, running)}
             </small>
-            {current.blockers.length > 0 && (
-              <small className="context-goal-blockers">
-                Blocked: {current.blockers.join('; ')}
-              </small>
+            {reason && <p className="context-goal-reason">{reason}</p>}
+            {['active', 'waiting_approval', 'paused', 'blocked'].includes(
+              current.status,
+            ) && (
+              <div className="context-goal-actions">
+                {['active', 'waiting_approval'].includes(current.status) ? (
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void run('pause')}
+                  >
+                    <Pause size={14} aria-hidden /> Pause
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void run('resume')}
+                  >
+                    <Play size={14} aria-hidden /> Resume
+                  </Button>
+                )}
+                <Button variant="ghost" disabled={busy} onClick={stop}>
+                  <CircleStop size={14} aria-hidden /> Stop
+                </Button>
+              </div>
             )}
-            <div className="context-goal-actions">
-              {['active', 'waiting_approval'].includes(current.status) && (
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void run('pause')}
-                >
-                  <Pause size={14} aria-hidden /> Pause goal
-                </Button>
-              )}
-              {['paused', 'blocked'].includes(current.status) && (
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void run('resume')}
-                >
-                  <Play size={14} aria-hidden /> Resume goal
-                </Button>
-              )}
-              {current.status !== 'completed' && (
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void run('complete')}
-                >
-                  <CircleCheck size={14} aria-hidden /> Mark done
-                </Button>
-              )}
-              <Menu
-                label="More goal actions"
-                iconOnly
-                variant="ghost"
-                className="icon-action icon-action-sm"
-                actions={[
-                  {
-                    label: 'Clear goal',
-                    danger: true,
-                    disabled: busy,
-                    onSelect: () => setConfirmClear(true),
-                  },
-                ]}
-              >
-                <MoreHorizontal size={16} aria-hidden />
-              </Menu>
-            </div>
           </div>
         )}
         {compose && (
@@ -271,13 +300,13 @@ export default function ContextGoal({
               });
             }}
           >
-            <label>
-              <span className="visually-hidden">Goal objective</span>
+            <label className="context-goal-field">
+              <span>What should this conversation achieve?</span>
               <textarea
                 className="input"
                 rows={2}
                 maxLength={4096}
-                placeholder="What should this conversation achieve?"
+                placeholder="For example: draft three short posts about tides"
                 value={objective}
                 disabled={busy || !page}
                 onChange={(event) => setObjective(event.target.value)}
@@ -313,11 +342,11 @@ export default function ContextGoal({
                 <Target size={14} aria-hidden /> Start goal
               </Button>
             </div>
-            {started && (
-              <small className="context-goal-meta">
-                Starting a new goal replaces the current one.
-              </small>
-            )}
+            <small className="context-goal-meta">
+              {started
+                ? 'Starting a new goal replaces the current one.'
+                : 'Row-Bot starts at once and keeps going turn after turn; it stops for approvals and when it needs you.'}
+            </small>
           </form>
         )}
         {!started && !compose && (
@@ -333,8 +362,8 @@ export default function ContextGoal({
                 <li key={goal.id}>
                   <span>{goal.objective}</span>
                   <small>
-                    {(statusWords[goal.status] ?? statusWords.cleared).label} ·{' '}
-                    {goal.turns_used} of {goal.max_turns} turns
+                    {goalState(goal, false).label} · {goal.turns_used} of{' '}
+                    {goal.max_turns} turns
                   </small>
                 </li>
               ))}
@@ -347,31 +376,12 @@ export default function ContextGoal({
           </p>
         )}
       </Disclosure>
-      <ModalTask
-        open={confirmClear}
-        onOpenChange={setConfirmClear}
-        title="Clear this goal?"
-        description="The conversation stops working toward it. It stays listed under Earlier goals."
-        ariaLabel="Clear goal"
-      >
-        <div className="button-row">
-          <Button onClick={() => setConfirmClear(false)}>Cancel</Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              setConfirmClear(false);
-              void run('clear');
-            }}
-          >
-            Clear goal
-          </Button>
-        </div>
-      </ModalTask>
     </div>
   );
 }
 
-/** Forget cached goal pages (tests, sign-out). */
-export function resetContextGoals() {
-  pages.clear();
+/** Forget cached goal pages (tests, sign-out, a goal started elsewhere). */
+export function resetContextGoals(conversationId?: string) {
+  if (conversationId) pages.delete(conversationId);
+  else pages.clear();
 }

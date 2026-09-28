@@ -39,6 +39,11 @@ type ResourceSummary = {
 type Props = {
   conversationId: string;
   conversationRevision: string;
+  /** Changes when a turn of this conversation starts or ends (goal refresh). */
+  turnActivity?: string;
+  /** A turn of this conversation is running now. */
+  turnRunning?: boolean;
+  onStopTurn?: () => void;
   resources: ResourceView[];
   suggestions: ClientPanelSuggestion[];
   ready: boolean;
@@ -76,6 +81,9 @@ function resourceKind(resource: ResourceView) {
 export default function ConversationContextRail({
   conversationId,
   conversationRevision,
+  turnActivity = '',
+  turnRunning = false,
+  onStopTurn,
   resources,
   suggestions,
   ready,
@@ -547,7 +555,9 @@ export default function ConversationContextRail({
 
         <ContextGoal
           conversationId={conversationId}
-          revision={conversationRevision}
+          activity={turnActivity}
+          running={turnRunning}
+          onStopTurn={onStopTurn}
           ready={ready && settled}
           compose={composeGoal}
           onComposeDone={() => setComposeGoal(false)}

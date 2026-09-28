@@ -1786,6 +1786,9 @@ export default function Conversation({
     <ConversationContextRail
       conversationId={id}
       conversationRevision={state.workspace?.revision ?? '0'}
+      turnActivity={`${generation?.generation_id ?? ''}:${generation?.status ?? ''}`}
+      turnRunning={Boolean(running)}
+      onStopTurn={() => void action('conversation.stop')}
       resources={resources}
       suggestions={(state.suggestions ?? []).filter(
         (suggestion) => suggestion.conversation_id === id,

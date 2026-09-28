@@ -1559,6 +1559,21 @@
 .context-goal-blockers {
   color: var(--status-warning-text);
 }
+/* The verifier's latest reason ("Two sections are still empty."). */
+.context-goal-reason {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  overflow-wrap: anywhere;
+}
+.context-goal-field {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
 .context-goal-actions {
   display: flex;
   flex-wrap: wrap;
