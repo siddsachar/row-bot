@@ -357,6 +357,7 @@ export default function SettingRoute() {
             {providerConfigurationOwner?.get() && (
               <ProviderConfiguration
                 compact
+                autoAdd={search.get('add') === 'custom-endpoint'}
                 credentialRefreshRequest={
                   endpointCredentialRefresh?.session === session
                     ? endpointCredentialRefresh

@@ -349,3 +349,79 @@ it('fences save results after unmount and cancellation before submit never write
   expect(next.onCancel).toHaveBeenCalledOnce();
   expect(next.apply).not.toHaveBeenCalled();
 });
+
+it('checks a new key with the provider before saving it and keeps errors in the step (U6)', async () => {
+  const options = props();
+  const check = vi.fn().mockResolvedValue({
+    schema_version: 1,
+    state: 'invalid',
+    detail: "OpenAI didn't accept this key. Check that you copied all of it.",
+  });
+  render(
+    <ProviderSettingsEditor
+      {...options}
+      load={vi.fn().mockResolvedValue({ ...snapshot, configured: false })}
+      check={check}
+      compact
+    />,
+  );
+  expect(
+    await screen.findByRole('link', { name: 'Get a key' }),
+  ).toHaveAttribute('href', 'https://platform.openai.com/api-keys');
+  const input = screen.getByLabelText('API key');
+  expect(input).toHaveAccessibleDescription('Starts with sk-');
+  fireEvent.change(input, { target: { value: 'pk-wrong-looking-value-1234' } });
+  expect(input).toHaveAccessibleDescription(
+    "This provider's keys usually start with sk-. Check that you copied the right key.",
+  );
+  expect(
+    screen.getByText(/Saving sends the key to OpenAI to check it/),
+  ).toBeVisible();
+  fireEvent.change(input, { target: { value: 'sk-synthetic-refused-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    "OpenAI didn't accept this key.",
+  );
+  expect(check).toHaveBeenCalledWith('openai', 'sk-synthetic-refused-key');
+  // Nothing was reviewed or saved, and the key stays for correcting.
+  expect(options.review).not.toHaveBeenCalled();
+  expect(options.apply).not.toHaveBeenCalled();
+  expect(input).toHaveValue('sk-synthetic-refused-key');
+
+  check.mockResolvedValue({
+    schema_version: 1,
+    state: 'valid',
+    detail: 'OpenAI accepted the key.',
+  });
+  fireEvent.change(input, { target: { value: 'sk-synthetic-good-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
+  expect(options.onSaved).toHaveBeenCalledOnce();
+});
+
+it('never checks a custom endpoint key with a public provider', async () => {
+  const lab = { ...snapshot, provider_id: 'custom_openai_lab' };
+  const options = {
+    ...props(),
+    review: vi.fn().mockResolvedValue(lab),
+    apply: vi.fn().mockResolvedValue({ ...lab, revision: 'b'.repeat(64) }),
+  };
+  const check = vi.fn();
+  render(
+    <ProviderSettingsEditor
+      {...options}
+      providerId="custom_openai_lab"
+      load={vi
+        .fn()
+        .mockResolvedValue({ ...snapshot, provider_id: 'custom_openai_lab' })}
+      check={check}
+      compact
+    />,
+  );
+  const input = await screen.findByLabelText('API key');
+  expect(screen.queryByRole('link', { name: 'Get a key' })).toBeNull();
+  fireEvent.change(input, { target: { value: 'synthetic-lab-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
+  expect(check).not.toHaveBeenCalled();
+});

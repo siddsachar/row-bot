@@ -2666,3 +2666,80 @@
 .settings-skills-page .settings-skill-duplicate > .settings-help {
   grid-column: 1 / -1;
 }
+
+/* Phase 10: the key dialog's get-a-key link and format hint (U6). */
+.settings-key-link {
+  margin: 0;
+}
+.settings-key-link a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-link);
+}
+.settings-key-hint {
+  margin: -6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.settings-key-hint[data-warning] {
+  color: var(--status-warning-text);
+}
+/* Subscription sign-in: the device code with Copy and steps (U7). */
+.subscription-flow-state {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.subscription-flow-auto {
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+}
+.subscription-flow-steps {
+  margin: 0;
+  padding-inline-start: 20px;
+  color: var(--text-secondary);
+}
+.subscription-flow-open.button {
+  justify-self: start;
+}
+.subscription-device-code {
+  display: grid;
+  gap: 4px;
+}
+.subscription-device-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.subscription-device-code-value {
+  padding: 6px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: var(--weight-semibold) var(--text-20) / 1.2 var(--font-mono);
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+.subscription-device-code small {
+  color: var(--text-muted);
+}
+/* The default model: the composer's searchable picker behind one trigger (U12). */
+.settings-default-model.button {
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.settings-default-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-default-model-detail {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}

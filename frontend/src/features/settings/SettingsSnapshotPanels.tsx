@@ -1385,6 +1385,16 @@ function SecretSetting({
   );
 }
 
+/** "Small (~244 MB)" from the size option "Small (~244 MB, accurate)". */
+function whisperSize(
+  options: readonly { value: string; label: string }[],
+  value: string,
+) {
+  const label =
+    options.find((option) => option.value === value)?.label ?? value;
+  return label.replace(/,\s*[^)]*\)/, ')');
+}
+
 export function VoiceSnapshotPanel({
   snapshot,
   conversationId,
@@ -1510,6 +1520,27 @@ export function VoiceSnapshotPanel({
             options={snapshot.whisper_options}
           />
         </div>
+        {/* Dictate needs the chosen Whisper model on this computer (B140). */}
+        {snapshot.local.whisper_installed ? (
+          <StateChip active>
+            Whisper{' '}
+            {whisperSize(
+              snapshot.whisper_options,
+              snapshot.local.whisper_model,
+            )}{' '}
+            installed
+          </StateChip>
+        ) : (
+          <>
+            <StateChip warning>Whisper not installed</StateChip>
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="whisper.install"
+              label={`Install Whisper ${whisperSize(snapshot.whisper_options, snapshot.local.whisper_model)}`}
+              description="Downloads the speech recognition model from Hugging Face (Systran) once and keeps it on this computer; Dictate then works offline. This action uses network access."
+            />
+          </>
+        )}
       </Section>
       <Section
         title="Read aloud"

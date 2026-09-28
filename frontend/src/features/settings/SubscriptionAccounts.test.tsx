@@ -100,9 +100,38 @@ it('starts subscription sign-in from the compact row action and shows its flow',
   fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
   await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
   expect(vi.mocked(p.apply).mock.calls[0][1].nonce).toBe('original-nonce');
-  expect(await screen.findByText('Sign-in: waiting')).toBeVisible();
-  expect(screen.getByDisplayValue('SYNTHETIC')).toBeVisible();
+  expect(await screen.findByText('Waiting for you to sign in')).toBeVisible();
+  // The device code is shown large with Copy and the steps (U7).
+  expect(screen.getByText('SYNTHETIC')).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Copy device code' }),
+  ).toBeVisible();
+  expect(screen.getByText('Enter this code when it asks.')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Review sign-in' })).toBeNull();
+});
+
+it('checks a waiting ChatGPT sign-in by itself every few seconds', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const p = props({
+      compact: true,
+      initialProvider: 'codex',
+      initialAction: 'connect',
+    });
+    render(<SubscriptionAccounts {...p} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+    await screen.findByText('Waiting for you to sign in');
+    expect(p.apply).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100);
+    });
+    await waitFor(() => expect(p.apply).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(p.review).mock.calls[1][0].operation).toBe('check');
+    // A check that is still waiting says nothing new.
+    expect(screen.queryByText(/updated\./)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it('keeps an active sign-in attached to its provider when another row is opened', async () => {
   const session = new SubscriptionAccountsSession();
@@ -114,7 +143,7 @@ it('keeps an active sign-in attached to its provider when another row is opened'
   });
   const first = render(<SubscriptionAccounts {...p} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
-  await screen.findByText('Sign-in: waiting');
+  await screen.findByText('Waiting for you to sign in');
   first.unmount();
   render(
     <SubscriptionAccounts

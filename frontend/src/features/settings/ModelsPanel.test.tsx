@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
@@ -89,6 +95,7 @@ const agent: AgentRuntimeSettingsState = {
   max_active_children_global: 8,
   child_timeout_seconds: 0,
 };
+const clientSnapshot = { handshake: { models: [] } };
 function fixture() {
   const state = structuredClone(baseState);
   let saved = structuredClone(defaultSnapshot);
@@ -161,8 +168,24 @@ function fixture() {
       providers: [],
     })),
     modelCatalogPage: vi.fn(),
+    localRuntime: vi.fn(async () => ({
+      schema_version: 1,
+      state: 'not_installed',
+      platform: 'windows',
+      download_url: 'https://ollama.com/download',
+      models: [],
+    })),
+    refreshChoices: vi.fn(async () => undefined),
+    subscribe: vi.fn(() => () => undefined),
+    getSnapshot: vi.fn(() => clientSnapshot),
   } as unknown as ClientController;
   return controller;
+}
+/** The default model is the composer's searchable picker (U12). */
+async function chooseDefault(name: RegExp) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Default model' }));
+  const option = await screen.findByRole('option', { name });
+  await act(async () => fireEvent.click(option));
 }
 function show(controller = fixture()) {
   const session = new DefaultModelSession();
@@ -177,8 +200,8 @@ function show(controller = fixture()) {
 it('renders actual defaults and limits while leaving the catalog off the initial row path', async () => {
   const { controller } = show();
   expect(
-    await screen.findByRole('combobox', { name: 'Default model' }),
-  ).toHaveValue(brain);
+    await screen.findByRole('button', { name: 'Default model' }),
+  ).toHaveTextContent('GPT-6-Astra');
   expect(screen.getByRole('combobox', { name: 'Vision model' })).toHaveValue(
     vision,
   );
@@ -216,10 +239,41 @@ it('offers explicit Ollama setup navigation without starting an install on rende
   expect(controller.executeDefaultModel).not.toHaveBeenCalled();
 });
 
+it('offers Download Ollama only when Ollama is not running (B117)', async () => {
+  const controller = fixture();
+  vi.spyOn(controller, 'localRuntime').mockResolvedValue({
+    schema_version: 1,
+    state: 'running',
+    platform: 'windows',
+    download_url: 'https://ollama.com/download',
+    models: [],
+  });
+  show(controller);
+  await screen.findByRole('button', { name: 'Default model' });
+  await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
+  expect(screen.queryByRole('link', { name: 'Download Ollama' })).toBeNull();
+});
+
+it('lets Vision follow the chat model (decision 11)', async () => {
+  const { controller } = show();
+  const vision = await screen.findByRole('combobox', { name: 'Vision model' });
+  expect(
+    screen.getByRole('option', { name: 'Same as chat model' }),
+  ).toBeInTheDocument();
+  fireEvent.change(vision, { target: { value: '' } });
+  await waitFor(() =>
+    expect(controller.updateModelSurface).toHaveBeenCalledWith({
+      surface: 'vision',
+      action: 'default',
+      selection_ref: '',
+    }),
+  );
+});
+
 it('reviews and saves the selected Brain default internally with the exact qualified identity', async () => {
   const { controller } = show();
-  const select = await screen.findByRole('combobox', { name: 'Default model' });
-  fireEvent.change(select, { target: { value: 'model:codex:gpt-5.5' } });
+  const select = await screen.findByRole('button', { name: 'Default model' });
+  await chooseDefault(/GPT-5\.5/);
   await waitFor(() =>
     expect(controller.executeDefaultModel).toHaveBeenCalledTimes(1),
   );
@@ -228,7 +282,9 @@ it('reviews and saves the selected Brain default internally with the exact quali
     provider_id: 'codex',
     model_id: 'gpt-5.5',
   });
-  await waitFor(() => expect(select).toHaveValue('model:codex:gpt-5.5'));
+  await waitFor(() => expect(select).toHaveTextContent('GPT-5.5'));
+  // The composer's picker offers the new default at once.
+  expect(controller.refreshChoices).toHaveBeenCalled();
   expect(
     screen.queryByRole('button', { name: /receipt/i }),
   ).not.toBeInTheDocument();
@@ -321,7 +377,7 @@ it('updates media toggles, defaults, camera, context, and delegation through the
 
 it('refreshes the catalog only from the explicit action and keeps its rows closed', async () => {
   const { controller } = show();
-  await screen.findByRole('combobox', { name: 'Default model' });
+  await screen.findByRole('button', { name: 'Default model' });
   expect(controller.refreshModelsCatalog).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh catalog' }));
   await waitFor(() =>
@@ -346,10 +402,10 @@ it('keeps only the original receipt action visible while a Brain save is uncerta
       selection: defaultSnapshot,
     });
   show(controller);
-  const selector = await screen.findByRole('combobox', {
+  const selector = await screen.findByRole('button', {
     name: 'Default model',
   });
-  fireEvent.change(selector, { target: { value: 'model:codex:gpt-5.5' } });
+  await chooseDefault(/GPT-5\.5/);
   const button = await screen.findByRole('button', {
     name: 'Check the save',
   });
@@ -380,9 +436,7 @@ it('names the default model in the page summary and follows a saved change', asy
   );
   expect(chip).toHaveTextContent('GPT-6-Astra');
   expect(chip).not.toHaveTextContent('ChatGPT / Codex');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Default model' }), {
-    target: { value: 'model:codex:gpt-5.5' },
-  });
+  await chooseDefault(/GPT-5\.5/);
   expect(
     await screen.findByTitle('Default model: GPT-5.5 - ChatGPT / Codex'),
   ).toHaveTextContent('GPT-5.5');

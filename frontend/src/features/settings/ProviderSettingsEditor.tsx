@@ -1,12 +1,21 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import {
   ProviderSettingsSession,
   useProviderSettingsValue,
 } from './provider-settings-sessions';
 import { clientError } from '../../api/errors';
-import type { ProviderSettingsSnapshot } from '../../api/types';
+import type {
+  ProviderKeyCheck,
+  ProviderSettingsSnapshot,
+} from '../../api/types';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
 import { apiKeyLabel } from '../../ui/format';
+import { ExternalLink } from 'lucide-react';
+import {
+  keyFormatHint,
+  keyFormatWarning,
+  PROVIDER_KEYS,
+} from './provider-keys';
 
 type ProviderSettingsView = ProviderSettingsSnapshot;
 type Operation = 'save' | 'clear' | 'restore';
@@ -41,6 +50,11 @@ export type ProviderSettingsEditorProps = {
     | { rejected: true; snapshot: ProviderSettingsView }
     | null
   >;
+  /**
+   * Ask the provider whether a key works before it is saved (nothing is
+   * stored by the check). Only for providers with a known key page.
+   */
+  check?: (providerId: string, value: string) => Promise<ProviderKeyCheck>;
   onSaved: (snapshot: ProviderSettingsView) => void;
   onCancel: () => void;
 };
@@ -49,6 +63,9 @@ export default function ProviderSettingsEditor(
   props: ProviderSettingsEditorProps,
 ) {
   const { providerId, load, review, apply, receipt, onSaved, onCancel } = props;
+  const keyInfo = PROVIDER_KEYS[providerId];
+  const hintId = useId();
+  const check = keyInfo ? props.check : undefined;
   const local = useRef<ProviderSettingsSession | null>(null);
   if (!local.current || local.current.providerId !== providerId)
     local.current = new ProviderSettingsSession(providerId);
@@ -197,11 +214,28 @@ export default function ProviderSettingsEditor(
       (next === 'restore' && !snapshot.recovery_available)
     )
       return;
-    const abort = session.read();
     const generation = epoch.current;
-    setBusy('review');
     setError('');
     setNotice('');
+    if (next === 'save' && check) {
+      // The provider checks the key before it is saved (errors stay here).
+      setBusy('check');
+      try {
+        const result = await check(providerId, secret);
+        if (!alive(generation)) return;
+        if (result.state === 'invalid' || result.state === 'unreachable') {
+          setError(result.detail);
+          return;
+        }
+      } catch (cause) {
+        if (alive(generation)) setError(clientError(cause).message);
+        return;
+      } finally {
+        if (alive(generation)) setBusy('');
+      }
+    }
+    const abort = session.read();
+    setBusy('review');
     let reviewedSnapshot: ProviderSettingsView;
     try {
       reviewedSnapshot = await review(
@@ -275,7 +309,11 @@ export default function ProviderSettingsEditor(
       >
         <h2>{apiKeyLabel(snapshot?.display_name)}</h2>
         {busy === 'load' && <Skeleton label="Loading API key status" />}
-        {error && <p role="alert">{error}</p>}
+        {error && (
+          <p role="alert" className="settings-key-error">
+            {error}
+          </p>
+        )}
         {notice && <p role="status">{notice}</p>}
         {snapshot && (
           <>
@@ -291,6 +329,18 @@ export default function ProviderSettingsEditor(
               </p>
             ) : (
               <>
+                {keyInfo && (
+                  <p className="settings-key-link">
+                    <a
+                      href={keyInfo.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Get a key
+                      <ExternalLink size={12} aria-hidden />
+                    </a>
+                  </p>
+                )}
                 <Field label="API key">
                   <Input
                     type="password"
@@ -298,15 +348,41 @@ export default function ProviderSettingsEditor(
                     value={secret}
                     maxLength={16384}
                     disabled={locked}
-                    onChange={(event) => setSecret(event.target.value)}
+                    aria-describedby={keyInfo ? hintId : undefined}
+                    onChange={(event) => {
+                      setSecret(event.target.value);
+                      setError('');
+                    }}
                   />
                 </Field>
+                {keyInfo && (
+                  <p
+                    id={hintId}
+                    className="settings-key-hint"
+                    data-warning={
+                      keyFormatWarning(providerId, secret) ? 'true' : undefined
+                    }
+                  >
+                    {keyFormatWarning(providerId, secret) ||
+                      keyFormatHint(providerId)}
+                  </p>
+                )}
+                {keyInfo && (
+                  <p className="settings-help">
+                    Saving sends the key to {snapshot.display_name} to check it,
+                    then keeps it in this computer's keychain.
+                  </p>
+                )}
                 <div className="actions">
                   <Button
                     disabled={locked || !secret.trim()}
                     onClick={() => void performDirect('save')}
                   >
-                    {snapshot.configured ? 'Replace key' : 'Save key'}
+                    {busy === 'check'
+                      ? 'Checking…'
+                      : snapshot.configured
+                        ? 'Replace key'
+                        : 'Save key'}
                   </Button>
                   {snapshot.configured && (
                     <Button

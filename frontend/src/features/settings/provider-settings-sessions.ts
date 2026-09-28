@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import type { ClientController } from '../../api/controller';
 import type {
+  ProviderKeyCheck,
   ProviderSettingsSnapshot,
   ProviderSettingsReview,
   ProviderSettingsReceipt,
@@ -9,7 +10,7 @@ import type { ProviderSettingsEditorProps } from './ProviderSettingsEditor';
 
 export type ProviderSettingsCallbacks = Pick<
   ProviderSettingsEditorProps,
-  'load' | 'review' | 'apply' | 'receipt'
+  'load' | 'review' | 'apply' | 'receipt' | 'check'
 > & { clear?: () => void };
 
 type Operation = 'save' | 'clear' | 'restore';
@@ -36,6 +37,10 @@ export type ProviderSettingsTransport = {
     commandId: string,
     signal?: AbortSignal,
   ) => Promise<ProviderSettingsReceipt>;
+  checkProviderKey?: (
+    providerId: string,
+    value: string,
+  ) => Promise<ProviderKeyCheck>;
 };
 
 export function providerSettingsCallbacks(
@@ -49,6 +54,12 @@ export function providerSettingsCallbacks(
       reviewed = null;
     },
     load: (id, signal) => controller.providerSettings(id, signal),
+    ...(controller.checkProviderKey
+      ? {
+          check: (id: string, value: string) =>
+            controller.checkProviderKey!(id, value),
+        }
+      : {}),
     async review(id, revision, operation, value, signal) {
       reviewed = null;
       const captured = ++generation;

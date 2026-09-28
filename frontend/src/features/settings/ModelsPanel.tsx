@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Brain,
@@ -29,6 +29,7 @@ import { SettingsSummary, SummaryChip } from './anatomy';
 import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
+import DefaultModelPicker from './DefaultModelPicker';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 type Media = 'vision' | 'image' | 'video';
@@ -113,6 +114,13 @@ export default function ModelsPanel({
   const [customContext, setCustomContext] = useState('');
   const [cameras, setCameras] = useState<number[] | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(!!initialProvider);
+  // "Download Ollama" only when Ollama isn't running (B117).
+  const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+  // The composer's model list: the default picker offers the same choices.
+  const models = useSyncExternalStore(
+    (notify) => controller.subscribe?.(notify) ?? (() => undefined),
+    () => controller.getSnapshot?.().handshake?.models,
+  );
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -127,9 +135,9 @@ export default function ModelsPanel({
       controller.defaultModel(abort.signal),
       controller.agentRuntimeSettings(abort.signal),
     ]).then(
-      ([models, defaultModel, agentSettings]) => {
+      ([settings, defaultModel, agentSettings]) => {
         if (abort.signal.aborted) return;
-        setState(models);
+        setState(settings);
         if (!session.get('pending', null)) setSnapshot(defaultModel);
         setAgents(agentSettings);
         setAgentDraft(fieldsFrom(agentSettings));
@@ -140,6 +148,18 @@ export default function ModelsPanel({
     );
     return () => abort.abort();
   }, [controller, session, setSnapshot]);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    controller.localRuntime(abort.signal).then(
+      (runtime) => {
+        if (!abort.signal.aborted && runtime)
+          setOllamaRunning(runtime.state === 'running');
+      },
+      () => undefined,
+    );
+    return () => abort.abort();
+  }, [controller]);
 
   useEffect(() => {
     if (!contextPolicyKind) return;
@@ -192,6 +212,8 @@ export default function ModelsPanel({
         setPending(null);
         session.resolved();
         await reload();
+        // The composer's picker offers the new default at once.
+        void controller.refreshChoices().catch(() => undefined);
         setNotice('Brain default saved for future work.');
       } catch (cause) {
         try {
@@ -577,24 +599,13 @@ export default function ModelsPanel({
                 : undefined
             }
           >
-            <Select
-              value={state.brain.current_ref}
+            <DefaultModelPicker
+              current={state.brain.current_ref}
+              models={models ?? []}
+              options={state.brain.options}
               disabled={!!busy || !!pending || !!pinPending}
-              onChange={(event) =>
-                void brainDefault(event.target.value).catch(() => {})
-              }
-            >
-              <option value="">Choose a pinned Brain model</option>
-              {state.brain.options.map((item) => (
-                <option
-                  value={item.selection_ref}
-                  key={item.selection_ref}
-                  disabled={!item.available}
-                >
-                  {item.available ? item.label : `Unavailable: ${item.label}`}
-                </option>
-              ))}
-            </Select>
+              onChoose={(ref) => void brainDefault(ref).catch(() => {})}
+            />
           </Field>
         </div>
         {state.brain.warning && (
@@ -602,17 +613,19 @@ export default function ModelsPanel({
             {state.brain.warning.replace('Chat', 'Brain')}
           </p>
         )}
-        <p className="settings-help">
-          Need the local Ollama runtime?{' '}
-          <a
-            href="https://ollama.com/download"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Download Ollama
-          </a>
-          , then refresh model settings after it starts.
-        </p>
+        {ollamaRunning === false && (
+          <p className="settings-help">
+            Want models on this computer?{' '}
+            <a
+              href="https://ollama.com/download"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Download Ollama
+            </a>
+            ; Row-Bot finds it once it runs.
+          </p>
+        )}
         {pending && (
           <Button onClick={() => void checkBrainReceipt()}>
             Check the save
@@ -724,7 +737,14 @@ export default function ModelsPanel({
                     void media(surface, 'default', event.target.value)
                   }
                 >
-                  <option value="">Choose a pinned model</option>
+                  {surface === 'vision' ? (
+                    // Most chat models see images too (decision 11).
+                    <option value="">Same as chat model</option>
+                  ) : (
+                    <option value="" disabled>
+                      Choose a model
+                    </option>
+                  )}
                   {picker.options.map((item) => (
                     <option
                       value={item.selection_ref}

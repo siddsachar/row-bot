@@ -1,4 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
+import { writeClipboardText } from '../../platform/clipboard';
+import { RuntimeContext } from '../../runtime';
 import type {
   SubscriptionAccountsSnapshot,
   SubscriptionFlowSnapshot,
@@ -88,6 +91,26 @@ const labels: Record<string, string> = {
   claude_subscription: 'Claude Subscription',
   xai_oauth: 'xAI Grok',
 };
+/** A sign-in state in words (never the raw state token). */
+export function signInStateLabel(state: SubscriptionFlowSnapshot['state']) {
+  return (
+    {
+      starting: 'Starting sign-in…',
+      waiting: 'Waiting for you to sign in',
+      checking: 'Checking your sign-in…',
+      exchanging: 'Finishing sign-in…',
+      publishing: 'Finishing sign-in…',
+      connected: 'Signed in',
+      cancelled: 'Sign-in cancelled',
+      expired: 'The sign-in expired. Start again.',
+      uncertain: "Row-Bot couldn't confirm the sign-in. Check again.",
+      draining: 'Finishing…',
+    }[state] ?? 'Signing in…'
+  );
+}
+/** ChatGPT / Codex and xAI can be checked while they wait; Claude needs a pasted code. */
+const POLLED = new Set(['codex', 'xai_oauth']);
+const POLL_MS = 5000;
 function safeLogin(value: string | null) {
   try {
     const url = new URL(value ?? '');
@@ -146,6 +169,19 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     (!flow.quiescent ||
       !['connected', 'cancelled', 'expired'].includes(flow.state));
   const retained = session.hasRetained();
+  // Waiting device-code (ChatGPT / Codex) and loopback (xAI) sign-ins are
+  // checked every few seconds, so nobody has to press Check (U7). A failed
+  // check stops the loop and leaves "Check now".
+  const polling = !!props.compact && active && POLLED.has(provider) && !error;
+  const check = useRef<() => void>(() => undefined);
+  check.current = () => {
+    if (!locked) void performDirect('check');
+  };
+  useEffect(() => {
+    if (!polling) return;
+    const timer = window.setInterval(() => check.current(), POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [polling]);
   async function load() {
     if (
       !session.active ||
@@ -264,8 +300,13 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       setCode('');
       setPending(null);
       session.resolved();
+      // A check that is still waiting says nothing (the status line does).
       setNotice(
-        `${labels[provider]} ${operation === 'start' ? 'sign-in started' : operation === 'disconnect' ? 'disconnected' : operation === 'import_token' ? 'setup token saved' : 'updated'}.`,
+        operation === 'check'
+          ? result.flow?.state === 'connected'
+            ? `Signed in to ${labels[provider]}.`
+            : ''
+          : `${labels[provider]} ${operation === 'start' ? 'sign-in started' : operation === 'disconnect' ? 'disconnected' : operation === 'import_token' ? 'setup token saved' : operation === 'submit' ? 'signed in' : 'updated'}.`,
       );
       if (generation === epoch.current) props.onSaved(result.accounts);
     } catch (cause) {
@@ -440,7 +481,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           Finish or cancel this sign-in before opening{' '}
           {labels[props.initialProvider]}.
         </p>
-        {flow && <p>Sign-in: {flow.state.replaceAll('_', ' ')}</p>}
+        {flow && <p>{signInStateLabel(flow.state)}</p>}
         {pending && (
           <Button disabled={!!busy} onClick={() => void readReceipt()}>
             Check again
@@ -451,10 +492,10 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
             <Button
               disabled={locked}
               onClick={() =>
-                void (provider === 'codex' ? performDirect('check') : inspect())
+                void (POLLED.has(provider) ? performDirect('check') : inspect())
               }
             >
-              {provider === 'codex' ? 'Check login' : 'Check sign-in'}
+              Check now
             </Button>
             <Button disabled={cancelling} onClick={() => void cancel()}>
               Cancel sign-in
@@ -488,29 +529,53 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
           </p>
         )}
         {flow && (
-          <div className="stack">
-            <p>Sign-in: {flow.state.replaceAll('_', ' ')}</p>
-            {login && (
-              <a href={login} target="_blank" rel="noopener noreferrer">
+          <div className="stack subscription-flow">
+            <p className="subscription-flow-state" role="status">
+              {signInStateLabel(flow.state)}
+              {active && POLLED.has(provider) && !error && (
+                <span className="subscription-flow-auto">
+                  {' '}
+                  · Row-Bot notices when you're done
+                </span>
+              )}
+            </p>
+            {active && flow.device_code && (
+              <ol className="subscription-flow-steps">
+                <li>Open the sign-in page and sign in.</li>
+                <li>Enter this code when it asks.</li>
+              </ol>
+            )}
+            {active && !flow.device_code && provider !== 'codex' && (
+              <p className="settings-help">
+                {provider === 'xai_oauth'
+                  ? 'Sign in on the page that opens. If it ends on an error page, copy its address into the field below.'
+                  : 'Sign in on the page that opens, then paste the code it shows below.'}
+              </p>
+            )}
+            {active && login && (
+              <a
+                className="button subscription-flow-open"
+                href={login}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Open sign-in page
               </a>
             )}
-            {flow.device_code && (
-              <Field label="Device code">
-                <Input readOnly value={flow.device_code} />
-              </Field>
+            {active && flow.device_code && (
+              <DeviceCode code={flow.device_code} expiresAt={flow.expires_at} />
             )}
             {active && (
               <div className="actions">
                 <Button
                   disabled={locked}
                   onClick={() =>
-                    void (provider === 'codex'
+                    void (POLLED.has(provider)
                       ? performDirect('check')
                       : inspect())
                   }
                 >
-                  {provider === 'codex' ? 'Check login' : 'Check sign-in'}
+                  Check now
                 </Button>
                 <Button disabled={cancelling} onClick={() => void cancel()}>
                   Cancel sign-in
@@ -792,5 +857,57 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         )}
       </section>
     </details>
+  );
+}
+
+/** The device code, large, with Copy and how long it stays valid. */
+function DeviceCode({
+  code,
+  expiresAt,
+}: {
+  code: string;
+  expiresAt?: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+  // The desktop window copies through its own bridge; browsers directly.
+  const writer = useContext(RuntimeContext)?.platform.writeClipboard;
+  const minutes = expiresAt
+    ? Math.max(0, Math.round((Date.parse(expiresAt) - Date.now()) / 60000))
+    : null;
+  return (
+    <div className="subscription-device-code">
+      <span className="field-label" id="subscription-device-code-label">
+        Device code
+      </span>
+      <div className="subscription-device-code-row">
+        <output
+          className="subscription-device-code-value"
+          aria-labelledby="subscription-device-code-label"
+        >
+          {code}
+        </output>
+        <Button
+          variant="ghost"
+          aria-label="Copy device code"
+          onClick={() => {
+            void writeClipboardText(code, writer).then(setCopied);
+          }}
+        >
+          {copied ? (
+            <Check size={14} aria-hidden />
+          ) : (
+            <Copy size={14} aria-hidden />
+          )}
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      {minutes !== null && Number.isFinite(minutes) && (
+        <small>
+          {minutes > 0
+            ? `Valid for about ${minutes} minute${minutes === 1 ? '' : 's'}.`
+            : 'This code has expired. Start again.'}
+        </small>
+      )}
+    </div>
   );
 }

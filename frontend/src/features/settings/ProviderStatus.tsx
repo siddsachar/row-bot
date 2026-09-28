@@ -30,6 +30,7 @@ import { SettingsRefresh, SettingsSummary, SummaryChip } from './anatomy';
 import { ModalTask } from '../../ui/overlays';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import type { createProviderSettingsSessions } from './provider-settings-sessions';
+import { BillingTag } from '../shell/ModelList';
 
 const groups = {
   local: 'On this device',
@@ -311,7 +312,14 @@ export default function ProviderStatus({
           <small title={detail}>{detail}</small>
         </span>
         <span className="settings-provider-risk">
-          {card.group === 'subscription' ? '' : humanizeToken(card.risk_label)}
+          {card.billing ? (
+            // How it is paid for (U13): Subscription, Pay per use, Credits, Local · free.
+            <BillingTag billing={card.billing} />
+          ) : card.group === 'subscription' ? (
+            ''
+          ) : (
+            humanizeToken(card.risk_label)
+          )}
         </span>
         <span className="settings-provider-actions">
           {card.group === 'api' && owner && (

@@ -163,6 +163,8 @@ export class ProviderConfigurationSession {
 
 export type ProviderConfigurationProps = {
   compact?: boolean;
+  /** Open "Add custom endpoint" once the list has loaded (Setup's link). */
+  autoAdd?: boolean;
   credentialRefreshRequest?: { providerId: string; token: number };
   session?: ProviderConfigurationSession;
   load: (
@@ -208,6 +210,20 @@ export default function ProviderConfiguration(
   const handledCredentialRefresh = useRef(0);
   const { page, fields, pending, operation } = state;
   const locked = !!state.busy || !!pending || !state.active;
+  const autoAdded = useRef(false);
+  useEffect(() => {
+    if (!props.autoAdd || autoAdded.current || !page || locked || state.editing)
+      return;
+    autoAdded.current = true;
+    session.update({
+      fields: blank(),
+      revision: page.revision,
+      existing: false,
+      editing: true,
+      operation: 'provider.endpoint.create',
+      reviewed: null,
+    });
+  }, [props.autoAdd, page, locked, state.editing, session]);
   const modelAction = operation.startsWith('provider.model.');
   const networkAction =
     operation === 'provider.endpoint.probe' ||

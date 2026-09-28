@@ -1416,3 +1416,56 @@ it('uses NiceGUI friendly research-tool labels and owner order', () => {
   expect(screen.getByLabelText('Enable arXiv')).toBeChecked();
   expect(screen.queryByText('web_search')).not.toBeInTheDocument();
 });
+
+it('installs the chosen Whisper size from Voice settings (B140)', () => {
+  mutation.page = 'voice';
+  const { rerender } = render(
+    <MemoryRouter>
+      <VoiceSnapshotPanel
+        snapshot={{
+          ...snapshot.voice,
+          local: { ...snapshot.voice.local, whisper_model: 'base' },
+          whisper_options: [
+            { value: 'base', label: 'Base (~74 MB, balanced)' },
+          ],
+        }}
+        conversationId="conversation-a"
+        mutation={mutation}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Whisper not installed')).toBeVisible();
+  expect(
+    screen.getByText(
+      /Downloads the speech recognition model from Hugging Face/,
+    ),
+  ).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Install Whisper Base (~74 MB)' }),
+  );
+  expect(mutation.review).toHaveBeenCalledWith(
+    expect.objectContaining({
+      page: 'voice',
+      field: 'whisper.install',
+      value: true,
+    }),
+    expect.any(AbortSignal),
+  );
+  rerender(
+    <MemoryRouter>
+      <VoiceSnapshotPanel
+        snapshot={{
+          ...snapshot.voice,
+          local: { ...snapshot.voice.local, whisper_installed: true },
+          whisper_options: [
+            { value: 'base', label: 'Base (~74 MB, balanced)' },
+          ],
+        }}
+        conversationId="conversation-a"
+        mutation={mutation}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Whisper Base (~74 MB) installed')).toBeVisible();
+  expect(screen.queryByRole('button', { name: /Install Whisper/ })).toBeNull();
+});
