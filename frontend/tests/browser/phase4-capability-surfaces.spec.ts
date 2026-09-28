@@ -172,7 +172,10 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
     .click();
   const form = context.getByRole('form', { name: 'Set a goal' });
   await form
-    .getByLabel('Goal objective', { exact: true })
+    .getByRole('textbox', {
+      name: 'What should this conversation achieve?',
+      exact: true,
+    })
     .fill('Verify the isolated Phase 4 capability surfaces');
   await form.getByLabel('Turn limit', { exact: true }).fill('12');
   await form.getByRole('button', { name: 'Start goal', exact: true }).click();
@@ -180,14 +183,17 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   await expect(
     goal.getByText('Verify the isolated Phase 4 capability surfaces'),
   ).toBeVisible();
-  await expect(goal.getByText(/0 of 12 turns/)).toBeVisible();
-  await visualCheck(page, info, 'goal-started');
-
-  await goal.getByRole('button', { name: 'Pause goal', exact: true }).click();
+  // Starting works at once and continues turn after turn: the fixture's
+  // verifier asks for one more step, then calls it done (decision 16).
+  await expect(goal.getByText('Done', { exact: true })).toBeVisible();
+  await expect(goal.getByText('Turn 2 of 12', { exact: true })).toBeVisible();
   await expect(
-    goal.getByRole('button', { name: 'Resume goal', exact: true }),
+    goal.getByText('Fixture goal: both steps are done.', { exact: true }),
   ).toBeVisible();
-  await expect(goal.getByText('Paused', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('note').filter({ hasText: 'Goal · turn 2 of 12' }),
+  ).toHaveCount(1);
+  await visualCheck(page, info, 'goal-started');
 
   const avatar = page.locator('.navigation .buddy-avatar').first();
   if (await avatar.count()) {
@@ -211,9 +217,7 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   await page.reload();
   await revealContext();
   await expect(
-    context
-      .locator('.context-goal')
-      .getByRole('button', { name: 'Resume goal', exact: true }),
+    context.locator('.context-goal').getByText('Turn 2 of 12', { exact: true }),
   ).toBeVisible();
   // The old Settings address opens the thread instead of a Settings page.
   await page.goto(`/app-v2/settings/goals?conversation=${conversation}`);
@@ -263,14 +267,16 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   await expect(profiles.getByText(displayName, { exact: true })).toBeVisible();
   await visualCheck(page, info, 'profile-created');
 
+  // Only the goal's own steps ran a model; nothing else did.
   expect(
     (await fixtureState(page)).calls.filter(
-      (call) => call.conversation_id === conversation,
+      (call) =>
+        call.conversation_id === conversation && call.case !== 'goal-step',
     ),
   ).toEqual([]);
   await writeEvidence(info, 'goal-profile-result.json', {
     conversation,
-    goal: 'paused',
+    goal: 'completed',
     max_turns: 12,
     profile_slug: slug,
     profile_created: true,

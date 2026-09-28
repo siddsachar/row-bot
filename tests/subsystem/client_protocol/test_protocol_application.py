@@ -332,3 +332,24 @@ def test_api_resources_bind_roles_describe_and_stale_revision(service, tmp_path,
         assert stale.status_code == 409
         current = _command(client, headers, "conversation.unbind", {"binding_id": binding["binding_id"]}, target=conversation, revision="2")
         assert current.status_code == 200, current.text
+
+
+def test_turning_on_a_tool_reaches_the_client_as_a_setup_card(service):
+    """Decision 12: the approval view says which tool the work needs turned on."""
+    fake = ScriptedAgentStream((("interrupt", [{
+        "__interrupt_id": "setup-interrupt", "tool": "row_bot_update_setting",
+        "label": "Turn on Web Search", "description": "Row-Bot needs Web Search for this.",
+        "args": {"setting": "tool_toggle", "value": "web_search:on"},
+        "setup": {"kind": "tool", "label": "Web Search"},
+    }]),))
+    service.stream_factory, service.resume_factory = fake.stream, fake.resume
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _command(client, headers, "conversation.create", {"title": "Setup"}).json()["conversation_id"]
+        submitted = _command(client, headers, "conversation.submit", {"submission_id": str(uuid4()), "text": "Search",
+                    "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}, target=conversation)
+        handle = service.registry.get(submitted.json()["execution_id"])
+        assert handle.producer_done.wait(5)
+        view = client.get(f"/api/v1/approvals/{handle.approval_id}", headers=headers)
+        assert view.status_code == 200, view.text
+        assert view.json()["setup"] == {"kind": "tool", "label": "Web Search"}

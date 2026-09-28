@@ -374,20 +374,47 @@ def natural_result(conversation_id: str, x_fixture_token: str = Header(default="
     return result
 
 
+def _natural_final(call: dict, thread: str, final: str, key: str):
+    from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_revision
+    native_id = fixture_id(f"natural:{key}:" + call["generation_id"])
+    append_checkpoint_messages(thread, [AIMessage(id=native_id, content=final)])
+    yield "token", final
+    yield "output_binding", {"native_message_id": native_id,
+        "checkpoint_revision": get_latest_checkpoint_revision(thread)}
+    yield "done", final
+
+
+def _goal_verifier(goal, _context):
+    """A goal's second step completes it; the first asks for one more."""
+    if int(goal.get("turns_used") or 0) >= 2:
+        return {"verdict": "complete", "reason": "Fixture goal: both steps are done."}
+    return {"verdict": "continue", "reason": "Fixture goal: one more step."}
+
+
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
-    if "natural code fixture" in text or "natural design fixture" in text:
+    if (text.startswith("[Goal mode started]") or text.startswith("[Goal continuation]")) and "approval" not in text:
+        # One goal step finishes at once; the real goal owner counts it and
+        # the scripted verifier (_goal_verifier) decides what happens next.
+        call = predecessor._record("submit", config, "goal-step")
+        try:
+            yield from _natural_final(call, call["conversation_id"], "Goal step done.", "goal")
+        finally:
+            call["quiesced"] = True
+        return
+    if text.startswith("[Continue in the new code folder]") or text.startswith("[Continue in the new design]"):
+        # The follow-up turn the create_* tool scheduled: the new resource is
+        # bound now, so the real Developer/Designer owners write into it.
         from row_bot import agent
-        from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_revision
         from row_bot.conversation_resources import current_execution_context
-        call = predecessor._record("submit", config, "natural-resource")
+        call = predecessor._record("submit", config, "natural-followup")
         thread = call["conversation_id"]
         agent._set_active_runtime_context(thread_id=thread, runtime_surface="normal_chat",
             approval_mode=config["configurable"]["approval_mode"],
             agent_run_id=config["configurable"].get("agent_run_id", ""))
         context = current_execution_context()
         try:
-            if "natural code fixture" in text:
+            if "code folder" in text.split("\n", 1)[0]:
                 from row_bot.tools.developer_tool import _write_file
                 assert context and context.resolve("workspace")
                 outcome = _write_file("index.html", "<!doctype html><title>Fixture landing</title>")
@@ -399,12 +426,81 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                 outcome = _set_pages([{"title": "Fixture cover", "html": "<!doctype html><html><body><h1>Fixture deck</h1></body></html>"}])
                 assert outcome.startswith("Set 1 pages")
                 final = "Created the synthetic presentation in the bound design."
-            native_id = fixture_id("natural:" + call["generation_id"])
-            append_checkpoint_messages(thread, [AIMessage(id=native_id, content=final)])
-            yield "token", final
-            yield "output_binding", {"native_message_id": native_id,
-                "checkpoint_revision": get_latest_checkpoint_revision(thread)}
-            yield "done", final
+            yield from _natural_final(call, thread, final, "followup")
+        finally:
+            call["quiesced"] = True
+        return
+    if "setup fixture" in text:
+        # The work needs a tool that is off: the setting tool asks through the
+        # standard approval, shown as a "Turn on" card (decision 12).
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "setup-card")
+        thread = call["conversation_id"]
+        identity = f"setup:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        args = {"setting": "tool_toggle", "value": "web_search:on"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "row_bot_update_setting", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "row_bot_update_setting", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "row_bot_update_setting", "label": "Turn on Web Search",
+                                 "description": "Row-Bot needs Web Search for this. You can turn it off "
+                                                "again in Settings › Tools.",
+                                 "args": args, "setup": {"kind": "tool", "label": "Web Search"}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "connect fixture" in text:
+        # The work needs an account: request_connection leaves a Connect card.
+        from row_bot.threads import append_checkpoint_messages
+        from row_bot.tools.conversation_setup_tool import request_connection
+        call = predecessor._record("submit", config, "connect-card")
+        thread = call["conversation_id"]
+        identity = f"connect:{call['generation_id']}"
+        tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
+        args = {"service": "google", "reason": "Reading your calendar needs Google."}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "request_connection", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message,
+                                "name": "request_connection", "args": args}
+            result = request_connection(**args)
+            append_checkpoint_messages(thread, [ToolMessage(id=tool_message, tool_call_id=tool_id,
+                                                          name="request_connection", content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message,
+                                "name": "request_connection", "args": args, "content": result}
+            yield from _natural_final(call, thread, "Connect Google and I'll read the calendar.", "connect")
+        finally:
+            call["quiesced"] = True
+        return
+    if "natural code fixture" in text or "natural design fixture" in text:
+        # The model decides the work needs a code folder or a design and calls
+        # the real conversation_setup tool; nothing is created from wording.
+        from row_bot import agent
+        from row_bot.threads import append_checkpoint_messages
+        from row_bot.tools.conversation_setup_tool import create_code_folder, create_design
+        call = predecessor._record("submit", config, "natural-resource")
+        thread = call["conversation_id"]
+        agent._set_active_runtime_context(thread_id=thread, runtime_surface="normal_chat",
+            approval_mode=config["configurable"]["approval_mode"],
+            agent_run_id=config["configurable"].get("agent_run_id", ""))
+        code = "natural code fixture" in text
+        name = "create_code_folder" if code else "create_design"
+        args = {"name": "Landing page"} if code else {"design_type": "deck", "name": "Fixture deck"}
+        identity = f"natural:{call['generation_id']}"
+        tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message, "name": name, "args": args}
+            result = create_code_folder(**args) if code else create_design(**args)
+            append_checkpoint_messages(thread, [ToolMessage(id=tool_message, tool_call_id=tool_id,
+                                                          name=name, content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message, "name": name,
+                                "args": args, "content": result}
+            final = ("Setting up a code folder for it." if code else "Setting up a deck for it.")
+            yield from _natural_final(call, thread, final, "reply")
         finally:
             call["quiesced"] = True
         return
@@ -1954,6 +2050,9 @@ def main() -> None:
     _p10_install_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = predecessor.resume
+    from row_bot import goals as goal_owner
+    # Goals verify with a scripted verdict, never a model call.
+    goal_owner._invoke_goal_verifier = _goal_verifier
     from row_bot import agent_orchestrator as orchestration
     # The explicit fixture control is the scheduler barrier. Every pass still
     # uses the real owner lease, batch selection, acknowledgement and projection.

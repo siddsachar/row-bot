@@ -49,12 +49,23 @@ test.beforeEach(async ({ context }) => {
   });
 });
 
-test('clear coding request creates one non-Git draft and writes in the same turn', async ({
+test('a coding request gets a code folder from the assistant, then work continues in it', async ({
   page,
 }) => {
   const conversation = await newConversation(page);
   await composer(page).fill('Build a landing page natural code fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
+  // The model called create_code_folder: a card, not a pre-turn setup.
+  const card = page.getByRole('group', {
+    name: 'Created code folder Landing page',
+  });
+  await expect(card).toBeVisible();
+  for (const name of ['Open', 'Rename', 'Undo'])
+    await expect(card.getByRole('button', { name, exact: true })).toBeVisible();
+  // The follow-up step runs with the new folder bound and builds in it.
+  await expect(
+    page.getByRole('note').filter({ hasText: 'Continuing in Landing page' }),
+  ).toBeVisible();
   await expect(
     page
       .getByText('Built the synthetic landing page in the bound draft.')
@@ -70,9 +81,45 @@ test('clear coding request creates one non-Git draft and writes in the same turn
   await expect(
     (await revealContext(page)).getByRole('heading', { name: 'Working on' }),
   ).toBeVisible();
+  await dismissContext(page);
   await expect(page.getByRole('region', { name: 'Side panels' })).toHaveCount(
     0,
   );
+});
+
+test('a created code folder can be renamed and undone from its card', async ({
+  page,
+}) => {
+  const conversation = await newConversation(page);
+  await composer(page).fill('Build a landing page natural code fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(
+    page
+      .getByText('Built the synthetic landing page in the bound draft.')
+      .first(),
+  ).toBeVisible();
+  let card = page.getByRole('group', {
+    name: 'Created code folder Landing page',
+  });
+  await card.getByRole('button', { name: 'Rename', exact: true }).click();
+  const field = card.getByRole('textbox', {
+    name: 'Name of the code folder',
+  });
+  await field.fill('Fixture site');
+  await field.press('Enter');
+  card = page.getByRole('group', { name: 'Created code folder Fixture site' });
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(
+    page.getByRole('group', { name: 'Removed code folder Fixture site' }),
+  ).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await conversationState(page, conversation)).conversation
+          .resource_bindings.length,
+    )
+    .toBe(0);
 });
 
 test('React Context and detail remain usable across desktop, narrow, mobile, light and dark', async ({
@@ -95,7 +142,9 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
   const context = page.getByRole('complementary', {
     name: 'Conversation context',
   });
-  await context.getByRole('button', { name: /Draft-.*Developer/ }).click();
+  await context
+    .getByRole('button', { name: /Landing page.*Developer/ })
+    .click();
   await expect(page.getByRole('region', { name: 'Side panels' })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Context', exact: true }),
@@ -173,7 +222,7 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
   await expect(
     page
       .getByRole('complementary', { name: 'Conversation context' })
-      .getByRole('button', { name: /Draft-.*Developer/ }),
+      .getByRole('button', { name: /Landing page.*Developer/ }),
   ).toBeVisible();
   await screenshot(page, testInfo, 'context-light-mobile');
   await assertNoOverflow(page);
@@ -238,17 +287,12 @@ test('generated output is retained explicitly and can be handed to Developer wit
   await expect(composer(page)).toHaveValue(/developer's media import/i);
 });
 
-test('clear design request creates and fills one design in the same turn', async ({
+test('a deck request gets a design from the assistant, drafted in the next step', async ({
   page,
 }, testInfo) => {
   const conversation = await newConversation(page);
   await composer(page).fill('Make a presentation deck natural design fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(
-    page
-      .getByText('Created the synthetic presentation in the bound design.')
-      .first(),
-  ).toBeVisible();
   await expect
     .poll(
       async () => (await naturalResourceResult(page, conversation)).bindings,
@@ -256,10 +300,25 @@ test('clear design request creates and fills one design in the same turn', async
     .toMatchObject([
       { kind: 'artifact', page_count: 1, first_title: 'Fixture cover' },
     ]);
+  const card = page.getByRole('group', { name: 'Created design Fixture deck' });
+  await expect(card).toHaveCount(1);
   await expect(
-    page.getByRole('region', { name: 'Design preview', exact: true }),
-  ).toBeVisible();
-  await screenshot(page, testInfo, 'design-auto-open');
+    page.getByText('Created the synthetic presentation in the bound design.'),
+  ).toHaveCount(1);
+  // The drafted deck may open by itself (the turn changed it); otherwise its
+  // card opens it. Either way the design is one step away.
+  const preview = page.getByRole('region', {
+    name: 'Design preview',
+    exact: true,
+  });
+  await expect(async () => {
+    if (await preview.isVisible()) return;
+    await card
+      .getByRole('button', { name: 'Open', exact: true })
+      .click({ timeout: 2_000 });
+    await expect(preview).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  await screenshot(page, testInfo, 'design-created-and-open');
 });
 
 test('two Decks require an explicit captured write target independent of panel focus', async ({

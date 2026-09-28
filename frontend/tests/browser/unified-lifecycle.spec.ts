@@ -359,10 +359,12 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
     await expect(
       childDetail.getByText('Synthetic child result', { exact: true }),
     ).toBeVisible();
-    // Delegated status lives with the agent in Context, not an event feed.
-    await expect(childDetail.getByRole('status')).toHaveText(
-      /Status\s+completed/,
-    );
+    // Delegated status lives with the agent in Context, in words.
+    await expect(childDetail.getByRole('status')).toHaveText(/Status\s+Done/);
+    // A finished agent offers no Stop or Message.
+    await expect(
+      childDetail.getByRole('button', { name: 'Stop', exact: true }),
+    ).toHaveCount(0);
     await childDetail
       .getByRole('button', { name: 'Open full thread', exact: true })
       .click();

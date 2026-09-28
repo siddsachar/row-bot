@@ -9083,6 +9083,7 @@ def create_router(
                 "scope",
                 "safe_argument_summary",
                 "requesting_trace_id",
+                "setup",
                 "policy_revision",
             )
             if k in view
