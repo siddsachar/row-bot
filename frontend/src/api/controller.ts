@@ -1229,6 +1229,20 @@ export class ClientController {
     let failures = 0;
     let streamFailures = 0;
     let resetsWithoutProgress = 0;
+    // A reset the server asks for (a model switch's resource.changed, the
+    // admission checkpoint) arrives with a newer snapshot. Only resets that
+    // leave the projection where it was are a loop (B109).
+    let installedCut: { epoch: string; revision: bigint } | null = null;
+    const noteSnapshot = (snapshot: Snapshot) => {
+      const revision = BigInt(snapshot.projection_revision);
+      if (
+        installedCut &&
+        (snapshot.server_epoch !== installedCut.epoch ||
+          revision > installedCut.revision)
+      )
+        resetsWithoutProgress = 0;
+      installedCut = { epoch: snapshot.server_epoch, revision };
+    };
     let idle = 2000;
     let acknowledgements: Acknowledgements | null = null;
     const retireObserved = async (subscriptionId: string) => {
@@ -1276,6 +1290,7 @@ export class ClientController {
               signal,
             );
             cursor = subscription.cursor;
+            noteSnapshot(subscription.snapshot);
             const openedCut = this.state.projection;
             const unchangedOpen =
               firstSubscription &&
@@ -1344,6 +1359,7 @@ export class ClientController {
                 await retireObserved(previous);
                 continue;
               }
+              noteSnapshot(page.snapshot);
               this.install(page.snapshot, page.snapshot.cursor);
             }
             let reset = false;

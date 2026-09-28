@@ -1529,6 +1529,75 @@ describe('event order, atomic reset and commands', () => {
     expect(transport.counters.subscribes).toBe(4);
     expect(transport.counters.active).toBe(0);
   });
+  it('counts server-owned resets that move the projection forward as progress (B109)', async () => {
+    // Switching the model away and back publishes resource.changed twice and
+    // sending publishes transcript.checkpoint: each one is a reset the server
+    // asks for, and each new snapshot is newer. Four in a row used to look
+    // like a reset loop and stranded the chat on "Client update needed".
+    class ServerResets extends FixtureTransport {
+      revision = 0n;
+      epoch = '';
+      resets = 5;
+      override async subscribe(id: string, signal?: AbortSignal) {
+        const view = await super.subscribe(id, signal);
+        if (!this.revision)
+          this.revision = BigInt(view.snapshot.projection_revision);
+        this.epoch = view.snapshot.server_epoch;
+        const cursor = `server-reset-${this.revision}`;
+        return {
+          ...view,
+          snapshot: {
+            ...view.snapshot,
+            projection_revision: String(this.revision),
+            cursor,
+          },
+          cursor,
+        };
+      }
+      override async *observe(
+        subscription: string,
+        cursor: string,
+        signal: AbortSignal,
+      ): AsyncGenerator<EventRecord | { snapshot_required: true; recovery: 'resubscribe' }> {
+        if (this.resets > 0) {
+          this.resets -= 1;
+          this.revision += 1n;
+          const revision = String(this.revision);
+          yield {
+            cursor: `server-reset-${revision}`,
+            event: validateWire<Event>('Event', {
+              protocol_version: '1.0',
+              event_id: `resource-${revision}`,
+              topic: 'conversation.conversation-a',
+              server_epoch: this.epoch,
+              conversation_id: 'conversation-a',
+              projection_revision: revision,
+              source: 'resource',
+              source_stream_id: 'conversation-a',
+              source_epoch: this.epoch,
+              source_sequence_start: revision,
+              source_sequence_end: revision,
+              type: 'resource.changed',
+              payload: { revision },
+            }),
+          };
+          return;
+        }
+        yield* super.observe(subscription, cursor, signal);
+      }
+    }
+    const transport = new ServerResets();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await vi.waitFor(() => expect(transport.counters.subscribes).toBe(6));
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().error).toBeNull();
+    expect(value.getSnapshot().projection?.projection_revision).toBe(
+      String(transport.revision),
+    );
+  });
   it('a late old acknowledgement cannot start a second stream or overwrite new selection', async () => {
     let resume!: () => void;
     let firstAck = true;
