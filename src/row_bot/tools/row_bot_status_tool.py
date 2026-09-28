@@ -2196,6 +2196,9 @@ def _update_setting(setting: str, value: str) -> str:
             })
         approval = interrupt(request)
         if not approval:
+            if on:
+                from row_bot.tools.conversation_setup_tool import declined
+                return declined(resolved_label) + " Answer without it."
             return "Tool toggle cancelled."
         try:
             if resolved_name == "mcp":

@@ -64,6 +64,12 @@ GUIDANCE = (
 )
 
 
+def declined(label: str) -> str:
+    """What the model hears after Not now on a setup card (B161)."""
+    return (f"The person chose Not now: {label} stays off. Don't ask again or turn it on another way "
+            "(such as row_bot_update_setting) unless they ask.")
+
+
 def _json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -212,7 +218,7 @@ def create_design(design_type: DesignType = "deck", name: str = "", brief: str =
     if not _turn_on("designer", "Designer", "Row-Bot needs Designer to make this. Turning it on "
                     "lets Row-Bot create and edit designs; you can turn it off in Settings › Tools."):
         return _json({"ok": False, "kind": "setup_declined",
-                      "error": "Designer stays off. Answer in the chat without creating a design."})
+                      "error": declined("Designer") + " Answer in the chat without creating a design."})
     command_id = _command_id(conversation_id, "design", title)
     payload = {"kind": "artifact", "intent": "create",
                "artifact": {"mode": mode, "name": title, "brief": str(brief or "")[:20000]}}
@@ -251,8 +257,8 @@ def create_code_folder(name: str = "") -> str:
                     "code folder. Turning them on lets Row-Bot create, edit and run code in folders "
                     "you give it; you can turn them off in Settings › Tools."):
         return _json({"ok": False, "kind": "setup_declined",
-                      "error": "Developer tools stay off. Answer in the chat (explain or show short code) "
-                               "and do not write files into the workspace."})
+                      "error": declined("Developer tools") + " Answer in the chat (explain or show short "
+                               "code) and do not write files into the workspace."})
     from row_bot.application.conversation_creation import _draft_parent
 
     try:

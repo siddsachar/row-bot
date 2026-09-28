@@ -1216,7 +1216,8 @@ def _setup_guidance(tool_names: list[str]) -> str:
             parts.append(
                 "TOOLS THAT ARE OFF: " + ", ".join(off) + ". If the request needs one of them, call "
                 "row_bot_update_setting with setting 'tool_toggle' and value '<name>:on'; the person "
-                "sees a 'Turn on …' card in the chat and decides. Never tell them to open Settings for this."
+                "sees a 'Turn on …' card in the chat and decides. Never tell them to open Settings for this. "
+                "If they choose Not now, it stays off: don't ask again unless they ask."
             )
         parts.append(
             "ACCOUNTS AND CHANNELS: if the work needs an account or channel that is not connected "

@@ -85,6 +85,9 @@ def test_developer_off_asks_to_turn_it_on_instead_of_writing_loose_files(creatio
         declined = json.loads(create_code_folder("Tiny date app"))
     assert declined["ok"] is False and declined["kind"] == "setup_declined"
     assert "do not write files" in declined["error"]
+    # Not now is an answer: no second card by another route (B161).
+    assert "chose Not now" in declined["error"] and "Don't ask again" in declined["error"]
+    assert "another way" in declined["error"]
     assert not (root / "Drafts").exists() or not any((root / "Drafts").iterdir())
     assert requests[0]["setup"] == {"kind": "tool", "label": "Developer tools"}
     assert requests[0]["args"] == {"setting": "tool_toggle", "value": "developer:on"}
@@ -259,6 +262,7 @@ def test_the_model_is_told_when_to_create_and_when_not_to(monkeypatch):
     assert "in the chat or the app only" in context
     assert "Never write a project's files loosely" in context
     assert "request_connection" in context
+    assert "If they choose Not now, it stays off" in context
 
 
 def test_cards_and_setup_approvals_are_specialised():
@@ -279,3 +283,18 @@ def test_cards_and_setup_approvals_are_specialised():
                                          "setup": {"kind": "tool", "label": "Web Search"}})
     assert approval["setup"] == {"kind": "tool", "label": "Web Search"}
     assert "setup" not in project_approval_context({"tool": "workspace_file_delete", "args": {}})
+
+
+def test_not_now_on_a_tool_toggle_is_final_for_the_turn(monkeypatch):
+    """The model asked again by another route after Not now (B161)."""
+    import langgraph.types
+    from row_bot.tools import registry
+    from row_bot.tools import row_bot_status_tool
+    from row_bot.tools.row_bot_status_tool import _update_setting
+
+    monkeypatch.setattr(row_bot_status_tool, "_resolve_tool_name", lambda name: ("developer", "Developer", []))
+    monkeypatch.setattr(registry, "is_enabled", lambda name: False)
+    monkeypatch.setattr(registry, "set_enabled", lambda name, on: pytest.fail("a declined tool was turned on"))
+    monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: False)
+    answer = _update_setting("tool_toggle", "developer:on")
+    assert "chose Not now" in answer and "Don't ask again" in answer
