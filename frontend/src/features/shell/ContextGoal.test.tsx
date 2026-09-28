@@ -160,6 +160,28 @@ it('re-reads when a turn starts or ends', async () => {
   expect(screen.getByText('Turn 5 of 10')).toBeVisible();
 });
 
+it('never counts backwards while the goal is re-read after a turn', async () => {
+  const api = io();
+  const view = show(api, { running: true, activity: 'g4:running' });
+  // Read while turn 4 runs: 3 turns done, the 4th under way.
+  await screen.findByText('Turn 4 of 10');
+  let release = () => {};
+  api.load.mockImplementationOnce(
+    () =>
+      new Promise<GoalPage>((resolve) => {
+        release = () => resolve(page([{ ...goal, turns_used: 4 }]));
+      }),
+  );
+  view.update({ running: false, activity: 'g4:completed' });
+  expect(screen.getByText('Continuing')).toBeVisible();
+  expect(screen.getByText('Turn 4 of 10')).toBeVisible();
+  await waitFor(() => expect(api.load).toHaveBeenCalledTimes(2));
+  release();
+  // The server counted turn 4: still "Turn 4 of 10", now as turns done.
+  await waitFor(() => expect(screen.getByText('Turn 4 of 10')).toBeVisible());
+  expect(screen.queryByText('Turn 3 of 10')).toBeNull();
+});
+
 it('starts a goal from a labelled field with a limit of 10 by default', async () => {
   const api = io(page([]));
   const done = vi.fn();

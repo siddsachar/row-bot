@@ -116,12 +116,18 @@ export default function ContextGoal({
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_GOAL_TURNS));
   const ioRef = useRef(io);
   ioRef.current = io;
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  // The count follows the goal as last read, not the live turn: between a
+  // turn's end and the re-read "Turn 4 of 10" must not drop back to 3.
+  const [readRunning, setReadRunning] = useState(running);
 
   const read = async (signal?: AbortSignal) => {
     const next = await ioRef.current.load(conversationId, signal);
     if (signal?.aborted || next.conversation_id !== conversationId) return;
     pages.set(conversationId, next);
     setPage(next);
+    setReadRunning(runningRef.current);
   };
 
   useEffect(() => {
@@ -243,7 +249,7 @@ export default function ContextGoal({
               className="context-goal-progress"
               role="progressbar"
               aria-label="Goal turns"
-              aria-valuetext={goalTurn(current, running)}
+              aria-valuetext={goalTurn(current, readRunning)}
               aria-valuemin={0}
               aria-valuemax={current.max_turns}
               aria-valuenow={current.turns_used}
@@ -255,7 +261,7 @@ export default function ContextGoal({
               />
             </div>
             <small className="context-goal-meta">
-              {goalTurn(current, running)}
+              {goalTurn(current, readRunning)}
             </small>
             {reason && <p className="context-goal-reason">{reason}</p>}
             {['active', 'waiting_approval', 'paused', 'blocked'].includes(
