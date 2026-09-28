@@ -6457,6 +6457,38 @@ def get_pending_approvals(
     return [dict(r) for r in rows]
 
 
+def cancel_agent_run_approvals(agent_run_id: str) -> int:
+    """Withdraw a stopped Agent's pending approvals; its question no longer applies.
+
+    Stop used to leave them pending, so "Needs approval" stayed on the Buddy and
+    in Home until they timed out (B165). Channels that received one show it
+    resolved, as a timeout does.
+    """
+    if not agent_run_id:
+        return 0
+    conn = _get_conn()
+    try:
+        ids = [str(row["id"]) for row in conn.execute(
+            "SELECT id FROM approval_requests WHERE agent_run_id = ? AND status = 'pending'",
+            (str(agent_run_id),),
+        )]
+        if ids:
+            conn.execute(
+                "UPDATE approval_requests SET status = 'cancelled', responded_at = ? "
+                "WHERE agent_run_id = ? AND status = 'pending'",
+                (datetime.now().isoformat(), str(agent_run_id)),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+    for approval_id in ids:
+        try:
+            _resolve_approval_on_channels(approval_id, "cancelled", source_channel="system")
+        except Exception:
+            logger.warning("Could not mark approval %s withdrawn on channels", approval_id, exc_info=True)
+    return len(ids)
+
+
 def get_pending_approval_for_agent_run(agent_run_id: str) -> dict | None:
     """Return the newest pending approval for a child Agent Run."""
 

@@ -136,3 +136,25 @@ def test_agent_start_spawns_a_delegated_agent_from_the_composer(service, monkeyp
     assert spawned and spawned[0][:2] == (parent, "Summarise tide tables")
     with pytest.raises(ClientPlatformError, match="invalid_command"):
         _agent_command(service, parent, "agent.start", {"text": "--model="})
+
+
+def test_stopping_an_agent_that_waits_for_approval_withdraws_the_approval(service):
+    """B165: Stop left the agent's approval pending, so "Needs approval" stayed
+    on the Buddy and in Home until it timed out."""
+    from row_bot import threads, agent_runs, tasks
+    parent, child = [threads.create_thread(name, seed_default_skills=False) for name in ("Parent", "Child")]
+    run = agent_runs.create_agent_run(parent_thread_id=parent, thread_id=child, display_name="Research",
+                                      status="waiting_approval", prompt="Synthetic task")
+    other = agent_runs.create_agent_run(parent_thread_id=parent, display_name="Other",
+                                        status="waiting_approval", prompt="Another task")
+    _token, approval_id = tasks.create_approval_request(
+        run_id=run["id"], task_id="", step_id="agent_interrupt", message="Run a synthetic command?",
+        agent_run_id=run["id"], resume_kind="agent_run", parent_thread_id=parent)
+    _other_token, other_approval = tasks.create_approval_request(
+        run_id=other["id"], task_id="", step_id="agent_interrupt", message="Another question?",
+        agent_run_id=other["id"], resume_kind="agent_run", parent_thread_id=parent)
+    _agent_command(service, parent, "agent.stop", {"run_id": run["id"]})
+    assert agent_runs.get_agent_run(run["id"])["status"] == "stopped"
+    statuses = tasks.get_approval_request_statuses([approval_id, other_approval])
+    assert statuses == {approval_id: "cancelled", other_approval: "pending"}
+    assert [item["id"] for item in tasks.get_pending_approvals()] == [other_approval]

@@ -1481,6 +1481,12 @@ def stop_agent_run(run_id: str) -> dict[str, Any] | None:
     from row_bot.agent_runs import stop_agent_run as _stop_agent_run
 
     run = _stop_agent_run(run_id)
+    try:
+        from row_bot.tasks import cancel_agent_run_approvals
+
+        cancel_agent_run_approvals(run_id)
+    except Exception:
+        logger.exception("Failed to withdraw approvals for stopped child Agent %s", run_id)
     _notify_child_agent_waiters(run_id)
     return run
 
