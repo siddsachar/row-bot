@@ -401,7 +401,8 @@ it('anchors bounded approval context inline with canonical resolve controls', as
     name: 'Approval required for fixture_tool',
   });
   expect(bar).toHaveTextContent('Read a reviewed local value.');
-  expect(bar).toHaveTextContent('Low risk · One local read.');
+  expect(bar).toHaveTextContent('Low risk');
+  expect(bar).not.toHaveTextContent('One local read.');
   expect(within(bar).getByRole('button', { name: 'Deny' })).toBeVisible();
   expect(within(bar).getByRole('button', { name: 'Details' })).toBeVisible();
   await act(async () =>

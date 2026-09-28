@@ -176,7 +176,7 @@ it('explains disconnected conversation state, preserves the local draft, and res
     .getByText('Connection interrupted', { exact: true })
     .closest('[role="alert"]');
   expect(connectionAlert).toHaveTextContent(
-    'Disconnected. Your last confirmed view is preserved. Sending and live updates are unavailable until you reconnect.',
+    'Disconnected. What you last saw is kept. Sending and live updates are unavailable until you reconnect.',
   );
   expect(screen.getByRole('button', { name: 'Reconnect' })).toBeEnabled();
   const composerReason = screen.getByText(

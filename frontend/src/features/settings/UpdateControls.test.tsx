@@ -329,7 +329,7 @@ it('clears a known stale install rejection so the release can be refreshed', asy
   );
   expect(
     await screen.findByText(
-      'Update state changed. Refresh it before choosing an action.',
+      'Update status changed. Refresh it before choosing an action.',
     ),
   ).toBeVisible();
   expect(sessionStorage.getItem('row-bot:updates:install:v1')).toBeNull();

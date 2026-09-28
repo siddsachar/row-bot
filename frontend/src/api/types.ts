@@ -12,10 +12,19 @@ export function isCommandReceipt(value: unknown): value is Wire.CommandReceipt {
 
 export type * from '../../../contracts/client-platform/v1/typescript/client';
 
+/** The one thing a person can do about an error (see `api/errors.ts`). */
+export type ErrorAction =
+  | { kind: 'retry' }
+  | { kind: 'reconnect' }
+  | { kind: 'choose_model' }
+  | { kind: 'send_now' }
+  | { kind: 'open_setting'; href: string; label: string };
 export type ClientError = {
   code: string;
   message: string;
   recovery: 'authenticate' | 'update' | 'retry' | 'review' | 'none';
+  /** Absent when the sentence already says what to change. */
+  action?: ErrorAction;
 };
 export type DictationScope = Readonly<{
   conversationId: string;

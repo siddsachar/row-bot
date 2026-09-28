@@ -355,7 +355,7 @@ it('redacts errors and supports an explicit first-page retry', async () => {
   render(<ToolCatalog load={load} />);
   await openCatalog();
   expect(
-    await screen.findByText('Row-Bot could not complete this request.'),
+    await screen.findByText('Something went wrong. Try again.'),
   ).toBeVisible();
   expect(screen.queryByText(/private token/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Reload cached tools' }));
@@ -393,7 +393,7 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
   fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
   expect(
     await screen.findByText(
-      'Disconnected. Your last confirmed view is preserved.',
+      'Disconnected. What you last saw is kept.',
     ),
   ).toBeVisible();
   expect(screen.getByText('Confirmed · Core')).toBeVisible();

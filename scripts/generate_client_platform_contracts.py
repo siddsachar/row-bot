@@ -1554,6 +1554,13 @@ def outputs() -> dict[Path, str]:
     openapi = {"openapi": "3.1.0", "info": {"title": "Row-Bot client protocol", "version": "1.0"},
                "paths": paths}
     result[destination / "schema/openapi.json"] = json.dumps(openapi, indent=2, sort_keys=True) + "\n"
+    from row_bot.api.v1.routes import public_problem_codes
+
+    # Every code a Problem can carry, with its default HTTP status. The client
+    # error catalog test enumerates this list, so a new server code without a
+    # sentence and a fix fails the client check.
+    result[destination / "error-codes.json"] = json.dumps(
+        {"codes": public_problem_codes()}, indent=2, sort_keys=True) + "\n"
     return result
 
 

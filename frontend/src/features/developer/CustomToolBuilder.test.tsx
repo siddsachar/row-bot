@@ -216,7 +216,9 @@ it('shows a safe request error instead of an object string', async () => {
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Inspect tool' }));
   expect(
-    await screen.findByText('Row-Bot could not complete this request.'),
+    await screen.findByText(
+      "Part of Row-Bot isn't responding. Try again in a moment.",
+    ),
   ).toBeTruthy();
   expect(screen.queryByText('[object Object]')).toBeNull();
   expect(screen.getByRole('button', { name: 'Check outcome' })).toBeTruthy();

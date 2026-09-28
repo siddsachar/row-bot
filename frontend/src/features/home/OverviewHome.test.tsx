@@ -777,7 +777,7 @@ it('redacts a workflow read failure and still shows conversation sections', asyn
   });
   expect(
     await screen.findByText(
-      'Workflows could not be read: Row-Bot could not complete this request.',
+      'Workflows could not be read: Something went wrong. Try again.',
     ),
   ).toBeVisible();
   expect(document.body.textContent).not.toContain('private');

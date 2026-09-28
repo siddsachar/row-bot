@@ -566,7 +566,7 @@ it('bounds a client-side filter read and rejects a snapshot that changes mid-rea
   await screen.findByText('Earlier');
   await user.click(screen.getByRole('radio', { name: 'Failed' }));
   expect(
-    await screen.findByText('This view expired. Reload the current view.'),
+    await screen.findByText('This list is out of date. Load it again.'),
   ).toBeVisible();
   expect(screen.queryByText('Earlier')).not.toBeInTheDocument();
   expect(screen.queryByText('Later')).not.toBeInTheDocument();
@@ -659,7 +659,7 @@ it('redacts unexpected errors and retries explicitly', async () => {
     .mockResolvedValueOnce(page());
   show(load);
   expect(
-    await screen.findByText('Row-Bot could not complete this request.'),
+    await screen.findByText('Something went wrong. Try again.'),
   ).toBeVisible();
   expect(screen.getByText('Workflow list unavailable')).toBeVisible();
   expect(screen.queryByText(/private path/)).not.toBeInTheDocument();

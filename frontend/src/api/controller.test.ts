@@ -19,6 +19,7 @@ import type {
   Event,
   EventRecord,
   Snapshot,
+  StreamReset,
   SubscriptionView,
   TranscriptPage,
   DraftSave,
@@ -179,8 +180,8 @@ describe('accepted protocol recordings', () => {
 
 it.each([
   ['approval_expired', 'expired'],
-  ['approval_already_resolved', 'already resolved'],
-  ['model_configuration_required', 'configured model'],
+  ['approval_already_resolved', 'already answered'],
+  ['model_configuration_required', 'Choose a model before sending'],
 ])(
   'offers explicit review for %s without exposing server details',
   (code, text) => {
@@ -1558,7 +1559,7 @@ describe('event order, atomic reset and commands', () => {
         subscription: string,
         cursor: string,
         signal: AbortSignal,
-      ): AsyncGenerator<EventRecord | { snapshot_required: true; recovery: 'resubscribe' }> {
+      ): AsyncGenerator<EventRecord | StreamReset> {
         if (this.resets > 0) {
           this.resets -= 1;
           this.revision += 1n;

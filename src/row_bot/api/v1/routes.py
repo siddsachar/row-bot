@@ -964,28 +964,10 @@ _STATUS.update(
 )
 
 
-class ProtocolRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
-        original = super().get_route_handler()
-
-        async def safe_handler(request: Request) -> Response:
-            try:
-                return await original(request)
-            except (RequestValidationError, ValidationError):
-                return problem(ProtocolError("invalid_command", 422))
-            except Exception as exc:
-                return problem(exc)
-
-        return safe_handler
-
-
-def problem(exc: Exception) -> JSONResponse:
-    code = getattr(exc, "code", "dependency_unavailable")
-    # Retained readers use exact ValueError codes; never expose arbitrary messages.
-    if isinstance(exc, ValueError) and str(exc) in _STATUS:
-        code = str(exc)
-    # Only codes are public. Never interpolate exceptions or validator input.
-    known = {
+# Codes a problem may carry without an entry in _STATUS (the status comes
+# from the raised error, else 409).
+_KNOWN_CODES = frozenset(
+    {
         "revision_conflict",
         "idempotency_mismatch",
         "idempotency_expired",
@@ -1014,7 +996,43 @@ def problem(exc: Exception) -> JSONResponse:
         "model_selection_mismatch",
         "invalid_resource",
     }
-    if code not in known and code not in _STATUS:
+)
+
+
+def public_problem_codes() -> dict[str, int]:
+    """Every code a problem response can carry, with its default status.
+
+    The client's error catalog must describe each one; the contract generator
+    publishes this list so a client test can enumerate it.
+    """
+    codes = {code: 409 for code in _KNOWN_CODES}
+    codes.update(_STATUS)
+    codes["dependency_unavailable"] = _STATUS.get("dependency_unavailable", 503)
+    return dict(sorted(codes.items()))
+
+
+class ProtocolRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        original = super().get_route_handler()
+
+        async def safe_handler(request: Request) -> Response:
+            try:
+                return await original(request)
+            except (RequestValidationError, ValidationError):
+                return problem(ProtocolError("invalid_command", 422))
+            except Exception as exc:
+                return problem(exc)
+
+        return safe_handler
+
+
+def problem(exc: Exception) -> JSONResponse:
+    code = getattr(exc, "code", "dependency_unavailable")
+    # Retained readers use exact ValueError codes; never expose arbitrary messages.
+    if isinstance(exc, ValueError) and str(exc) in _STATUS:
+        code = str(exc)
+    # Only codes are public. Never interpolate exceptions or validator input.
+    if code not in _KNOWN_CODES and code not in _STATUS:
         code = "dependency_unavailable"
     status = getattr(
         exc,

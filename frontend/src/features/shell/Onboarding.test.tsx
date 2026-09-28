@@ -204,7 +204,7 @@ it('lets the user correct a rejected unready model choice', async () => {
   );
   expect(
     await screen.findByText(
-      'Choose an available model in Settings, then try this step again.',
+      'Choose a model that is available, then try this step again.',
     ),
   ).toBeVisible();
   expect(
