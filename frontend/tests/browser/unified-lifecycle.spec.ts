@@ -15,6 +15,8 @@ import {
   openConversation,
   reloadDocument,
   releaseProducer,
+  revealContext,
+  revealContextControl,
 } from './unified-helpers';
 
 function summarizeFixtureFailure(error: unknown) {
@@ -334,9 +336,9 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       ),
     ).toHaveCount(1);
     await expect(composer(page)).toHaveValue('Never consumed unsent draft');
-    // Delegated agents are listed under the Context rail's Agents disclosure.
-    const agents = page
-      .getByRole('complementary', { name: 'Conversation context' })
+    // Delegated agents are listed under the Context card's Agents disclosure
+    // (a sheet on tablets and phones).
+    const agents = (await revealContext(page))
       .locator('details', {
         has: page.locator('summary', { hasText: 'Agents' }),
       })
@@ -347,7 +349,7 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       ))
     )
       await agents.locator('summary').first().click();
-    await page
+    await agents
       .getByRole('button', { name: 'Synthetic child', exact: true })
       .click();
     const childDetail = page.getByRole('dialog', {
@@ -371,6 +373,7 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       page.getByText('Synthetic delegated objective', { exact: true }),
     ).toBeVisible();
     await composer(page).fill('Independent child draft');
+    await revealContextControl(page, 'Back to parent conversation');
     await page
       .getByRole('button', { name: 'Back to parent conversation', exact: true })
       .click();

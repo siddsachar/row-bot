@@ -21,6 +21,10 @@ import {
   releaseProducer,
   captureActualResourcePanels,
   assertConversationSummaries,
+  dismissContext,
+  leavePanels,
+  openAddResource,
+  revealContext,
 } from './unified-helpers';
 
 // Playwright's built-in blocker reads a forbidden getter in opaque srcdoc.
@@ -64,9 +68,7 @@ test('clear coding request creates one non-Git draft and writes in the same turn
       { kind: 'workspace', file_exists: true, git_present: false },
     ]);
   await expect(
-    page
-      .getByRole('complementary', { name: 'Conversation context' })
-      .getByRole('heading', { name: 'Working on' }),
+    (await revealContext(page)).getByRole('heading', { name: 'Working on' }),
   ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Side panels' })).toHaveCount(
     0,
@@ -204,19 +206,22 @@ test('generated output is retained explicitly and can be handed to Developer wit
   await expect(
     page.getByRole('img', { name: 'Generated result', exact: true }),
   ).toBeVisible();
-  const context = page.getByRole('complementary', {
-    name: 'Conversation context',
-  });
+  let context = await revealContext(page);
   await expect(context.getByRole('heading', { name: 'Outputs' })).toBeVisible();
   await context.getByText('Image output').click();
   await context.getByRole('button', { name: 'Use in code folder' }).click();
   await expect(composer(page)).toHaveValue(/developer's media import/i);
   // The draft save can wait while the media run finalises; reload only once
   // it is saved, as a person would see "Draft saved".
+  await dismissContext(page);
   await expect(
     page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
   ).toBeVisible();
-  await context.getByRole('button', { name: 'Save to workspace' }).click();
+  context = await revealContext(page);
+  const save = context.getByRole('button', { name: 'Save to workspace' });
+  if (!(await save.isVisible()))
+    await context.getByText('Image output').click();
+  await save.click();
   await expect(
     context.getByText(/Saved outputs\/output-[a-f0-9]+\.png/),
   ).toBeVisible();
@@ -228,9 +233,7 @@ test('generated output is retained explicitly and can be handed to Developer wit
   ).toHaveLength(1);
   await reloadDocument(page);
   await expect(
-    page
-      .getByRole('complementary', { name: 'Conversation context' })
-      .getByRole('heading', { name: 'Outputs' }),
+    (await revealContext(page)).getByRole('heading', { name: 'Outputs' }),
   ).toBeVisible();
   await expect(composer(page)).toHaveValue(/developer's media import/i);
 });
@@ -267,9 +270,7 @@ test('two Decks require an explicit captured write target independent of panel f
     'First target Deck',
     'Second target Deck',
   ].entries()) {
-    await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    await openAddResource(page);
     const setup = page.getByRole('dialog', {
       name: 'Add resource',
       exact: true,
@@ -295,9 +296,7 @@ test('two Decks require an explicit captured write target independent of panel f
       setup.getByText('Resource ready', { exact: true }),
     ).toBeVisible();
     await page.keyboard.press('Escape');
-    await page
-      .getByRole('button', { name: 'Close all panels', exact: true })
-      .click();
+    await leavePanels(page);
   }
   const targets = (await conversationState(page, conversation)).conversation
     .resource_bindings;
@@ -321,8 +320,9 @@ test('two Decks require an explicit captured write target independent of panel f
     .at(-1)!;
   try {
     expect(call.accepted_binding_ids).toEqual([first]);
-    await page
-      .getByRole('complementary', { name: 'Conversation context' })
+    await (
+      await revealContext(page)
+    )
       .getByRole('button', { name: 'Second target Deck Design' })
       .click();
     await expect(
@@ -337,9 +337,7 @@ test('two Decks require an explicit captured write target independent of panel f
           )?.final_binding_ids,
       )
       .toEqual([first]);
-    await page
-      .getByRole('button', { name: 'Close all panels', exact: true })
-      .click();
+    await leavePanels(page);
     await expect(
       page.getByRole('button', { name: 'Design target', exact: true }),
     ).toContainText('First target Deck');
@@ -361,7 +359,7 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
 }, info) => {
   const conversation = await newConversation(page);
   await composer(page).fill('Unsent chat draft survives first-draft failure');
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   await setup
     .getByRole('textbox', { name: 'Name (optional)', exact: true })
@@ -403,9 +401,7 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
     setup.getByText('Generation request accepted.', { exact: true }),
   ).toBeVisible();
   await page.keyboard.press('Escape');
-  await page
-    .getByRole('button', { name: 'Close all panels', exact: true })
-    .click();
+  await leavePanels(page);
   await expect(
     page
       .getByRole('status')
@@ -418,7 +414,7 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
   await expect(composer(page)).toHaveValue(
     'Unsent chat draft survives first-draft failure',
   );
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   await setup
     .getByRole('button', { name: 'Check generation', exact: true })
     .click();
@@ -457,7 +453,7 @@ test('Context creates and reuses a Deck in ordinary conversations', async ({
   await expect(
     page.getByRole('button', { name: 'New resource', exact: true }),
   ).toHaveCount(0);
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   let dialog = page.getByRole('dialog', { name: 'Add resource', exact: true });
   await dialog
     .getByRole('textbox', { name: 'Name (optional)', exact: true })
@@ -470,14 +466,13 @@ test('Context creates and reuses a Deck in ordinary conversations', async ({
   ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/conversations/${original}$`));
   await page.keyboard.press('Escape');
+  await leavePanels(page);
   const created = await conversationState(page, original);
   expect(created.conversation.resource_bindings).toHaveLength(1);
   for (let attempt = 0; attempt < 2; attempt++) {
     const fresh = await newConversation(page);
     await expect(composer(page)).toHaveValue('');
-    await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    await openAddResource(page);
     dialog = page.getByRole('dialog', { name: 'Add resource', exact: true });
     await dialog
       .getByRole('radio', { name: 'Open saved', exact: true })
@@ -496,6 +491,7 @@ test('Context creates and reuses a Deck in ordinary conversations', async ({
     ).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/conversations/${fresh}$`));
     await page.keyboard.press('Escape');
+    await leavePanels(page);
     expect(
       (await conversationState(page, fresh)).conversation.resource_bindings[0]
         .resource_id,
@@ -521,7 +517,7 @@ test('explicit saved-folder selection reuses its real identity without editing f
   const before = await fixtureResources(page);
   const callsBefore = (await fixtureState(page)).calls.length;
   await composer(page).fill('Folder registration draft');
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   const dialog = page.getByRole('dialog', {
     name: 'Add resource',
     exact: true,
@@ -545,6 +541,7 @@ test('explicit saved-folder selection reuses its real identity without editing f
     )
     .toBe(1);
   await page.keyboard.press('Escape');
+  await leavePanels(page);
   const bound = (await conversationState(page, conversation)).conversation
     .resource_bindings;
   expect(bound[0].resource_id).toBe(before.workspace_id);
@@ -553,7 +550,7 @@ test('explicit saved-folder selection reuses its real identity without editing f
   await expect(composer(page)).toHaveValue('Folder registration draft');
   await screenshot(page, testInfo, 'authorized-existing-folder');
   const fresh = await newConversation(page);
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   const saved = page.getByRole('dialog', { name: 'Add resource', exact: true });
   await saved.getByRole('radio', { name: 'Code folder', exact: true }).click();
   await saved.getByRole('radio', { name: 'Open saved', exact: true }).click();
@@ -578,6 +575,7 @@ test('explicit saved-folder selection reuses its real identity without editing f
   expect(separateBinding.resource_id).toBe(bound[0].resource_id);
   expect(separateBinding.binding_id).not.toBe(bound[0].binding_id);
   await page.keyboard.press('Escape');
+  await leavePanels(page);
   // Leaving retires the document (pagehide), which disposes the client and
   // aborts a draft save still in flight: wait for the save to land first.
   const draftSaved = page.waitForResponse(
@@ -628,18 +626,7 @@ test('explicit saved-folder selection reuses its real identity without editing f
     await openConversation(page, fresh);
     await composer(page).fill('Second writer fixture');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    const contextToggle = page.getByRole('button', {
-      name: 'Context',
-      exact: true,
-    });
-    // The header button toggles the right region; reveal Context only when
-    // it is not already on screen.
-    if (
-      !(await page
-        .getByRole('complementary', { name: 'Conversation context' })
-        .isVisible())
-    )
-      await contextToggle.click();
+    await revealContext(page);
     await expect
       .poll(
         async () =>
@@ -701,9 +688,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
       )
       .toBe(1);
     await markWorkspaceIdentity(page);
-    await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    await openAddResource(page);
     let dialog = page.getByRole('dialog', {
       name: 'Add resource',
       exact: true,
@@ -732,21 +717,7 @@ test('adding a real Deck and saved workspace preserves the live conversation, se
     await assertWorkspaceIdentity(page);
     await expect(composer(page)).toHaveValue('Unsent multi-resource draft');
 
-    const contextToggle = page.getByRole('button', {
-      name: 'Context',
-      exact: true,
-    });
-    // The header button toggles Context; reveal it only when hidden.
-    if (
-      !(await page
-        .getByRole('button', { name: 'Add resource', exact: true })
-        .isVisible()) &&
-      (await contextToggle.isVisible())
-    )
-      await contextToggle.click();
-    await page
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    await openAddResource(page);
     dialog = page.getByRole('dialog', { name: 'Add resource', exact: true });
     await dialog
       .getByRole('button', { name: 'Start another resource', exact: true })
@@ -950,7 +921,16 @@ test('cancel before creating a resource keeps the chat draft and creates no bind
   await composer(page).fill('Keep this draft after cancellation');
   const initial = await conversationState(page, conversation);
   await markWorkspaceIdentity(page);
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  // Focus returns to what opened the dialog: Context's Add resource, or the
+  // composer's + where Context is a sheet.
+  const inline = page.getByRole('button', {
+    name: 'Add resource',
+    exact: true,
+  });
+  const opener = (await inline.isVisible())
+    ? inline
+    : page.getByRole('button', { name: 'Add files and more', exact: true });
+  await openAddResource(page);
   const dialog = page.getByRole('dialog', {
     name: 'Add resource',
     exact: true,
@@ -960,9 +940,7 @@ test('cancel before creating a resource keeps the chat draft and creates no bind
     .fill('Never created');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(
-    page.getByRole('button', { name: 'Add resource', exact: true }),
-  ).toBeFocused();
+  await expect(opener).toBeFocused();
   await assertWorkspaceIdentity(page);
   await expect(composer(page)).toHaveValue(
     'Keep this draft after cancellation',
@@ -1008,7 +986,7 @@ test('a late resource setup receipt retains its original A binding after navigat
     await barrier;
     await route.fulfill({ response });
   });
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   const dialog = page.getByRole('dialog', {
     name: 'Add resource',
     exact: true,

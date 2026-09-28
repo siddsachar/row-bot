@@ -756,6 +756,62 @@ export async function revealContextControl(
 }
 
 /**
+ * Shows the Context card and returns it: inline on a wide desktop chat, the
+ * header Context button when a panel narrows it or on tablets, the header
+ * menu's Context on phones.
+ */
+export async function revealContext(page: Page): Promise<Locator> {
+  const card = page.getByRole('complementary', {
+    name: 'Conversation context',
+  });
+  const context = page.getByRole('button', { name: 'Context', exact: true });
+  const menu = page.getByRole('button', {
+    name: 'Conversation menu',
+    exact: true,
+  });
+  await expect(card.or(context).or(menu).first()).toBeVisible();
+  if (!(await card.isVisible())) {
+    if (await context.isVisible()) await context.click();
+    else {
+      await menu.click();
+      await page
+        .getByRole('menuitem', { name: 'Context', exact: true })
+        .click();
+    }
+  }
+  await expect(card).toBeVisible();
+  return card;
+}
+
+/** Closes the Context sheet or floating card when it covers the chat. */
+export async function dismissContext(page: Page): Promise<void> {
+  const sheet = page.getByRole('dialog').filter({
+    has: page.getByRole('complementary', { name: 'Conversation context' }),
+  });
+  if (await sheet.isVisible()) {
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+  }
+}
+
+/**
+ * Leaves open panels: Close all panels where the side region shows them,
+ * Back to conversation where a compact panel covers the chat.
+ */
+export async function leavePanels(page: Page): Promise<void> {
+  const close = page.getByRole('button', {
+    name: 'Close all panels',
+    exact: true,
+  });
+  const back = page.getByRole('button', {
+    name: 'Back to conversation',
+    exact: true,
+  });
+  if (await close.isVisible()) await close.click();
+  else if (await back.isVisible()) await back.click();
+}
+
+/**
  * Runs a conversation header action: its icon button on desktop and tablets,
  * the same item in the header's ⋯ menu on phones. Returns the control that
  * keeps focus afterwards (the icon, or the ⋯ trigger).
