@@ -183,6 +183,9 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
     savedPending,
   );
   const running = useRef(false);
+  const firstRunStarted = useRef(false);
+  const latest = useRef<OnboardingSnapshot | null>(null);
+  latest.current = snapshot ?? latest.current;
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setLoading(true);
@@ -266,7 +269,8 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
     action: 'choose_model' | 'finish_models',
     modelRef = '',
   ): Promise<OnboardingSnapshot> {
-    const current = snapshot;
+    // The latest snapshot: the choice moves the revision before finishing.
+    const current = latest.current;
     if (!current) throw new Error('Setup is still loading');
     const command: OnboardingCommand = {
       command_id: crypto.randomUUID(),
@@ -282,6 +286,7 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
       receipt.status !== 'completed'
     )
       throw new Error('Setup receipt did not match the requested action');
+    latest.current = receipt.snapshot;
     setSnapshot(receipt.snapshot);
     return receipt.snapshot;
   }
@@ -302,7 +307,11 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
     snapshot?.profile ?? [],
   );
 
-  if (snapshot?.needs_model)
+  // Once the first run has started it stays until it finishes: choosing a
+  // model saves the default (so the snapshot stops needing one) while the
+  // quick test is still running.
+  if (snapshot?.needs_model) firstRunStarted.current = true;
+  if (snapshot && firstRunStarted.current)
     return (
       <FirstRun
         snapshot={snapshot}

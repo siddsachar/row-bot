@@ -2296,7 +2296,9 @@ export default function Conversation({
         ? 'Reconnect'
         : modelStatus?.state === 'unavailable'
           ? 'Choose another model'
-          : 'Choose a model'}
+          : anyModel
+            ? 'Choose a model'
+            : 'Set up a model'}
     </Button>
   );
   const composerControls = (

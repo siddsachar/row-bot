@@ -528,7 +528,8 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
               : ''}
           </p>
         )}
-        {flow && (
+        {/* A finished sign-in is said once, by the notice above. */}
+        {flow && (active || ['expired', 'uncertain'].includes(flow.state)) && (
           <div className="stack subscription-flow">
             <p className="subscription-flow-state" role="status">
               {signInStateLabel(flow.state)}

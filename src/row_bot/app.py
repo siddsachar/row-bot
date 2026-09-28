@@ -624,12 +624,16 @@ def _schedule_auto_start_channels(channels: list, _st):
 async def _prewarm_agent_graph_background() -> None:
     with _startup_phase("agent_graph_prewarm", background=True):
         from row_bot.agent import get_agent_graph
+        from row_bot.models import NoModelChosenError
         from row_bot.providers.readiness import AgentCompatibilityError
 
         try:
             await asyncio.to_thread(get_agent_graph)
         except AgentCompatibilityError as exc:
             logger.info("startup.agent_graph_prewarm skipped=agent_not_ready reason=%s", exc)
+        except NoModelChosenError:
+            # A fresh profile has no model until the person chooses one (decision 9).
+            logger.info("startup.agent_graph_prewarm skipped=no_model_chosen")
 
 
 def _schedule_agent_graph_prewarm():

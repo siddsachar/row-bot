@@ -75,8 +75,10 @@ def detect_local_runtime() -> dict[str, Any]:
     names = local_models() if running else []
     models = []
     for name in names[:256]:
+        # The family list only knows some models; an unknown one is not "Chat
+        # only" (qwen3.8 uses tools), so only a known answer is reported.
         try:
-            agent_ready = bool(is_tool_compatible(name))
+            agent_ready = True if is_tool_compatible(name) else None
         except Exception:
             agent_ready = None
         models.append({"model_ref": f"model:ollama:{name}", "name": name, "agent_ready": agent_ready})

@@ -2743,3 +2743,8 @@
   font-size: var(--text-12);
   white-space: nowrap;
 }
+@media (pointer: coarse) {
+  .settings-key-link a {
+    min-height: 44px;
+  }
+}

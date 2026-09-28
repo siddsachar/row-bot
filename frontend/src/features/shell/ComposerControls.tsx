@@ -446,6 +446,7 @@ export default function ComposerControls({
         onConnect={() => navigate('/settings/providers')}
         onReconnect={() => navigate('/settings/providers')}
         onManage={() => navigate('/settings/models')}
+        onSetup={() => navigate('/setup')}
         anchor={singleLine ? anchor : undefined}
         returnFocusTo={singleLine ? () => plusRef.current : undefined}
       />

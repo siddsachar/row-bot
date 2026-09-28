@@ -9,7 +9,7 @@ import type {
   ProviderSettingsSnapshot,
 } from '../../api/types';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
-import { apiKeyLabel } from '../../ui/format';
+import { apiKeyLabel, credentialSourceLabel } from '../../ui/format';
 import { ExternalLink } from 'lucide-react';
 import {
   keyFormatHint,
@@ -319,9 +319,11 @@ export default function ProviderSettingsEditor(
           <>
             <p>
               {snapshot.configured ? 'Connected' : 'Not connected'} ·{' '}
-              {snapshot.source === 'keyring'
-                ? 'Saved in keyring'
-                : snapshot.source || 'No saved key'}
+              {snapshot.configured
+                ? snapshot.source === 'keyring'
+                  ? 'Saved in keyring'
+                  : `Key saved · ${credentialSourceLabel(snapshot.source) || 'on this computer'}`
+                : 'No saved key'}
             </p>
             {snapshot.externally_managed ? (
               <p>

@@ -395,8 +395,12 @@ it.each([
     );
     const models = await picker();
     expect(models.queryAllByRole('option')).toHaveLength(0);
+    // Nothing to choose yet: the picker points to Setup (decision 10).
     expect(
-      models.getByText('No cached models. Open Models in Settings.'),
+      models.getByText('No models yet. Choose how Row-Bot thinks in Setup.'),
+    ).toBeVisible();
+    expect(
+      models.getByRole('button', { name: 'Set up a model' }),
     ).toBeVisible();
     expect(mock.controller.intent).not.toHaveBeenCalled();
   },

@@ -48,6 +48,7 @@ export default function ModelPicker({
   onConnect,
   onReconnect,
   onManage,
+  onSetup,
   anchor,
   returnFocusTo,
 }: {
@@ -69,6 +70,8 @@ export default function ModelPicker({
   onReconnect?: () => void;
   /** Open the model catalog settings. */
   onManage: () => void;
+  /** Open Setup when no model can be chosen yet (a fresh profile). */
+  onSetup?: () => void;
   /**
    * Open over this element instead of from the pill: a one-line composer
    * keeps the model in its + menu, so the picker opens above the field.
@@ -202,6 +205,11 @@ export default function ModelPicker({
             models={models}
             current={current}
             inputRef={input}
+            emptyText={
+              onSetup
+                ? 'No models yet. Choose how Row-Bot thinks in Setup.'
+                : undefined
+            }
             onChoose={(model) => {
               onChoose(model);
               onOpenChange(false);
@@ -302,16 +310,29 @@ export default function ModelPicker({
                 default will be used.
               </p>
             )}
-            <Button
-              variant="ghost"
-              className="model-picker-manage"
-              onClick={() => {
-                onOpenChange(false);
-                onManage();
-              }}
-            >
-              Manage models
-            </Button>
+            {onSetup && !models.some((model) => model.available) ? (
+              <Button
+                variant="ghost"
+                className="model-picker-manage"
+                onClick={() => {
+                  onOpenChange(false);
+                  onSetup();
+                }}
+              >
+                Set up a model
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                className="model-picker-manage"
+                onClick={() => {
+                  onOpenChange(false);
+                  onManage();
+                }}
+              >
+                Manage models
+              </Button>
+            )}
           </div>
         </Popover.Content>
       </Popover.Portal>
