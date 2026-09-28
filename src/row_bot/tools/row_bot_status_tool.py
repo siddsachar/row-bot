@@ -416,6 +416,20 @@ def _query_model(*, compact_pinned: bool = False) -> str:
         default_model = get_current_model()
         override = _active_model_override.get("")
         model = override if override else default_model
+        if not model:
+            # Nothing is preset (B147): say so, and still list the pinned
+            # choices the person can pick from (B158).
+            return "\n".join([
+                "**Current Model**",
+                "- No model is chosen yet. Choose one with the model pill or in Settings › Models.",
+                *_pinned_choice_status_lines(
+                    "chat",
+                    "Pinned Brain Model Choices",
+                    value_label="Canonical ref",
+                    value_key="canonical_ref",
+                    limit=8 if compact_pinned else 0,
+                ),
+            ])
         try:
             context_policy = get_context_policy(model)
             ctx = context_policy.effective_limit_tokens

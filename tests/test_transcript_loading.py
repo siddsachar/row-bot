@@ -215,7 +215,8 @@ def test_process_attached_files_does_not_mark_failed_vision_as_analyzed():
     class _Vision:
         enabled = True
 
-        def analyze(self, data, question):
+        def analyze(self, data, question, **_options):
+            # Vision follows the chat model since Phase 10 (chat_model=...).
             return "Vision analysis failed: image input unsupported"
 
     context, images, warnings = process_attached_files(
