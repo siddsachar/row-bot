@@ -86,7 +86,7 @@ it('keeps a default skill out of the chips (U17)', () => {
     suggestions: [],
     active_skills: composer.active_skills.map((skill) => ({
       ...skill,
-      source: 'default',
+      source: 'default' as const,
     })),
   };
   const { container } = render(

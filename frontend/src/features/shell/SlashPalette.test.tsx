@@ -86,9 +86,9 @@ it('supports keyboard selection and escape dismissal', () => {
     screen.getByRole('listbox').id,
   );
   expect(draft.getAttribute('aria-activedescendant')).toBe(
-    screen.getByRole('option', { name: /\/stopStop/ }).id,
+    screen.getByRole('option', { name: '/stop Stop' }).id,
   );
-  expect(screen.getByRole('option', { name: /\/stopStop/ })).toHaveAttribute(
+  expect(screen.getByRole('option', { name: '/stop Stop' })).toHaveAttribute(
     'aria-selected',
     'true',
   );
@@ -126,7 +126,7 @@ it('shows an honest empty result and supports mouse choice', () => {
     'No slash commands match.',
   );
   rerender(<Harness text="/status" />);
-  fireEvent.click(screen.getByRole('option', { name: /\/statusStatus/ }));
+  fireEvent.click(screen.getByRole('option', { name: '/status Status' }));
   expect(screen.queryByRole('listbox')).toBeNull();
 });
 

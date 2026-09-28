@@ -73,6 +73,14 @@ import TranscriptTrace from './TranscriptTrace';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import MentionPalette, { type MentionItem } from './MentionPalette';
 import {
+  goalRequest,
+  profileChoice,
+  reasoningChoice,
+  slashArgument,
+  type SlashArgument,
+} from './slash-arguments';
+import { DEFAULT_GOAL_TURNS, resetContextGoals } from './ContextGoal';
+import {
   currentProfileChoice,
   openAgentProfiles,
   profileChoices,
@@ -806,6 +814,121 @@ export default function Conversation({
     }
   }
 
+  async function runSlashArgument({ command, argument }: SlashArgument) {
+    if (!id || !state.workspace || !controls || !state.conversation) return;
+    const target = id;
+    const clear = () => {
+      const current = controller.getDraft(target);
+      controller.setDraft(target, { ...current, text: '' });
+    };
+    setBusy(true);
+    try {
+      if (command.handler_kind === 'reasoning') {
+        const reasoning =
+          state.workspace.reasoning?.model_ref ===
+          controls.model_selection?.model_ref
+            ? state.workspace.reasoning
+            : null;
+        const choice = reasoningChoice(argument, reasoning);
+        if (!reasoning?.available || !choice) {
+          setError(
+            reasoning?.available
+              ? `“${argument}” isn't a thinking level for this model. Try ${reasoning.choices.map((item) => item.label).join(', ')}.`
+              : 'This model has no thinking levels to choose from.',
+          );
+          return;
+        }
+        await controller.intent(
+          target,
+          'conversation.controls',
+          {
+            model_selection: controls.model_selection,
+            runtime_mode: controls.runtime_mode,
+            profile_id: controls.profile_id,
+            approval_mode: controls.approval_mode,
+            reasoning: {
+              model_ref: reasoning.model_ref,
+              capability_revision: reasoning.capability_revision,
+              selection: choice.selection,
+            },
+          },
+          state.workspace.revision,
+        );
+        clear();
+        overlay.notify(`Thinking: ${choice.label}`);
+      } else if (command.handler_kind === 'profile') {
+        const choice = profileChoice(
+          argument,
+          profileChoices(state.workspace.profiles ?? []),
+        );
+        if (!choice) {
+          setError(`No agent profile is called “${argument}”.`);
+          return;
+        }
+        await updateControls({ profile_id: choice.id });
+        clear();
+        overlay.notify(`Agent profile: ${choice.label}`);
+      } else if (command.handler_kind === 'goal') {
+        const request = goalRequest(argument);
+        const page = await controller.goals(target, '');
+        if (!page) throw { code: 'capability_unavailable' };
+        if (request.operation !== 'start' && !page.current_goal_id) {
+          setError(
+            'This conversation has no goal yet. Type /goal and what it should achieve.',
+          );
+          return;
+        }
+        const start = request.operation === 'start';
+        const payload = {
+          conversation_id: target,
+          goal_id: page.current_goal_id,
+          revision: page.current_revision,
+          operation: request.operation,
+          objective: start ? request.objective : null,
+          max_turns: start ? DEFAULT_GOAL_TURNS : null,
+          reason: start ? null : '',
+        };
+        const review = await controller.reviewGoal(target, payload);
+        if (!review) throw { code: 'capability_unavailable' };
+        const receipt = await controller.executeGoal(target, {
+          command_id: crypto.randomUUID(),
+          type: 'goal.control',
+          payload: { ...payload, review_id: review.review_id },
+        });
+        if (receipt.status !== 'completed') {
+          setError("The goal change wasn't confirmed. Try again.");
+          return;
+        }
+        resetContextGoals(target);
+        clear();
+        overlay.notify(
+          start
+            ? 'Goal set. Row-Bot is working on it.'
+            : {
+                pause: 'Goal paused.',
+                resume: 'Goal resumed.',
+                clear: 'Goal stopped.',
+                complete: 'Goal marked done.',
+              }[request.operation],
+        );
+      } else if (command.handler_kind === 'agent') {
+        await controller.intent(
+          target,
+          'agent.start',
+          { text: argument },
+          state.conversation.revision,
+        );
+        clear();
+        overlay.notify('Agent started. Follow it in Context › Agents.');
+      }
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function chooseSlash(
     command: SlashCommandSpec,
     token: { start: number; end: number },
@@ -1142,6 +1265,15 @@ export default function Conversation({
       !sendActionReady
     )
       return;
+    // "/goal Ship the docs", "/reasoning high", "/profile writer",
+    // "/agent <task>" run here instead of reaching the model as text (B112).
+    const withArgument = example
+      ? null
+      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
+    if (withArgument) {
+      void runSlashArgument(withArgument);
+      return;
+    }
     const commandText = outgoing.text.trim().toLocaleLowerCase();
     const exactCommand = composerSnapshot?.commands.find((command) =>
       [command.token, ...command.aliases].some(

@@ -239,6 +239,7 @@ const SlashPalette = forwardRef<
                   type="button"
                   role="option"
                   aria-selected={index === selected}
+                  aria-label={`${command.token} ${command.label}`}
                   aria-description={command.description}
                   key={command.id}
                   onMouseDown={(event) => event.preventDefault()}
@@ -252,9 +253,10 @@ const SlashPalette = forwardRef<
                   <span className="slash-palette-icon" aria-hidden>
                     <Icon size={16} strokeWidth={1.8} />
                   </span>
-                  <span className="slash-palette-token">{command.token}</span>
-                  <span className="slash-palette-label">
-                    {command.label}
+                  {/* The usage ("/goal objective") and the label are
+                      kept apart (U19). */}
+                  <span className="slash-palette-token">
+                    {command.token}
                     {command.argument_hint ? (
                       <span className="slash-palette-argument">
                         {' '}
@@ -262,6 +264,7 @@ const SlashPalette = forwardRef<
                       </span>
                     ) : null}
                   </span>
+                  <span className="slash-palette-label">{command.label}</span>
                   <span className="slash-palette-description" aria-hidden>
                     {command.description}
                   </span>

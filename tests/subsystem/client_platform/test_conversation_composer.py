@@ -133,7 +133,9 @@ def test_snapshot_is_passive_bounded_and_uses_canonical_command_registry(
 
     commands = {item["id"]: item for item in result["commands"]}
     assert commands["reasoning"]["argument_mode"] == "prefix"
-    assert commands["reasoning"]["argument_hint"] == "Type details after the command"
+    assert commands["reasoning"]["argument_hint"] == "level"
+    assert commands["goal"]["argument_hint"] == "objective"
+    assert "noskill" not in commands, "the niche /noskill leaves the palette (B112)"
     assert commands["reasoning"]["handler_kind"] == "reasoning"
     assert commands["skill:deep_research"]["token"] == "/deep-research"
     assert "skill:status" not in commands

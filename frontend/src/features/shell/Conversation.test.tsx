@@ -82,6 +82,10 @@ const mock = vi.hoisted(() => ({
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
   upload: vi.fn(),
+  composer: vi.fn(),
+  goals: vi.fn(),
+  reviewGoal: vi.fn(),
+  executeGoal: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -103,6 +107,10 @@ vi.mock('../../runtime', () => {
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
       upload: mock.upload,
+      composer: mock.composer,
+      goals: mock.goals,
+      reviewGoal: mock.reviewGoal,
+      executeGoal: mock.executeGoal,
       intent: mock.intent,
       controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
@@ -2466,4 +2474,151 @@ it('attaches several dropped files and names the one over the limit (U18)', asyn
   expect(
     screen.getByText(/“film.mov” is 40 MB; files can be up to 25 MB./),
   ).toBeVisible();
+});
+
+function slashCommands() {
+  const command = (id: string, label: string) => ({
+    id,
+    token: `/${id}`,
+    aliases: [],
+    label,
+    description: label,
+    icon: 'flag',
+    category: 'Chat',
+    argument_mode: 'prefix',
+    argument_hint: '',
+    handler_kind: id,
+    skill_id: null,
+  });
+  return [
+    command('goal', 'Goal'),
+    command('reasoning', 'Reasoning'),
+    command('profile', 'Agent Profile'),
+    command('agent', 'Start Agent'),
+  ];
+}
+
+function withCommands() {
+  idleConversation();
+  const composer = {
+    conversation_id: 'conversation-a',
+    composer_revision: 'composer-1',
+    library: { availability: 'available', revision: 'library-1' },
+    active_skills: [],
+    suggestions: [],
+    commands: slashCommands(),
+  };
+  Object.assign(mock.state.workspace!, {
+    composer,
+    profiles: [{ id: 'writer-profile', label: 'Writer' }],
+    reasoning: {
+      model_ref: 'fixture/model',
+      capability_revision: 'caps-1',
+      available: true,
+      selection: { kind: 'provider_default' },
+      choices: [
+        { selection: { kind: 'effort', effort: 'low' }, label: 'Low' },
+        { selection: { kind: 'effort', effort: 'high' }, label: 'High' },
+      ],
+      supports_budget: false,
+      budget_min: 0,
+      budget_max: 0,
+    },
+  });
+  mock.composer.mockResolvedValue(composer);
+  mock.intent.mockResolvedValue({ status: 'completed' });
+}
+
+async function sendText(text: string) {
+  mock.drafts.set('conversation-a', { text, attachments: [] });
+  conversation();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+}
+
+it('sets the thinking level from /reasoning high instead of sending it (B112)', async () => {
+  withCommands();
+  await sendText('/reasoning high');
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.controls',
+    expect.objectContaining({
+      reasoning: {
+        model_ref: 'fixture/model',
+        capability_revision: 'caps-1',
+        selection: { kind: 'effort', effort: 'high' },
+      },
+    }),
+    '1',
+  );
+  expect(mock.intent).not.toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+  );
+  expect(mock.drafts.get('conversation-a')?.text).toBe('');
+});
+
+it('says which levels exist when /reasoning names none, and keeps the text', async () => {
+  withCommands();
+  await sendText('/reasoning turbo');
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(
+    screen.getByText(/isn't a thinking level for this model. Try Low, High./),
+  ).toBeVisible();
+  expect(mock.drafts.get('conversation-a')?.text).toBe('/reasoning turbo');
+});
+
+it('switches the profile with /profile', async () => {
+  withCommands();
+  await sendText('/profile writer');
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.controls',
+    expect.objectContaining({ profile_id: 'writer-profile' }),
+    '1',
+  );
+});
+
+it('starts a delegated agent with /agent and its task', async () => {
+  withCommands();
+  await sendText('/agent Summarise tide tables');
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'agent.start',
+    { text: 'Summarise tide tables' },
+    '1',
+  );
+});
+
+it('starts a goal at once with /goal and a limit of 10', async () => {
+  withCommands();
+  mock.goals.mockResolvedValue({
+    conversation_id: 'conversation-a',
+    current_goal_id: null,
+    current_revision: 'none',
+    items: [],
+  });
+  mock.reviewGoal.mockImplementation(async (_id: string, payload) => ({
+    ...payload,
+    review_id: 'review-1',
+  }));
+  mock.executeGoal.mockResolvedValue({ status: 'completed' });
+  await sendText('/goal Draft three posts about tides');
+  expect(mock.reviewGoal).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({
+      operation: 'start',
+      objective: 'Draft three posts about tides',
+      max_turns: 10,
+    }),
+  );
+  expect(mock.executeGoal.mock.calls[0][1]).toMatchObject({
+    type: 'goal.control',
+    payload: { operation: 'start', review_id: 'review-1' },
+  });
+  expect(mock.drafts.get('conversation-a')?.text).toBe('');
 });
