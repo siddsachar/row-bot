@@ -1994,11 +1994,9 @@ class _JsApi:
             if _sys.platform == "darwin":
                 return _sp.check_output(["pbpaste"], timeout=2).decode("utf-8", errors="replace")
             elif _sys.platform == "win32":
-                r = _sp.check_output(
-                    ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
-                    timeout=2,
-                )
-                return r.decode("utf-8", errors="replace").rstrip("\r\n")
+                r = _sp.check_output(_WINDOWS_CLIPBOARD_READ, timeout=3,
+                                     creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
+                return _windows_clipboard_text(r)
             else:
                 for cmd in (["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"]):
                     try:
@@ -2138,18 +2136,40 @@ def _native_json(path, payload=None):
         raise ValueError("invalid_native_response")
     return value
 
+# PowerShell reads and writes the Windows clipboard as UTF-8 here, so text
+# with accents, symbols or other scripts survives Copy and Paste (the console
+# code page would not carry it, and clip.exe reads its input in that code page).
+_WINDOWS_CLIPBOARD_READ = [
+    "powershell", "-NoProfile", "-NonInteractive", "-Command",
+    "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; "
+    "$text = Get-Clipboard -Raw; if ($text) { [Console]::Out.Write($text) }",
+]
+_WINDOWS_CLIPBOARD_WRITE = [
+    "powershell", "-NoProfile", "-NonInteractive", "-Command",
+    "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; "
+    "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+]
+
+
+def _windows_clipboard_text(output: bytes) -> str:
+    return output.decode("utf-8", errors="replace").lstrip("\ufeff")
+
+
 def _native_clipboard_write(text):
     if not isinstance(text, str) or len(text.encode("utf-8")) > 65536:
         return False
     import subprocess as _sp
     try:
+        flags = 0
         if sys.platform == "darwin":
             command = ["pbcopy"]
         elif sys.platform == "win32":
-            command = ["clip.exe"]
+            command = _WINDOWS_CLIPBOARD_WRITE
+            flags = getattr(_sp, "CREATE_NO_WINDOW", 0)
         else:
             command = ["wl-copy"]
-        return _sp.run(command, input=text.encode("utf-8"), timeout=2, check=False).returncode == 0
+        return _sp.run(command, input=text.encode("utf-8"), timeout=3, check=False,
+                       creationflags=flags).returncode == 0
     except Exception:
         return False
 

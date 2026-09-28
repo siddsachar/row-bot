@@ -2442,6 +2442,16 @@
   margin-inline-start: 16px;
   color: var(--text-muted);
 }
+/* The desktop window's right-click menu opens at the pointer. */
+.edit-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.edit-menu {
+  min-width: 180px;
+}
 .skills-menu {
   display: grid;
   gap: 8px;
