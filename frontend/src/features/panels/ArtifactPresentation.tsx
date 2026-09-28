@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Button, ErrorState } from '../../ui/primitives';
 
 export type DesignPresentationState = {
@@ -166,8 +172,9 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
   }, [props.autoStart, visible, active, resourceId, resourceRevision]);
 
   // Presenting takes the keyboard at once, so arrows and Escape work
-  // without first clicking into the slide.
-  useEffect(() => {
+  // without first clicking into the slide. A layout effect: focus moves in
+  // the commit that shows the first slide, never a frame after it.
+  useLayoutEffect(() => {
     const element = host.current;
     if (active && element && !element.contains(document.activeElement))
       element.focus({ preventScroll: true });
