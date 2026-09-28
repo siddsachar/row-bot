@@ -90,7 +90,7 @@ it('renders a durable attachment chip and authenticated local media preview', as
   render(<TranscriptBlocks blocks={blocks} />);
 
   expect(screen.getByText('fixture.wav')).toBeVisible();
-  expect(screen.getByText('2 KB · audio/wav')).toBeVisible();
+  expect(screen.getByText('2 KB · WAV audio')).toBeVisible();
   expect(
     await screen.findByRole('group', { name: 'fixture.wav' }),
   ).toBeVisible();

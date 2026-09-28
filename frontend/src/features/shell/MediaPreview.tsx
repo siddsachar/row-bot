@@ -66,6 +66,22 @@ export function showsAsFileCard(mime: string): boolean {
   return previewKind(mime, '') === 'download';
 }
 
+const AUDIO_NAMES: Record<string, string> = { mpeg: 'MP3', 'x-wav': 'WAV' };
+
+/** "PNG image", "PDF", "TXT file": what a person calls it, never a media type. */
+export function fileKind(mime: string, name = ''): string {
+  const [family, subtype = ''] = mediaType(mime).split('/');
+  const extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toUpperCase();
+  if (subtype === 'pdf') return 'PDF';
+  if (family === 'image' && /^[a-z0-9]+$/.test(subtype))
+    return `${subtype.toUpperCase()} image`;
+  if (family === 'video' && /^[a-z0-9]+$/.test(subtype))
+    return `${subtype.toUpperCase()} video`;
+  if (family === 'audio')
+    return `${AUDIO_NAMES[subtype] ?? subtype.toUpperCase()} audio`;
+  return extension ? `${extension} file` : 'File';
+}
+
 export function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
@@ -358,7 +374,7 @@ export function MediaPreview({
             <strong>{label || 'Generated file'}</strong>
             <small>
               {formatBytes(size ?? current.bytes)} ·{' '}
-              {mediaType(current.mime) || 'file'}
+              {fileKind(current.mime, downloadName)}
             </small>
           </span>
         </div>

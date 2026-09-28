@@ -23,7 +23,12 @@ import { useResolvedTheme } from '../../ui/theme';
 import SafeMarkdown from './chat-parity-markdown';
 import { chartLayout, figureTable } from './chart-embed';
 import { CodeBlock } from './CodeBlock';
-import { formatBytes, MediaPreview, showsAsFileCard } from './MediaPreview';
+import {
+  fileKind,
+  formatBytes,
+  MediaPreview,
+  showsAsFileCard,
+} from './MediaPreview';
 
 type Block = TranscriptRow['blocks'][number];
 
@@ -420,7 +425,8 @@ function Attachment({
         <figcaption className="rich-attachment-caption">
           <strong>{block.name}</strong>
           <span>
-            {formatBytes(block.size_bytes)} · {block.mime_type}
+            {formatBytes(block.size_bytes)} ·{' '}
+            {fileKind(block.mime_type, block.name)}
           </span>
         </figcaption>
       )}

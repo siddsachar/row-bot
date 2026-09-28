@@ -6,7 +6,7 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { forgetMediaPreviews, MediaPreview } from './MediaPreview';
+import { fileKind, forgetMediaPreviews, MediaPreview } from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn() }));
 vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
@@ -107,6 +107,19 @@ it.each([
     if (tag === 'video') expect(player).toHaveAttribute('playsinline');
   },
 );
+
+it('names a file the way a person would, never by its media type', () => {
+  expect(fileKind('application/octet-stream', 'tide-note-a.txt')).toBe(
+    'TXT file',
+  );
+  expect(fileKind('application/octet-stream', 'notes')).toBe('File');
+  expect(fileKind('image/png', 'Pasted image.png')).toBe('PNG image');
+  expect(fileKind('image/jpeg', 'photo.jpg')).toBe('JPEG image');
+  expect(fileKind('application/pdf', 'brief.pdf')).toBe('PDF');
+  expect(fileKind('video/mp4', 'clip.mp4')).toBe('MP4 video');
+  expect(fileKind('audio/mpeg', 'song.mp3')).toBe('MP3 audio');
+  expect(fileKind('text/markdown; charset=utf-8', 'readme.md')).toBe('MD file');
+});
 
 it.each([
   'text/html',
