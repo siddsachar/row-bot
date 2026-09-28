@@ -2732,18 +2732,17 @@
   min-width: 0;
   max-width: 100%;
 }
+/* The model's name keeps its width (a very long one stops at 70%); the
+   provider and billing detail gives way first. */
 .settings-default-model-name {
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 70%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.settings-default-model-name {
-  flex: 0 1 auto;
-}
-/* The provider and billing detail gives way before the model's name does. */
 .settings-default-model-detail {
-  flex: 0 10 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
