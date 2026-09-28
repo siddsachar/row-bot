@@ -18,39 +18,41 @@ const RISK: Record<string, string> = {
 };
 
 function ApprovalDetails({ view }: { view: ApprovalView }) {
+  const risk = RISK[view.risk_class ?? ''];
   return (
     <div className="approval-detail stack">
-      <p>{view.reason || view.summary || 'Approval review required.'}</p>
+      <p>{view.reason || view.summary || 'Row-Bot needs your go-ahead.'}</p>
       <dl>
         <dt>Action</dt>
         <dd>{view.action_label}</dd>
-        <dt>Risk</dt>
-        <dd>{RISK[view.risk_class ?? ''] ?? 'Not classified'}</dd>
-        <dt>Scope</dt>
-        <dd>{view.scope || 'Only this requested action.'}</dd>
+        {risk && (
+          <>
+            <dt>Risk</dt>
+            <dd>{risk}</dd>
+          </>
+        )}
+        <dt>Affects</dt>
+        <dd>{view.scope || 'Only this action.'}</dd>
         {view.safe_argument_summary && (
           <>
-            <dt>Reviewed input</dt>
+            <dt>With</dt>
             <dd>
               <code>{view.safe_argument_summary}</code>
             </dd>
           </>
         )}
-        <dt>Expires</dt>
-        <dd>
-          {view.expires_at ? (
-            <time dateTime={view.expires_at} title={view.expires_at}>
-              {absoluteTime(view.expires_at) || view.expires_at} (
-              {relativeTime(view.expires_at)})
-            </time>
-          ) : (
-            'No server expiry supplied'
-          )}
-        </dd>
+        {view.expires_at && (
+          <>
+            <dt>Waits until</dt>
+            <dd>
+              <time dateTime={view.expires_at} title={view.expires_at}>
+                {absoluteTime(view.expires_at) || view.expires_at} (
+                {relativeTime(view.expires_at)})
+              </time>
+            </dd>
+          </>
+        )}
       </dl>
-      <small>
-        Request {view.id} · policy revision {view.policy_revision}
-      </small>
     </div>
   );
 }
@@ -58,6 +60,17 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
 function dialogOpen() {
   return Boolean(
     document.querySelector('[role="dialog"], [role="alertdialog"]'),
+  );
+}
+
+/** Mod+Enter in a text field belongs to that field, never to an approval (B134). */
+function editableTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  return Boolean(
+    target.closest(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+    ),
   );
 }
 
@@ -119,6 +132,7 @@ export default function ApprovalCard({
         !(event.metaKey || event.ctrlKey) ||
         event.defaultPrevented ||
         event.isComposing ||
+        editableTarget(event.target) ||
         dialogOpen()
       )
         return;
@@ -150,9 +164,9 @@ export default function ApprovalCard({
             {argument && (
               <code className="approval-card-argument">{argument}</code>
             )}
-            <small className="approval-card-meta">
-              {[RISK[risk], view.scope].filter(Boolean).join(' · ')}
-            </small>
+            {RISK[risk] && (
+              <small className="approval-card-meta">{RISK[risk]}</small>
+            )}
           </div>
           <div className="approval-card-actions">
             <Button
@@ -161,7 +175,7 @@ export default function ApprovalCard({
               onClick={() =>
                 overlay.open({
                   title: `Approval details · ${view.action_label}`,
-                  description: 'Review bounded public context for this action.',
+                  description: 'What Row-Bot wants to do, and what it affects.',
                   content: <ApprovalDetails view={view} />,
                 })
               }

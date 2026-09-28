@@ -2431,7 +2431,7 @@ export default function Conversation({
                       ? 'Resume to continue where it stopped, or switch to another model.'
                       : 'Try again, or switch to another model.'}
                     {generation?.external_outcome === 'uncertain'
-                      ? ' An external action may have completed; review it before retrying.'
+                      ? ' Some steps may already have run, so check what changed before you try again.'
                       : ''}
                   </span>
                 </div>
@@ -2518,9 +2518,6 @@ export default function Conversation({
         )}
         <p role="status" className="visually-hidden run-status">
           {runAnnouncement}
-          {generation?.external_outcome === 'uncertain'
-            ? ' An external action may have completed; review before retrying.'
-            : ''}
         </p>
         {error && (
           <div role="alert" className="chat-error">
