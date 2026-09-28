@@ -6,6 +6,96 @@ NiceGUI is still loaded, though, and still provides parts of the process. This
 is the checklist for removing it completely. Locations are as of the Phase 7
 change; line numbers drift, so search for the names.
 
+## Capability parity
+
+**The rule.** React keeps every job NiceGUI does, but it does not clone
+NiceGUI's screens. Each NiceGUI-only or partial capability below is **kept**
+(the same job, done the React way), **simplified** (the same job with fewer,
+simpler controls) or **dropped** (covered elsewhere or not worth a control),
+always with a reason. NiceGUI is hidden (nothing in the app routes to it; only
+`--legacy-ui` opens it) once every keep and simplify row has shipped, which is
+planned for Phase 15 of the polish program. Its code is removed in the next
+release.
+
+53 rows: 19 keep, 28 simplify, 6 drop. Capabilities already at full parity
+(attachments by picker, slash palette, approvals, pickers, workflows, settings
+pages, knowledge, documents, designer and developer basics, and so on) are not
+listed.
+
+Status: **Open** (not yet shipped), **Shipped** (with the phase that shipped
+it), **Closed** (covered by something that already exists; nothing to build).
+
+| # | Area | Capability in NiceGUI | Verdict | What React gets | Phase | Status |
+|---|---|---|---|---|---|---|
+| 1 | Chat | Paste an image; drag and drop files into the chat | Keep | Paste and drag-and-drop into the composer, several files at once, limits stated | 11 | Open |
+| 2 | Chat | Export a conversation as plain text and PDF (Markdown exists) | Simplify | Export as Markdown and PDF; plain text dropped because Markdown already reads as text | 13 | Open |
+| 3 | Chat | Slash commands with arguments (`/goal`, `/profile`, `/agent`, `/reasoning`, `/noskill`) | Simplify | Every command the slash palette lists works with its argument; the niche `/noskill` leaves the palette | 11 | Open |
+| 4 | Chat | Goals continue on their own between turns | Keep | Goals continue after each turn up to their limit | 11 | Open |
+| 5 | Chat | Goal detail: verifier reason, event log, the goal's approvals, linked agents | Simplify | A goal card: "Turn 3 of 10", the verifier's latest reason, Pause, Stop (approvals stay in the transcript, agents in Agents) | 11 | Open |
+| 6 | Chat | Model route line: local or cloud, Chat only, unavailable with a reason | Simplify | Folded into the model pill: a local/cloud glyph, "Chat only" when tools are off, and the unavailable state with Reconnect / Choose another model | 10 | Open |
+| 7 | Chat | Per-turn notice "Provider default reasoning is active" | Drop | — | 9 | Closed: when a provider refuses a thinking level the saved choice resets and the thinking picker shows "Provider default" |
+| 8 | Chat | Preflight notice "context window could not be determined" | Drop | — | 9 | Closed: the context meter shows "Context unavailable" when the capacity is unknown; real overflow errors are turn errors with New chat / Switch model |
+| 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Open |
+| 10 | Shell | Background notices (API errors, account health, Hatch, document jobs, memory policy, workflows) | Keep | Notices over the event stream through the app's notice primitive, coalesced; warnings and errors always, information only for jobs the person started | 9 | Open |
+| 11 | Shell | Start-up warnings shown once (plugin load failures, tunnel start failures, token warnings) | Keep | Merged with 10: shown once, and listed in Monitor | 9 | Open |
+| 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention | 16 | Open |
+| 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 16 | Open |
+| 14 | Native | Right-click Cut, Copy, Paste, Select All in the desktop window | Keep | Cut, Copy, Paste and Select All in the desktop window | 9 | Open |
+| 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Open |
+| 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Open |
+| 17 | Voice | Realtime voice diagnostics (latency, turn timing) | Drop | — | 10 | Closed by review: developer diagnostics; voice failures go through the error catalog |
+| 18 | Workflows | Duplicate a workflow | Keep | Duplicate workflow | 13 | Open |
+| 19 | Workflows | Insert-variable menu (`{{date}}`, step outputs) | Simplify | Typing `{{` in a prompt suggests variables and step outputs | 13 | Open |
+| 20 | Workflows | Webhook URL shown in the workflow after saving | Keep | The webhook URL with Copy in the workflow's trigger | 13 | Open |
+| 21 | Workflows | External channels multi-select | Keep | A checklist of the configured channels | 13 | Open |
+| 22 | Designer | Duplicate a design | Keep | Duplicate in the Design panel's ⋯ menu | 12 | Open |
+| 23 | Designer | Zero-state quick actions ("Draft 3 slides from a brief", …) | Drop | — | 12 | Closed by review: conversation-first creation and the welcome prompts replace them |
+| 24 | Designer | A separate design palette (Ctrl/Cmd+K) and Review shortcut | Drop | — | 12 | Closed by review: the global ⌘K lists design commands when a design is open |
+| 25 | Designer | Review: apply all safe fixes, dismiss, re-scan | Simplify | Per-issue Fix and "Fix all safe issues"; re-checks after edits | 12 | Open |
+| 26 | Designer | Share: Copy link, Open folder, QR | Simplify | Publish: Copy link, QR, Unpublish | 12 | Open |
+| 27 | Designer | Export presets, "Exports save to…", Copy path, Open folder | Simplify | Pick a format, then "Saved · Open · Show in folder" | 12 | Open |
+| 28 | Designer | Add and delete pages (and screens) | Keep | Add and delete pages and screens | 12 | Open |
+| 29 | Designer | Canvas resize with formats, ratios and auto-fit | Simplify | A size menu of common formats that re-fits the content; anything custom by asking | 12 | Open |
+| 30 | Designer | Brand from a website; logo height and inset | Simplify | Brand "From a website"; logo size by asking | 12 | Open |
+| 31 | Designer | Project references list | Drop | — | 12 | Closed by review: the conversation's attachments are the design's references |
+| 32 | Developer | Remove a code folder from recents | Keep | Remove a saved code folder from the list | 12 | Open |
+| 33 | Developer | Custom tools list, new tool from a repository or folder, smoke test | Simplify | Settings › Tools › Custom tools: list, add from a folder, Test, remove; cloning happens in the conversation | 12 | Open |
+| 34 | Developer | "Run custom tool command once" approval dialog | Simplify | The standard approval card | 12 | Open |
+| 35 | Developer | Stop all servers | Keep | Stop all processes | 12 | Open |
+| 36 | Developer | GitHub CLI install hint in the Developer panel | Simplify | The inline "Connect GitHub" setup card when a Git action needs it | 12 | Open |
+| 37 | Computer use | Active session card and live-control dock | Simplify | A computer-use card: latest picture, Stop, Pause/Resume | 12 | Open |
+| 38 | Terminal | Interactive terminal (raw keys, Ctrl-C, Clear) | Simplify | The line terminal gains Stop, Clear and "Open in your terminal" | 12 | Open |
+| 39 | Plugins | Setup guide, changelog link, load log, declared sign-in | Simplify | A plugin connect sheet with setup steps, sign-in and the changelog link; load failures arrive as notices | 15 | Open |
+| 40 | Skills | Import a pasted SKILL.md | Keep | Skills "Import a skill" accepts pasted SKILL.md (to verify) | 15 | Open |
+| 41 | Channels | Per-channel "Expose via tunnel" switch and tunnel URL | Simplify | A channel that needs a public address opens the tunnel itself and shows "Reachable at …" with Copy | 15 | Open |
+| 42 | Channels | Per-channel setup guide | Keep | Per-channel steps in the connect sheet | 15 | Open |
+| 43 | Channels | WhatsApp live QR, "Waiting for QR code…", Reset session | Keep | WhatsApp live QR and Reset session | 15 | Open |
+| 44 | Channels | "Save current" (import a secret from the environment) | Simplify | A field supplied by the environment says so; stored secrets migrate at start | 15 | Open |
+| 45 | Accounts | Google and X guided steps; GitHub setup guide | Keep | Google, X and GitHub steps in the connect sheet | 15 | Open |
+| 46 | Remote | Pairing QR, Refresh QR, custom pairing QR | Simplify | One QR that refreshes itself; custom addresses in Advanced | 14 | Open |
+| 47 | Remote | Same-network setup instructions | Keep | Two short lines in the "Same Wi-Fi" option | 14 | Open |
+| 48 | Remote | Recent access activity log | Simplify | Folded into Your devices (last seen, last address) | 14 | Open |
+| 49 | Remote | Access sessions renew every 12 hours | Keep | Automatic session renewal | 14 | Open |
+| 50 | Remote | Tailscale consent link, terms link, review checkbox, private address | Simplify | One confirmation, Tailscale's own consent page when it asks, the address with Copy | 14 | Open |
+| 51 | Remote | Active tunnels list with Copy | Simplify | One "Public" status line with the address, Copy and Stop | 14 | Open |
+| 52 | Remote | "Expose task webhook" switch | Simplify | Moves to the workflow's webhook trigger: "Make reachable from the internet" | 13 | Open |
+| 53 | Data | Migration: Browse buttons, default source paths, Select all / Clear all | Simplify | The source is detected (Browse only if not found); Select all / Clear all kept | 13 | Open |
+
+### Dropped, and why
+
+- **7. Per-turn reasoning notice.** The thinking picker already shows
+  "Provider default" once a provider refuses a level.
+- **8. Context preflight notice.** The context meter already says when the
+  capacity is unknown, and real overflows are turn errors with a next step.
+- **17. Realtime voice diagnostics.** Developer diagnostics, not a person's
+  job; voice failures go through the error catalog.
+- **23. Designer zero-state quick actions.** Asking in the conversation and
+  the welcome prompts do the same.
+- **24. A separate design palette.** One palette: ⌘K lists the design commands
+  when a design is open.
+- **31. Design references list.** The conversation's attachments are the
+  design's references.
+
 ## What NiceGUI still provides to the default app
 
 - [ ] **The ASGI application and server.** `app.py` builds on `nicegui.app`
