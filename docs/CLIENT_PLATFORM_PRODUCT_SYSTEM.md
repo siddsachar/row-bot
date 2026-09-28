@@ -172,13 +172,28 @@ into a persistent host element, so opening, closing or collapsing a panel never
 remounts it or re-reads its sources. A wide chat gives the card a column of its
 own (hidden only on request, remembered per device); when a panel narrows the
 chat, the header `Context` button or Mod+. floats it over the conversation and
-Escape or an outside click closes it; compact layouts use a sheet. Design,
+Escape or an outside click closes it; compact layouts use a sheet that adopts
+the same mounted host through a `ContextSlot`, so it stays live while open.
+Design,
 Workspace and Terminal panels keep the full-height right region, labelled
 `Side panels` only while it holds panels. Exactly one `Close all panels` is
 visible: in the side region, else the bottom region, else a floating rail that
 lists panels whose region is hidden. Open panel lives in the conversation header
 on desktop and in the compact controls below 1024px. Live delegated agents open
-and promote Context's Agents section by CSS order, never by remounting it.
+and promote Context's Agents section by CSS order, never by remounting it. A
+delegated agent that is still going has Stop in place on its row and Message
+and Stop in its detail beside Open full thread; inside its own thread Agents
+shows that agent with its status and the same controls above Back to parent
+conversation. Statuses read in words (Working, Waiting for approval, Needs
+you, Done, Stopped).
+
+The goal card in Context follows what the conversation is doing: Working only
+while one of its turns runs, Continuing between turns, Waiting for your
+approval, Paused, Needs you, Done or Stopped. It shows "Turn 3 of 10" (the
+turn under way while working), the verifier's latest reason, and Pause/Resume
+and Stop (Stop ends the goal and the turn it is running; no dialog). Starting a
+goal works at once and the server continues it after each completed turn up to
+its limit (default 10); approvals, Stop and failures pause it.
 
 A conversation's type comes from its bindings as well as the server's single
 category, so a unified thread holding a design and a code folder matches both
@@ -238,6 +253,17 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   errors and interrupted runs are callouts with the cause and a next step
   (Resume, Retry, Switch model, Open providers, New chat); a stop that leaves
   the last message unanswered offers Send again.
+- A design or code folder the assistant creates (`create_design`,
+  `create_code_folder`) is a card in its turn: "Created design Harbour cleanup
+  deck" with Open, Rename (in place) and Undo; once undone it reads "Removed
+  …". A tool the work needs is a setup card ("Turn on Web Search?" with Turn on
+  / Not now) instead of a generic approval, and an account or channel it needs
+  is a Connect card that opens its Settings page. Nothing is created from a
+  message's wording, and a design opens by itself only when a turn changed it.
+- A server-started step (a goal's next turn, work continuing in a design or
+  folder the reply created) is a quiet centred note ("Goal · turn 2 of 10",
+  "Continuing in Tiny date app"), never the person's bubble; Retry and Send
+  again ignore it. Stop keeps the reply streamed so far, marked Stopped.
 - Each generated result renders once, inline with its turn; Context outputs link
   to it. Embeds use `.rich-block` cards with a header toolbar of 28px icon
   actions; charts take their colours from `--chart-series-*`.
@@ -252,14 +278,26 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   running") with Reconnect when that helps and Choose another model. The
   composer's one fix button follows the same status (Choose a model,
   Reconnect, Choose another model, or Set up a model when nothing can be
-  chosen). An image attached where the model can't see images says so with
+  chosen). Files attach by picking (several at once in a browser), dropping
+  on the composer ("Drop to attach · up to 25 MB each") or pasting (a pasted
+  screenshot gets a readable name); the limits (25 MB a file, 32 files, 100 MB
+  a message) are said before anything is refused, naming each file left out.
+  An image attached where the model can't see images says so with
   "Choose a vision model" (Vision defaults to "Same as chat model"). The
   picker is the shared `ModelList`: search, provider groups with a status dot
   and a billing tag (Subscription, Pay per use, Credits, Local · free), recent
   choices first; the list is re-read when the picker opens (at most every
   30 s). The context ring is
   neutral ink until it nears the compaction threshold. `/` opens commands and
-  `@` opens agent profiles, write targets and files. Status lines are
+  `@` opens agent profiles (the ones a person picks; the internal helpers
+  stay out), write targets and files. Commands with an argument run in
+  place: `/reasoning high`, `/profile writer`, `/goal <objective>` (and
+  pause, resume, stop, done), `/agent [profile] <task>`; palette rows show the
+  usage ("/goal objective") apart from the label. A welcome prompt fills the
+  composer to edit and send. The default skill every chat starts with stays in
+  Skills rather than a chip. Talk beside Dictate has its own glyph, Realtime
+  Talk says it runs on OpenAI and is paid per minute, and Read aloud stays on
+  replies without an on-device voice and says what is missing. Status lines are
   announced, not printed, except a failed or conflicting draft. Send and
   Stop are one button that morphs between the two. A composer narrower than
   480px is one line with the model, approvals and context usage under `+`. Floating

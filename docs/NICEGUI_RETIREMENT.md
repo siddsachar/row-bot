@@ -27,15 +27,15 @@ it), **Closed** (covered by something that already exists; nothing to build).
 
 | # | Area | Capability in NiceGUI | Verdict | What React gets | Phase | Status |
 |---|---|---|---|---|---|---|
-| 1 | Chat | Paste an image; drag and drop files into the chat | Keep | Paste and drag-and-drop into the composer, several files at once, limits stated | 11 | Open |
+| 1 | Chat | Paste an image; drag and drop files into the chat | Keep | Paste and drag-and-drop into the composer, several files at once, limits stated | 11 | Shipped (Phase 11) |
 | 2 | Chat | Export a conversation as plain text and PDF (Markdown exists) | Simplify | Export as Markdown and PDF; plain text dropped because Markdown already reads as text | 13 | Open |
-| 3 | Chat | Slash commands with arguments (`/goal`, `/profile`, `/agent`, `/reasoning`, `/noskill`) | Simplify | Every command the slash palette lists works with its argument; the niche `/noskill` leaves the palette | 11 | Open |
-| 4 | Chat | Goals continue on their own between turns | Keep | Goals continue after each turn up to their limit | 11 | Open |
-| 5 | Chat | Goal detail: verifier reason, event log, the goal's approvals, linked agents | Simplify | A goal card: "Turn 3 of 10", the verifier's latest reason, Pause, Stop (approvals stay in the transcript, agents in Agents) | 11 | Open |
+| 3 | Chat | Slash commands with arguments (`/goal`, `/profile`, `/agent`, `/reasoning`, `/noskill`) | Simplify | Every command the slash palette lists works with its argument; the niche `/noskill` leaves the palette | 11 | Shipped (Phase 11) |
+| 4 | Chat | Goals continue on their own between turns | Keep | Goals continue after each turn up to their limit | 11 | Shipped (Phase 11) |
+| 5 | Chat | Goal detail: verifier reason, event log, the goal's approvals, linked agents | Simplify | A goal card: "Turn 3 of 10", the verifier's latest reason, Pause, Stop (approvals stay in the transcript, agents in Agents) | 11 | Shipped (Phase 11) |
 | 6 | Chat | Model route line: local or cloud, Chat only, unavailable with a reason | Simplify | Folded into the model pill: a local/cloud glyph, "Chat only" when tools are off, and the unavailable state with Reconnect / Choose another model | 10 | Shipped (Phase 10) |
 | 7 | Chat | Per-turn notice "Provider default reasoning is active" | Drop | — | 9 | Closed: when a provider refuses a thinking level the saved choice resets and the thinking picker shows "Provider default" |
 | 8 | Chat | Preflight notice "context window could not be determined" | Drop | — | 9 | Closed: the context meter shows "Context unavailable" when the capacity is unknown; real overflow errors are turn errors with New chat / Switch model |
-| 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Open |
+| 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Shipped (Phase 11) |
 | 10 | Shell | Background notices (API errors, account health, Hatch, document jobs, memory policy, workflows) | Keep | Notices over the event stream through the app's notice primitive, coalesced; warnings and errors always, information only for jobs the person started | 9 | Shipped (Phase 9) |
 | 11 | Shell | Start-up warnings shown once (plugin load failures, tunnel start failures, token warnings) | Keep | Merged with 10: shown once, and listed in Monitor | 9 | Shipped (Phase 9) |
 | 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention | 16 | Open |
