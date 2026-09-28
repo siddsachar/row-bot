@@ -835,16 +835,6 @@ async def _run_startup_sequence():
     with _startup_phase("client_platform_recovery"):
         await application_lifecycle.startup()
 
-    # An earlier run that crashed or was stopped by force may have left its
-    # ngrok agent (and public address) running. Stop only agents Row-Bot
-    # recorded as its own, before anything could open a new tunnel.
-    try:
-        from row_bot.tunnel import cleanup_owned_agents
-        with _startup_phase("owned_tunnel_cleanup"):
-            await asyncio.to_thread(cleanup_owned_agents)
-    except Exception as exc:
-        logger.warning("Owned tunnel cleanup skipped (non-fatal): %s", exc)
-
     if live_chat_parity:
         import row_bot.ui.state as _st
 
@@ -1044,6 +1034,17 @@ async def _run_startup_sequence():
             )
             if auto_start:
                 auto_start_channels.append(_ch)
+
+    # An earlier run that crashed or was stopped by force may have left its
+    # ngrok agent (and public address) running. Stop only agents Row-Bot
+    # recorded as its own, before the tunnel or a channel could open a new
+    # one. (After the read-only capture modes have returned.)
+    try:
+        from row_bot.tunnel import cleanup_owned_agents
+        with _startup_phase("owned_tunnel_cleanup"):
+            await asyncio.to_thread(cleanup_owned_agents)
+    except Exception as exc:
+        logger.warning("Owned tunnel cleanup skipped (non-fatal): %s", exc)
 
     # Auto-start tunnel if it was enabled before restart
     _main_app_tunnel = _ch_config.get("tunnel", "tunnel_main_app", False)
