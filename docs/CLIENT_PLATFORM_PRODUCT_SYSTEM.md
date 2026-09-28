@@ -244,7 +244,20 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
 - The composer is one field (`.composer-field`, radius `--radius-composer`)
   that grows from a single 24px line to 240px. Chips appear inside it only when
   present. Left: `+` menu, model pill, approval shield; right: context ring,
-  dictation with a Talk chevron, send/stop (34px round). The context ring is
+  dictation with a Talk chevron, send/stop (34px round). The model pill reads
+  the conversation's model status: a local (drive) or cloud glyph and the
+  name, "Chat only" when tools are off, "Choose a model" when none is chosen,
+  and for a model that can't answer a warning glyph (never "Ready") whose
+  hint and the picker's first line say why ("Unavailable — Ollama isn't
+  running") with Reconnect when that helps and Choose another model. The
+  composer's one fix button follows the same status (Choose a model,
+  Reconnect, Choose another model, or Set up a model when nothing can be
+  chosen). An image attached where the model can't see images says so with
+  "Choose a vision model" (Vision defaults to "Same as chat model"). The
+  picker is the shared `ModelList`: search, provider groups with a status dot
+  and a billing tag (Subscription, Pay per use, Credits, Local · free), recent
+  choices first; the list is re-read when the picker opens (at most every
+  30 s). The context ring is
   neutral ink until it nears the compaction threshold. `/` opens commands and
   `@` opens agent profiles, write targets and files. Status lines are
   announced, not printed, except a failed or conflicting draft. Send and
@@ -315,7 +328,15 @@ Values speak human: enums are translated (`humanizeToken`: "Router",
 full date on hover, and secrets read "Key saved · ····c99 · in keychain ·
 Replace" (`maskedTail`, `credentialSourceLabel`) — never the value. The
 settings snapshot reports each saved field's default; a field that differs
-shows a small accent mark and a "Reset … to default" action. Pages read their
+shows a small accent mark and a "Reset … to default" action. The default
+model is the composer's searchable `ModelList` behind one trigger (name,
+provider and billing tag); Providers show each provider's billing tag. API key
+dialogs have a "Get a key" link, a format hint that warns before saving, a
+note that saving sends the key to the provider, and the provider checks the
+key before it is saved (a refused key is explained in the dialog and never
+saved). Subscription sign-ins show their state in words, the device code
+large with Copy and two steps, and are checked every 5 s by themselves.
+Voice offers "Install Whisper <size>" with its download size. Pages read their
 data when they open (GET only); anything that touches the network or another
 system (catalog refresh, marketplace refresh, public skill search) stays an
 explicit action. Controls keep 44px targets on coarse pointers.
@@ -493,20 +514,49 @@ are always shown.
   cards; phones use full-screen tasks. Settings below 900px replaces the
   side navigation with a section picker but keeps its search above it.
 
-### Setup Center
+### First run and Setup Center
 
-`/setup` (also in the command palette and Home › Overview while setup is
-open) follows the settings page anatomy: an icon header with a progress ring
-("4 of 11 areas handled"), then, until a working model is chosen, one
-highlighted first-model card whose primary action is "Use selected model and
-continue". "What would you like to use?" is a grid of selectable tiles
-(native checkboxes; each change saves at once). Every area is a tile with an
-icon, a one-line description, a status chip (Done, Skipped, Recommended, To
-do) and one primary action (Choose models, Open Knowledge, Add missing
-starter workflows, Start a design, Turn on Developer tools, Open Channels,
-Run diagnosis…); Mark done and Skip sit in its ⋯. Areas that match the
-chosen uses are recommended and come first. Every choice is one reviewed,
-idempotent command; an uncertain one is kept for "Check setup action".
+Nothing is preset: a fresh profile has no chat, vision, image or video model
+until the person chooses one, and removing a provider never falls back to
+another model. Profiles that finished setup before this rule keep what they
+were running on, written once as their own choices.
+
+**First run.** Until a default model exists, opening Row-Bot at its plain
+address opens `/setup` with one question, "How should Row-Bot think?", and
+three choice cards (`aria-pressed`), stacked on phones:
+
+- **On this computer** — Ollama, detected every 3 s over loopback while Setup
+  is open (no refresh button): not installed (the steps for this OS and a
+  Download Ollama link), installed but not running, or running with its
+  models listed. Only a known "can't use tools" is tagged Chat only.
+- **With my subscription** — ChatGPT, Claude or Grok (a `Segmented`), signed
+  in inside Setup with the same compact account dialog Settings uses.
+- **With an API key** — OpenAI, Anthropic, Google Gemini and OpenRouter
+  first, the rest under More providers, each with its billing tag; the key
+  dialog is the one Settings uses.
+- *Other (custom endpoint)* is a link to Providers with the add dialog open;
+  models of a connected endpoint are listed back in Setup.
+
+Choosing a model saves it as the default and pins it for the composer; a
+one-message test runs ("Checking the model"); then Home opens. A failed test
+keeps the person in Setup with the reason, Try again and Choose another
+model. The only extra step is an offer to import another assistant's data
+when one is found. The first run never traps anyone: deep links and Home tabs
+are never redirected, "Set up later" opens Home for this window (its card
+then reads "Choose how Row-Bot thinks"), and a profile with a saved default
+never sees the first run.
+
+**Setup Center.** Once a model exists, `/setup` (also in the palette and Home
+› Overview) has an icon header with a progress ring that counts done and
+skipped apart ("4 of 11 done · 2 skipped"). "What would you like to use?" is
+a grid of selectable tiles (native checkboxes; each change saves at once).
+Every area is a tile with an icon, a one-line description, a status chip
+(Done, Skipped, Recommended, To do) and one primary action; Mark done and
+Skip sit in its ⋯. Areas read their real state: a chosen model and Developer
+tools (on unless switched off) are done and can't be skipped. Areas that
+match the chosen uses are recommended and come first. Every choice is one
+reviewed, idempotent command; an uncertain one is kept for "Check setup
+action".
 
 ### Desktop Buddy (overlay)
 

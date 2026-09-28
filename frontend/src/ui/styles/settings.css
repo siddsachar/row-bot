@@ -2738,9 +2738,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.settings-default-model-name {
+  flex: 0 1 auto;
+}
+/* The provider and billing detail gives way before the model's name does. */
 .settings-default-model-detail {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-12);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 @media (pointer: coarse) {

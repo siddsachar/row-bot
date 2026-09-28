@@ -32,7 +32,7 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 3 | Chat | Slash commands with arguments (`/goal`, `/profile`, `/agent`, `/reasoning`, `/noskill`) | Simplify | Every command the slash palette lists works with its argument; the niche `/noskill` leaves the palette | 11 | Open |
 | 4 | Chat | Goals continue on their own between turns | Keep | Goals continue after each turn up to their limit | 11 | Open |
 | 5 | Chat | Goal detail: verifier reason, event log, the goal's approvals, linked agents | Simplify | A goal card: "Turn 3 of 10", the verifier's latest reason, Pause, Stop (approvals stay in the transcript, agents in Agents) | 11 | Open |
-| 6 | Chat | Model route line: local or cloud, Chat only, unavailable with a reason | Simplify | Folded into the model pill: a local/cloud glyph, "Chat only" when tools are off, and the unavailable state with Reconnect / Choose another model | 10 | Open |
+| 6 | Chat | Model route line: local or cloud, Chat only, unavailable with a reason | Simplify | Folded into the model pill: a local/cloud glyph, "Chat only" when tools are off, and the unavailable state with Reconnect / Choose another model | 10 | Shipped (Phase 10) |
 | 7 | Chat | Per-turn notice "Provider default reasoning is active" | Drop | — | 9 | Closed: when a provider refuses a thinking level the saved choice resets and the thinking picker shows "Provider default" |
 | 8 | Chat | Preflight notice "context window could not be determined" | Drop | — | 9 | Closed: the context meter shows "Context unavailable" when the capacity is unknown; real overflow errors are turn errors with New chat / Switch model |
 | 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Open |
@@ -41,9 +41,9 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention | 16 | Open |
 | 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 16 | Open |
 | 14 | Native | Right-click Cut, Copy, Paste, Select All in the desktop window | Keep | Cut, Copy, Paste and Select All in the desktop window | 9 | Shipped (Phase 9) |
-| 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Open |
-| 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Open |
-| 17 | Voice | Realtime voice diagnostics (latency, turn timing) | Drop | — | 10 | Closed by review: developer diagnostics; voice failures go through the error catalog |
+| 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Shipped (Phase 10) |
+| 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Shipped (Phase 10) |
+| 17 | Voice | Realtime voice diagnostics (latency, turn timing) | Drop | — | 10 | Closed (Phase 10): developer diagnostics, not a person's job; voice failures reach people through the error catalog with one fix |
 | 18 | Workflows | Duplicate a workflow | Keep | Duplicate workflow | 13 | Open |
 | 19 | Workflows | Insert-variable menu (`{{date}}`, step outputs) | Simplify | Typing `{{` in a prompt suggests variables and step outputs | 13 | Open |
 | 20 | Workflows | Webhook URL shown in the workflow after saving | Keep | The webhook URL with Copy in the workflow's trigger | 13 | Open |
@@ -88,7 +88,8 @@ it), **Closed** (covered by something that already exists; nothing to build).
 - **8. Context preflight notice.** The context meter already says when the
   capacity is unknown, and real overflows are turn errors with a next step.
 - **17. Realtime voice diagnostics.** Developer diagnostics, not a person's
-  job; voice failures go through the error catalog.
+  job; voice failures go through the error catalog, which gives each one a
+  sentence and one fix. Closed in Phase 10.
 - **23. Designer zero-state quick actions.** Asking in the conversation and
   the welcome prompts do the same.
 - **24. A separate design palette.** One palette: ⌘K lists the design commands
