@@ -37,6 +37,7 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { useWorkspaceActions } from './workspace-actions';
+import FirstRun from './FirstRun';
 
 type Owner = {
   load: (signal?: AbortSignal) => Promise<OnboardingSnapshot>;
@@ -71,7 +72,7 @@ const areas: Record<string, Area> = {
   },
   developer: {
     icon: Code2,
-    action: 'Turn on Developer tools',
+    action: 'Developer tools',
     to: '/settings/tools#built-in-tools',
   },
   channels: {
@@ -260,15 +261,57 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
     }
   }
 
+  /** First-run commands: the result or the error goes back to the step. */
+  async function firstRun(
+    action: 'choose_model' | 'finish_models',
+    modelRef = '',
+  ): Promise<OnboardingSnapshot> {
+    const current = snapshot;
+    if (!current) throw new Error('Setup is still loading');
+    const command: OnboardingCommand = {
+      command_id: crypto.randomUUID(),
+      expected_revision: current.revision,
+      action,
+      profile: [],
+      step: '',
+      ...(modelRef ? { model_ref: modelRef } : {}),
+    };
+    const receipt = await owner.send(command);
+    if (
+      receipt.command_id !== command.command_id ||
+      receipt.status !== 'completed'
+    )
+      throw new Error('Setup receipt did not match the requested action');
+    setSnapshot(receipt.snapshot);
+    return receipt.snapshot;
+  }
+
   const locked = busy || !!pending;
-  const handled = snapshot
-    ? new Set([...snapshot.completed_steps, ...snapshot.skipped_steps]).size
+  // Setup shows the real state (decision 13): done and skipped are counted
+  // separately, and an area that is really done never reads as skipped.
+  const done = snapshot ? new Set(snapshot.completed_steps).size : 0;
+  const skipped = snapshot
+    ? snapshot.skipped_steps.filter(
+        (step) => !snapshot.completed_steps.includes(step),
+      ).length
     : 0;
   const total = snapshot?.steps.length ?? 0;
+  const ringLabel = `${done} of ${total} done${skipped ? ` · ${skipped} skipped` : ''}`;
   const { ordered, recommended } = orderSetupSteps(
     snapshot?.steps ?? [],
     snapshot?.profile ?? [],
   );
+
+  if (snapshot?.needs_model)
+    return (
+      <FirstRun
+        snapshot={snapshot}
+        actions={{
+          choose: (modelRef) => firstRun('choose_model', modelRef),
+          finish: () => firstRun('finish_models'),
+        }}
+      />
+    );
 
   return (
     <section className="setup-center" aria-label="Setup Center">
@@ -279,16 +322,12 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
         <div className="setup-header-text">
           <h1>Setup Center</h1>
           <p>
-            Connect one model, then finish or skip the areas you want. Your
-            progress is saved.
+            Finish or skip the areas you want. Each area shows its real state,
+            and your progress is saved.
           </p>
         </div>
         {snapshot && (
-          <ProgressRing
-            value={handled}
-            total={total}
-            label={`${handled} of ${total} areas handled`}
-          />
+          <ProgressRing value={done} total={total} label={ringLabel} />
         )}
       </header>
       {loading && !snapshot && <Skeleton label="Loading setup progress" />}
@@ -319,38 +358,6 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
       )}
       {snapshot && (
         <>
-          {!snapshot.setup_complete && (
-            <section className="setup-hero" aria-label="First model setup">
-              <span className="setup-hero-icon" aria-hidden>
-                <Cpu size={20} />
-              </span>
-              <div className="setup-hero-text">
-                <h2>Connect your first model</h2>
-                <p>
-                  Choose a local, cloud, or self-hosted model in Settings.
-                  Return here when a working model is selected.
-                </p>
-                <p className="setup-hero-links">
-                  <Link to="/settings/models">Local models</Link>
-                  <span aria-hidden>·</span>
-                  <Link to="/settings/providers">
-                    Cloud or self-hosted providers
-                  </Link>
-                </p>
-              </div>
-              <Button
-                variant="primary"
-                disabled={locked}
-                onClick={() => void send('finish_models')}
-              >
-                Use selected model and continue
-              </Button>
-              <p className="setup-hero-note">
-                Optional migration and private knowledge model setup remain
-                available after this step.
-              </p>
-            </section>
-          )}
           <section className="setup-section" aria-label="Your goals">
             <div className="setup-section-head">
               <h2>What would you like to use?</h2>
@@ -399,7 +406,7 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
               <div className="setup-section-head">
                 <h2>Continue setup</h2>
                 <p>
-                  {handled} of {total} areas handled.
+                  {ringLabel}.
                   {recommended.size > 0 &&
                     ' Recommended areas come first; every area stays available.'}
                 </p>
@@ -412,11 +419,13 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
                     to: '/',
                   };
                   const Icon = area.icon;
-                  const done = snapshot.completed_steps.includes(step.id);
-                  const skipped = snapshot.skipped_steps.includes(step.id);
-                  const status = done
+                  const areaDone = snapshot.completed_steps.includes(step.id);
+                  const live = (snapshot.live_done ?? []).includes(step.id);
+                  const areaSkipped =
+                    !areaDone && snapshot.skipped_steps.includes(step.id);
+                  const status = areaDone
                     ? 'done'
-                    : skipped
+                    : areaSkipped
                       ? 'skipped'
                       : recommended.has(step.id)
                         ? 'recommended'
@@ -472,14 +481,15 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
                             {
                               label: `Mark ${step.title} done`,
                               icon: <Check size={16} />,
-                              disabled: done,
+                              disabled: areaDone,
                               onSelect: () =>
                                 void send('mark_done', [], step.id),
                             },
                             {
                               label: `Skip ${step.title}`,
                               icon: <SkipForward size={16} />,
-                              disabled: skipped,
+                              // Live areas follow their real state.
+                              disabled: areaSkipped || live,
                               onSelect: () =>
                                 void send('skip_step', [], step.id),
                             },

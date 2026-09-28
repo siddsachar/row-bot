@@ -685,18 +685,19 @@ it('reports all-completed runs, a quiet Dream Cycle, and a journal-less Dream ru
   ).toHaveTextContent('Dream Cycle ran');
 });
 
-it('offers the first-run Setup Center without a hide control', () => {
+it('asks to choose how Row-Bot thinks while no model exists, without a hide control', () => {
   show({
     setup: setupSnapshot({
       setup_complete: false,
+      needs_model: true,
       completed_steps: [],
       dismissed_home_card: false,
     }),
   });
   const region = screen.getByRole('region', { name: 'Continue setup' });
-  expect(region).toHaveTextContent('Welcome to Row-Bot');
+  expect(region).toHaveTextContent('Choose how Row-Bot thinks');
   expect(
-    within(region).getByRole('link', { name: 'Open Setup Center' }),
+    within(region).getByRole('link', { name: 'Choose a model' }),
   ).toHaveAttribute('href', '/setup');
   expect(
     within(region).queryByRole('button', { name: 'Hide setup reminder' }),
@@ -713,16 +714,20 @@ it('offers the first-run Setup Center without a hide control', () => {
 
 it('keeps the first-run route even if the home card was dismissed', () => {
   show({
-    setup: setupSnapshot({ setup_complete: false, dismissed_home_card: true }),
+    setup: setupSnapshot({
+      setup_complete: false,
+      needs_model: true,
+      dismissed_home_card: true,
+    }),
   });
-  expect(screen.getByRole('link', { name: 'Open Setup Center' })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Choose a model' })).toBeVisible();
 });
 
 it('reminds about optional setup until hidden and reports a hide failure', () => {
   const { rerender } = show({ setup: setupSnapshot() });
   const region = screen.getByRole('region', { name: 'Continue setup' });
   expect(region).toHaveTextContent('Finish setup');
-  expect(region).toHaveTextContent('1 of 2 areas complete');
+  expect(region).toHaveTextContent('1 of 2 done');
   expect(
     within(region).getByRole('link', { name: 'Continue setup' }),
   ).toHaveAttribute('href', '/setup');
@@ -751,6 +756,23 @@ it('reminds about optional setup until hidden and reports a hide failure', () =>
   ).toHaveTextContent(
     'Could not hide the setup reminder. Refresh this page and try again.',
   );
+});
+
+it('counts skipped areas apart from done ones', () => {
+  show({
+    setup: setupSnapshot({
+      steps: [
+        { id: 'models', title: 'Models', description: 'Connect a model.' },
+        { id: 'voice', title: 'Voice', description: 'Configure voice.' },
+        { id: 'channels', title: 'Channels', description: 'Channels.' },
+      ],
+      completed_steps: ['models'],
+      skipped_steps: ['voice'],
+    }),
+  });
+  expect(
+    screen.getByRole('region', { name: 'Continue setup' }),
+  ).toHaveTextContent('1 of 3 done · 1 skipped');
 });
 
 it.each([

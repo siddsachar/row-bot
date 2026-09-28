@@ -22,6 +22,7 @@ import KnowledgeHome, { type KnowledgeDreamState } from '../home/KnowledgeHome';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
+import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 
 const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
@@ -53,6 +54,11 @@ export default function Home() {
   const [startupWarnings, setStartupWarnings] = useState<string[]>([]);
   const monitorRead = useRef({ at: 0, key: '' });
   const [setup, setSetup] = useState<OnboardingSnapshot | null>(null);
+  // Until a default model exists, opening Row-Bot opens Setup (decision 10).
+  // Only the plain Home address does: a deep link, a Home tab or "Set up
+  // later" always lands where it points, on phones and remote devices too.
+  const gated = !requestedTab && !setupDeferred();
+  const [gateChecked, setGateChecked] = useState(!gated);
   const [setupDismissError, setSetupDismissError] = useState('');
   const [dreamState, setDreamState] = useState<KnowledgeDreamState>({
     available: false,
@@ -88,10 +94,18 @@ export default function Home() {
     if (!identity) return;
     const abort = new AbortController();
     controller.onboarding(abort.signal).then(
-      (value) => setSetup(value),
-      () => {},
+      (value) => {
+        if (value) setSetup(value);
+        if (value?.needs_model && gated) navigate('/setup', { replace: true });
+        else setGateChecked(true);
+      },
+      () => {
+        if (!abort.signal.aborted) setGateChecked(true);
+      },
     );
     return () => abort.abort();
+    // The gate is decided once per connection, from the address it opened on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller, identity]);
   useEffect(() => {
     if (tab !== 'knowledge' || !identity) return;
@@ -344,6 +358,10 @@ export default function Home() {
       });
     });
   };
+  // Wait for the one onboarding read only while connected; a disconnected
+  // Home still shows its connection state.
+  if (identity && !gateChecked)
+    return <div className="home-gate" aria-busy="true" />;
   return (
     <div className="home-view" data-home-tab={tab}>
       <h1 className="visually-hidden">Home</h1>

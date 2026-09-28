@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -160,6 +161,9 @@ function location() {
 }
 
 beforeEach(() => {
+  // Home opens Setup until a model is chosen; these tests are about Home, so
+  // they open it the way "Set up later" does (the gate has its own tests).
+  sessionStorage.setItem('row-bot:setup-later:v1', '1');
   mock.overlayOpen.mockReset();
   for (const fn of Object.values(mock.controller)) fn.mockReset();
   mock.controller.onboarding.mockResolvedValue(onboarding());
@@ -184,7 +188,7 @@ beforeEach(() => {
 it('opens on Overview with the five Home capability tabs and no pane-backed resources', async () => {
   show();
   expect(
-    screen.getByRole('tablist', { name: 'Home capabilities' }),
+    await screen.findByRole('tablist', { name: 'Home capabilities' }),
   ).toBeVisible();
   expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
     'Overview',
@@ -605,29 +609,62 @@ it('asks to connect when the workspace is disconnected', () => {
   );
 });
 
-it('shows a first-run setup route in Overview without changing setup on mount', async () => {
+it('opens Setup instead of Home until a model is chosen (decision 10)', async () => {
+  sessionStorage.removeItem('row-bot:setup-later:v1');
   mock.controller.onboarding.mockResolvedValueOnce(
     onboarding({
       setup_complete: false,
+      needs_model: true,
       completed_steps: [],
       dismissed_home_card: false,
       steps: [],
     }),
   );
   show();
-  const region = await screen.findByRole('region', { name: 'Continue setup' });
-  expect(region).toBeVisible();
+  await waitFor(() => expect(location()).toBe('/setup'));
   expect(
-    within(region).getByRole('link', { name: 'Open Setup Center' }),
-  ).toHaveAttribute('href', '/setup');
-  expect(
-    within(region).queryByRole('button', { name: 'Hide setup reminder' }),
+    screen.queryByRole('tablist', { name: 'Home capabilities' }),
   ).toBeNull();
-  expect(mock.controller.onboarding).toHaveBeenCalled();
   expect(mock.controller.onboardingCommand).not.toHaveBeenCalled();
-  // The reminder lives in Overview, not above the tabs.
-  chooseTab('Workflows');
-  expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull();
+});
+
+it('never traps a deep link or "Set up later" in Setup', async () => {
+  mock.controller.onboarding.mockResolvedValue(
+    onboarding({
+      setup_complete: false,
+      needs_model: true,
+      completed_steps: [],
+      dismissed_home_card: false,
+      steps: [],
+    }),
+  );
+  sessionStorage.removeItem('row-bot:setup-later:v1');
+  show('/?tab=workflows');
+  expect(await screen.findByRole('tab', { name: 'Workflows' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(location()).toBe('/?tab=workflows');
+  cleanup();
+  sessionStorage.setItem('row-bot:setup-later:v1', '1');
+  try {
+    show();
+    const region = await screen.findByRole('region', {
+      name: 'Continue setup',
+    });
+    expect(location()).toBe('/');
+    expect(
+      within(region).getByRole('link', { name: 'Choose a model' }),
+    ).toHaveAttribute('href', '/setup');
+    expect(
+      within(region).queryByRole('button', { name: 'Hide setup reminder' }),
+    ).toBeNull();
+    // The reminder lives in Overview, not above the tabs.
+    chooseTab('Workflows');
+    expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull();
+  } finally {
+    sessionStorage.removeItem('row-bot:setup-later:v1');
+  }
 });
 
 const optionalSetup = onboarding({

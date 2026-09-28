@@ -51,22 +51,26 @@ function show(
 
 beforeEach(() => sessionStorage.clear());
 
-it('loads progress passively and finishes selected model from one click', async () => {
-  const { send } = show();
-  expect(await screen.findByText('Connect your first model')).toBeVisible();
-  expect(send).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Use selected model and continue' }),
+it('loads progress passively and shows no first-model step once a model exists', async () => {
+  const { send } = show(
+    vi.fn(async () => ({
+      ...snapshot,
+      setup_complete: true,
+      needs_model: false,
+      completed_steps: ['models'],
+      live_done: ['models'],
+    })),
   );
   expect(
     await screen.findByRole('region', { name: 'Setup checklist' }),
   ).toBeVisible();
-  expect(send).toHaveBeenCalledWith(
-    expect.objectContaining({
-      action: 'finish_models',
-      expected_revision: snapshot.revision,
-    }),
-  );
+  expect(send).not.toHaveBeenCalled();
+  // No preset "Use selected model" step (decision 9): the checklist follows
+  // the real state instead.
+  expect(screen.queryByText('Connect your first model')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Use selected model and continue' }),
+  ).toBeNull();
 });
 
 it('saves an intent tile directly and uses its receipt revision', async () => {
@@ -144,9 +148,7 @@ it('retains the original command for recovery after an uncertain response', asyn
     send,
   );
   fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Use selected model and continue',
-    }),
+    await screen.findByRole('checkbox', { name: 'Chat assistant' }),
   );
   expect(
     await screen.findByRole('button', { name: 'Check setup action' }),
@@ -189,32 +191,6 @@ it('offers interrupted command recovery after remount without auto-executing', a
   expect(send).toHaveBeenCalledWith(command);
 });
 
-it('lets the user correct a rejected unready model choice', async () => {
-  const send = vi
-    .fn()
-    .mockRejectedValue({ code: 'onboarding_model_required', status: 409 });
-  show(
-    vi.fn(async () => snapshot),
-    send,
-  );
-  fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Use selected model and continue',
-    }),
-  );
-  expect(
-    await screen.findByText(
-      'Choose a model that is available, then try this step again.',
-    ),
-  ).toBeVisible();
-  expect(
-    screen.queryByRole('button', { name: 'Check setup action' }),
-  ).toBeNull();
-  expect(
-    screen.getByRole('button', { name: 'Use selected model and continue' }),
-  ).toBeEnabled();
-});
-
 it('orders recommended areas first with a status chip and one primary action', async () => {
   const resumed: OnboardingSnapshot = {
     ...snapshot,
@@ -253,8 +229,9 @@ it('orders recommended areas first with a status chip and one primary action', a
     .getAllByRole('heading', { level: 3 })
     .map((heading) => heading.textContent);
   expect(titles).toEqual(['Designer', 'Knowledge', 'Models', 'Voice']);
+  // Done and skipped are counted apart (U9).
   expect(
-    screen.getByRole('progressbar', { name: '2 of 4 areas handled' }),
+    screen.getByRole('progressbar', { name: '1 of 4 done · 1 skipped' }),
   ).toBeInTheDocument();
   const items = within(list).getAllByRole('listitem');
   expect(items.map((item) => item.getAttribute('data-status'))).toEqual([
@@ -284,4 +261,35 @@ it('orders recommended areas first with a status chip and one primary action', a
   expect(send).toHaveBeenCalledWith(
     expect.objectContaining({ action: 'mark_done', step: 'knowledge' }),
   );
+});
+
+it('shows live areas as done and never offers to skip them (decision 13)', async () => {
+  const live: OnboardingSnapshot = {
+    ...snapshot,
+    setup_complete: true,
+    completed_steps: ['models', 'developer'],
+    live_done: ['models', 'developer'],
+    skipped_steps: [],
+    steps: [
+      ...snapshot.steps,
+      { id: 'developer', title: 'Developer', description: 'Code.' },
+    ],
+  };
+  show(vi.fn(async () => live));
+  const list = await screen.findByRole('list');
+  const developer = within(list)
+    .getAllByRole('listitem')
+    .find((item) => item.textContent?.includes('Developer'))!;
+  expect(developer).toHaveAttribute('data-status', 'done');
+  await act(async () =>
+    fireEvent.keyDown(
+      within(developer).getByRole('button', {
+        name: 'More actions for Developer',
+      }),
+      { key: 'Enter' },
+    ),
+  );
+  expect(
+    screen.getByRole('menuitem', { name: 'Skip Developer' }),
+  ).toHaveAttribute('aria-disabled', 'true');
 });

@@ -242,13 +242,18 @@ export default function OverviewHome({
     };
   }, [conversations, tasks]);
 
-  const setupDone = setup
-    ? new Set([...setup.completed_steps, ...setup.skipped_steps]).size
+  const setupDone = setup ? new Set(setup.completed_steps).size : 0;
+  const setupSkipped = setup
+    ? setup.skipped_steps.filter(
+        (step) => !setup.completed_steps.includes(step),
+      ).length
     : 0;
+  const needsModel = Boolean(setup?.needs_model);
   const showSetup =
     setup &&
-    (!setup.setup_complete ||
-      (!setup.dismissed_home_card && setupDone < setup.steps.length));
+    (needsModel ||
+      (!setup.dismissed_home_card &&
+        setupDone + setupSkipped < setup.steps.length));
 
   const needs: Item[] = [
     ...view.approvals.map<Item>((row) => ({
@@ -434,7 +439,7 @@ export default function OverviewHome({
         <div className="overview-column">
           <Section title="Needs you" count={attention}>
             {showSetup &&
-              (setup.setup_complete ? (
+              (!needsModel ? (
                 <div
                   className="overview-setup"
                   role="region"
@@ -446,7 +451,8 @@ export default function OverviewHome({
                   <span className="overview-row-text">
                     <strong className="overview-row-title">Finish setup</strong>
                     <span className="overview-row-meta">
-                      {setupDone} of {setup.steps.length} areas complete
+                      {setupDone} of {setup.steps.length} done
+                      {setupSkipped ? ` · ${setupSkipped} skipped` : ''}
                     </span>
                   </span>
                   <Link className="button small" to="/setup">
@@ -475,15 +481,15 @@ export default function OverviewHome({
                 >
                   <span className="overview-row-text">
                     <strong className="overview-row-title">
-                      Welcome to Row-Bot
+                      Choose how Row-Bot thinks
                     </strong>
                     <span className="overview-row-meta">
-                      Connect one working model first. Your other choices can
-                      wait.
+                      Row-Bot needs a model before it can answer. It takes a
+                      minute.
                     </span>
                   </span>
                   <Link className="button primary small" to="/setup">
-                    Open Setup Center
+                    Choose a model
                   </Link>
                 </div>
               ))}
