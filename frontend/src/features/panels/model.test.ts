@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   closePanel,
+  closeResourcePanels,
   createPanelLayout,
   focusPanel,
   movePanel,
@@ -34,6 +35,19 @@ describe('typed presentation-only panel registry', () => {
     state = closePanel(state, first!);
     expect(state.panels).toHaveLength(0);
     expect(state.activePanelId).toBeNull();
+  });
+  it('closes every view of a removed resource and nothing else', () => {
+    const removed = {
+      ...samplePanels[0],
+      resource_ref: 'conversation-a:binding-a',
+    };
+    let state = openPanel(createPanelLayout(), removed);
+    state = openPanel(state, removed, 'bottom', true);
+    state = openPanel(state, samplePanels[1]);
+    const kept = state.activePanelId;
+    state = closeResourcePanels(state, 'conversation-a:binding-a');
+    expect(state.panels.map((panel) => panel.instance_id)).toEqual([kept]);
+    expect(closeResourcePanels(state, 'conversation-a:binding-a')).toBe(state);
   });
   it('suggestions never open a panel or steal user focus', () => {
     const state = openPanel(createPanelLayout(), samplePanels[0]);

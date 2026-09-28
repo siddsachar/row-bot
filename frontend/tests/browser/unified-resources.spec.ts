@@ -109,10 +109,19 @@ test('a created code folder can be renamed and undone from its card', async ({
   await field.press('Enter');
   card = page.getByRole('group', { name: 'Created code folder Fixture site' });
   await expect(card).toBeVisible();
+  // Undo closes a panel showing what it removed, never "Resource unavailable" (B159).
+  const sidePanels = page.getByRole('region', { name: 'Side panels' });
+  const beside = (page.viewportSize()?.width ?? 0) >= 1024;
+  if (beside) {
+    await card.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(sidePanels).toBeVisible();
+  }
   await card.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(
     page.getByRole('group', { name: 'Removed code folder Fixture site' }),
   ).toBeVisible();
+  if (beside) await expect(sidePanels).toHaveCount(0);
+  await expect(page.getByText('Resource unavailable')).toHaveCount(0);
   await expect
     .poll(
       async () =>

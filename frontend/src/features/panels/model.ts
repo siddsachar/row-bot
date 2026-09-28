@@ -347,6 +347,15 @@ export function closePanel(layout: PanelLayout, id: string): PanelLayout {
         : layout.activePanelId,
   };
 }
+/** Close every panel showing a resource the person just removed (Undo). */
+export function closeResourcePanels(
+  layout: PanelLayout,
+  resourceRef: string,
+): PanelLayout {
+  return layout.panels
+    .filter((panel) => panel.descriptor.resource_ref === resourceRef)
+    .reduce((next, panel) => closePanel(next, panel.instance_id), layout);
+}
 export function closeAllPanels(layout: PanelLayout): PanelLayout {
   return {
     ...layout,

@@ -58,6 +58,7 @@ import { useClientSelector, useRuntime } from '../../runtime';
 import {
   closeAllPanels,
   closePanel,
+  closeResourcePanels,
   focusPanel,
   movePanel,
   openPanel,
@@ -1555,6 +1556,11 @@ export default function Workspace() {
                         if (completedDesign?.binding === binding)
                           setCompletedDesign(null);
                       }}
+                      onResourceRemoved={(reference) =>
+                        update((previous) =>
+                          closeResourcePanels(previous, reference),
+                        )
+                      }
                       onNewChat={() => void creation.newChat()}
                       onStartProfileChat={(profile) =>
                         void creation.newChat('', profile)

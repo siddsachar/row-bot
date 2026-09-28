@@ -144,6 +144,7 @@ export default function Conversation({
   onPanel,
   completedDesignId,
   onResourceOpened,
+  onResourceRemoved,
   onNewChat = () => undefined,
   focusConversationId,
   onComposerFocused,
@@ -160,6 +161,8 @@ export default function Conversation({
   onPanel: (panel: PanelDescriptor) => void;
   completedDesignId?: string;
   onResourceOpened?: (bindingId: string) => void;
+  /** A resource was removed (Undo on its card): close its panels. */
+  onResourceRemoved?: (resourceRef: string) => void;
   onNewChat?: () => void;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
@@ -2082,12 +2085,16 @@ export default function Conversation({
     },
     undo: async (bindingId) => {
       if (!id || !state.conversation) return;
+      const removed = resources.find(
+        (item) => item.binding.binding_id === bindingId,
+      );
       await controller.intent(
         id,
         'resource.discard',
         { binding_id: bindingId },
         state.conversation.revision,
       );
+      if (removed) onResourceRemoved?.(removed.resource_ref);
     },
     connect: (page) => navigate(`/settings/${page}`),
   };
