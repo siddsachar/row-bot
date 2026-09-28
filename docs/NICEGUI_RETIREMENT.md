@@ -36,11 +36,11 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 7 | Chat | Per-turn notice "Provider default reasoning is active" | Drop | — | 9 | Closed: when a provider refuses a thinking level the saved choice resets and the thinking picker shows "Provider default" |
 | 8 | Chat | Preflight notice "context window could not be determined" | Drop | — | 9 | Closed: the context meter shows "Context unavailable" when the capacity is unknown; real overflow errors are turn errors with New chat / Switch model |
 | 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Open |
-| 10 | Shell | Background notices (API errors, account health, Hatch, document jobs, memory policy, workflows) | Keep | Notices over the event stream through the app's notice primitive, coalesced; warnings and errors always, information only for jobs the person started | 9 | Open |
-| 11 | Shell | Start-up warnings shown once (plugin load failures, tunnel start failures, token warnings) | Keep | Merged with 10: shown once, and listed in Monitor | 9 | Open |
+| 10 | Shell | Background notices (API errors, account health, Hatch, document jobs, memory policy, workflows) | Keep | Notices over the event stream through the app's notice primitive, coalesced; warnings and errors always, information only for jobs the person started | 9 | Shipped (Phase 9) |
+| 11 | Shell | Start-up warnings shown once (plugin load failures, tunnel start failures, token warnings) | Keep | Merged with 10: shown once, and listed in Monitor | 9 | Shipped (Phase 9) |
 | 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention | 16 | Open |
 | 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 16 | Open |
-| 14 | Native | Right-click Cut, Copy, Paste, Select All in the desktop window | Keep | Cut, Copy, Paste and Select All in the desktop window | 9 | Open |
+| 14 | Native | Right-click Cut, Copy, Paste, Select All in the desktop window | Keep | Cut, Copy, Paste and Select All in the desktop window | 9 | Shipped (Phase 9) |
 | 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Open |
 | 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Open |
 | 17 | Voice | Realtime voice diagnostics (latency, turn timing) | Drop | — | 10 | Closed by review: developer diagnostics; voice failures go through the error catalog |
@@ -131,15 +131,17 @@ it), **Closed** (covered by something that already exists; nothing to build).
   coordinator (TTS, vision) that `client_platform` binds, so React Talk and
   Dictation depend on it. It needs its own owner.
 - [ ] **The toast queue.** `notifications._toast_queue` is drained only by
-  the NiceGUI page; without it the queue grows without bound.
+  the NiceGUI page. Since Phase 9 it keeps only the latest 32 and React gets
+  the same notices from `application/app_notices`, so it goes with the
+  NiceGUI page.
 - [ ] **The legacy UI at `/`.** The whole NiceGUI UI (`@ui.page("/")` in
   `app.py`, `ui/*`, the NiceGUI modules under `designer/`, `developer/ui.py`,
   `skills_hub/ui.py`, `plugins/ui_*.py`, WhatsApp's `build_custom_ui`, the
   voice NiceGUI glue). The launcher opens it only with `--legacy-ui`, but the
-  React client links to it as "Current application" for settings and
-  surfaces it has not ported (`Navigation.tsx`, `SettingRoute.tsx`,
-  `Workspace.tsx`, the `index.html` noscript link). Remove each link when its
-  surface is ported. Remote requests to `/` already redirect to `/app-v2/`;
+  React client links to it as "Current application" from the navigation
+  (`Navigation.tsx`) and the `index.html` noscript link. Connection problems
+  no longer link to it (Phase 9: they offer Reconnect or Reload). Remove each
+  remaining link when its surface is ported. Remote requests to `/` already redirect to `/app-v2/`;
   loopback desktop requests do not.
 - [ ] **Launcher legacy branches.** `--legacy-ui` (and the no-op
   `--client-v2` alias), `_client_url_for_port`, the window script's legacy

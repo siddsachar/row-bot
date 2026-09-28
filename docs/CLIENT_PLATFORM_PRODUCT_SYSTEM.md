@@ -548,6 +548,81 @@ re-attestation) is in `docs/ARCHITECTURE.md` › Buddy Desktop Overlay. What the
 default app still loads from NiceGUI, as the checklist for removing it, is in
 `docs/NICEGUI_RETIREMENT.md`.
 
+## Errors, notices and recovery
+
+People see what happened and one way forward; codes, receipts and retries
+stay underneath.
+
+- **Errors.** Every problem code the server can return maps to one sentence
+  and at most one fix: Retry, Reconnect, Choose a model, Open *the exact
+  setting*, or Send now (`frontend/src/api/errors.ts`). A unit test walks
+  `contracts/client-platform/v1/error-codes.json` and fails on any code
+  without a sentence, on a setting link that does not exist, and on internal
+  words. An unknown code reads "Something went wrong. Try again." with the
+  code under Details. Visible copy never says receipt, replayed, admission or
+  owned. Command receipts still stop a retried request from running twice: a
+  request refused before it ran drops its claim so the next try is fresh; one
+  that may have run offers "Check message" rather than sending again.
+- **Waiting messages.** A message sent while Row-Bot is working waits on the
+  server. Above the composer: "1 message waiting · sends when Row-Bot
+  finishes", each with Send now, Edit and Discard (Discard asks first). The
+  list is read from the server (`queue?waiting=1`), not counted from events,
+  so it matches what will send. Stop pauses waiting messages before it
+  announces the stop, so Send now works straight after; a stopped reply offers
+  Send again only when nothing is waiting. Send again and Retry resend the
+  message's files, never duplicate it, and never leave a claim that blocks the
+  next message.
+- **Attachments.** A sent file shows as a chip on the person's message; the
+  context Row-Bot extracts from it stays out of the bubble.
+- **Background notices.** `notify()` (workflow results, reminders, approvals
+  waiting, document batches, account health) and start-up warnings (a plugin
+  that failed to load, a tunnel that did not start, an expiring token) land in
+  one bounded server journal: the latest 64 notices and 32 start-up warnings,
+  with a repeat within ten minutes folded into one notice with a count. A
+  client that asks (`notices_epoch`) gets them on the conversation event
+  stream (`event: notice`, or `notices` on the poll page); with no
+  conversation open it reads `GET /notices` every 30 s. Warnings and errors
+  always show; information shows only for jobs the person started. Each shows
+  once per window, and start-up warnings stay listed in Monitor › Start-up.
+  Desktop (OS) notifications are unchanged.
+- **Recovery after a restart.** When the server restarts, the window
+  re-handshakes by itself (after 0.5, 1.5, 3 and 5 s), keeps the open
+  conversation and any unsent drafts, and resubscribes. If that does not
+  work, the banner offers Reconnect (Reload only when this page itself must
+  update); Settings shows the same retry state. Connection problems never send
+  people to the previous app.
+
+### Tunnels and shutdown
+
+A public tunnel is exposure, so it never outlives Row-Bot.
+
+- Every exit closes the tunnels this process opened: a normal quit, a
+  shutdown while work is still stopping, and interpreter exit. The ngrok
+  agent is recorded as Row-Bot's own in the data folder (`runtime/`) and, on
+  Windows, ends with the server process. The launcher's forced stop cleans up
+  the agent of the server it stopped, and the next start stops agents left by
+  a crash. Only recorded agents whose Row-Bot process is gone are stopped; an
+  ngrok agent Row-Bot did not start is never touched. Closing the last tunnel
+  also ends the idle agent, which would otherwise hold one of the account's
+  sessions.
+- Failures are words, not ngrok codes: a session-limit refusal says the
+  account already runs as many agents as it allows and where to stop one.
+- Settings › Access shows the tunnel as it is: running (with how many public
+  addresses), not running with the reason, set up and not running, or not set
+  up. Monitor agrees, and a running SMS channel without a public address is a
+  warning, not "Running". "Check tunnel setup" reports what it found. A tunnel
+  that fails at start-up is a start-up warning. Starting SMS opens the shared
+  tunnel by design.
+
+### Desktop window
+
+The desktop window's web view has no menu of its own, so right-click opens
+Row-Bot's: Cut, Copy, Paste and Select All in a field that can change; Copy
+and Select All on read-only text and messages; never Copy or Cut on a
+password. Commands act on the selection the right-click found, and Paste is an
+ordinary edit, so the composer and forms see the change. Browsers keep their
+own menu.
+
 ## Motion
 
 Motion confirms a state change; it never delays one. Tokens: 120ms popovers,
