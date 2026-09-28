@@ -406,6 +406,9 @@ export default function Conversation({
   const compactPlacement = contextPlacement === 'compact';
   // Without a host (isolated renders) Context renders in place, as before.
   const hosted = Boolean(contextHost) && !compactPlacement;
+  // Compact layouts show Context as a sheet that adopts the same mounted
+  // host, so it stays live (agents, goal, resources) while it is open.
+  const sheetHosted = Boolean(contextHost) && compactPlacement;
   // Context is a small floating card. A wide chat gives it a column of its
   // own (hidden only on request); a narrow one floats it over the chat on
   // demand. Panels such as Design keep the full-height right region.
@@ -2233,7 +2236,11 @@ export default function Conversation({
       className: 'context-sheet',
       title: 'Conversation context',
       description: '',
-      content: contextRail,
+      content: sheetHosted ? (
+        <ContextSlot active className="context-sheet-slot" host={contextHost} />
+      ) : (
+        contextRail
+      ),
     });
   }
   function toggleContext() {
@@ -3194,7 +3201,9 @@ export default function Conversation({
           </div>
         </form>
       )}
-      {hosted && contextRail && createPortal(contextRail, contextHost!.element)}
+      {(hosted || sheetHosted) &&
+        contextRail &&
+        createPortal(contextRail, contextHost!.element)}
       {hosted ? (
         <ContextSlot
           active={cardActive}
