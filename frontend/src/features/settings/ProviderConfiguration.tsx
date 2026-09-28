@@ -28,7 +28,7 @@ import {
   Toggle,
   type MenuAction,
 } from '../../ui/primitives';
-import { humanizeToken } from '../../ui/format';
+import { apiKeyLabel, humanizeToken } from '../../ui/format';
 import { ModalTask } from '../../ui/overlays';
 
 type Operation =
@@ -596,7 +596,7 @@ export default function ProviderConfiguration(
                 ...(item.fields.auth_required
                   ? [
                       {
-                        label: `Manage ${item.fields.display_name} API key`,
+                        label: `Manage ${apiKeyLabel(item.fields.display_name)}`,
                         icon: <KeyRound size={16} />,
                         disabled: locked,
                         onSelect: () => props.onCredentials(item.provider_id),

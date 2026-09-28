@@ -82,6 +82,15 @@ const TOKEN_LABELS: Record<string, string> = {
   ollama: 'Ollama',
 };
 
+/**
+ * "OpenAI API key", not "OpenAI API API key": a provider named after its API
+ * already says "API" (B116).
+ */
+export function apiKeyLabel(provider: string | null | undefined): string {
+  const name = String(provider ?? '').trim() || 'Provider';
+  return /\bAPI$/i.test(name) ? `${name} key` : `${name} API key`;
+}
+
 /** Translate an internal enum or identifier into sentence-case words. */
 export function humanizeToken(value: string | null | undefined): string {
   const raw = String(value ?? '').trim();

@@ -25,7 +25,7 @@ import {
   type MenuAction,
   type Tone,
 } from '../../ui/primitives';
-import { humanizeToken, maskedTail } from '../../ui/format';
+import { apiKeyLabel, humanizeToken, maskedTail } from '../../ui/format';
 import { SettingsRefresh, SettingsSummary, SummaryChip } from './anatomy';
 import { ModalTask } from '../../ui/overlays';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
@@ -316,7 +316,7 @@ export default function ProviderStatus({
         <span className="settings-provider-actions">
           {card.group === 'api' && owner && (
             <CompactAction
-              label={`Manage ${card.display_name} API key`}
+              label={`Manage ${apiKeyLabel(card.display_name)}`}
               onClick={() => setSelected(card.provider_id)}
             >
               <KeyRound size={16} aria-hidden />

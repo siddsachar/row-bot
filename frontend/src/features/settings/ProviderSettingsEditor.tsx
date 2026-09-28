@@ -6,6 +6,7 @@ import {
 import { clientError } from '../../api/errors';
 import type { ProviderSettingsSnapshot } from '../../api/types';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import { apiKeyLabel } from '../../ui/format';
 
 type ProviderSettingsView = ProviderSettingsSnapshot;
 type Operation = 'save' | 'clear' | 'restore';
@@ -272,7 +273,7 @@ export default function ProviderSettingsEditor(
         aria-label="Provider credential settings"
         aria-busy={!!busy}
       >
-        <h2>{snapshot?.display_name ?? 'Provider'} API key</h2>
+        <h2>{apiKeyLabel(snapshot?.display_name)}</h2>
         {busy === 'load' && <Skeleton label="Loading API key status" />}
         {error && <p role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}

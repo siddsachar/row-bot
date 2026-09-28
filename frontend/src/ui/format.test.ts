@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import {
   absoluteTime,
+  apiKeyLabel,
   ariaKeyShortcut,
   credentialSourceLabel,
   humanizeToken,
@@ -77,4 +78,11 @@ it('shows only the masked tail of a saved secret and where it lives', () => {
   expect(credentialSourceLabel('')).toBe('');
   expect(humanizeToken('cloud_provider')).toBe('Cloud');
   expect(humanizeToken('third_party_router')).toBe('Router');
+});
+
+it('names a provider key without doubling "API" (B116)', () => {
+  expect(apiKeyLabel('OpenAI API')).toBe('OpenAI API key');
+  expect(apiKeyLabel('Anthropic')).toBe('Anthropic API key');
+  expect(apiKeyLabel('')).toBe('Provider API key');
+  expect(apiKeyLabel(undefined)).toBe('Provider API key');
 });
