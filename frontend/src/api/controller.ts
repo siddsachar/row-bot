@@ -62,7 +62,14 @@ const INITIAL: ClientState = {
   suggestions: [],
   revision: 0,
 };
-const DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+const DELAYS = [1000, 2000, 3000, 5000, 5000, 5000];
+/**
+ * After a server restart or an expired session the client handshakes again
+ * by itself (B110): a lost session gets a few quick tries, and an
+ * unreachable server is probed every few seconds while the window is visible.
+ */
+const RECOVERY_DELAYS = [500, 1500, 3000, 5000];
+const SESSION_RECOVERY_ATTEMPTS = 3;
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -121,6 +128,15 @@ export class ClientController {
   private reconnectPromise: Promise<void> | null = null;
   private authenticationNumber = 0;
   private visible = true;
+  private recoveryAttempts = 0;
+  /** The conversation to reopen once a lost session is replaced. */
+  private recoverySelection: string | null = null;
+  /** Unsaved drafts kept aside while there is no session. */
+  private unsavedDrafts = new Map<
+    string,
+    { text: string; attachments: import('./types').AttachmentView[] }
+  >();
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private online = true;
   private disposed = false;
   private retiredSubscriptions = new Set<string>();
@@ -533,6 +549,8 @@ export class ClientController {
     const safe = clientError(error);
     const status = failureStatus(safe);
     if (status === 'unauthorized' || status === 'incompatible') {
+      this.recoverySelection =
+        this.state.selectedConversationId ?? this.recoverySelection;
       this.authenticationNumber += 1;
       this.selectionNumber += 1;
       this.lifetime.abort();
@@ -540,6 +558,14 @@ export class ClientController {
       this.selection.abort();
       this.stopObservation();
       this.transport.clearSession();
+      // Nothing private stays visible without a session. What the person
+      // typed and had not saved yet is kept aside and comes back only when
+      // a new session opens (a restart, an expired session), never for a
+      // device that cannot sign in again.
+      for (const id of this.dirtyDrafts) {
+        const draft = this.drafts.get(id);
+        if (draft) this.unsavedDrafts.set(id, draft);
+      }
       this.drafts.clear();
       this.draftRevisions.clear();
       this.browserCommandAttempts.clear();
@@ -569,6 +595,41 @@ export class ClientController {
       loadingConversation: false,
       loadingConversations: false,
     });
+    this.scheduleRecovery();
+  }
+  private scheduleRecovery(): void {
+    const status = this.state.status;
+    if (
+      this.disposed ||
+      !this.online ||
+      this.recoveryTimer ||
+      (status !== 'unauthorized' && status !== 'disconnected') ||
+      (status === 'unauthorized' &&
+        this.recoveryAttempts >= SESSION_RECOVERY_ATTEMPTS)
+    )
+      return;
+    const delay =
+      RECOVERY_DELAYS[
+        Math.min(this.recoveryAttempts, RECOVERY_DELAYS.length - 1)
+      ];
+    this.recoveryAttempts += 1;
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = null;
+      const current = this.state.status;
+      // A hidden window resumes probing when it is shown again.
+      if (
+        this.disposed ||
+        !this.online ||
+        !this.visible ||
+        (current !== 'unauthorized' && current !== 'disconnected')
+      )
+        return;
+      void this.reconnect();
+    }, delay);
+  }
+  private cancelRecovery(): void {
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
   }
   /**
    * A fresh native attestation for this session. Handshaking again on the
@@ -633,6 +694,13 @@ export class ClientController {
       // Publishing readiness can synchronously start route selection. Resume a
       // pre-handshake intent only if no authenticated selection started since.
       const selection = this.selectionNumber;
+      this.recoveryAttempts = 0;
+      this.cancelRecovery();
+      for (const [id, draft] of this.unsavedDrafts) {
+        this.drafts.set(id, draft);
+        this.dirtyDrafts.add(id);
+      }
+      this.unsavedDrafts.clear();
       this.update({ handshake, status: 'ready' });
       await this.drainRetiredSubscriptions(authentication, signal);
       if (this.disposed || authentication !== this.authenticationNumber) return;
@@ -640,13 +708,16 @@ export class ClientController {
       // slow sidebar refresh must not delay recovery of the active conversation.
       const library = this.loadMoreConversations(true);
       let opening: Promise<void> | undefined;
+      const reopen =
+        this.state.selectedConversationId ?? this.recoverySelection;
+      this.recoverySelection = null;
       if (
         authentication === this.authenticationNumber &&
         selection === this.selectionNumber &&
         this.state.handshake &&
-        this.state.selectedConversationId
+        reopen
       ) {
-        opening = this.selectConversation(this.state.selectedConversationId);
+        opening = this.selectConversation(reopen);
       }
       await Promise.all([library, opening]);
     } catch (error) {
@@ -923,9 +994,19 @@ export class ClientController {
         this.draftStates.set(id, 'saved');
       } else if (draft && !this.draftRevisions.has(id)) {
         this.draftRevisions.set(id, draft.revision);
+        const local = this.drafts.get(id);
         // Typing while the initial read is pending must not strand an unsaved
-        // draft. A pre-existing saved draft needs review before replacement.
-        if (draft.text || draft.attachments.length) {
+        // draft. A pre-existing saved draft needs review before replacement,
+        // unless it already holds exactly what was typed.
+        if (
+          local &&
+          local.text === draft.text &&
+          JSON.stringify(local.attachments) ===
+            JSON.stringify(draft.attachments)
+        ) {
+          this.dirtyDrafts.delete(id);
+          this.draftStates.set(id, 'saved');
+        } else if (draft.text || draft.attachments.length) {
           this.draftStates.set(id, 'conflict');
         } else {
           void this.saveDraft(id);
@@ -4473,6 +4554,7 @@ export class ClientController {
   setVisible(visible: boolean): void {
     if (visible === this.visible || this.disposed) return;
     this.visible = visible;
+    if (visible) this.scheduleRecovery();
     if (!visible) {
       this.stopObservation();
       this.update({ connection: 'none' });
@@ -4781,6 +4863,8 @@ export class ClientController {
   dispose(): void {
     this.stopObservation(true);
     this.disposed = true;
+    this.cancelRecovery();
+    this.unsavedDrafts.clear();
     this.lifetime.abort();
     this.selection.abort();
     this.transport.clearSession();

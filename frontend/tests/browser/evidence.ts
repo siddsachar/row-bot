@@ -35,6 +35,11 @@ type ExpectedError = {
   count: number;
   owner: string;
   fixture: string;
+  /**
+   * The count is an upper bound: a race the test cannot pin (a request in
+   * flight when the fixture acts) may produce fewer, but never more.
+   */
+  upTo?: boolean;
 };
 
 function assertConsoleEvidence(
@@ -66,7 +71,9 @@ function assertConsoleEvidence(
     const matched = remaining.filter(
       (entry) => entry.text === expected!.signature,
     );
-    expect(matched).toHaveLength(expected!.count);
+    if (expected!.upTo)
+      expect(matched.length).toBeLessThanOrEqual(expected!.count);
+    else expect(matched).toHaveLength(expected!.count);
     for (const entry of matched) remaining.splice(remaining.indexOf(entry), 1);
   }
   expect(remaining, 'Unexplained console errors').toEqual([]);

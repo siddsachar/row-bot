@@ -85,6 +85,7 @@ import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import { canAutoOpenDesign } from './design-auto-open';
 import type {
+  ClientStatus,
   ConversationView,
   PanelDescriptor,
   ResourceView,
@@ -253,6 +254,20 @@ function PanelContent({
   );
 }
 
+/** Connection problems offer Reconnect or Reload, never another app (B110). */
+function connectionTitle(status: ClientStatus) {
+  return status === 'incompatible'
+    ? 'Reload to continue'
+    : status === 'unauthorized'
+      ? 'Connect to continue'
+      : 'Connection interrupted';
+}
+function connectionHint(status: ClientStatus) {
+  return status === 'reconnecting' || status === 'disconnected' ? (
+    <span> Sending and live updates resume when Row-Bot reconnects.</span>
+  ) : null;
+}
+
 export default function Workspace() {
   const state = {
     status: useClientSelector((value) => value.status),
@@ -291,6 +306,12 @@ export default function Workspace() {
     conversationId ?? 'home',
   );
   const creation = useNewChat();
+  const connectionAction =
+    state.error?.recovery === 'update' ? (
+      <Button onClick={() => window.location.reload()}>Reload</Button>
+    ) : (
+      <Button onClick={() => void controller.reconnect()}>Reconnect</Button>
+    );
   const { host: contextHost, parking: contextParking } = useContextHostOwner();
   // Mod+. toggles the conversation's Context card; each press bumps this.
   const [contextToggle, setContextToggle] = useState(0);
@@ -1422,24 +1443,11 @@ export default function Workspace() {
         )}
         {homeOpen && state.error && (
           <ErrorState
-            title={
-              state.status === 'incompatible'
-                ? 'Client update needed'
-                : 'Connect to continue'
-            }
-            action={
-              state.error.recovery === 'retry' ? (
-                <Button onClick={() => void controller.reconnect()}>
-                  Reconnect
-                </Button>
-              ) : (
-                <a className="button" href="/">
-                  Open current application
-                </a>
-              )
-            }
+            title={connectionTitle(state.status)}
+            action={connectionAction}
           >
-            {state.error.message}
+            <span>{state.error.message}</span>
+            {connectionHint(state.status)}
           </ErrorState>
         )}
         <Group
@@ -1540,35 +1548,11 @@ export default function Workspace() {
                       <Skeleton label="Opening conversation" />
                     ) : state.error ? (
                       <ErrorState
-                        title={
-                          state.status === 'incompatible'
-                            ? 'Client update needed'
-                            : state.status === 'unauthorized'
-                              ? 'Connect to continue'
-                              : 'Connection interrupted'
-                        }
-                        action={
-                          state.error.recovery === 'retry' ? (
-                            <Button
-                              onClick={() => {
-                                void controller.reconnect();
-                              }}
-                            >
-                              Reconnect
-                            </Button>
-                          ) : (
-                            <a className="button" href="/">
-                              Open current application
-                            </a>
-                          )
-                        }
+                        title={connectionTitle(state.status)}
+                        action={connectionAction}
                       >
-                        {state.error.message}
-                        {state.status === 'reconnecting'
-                          ? ' Row-Bot is trying to reconnect. Sending and live updates are unavailable in the meantime.'
-                          : state.status === 'disconnected'
-                            ? ' Sending and live updates are unavailable until you reconnect.'
-                            : ''}
+                        <span>{state.error.message}</span>
+                        {connectionHint(state.status)}
                       </ErrorState>
                     ) : null}
                     <Conversation

@@ -486,8 +486,12 @@ void start().catch(() => {
   const message = document.createElement('p');
   message.textContent =
     'The workspace could not start. Reload the page to try again.';
-  const link = document.createElement('a');
-  link.href = '/';
-  link.textContent = 'Open current application';
-  root.append(message, link);
+  // A start that fails is usually a connection problem: reload, never
+  // another app (B110).
+  const reload = document.createElement('button');
+  reload.type = 'button';
+  reload.className = 'button';
+  reload.textContent = 'Reload';
+  reload.addEventListener('click', () => window.location.reload());
+  root.append(message, reload);
 });

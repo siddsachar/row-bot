@@ -717,6 +717,26 @@ def start_expiry(barrier_id: str, x_fixture_token: str = Header(default="")) -> 
     return {"started": True}
 
 
+_client_security: dict = {}
+
+
+@app.post("/__p4_fixture/sessions/forget")
+def forget_client_sessions(x_fixture_token: str = Header(default="")) -> dict:
+    """Lose every client session and cursor key, as a server restart does."""
+    predecessor._authorize(x_fixture_token)
+    import secrets
+    security = _client_security.get("security")
+    if security is None:
+        raise HTTPException(status_code=503)
+    with security._lock:
+        forgotten = len(security._sessions)
+        security._sessions.clear()
+        security._subscriptions.clear()
+        security._nonces.clear()
+        security._key = secrets.token_bytes(32)
+    return {"forgotten": forgotten}
+
+
 @app.get("/__p3_fixture/conversation/{conversation_id}")
 def conversation_state(conversation_id: str, x_fixture_token: str = Header(default="")) -> dict:
     """Observe only test-owned IDs; credentials and private paths never returned."""
@@ -1816,7 +1836,9 @@ def main() -> None:
 
     def install_with_synthetic_picker(*args, **kwargs):
         kwargs["folder_selections"] = FolderSelections(picker=lambda: predecessor.DATA / "fixture-workspace")
-        return install(*args, **kwargs)
+        security = install(*args, **kwargs)
+        _client_security["security"] = security
+        return security
 
     routes.install_client_platform = install_with_synthetic_picker
     problem = routes.problem

@@ -1110,6 +1110,76 @@ describe('connection and lifecycle ownership', () => {
     expect(transport.counters.streams).toBe(0);
     expect(transport.counters.commands).toBe(0);
   });
+  it('re-handshakes by itself after a server restart and reopens the conversation (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    const connects = transport.counters.connects;
+    const subscribes = transport.counters.subscribes;
+    // The new server instance has no record of this session.
+    transport.scenario = 'unauthorized';
+    transport.emit({ snapshot_required: true });
+    await flush();
+    expect(value.getSnapshot().status).toBe('unauthorized');
+    transport.scenario = 'normal';
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+    expect(transport.counters.connects).toBe(connects + 1);
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().error).toBeNull();
+    expect(value.getSnapshot().selectedConversationId).toBe('conversation-a');
+    expect(transport.counters.subscribes).toBeGreaterThan(subscribes);
+    expect(transport.counters.commands).toBe(0);
+  });
+  it('keeps an unsaved draft through a restart, hidden until a new session opens (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    value.setDraft('conversation-a', {
+      text: 'Typed just before the restart',
+      attachments: [],
+    });
+    transport.scenario = 'unauthorized';
+    transport.emit({ snapshot_required: true });
+    await flush();
+    expect(value.getSnapshot().status).toBe('unauthorized');
+    // Nothing private is visible without a session.
+    expect(value.getDraft('conversation-a').text).toBe('');
+    transport.scenario = 'normal';
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getDraft('conversation-a').text).toBe(
+      'Typed just before the restart',
+    );
+  });
+  it('keeps probing an unreachable server while visible and reconnects within seconds (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport({ scenario: 'disconnected' });
+    const value = client(transport);
+    await value.start();
+    expect(value.getSnapshot().status).toBe('disconnected');
+    // Down for a while: probes continue at most every five seconds.
+    await vi.advanceTimersByTimeAsync(30000);
+    const probes = transport.counters.connects;
+    expect(probes).toBeGreaterThanOrEqual(6);
+    expect(probes).toBeLessThanOrEqual(10);
+    // A hidden window stops probing until it is shown again.
+    value.setVisible(false);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(transport.counters.connects - probes).toBeLessThanOrEqual(1);
+    transport.scenario = 'normal';
+    value.setVisible(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+  });
   it('halts after authentication revocation and clears protected view without replaying commands', async () => {
     vi.useFakeTimers();
     const transport = new FixtureTransport();

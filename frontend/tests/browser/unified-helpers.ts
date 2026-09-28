@@ -76,6 +76,15 @@ export async function releaseProducer(
   expect(response.ok()).toBe(true);
 }
 
+/** Lose every client session and cursor key, as a server restart does. */
+export async function forgetClientSessions(page: Page): Promise<number> {
+  const response = await page.request.post('/__p4_fixture/sessions/forget', {
+    headers: fixtureHeaders(),
+  });
+  expect(response.ok()).toBe(true);
+  return (await response.json()).forgotten;
+}
+
 export async function startExpiryProducer(
   page: Page,
   call: FixtureCall,

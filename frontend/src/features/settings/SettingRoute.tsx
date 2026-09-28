@@ -792,17 +792,22 @@ export default function SettingRoute() {
           ) : (
             snapshotState
           )
+        ) : state.handshake ? (
+          <Skeleton label={`Loading ${leaf.label}`} />
+        ) : state.status === 'loading' || state.status === 'reconnecting' ? (
+          <Skeleton label="Connecting to Row-Bot" />
         ) : (
-          <EmptyState
-            title={leaf?.label ?? 'Setting not found'}
+          // B110: a lost connection is a retry state, never another app.
+          <ErrorState
+            title="Row-Bot isn't connected"
             action={
-              <a className="button" href="/">
-                Open current application
-              </a>
+              <Button onClick={() => void controller.reconnect()}>
+                Reconnect
+              </Button>
             }
           >
-            This setting is available in the current application.
-          </EmptyState>
+            {leaf.label} loads once Row-Bot is connected again.
+          </ErrorState>
         )}
       </section>
     </SettingsShell>
