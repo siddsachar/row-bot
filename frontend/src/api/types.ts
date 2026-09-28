@@ -427,6 +427,11 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.ClientQueueView>;
+  /** Messages not yet sent or discarded, oldest first, in one page. */
+  waitingMessages?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClientQueueView>;
   messageText?(
     conversation: string,
     message: string,

@@ -4297,7 +4297,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .home-item-copy,
 .search-result-copy,
 .delegated-run-detail,
-.queue-item-text,
 .voice-session-summary {
   display: grid;
   min-width: 0;
@@ -4307,8 +4306,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .home-secondary-actions,
 .activity-heading,
 .delegated-run-summary,
-.queue-heading,
-.queue-actions,
 .voice-recovery,
 .buddy-hatch-actions,
 .buddy-preference-actions {
@@ -4324,7 +4321,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .conversation-search,
 .command-palette,
 .draft-conflict,
-.queue-surface,
 .conversation-voice-surface,
 .buddy-companion,
 .buddy-preferences,
@@ -4340,7 +4336,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .conversation-search,
 .command-palette,
 .draft-conflict,
-.queue-surface,
 .conversation-voice-surface,
 .buddy-companion,
 .buddy-preferences,
@@ -4351,8 +4346,7 @@ details[open] > summary > .settings-disclosure-chevron {
 .home-conversation-item,
 .nav-conversation-item,
 .search-results > li,
-.delegated-run-list > li,
-.queue-list > li {
+.delegated-run-list > li {
   min-width: 0;
   list-style: none;
 }
@@ -4406,8 +4400,6 @@ details[open] > summary > .settings-disclosure-chevron {
   color: var(--text-muted);
 }
 .command-count,
-.queue-item-meta,
-.queue-page-status,
 .voice-state-reason,
 .voice-caption,
 .context-usage-summary {
@@ -4420,12 +4412,10 @@ details[open] > summary > .settings-disclosure-chevron {
 .voice-error {
   color: var(--status-danger-text);
 }
-.delegated-activity,
-.steering-queue {
+.delegated-activity {
   min-width: 0;
 }
 .delegated-run-list,
-.queue-list,
 .buddy-look-list {
   display: grid;
   gap: 8px;
@@ -4433,16 +4423,14 @@ details[open] > summary > .settings-disclosure-chevron {
   padding: 0;
   margin: 0;
 }
-.delegated-run-item,
-.queue-item {
+.delegated-run-item {
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
 }
 .delegated-run-name,
-.activity-heading,
-.queue-heading {
+.activity-heading {
   font-weight: 600;
 }
 .delegated-run-status,
@@ -4459,12 +4447,6 @@ details[open] > summary > .settings-disclosure-chevron {
   padding: 12px;
   border-radius: var(--radius-control);
   background: var(--surface-sunken);
-}
-.queue-item {
-  overflow-wrap: anywhere;
-}
-.queue-item-text {
-  white-space: pre-wrap;
 }
 .thinking-option {
   justify-content: flex-start;
@@ -4646,13 +4628,11 @@ details[open] > summary > .settings-disclosure-chevron {
   .conversation-search,
   .command-palette,
   .draft-conflict,
-  .queue-surface,
   .conversation-voice-surface,
   .buddy-companion,
   .buddy-preferences,
   .buddy-hatch,
-  .delegated-run-item,
-  .queue-item {
+  .delegated-run-item {
     color: CanvasText;
     background: Canvas;
     border-color: CanvasText;

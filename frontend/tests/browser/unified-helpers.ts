@@ -471,10 +471,8 @@ export async function assertControlTextUnclipped(
 }
 
 export async function assertConversationSummaries(page: Page): Promise<void> {
-  // The steering queue shows above the composer once something is queued.
-  const summary = page
-    .locator('.composer details.steering-activity > summary')
-    .filter({ hasText: /^Steering queue/ });
+  // Waiting messages show above the composer while some wait.
+  const summary = page.locator('.composer .waiting-messages-title');
   if (await summary.count()) await assertControlTextUnclipped(summary);
 }
 

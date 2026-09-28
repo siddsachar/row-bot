@@ -59,6 +59,8 @@ const mock = vi.hoisted(() => ({
   navigate: vi.fn(),
   intent: vi.fn(),
   workspaceFor: vi.fn(),
+  waitingMessages: vi.fn(),
+  steering: vi.fn(),
   approval: vi.fn(),
   receipt: vi.fn(),
   showHistory: vi.fn(),
@@ -100,6 +102,8 @@ vi.mock('../../runtime', () => {
       setDraft: mock.setDraft,
       intent: mock.intent,
       workspaceFor: mock.workspaceFor,
+      waitingMessages: mock.waitingMessages,
+      steering: mock.steering,
       approval: mock.approval,
       receipt: mock.receipt,
       showHistory: mock.showHistory,
@@ -174,6 +178,12 @@ beforeEach(() => {
     value: { kind: 'browser', platform: 'browser', capabilities: [] },
   });
   mock.workspaceFor.mockResolvedValue({ writer_status: '' });
+  mock.waitingMessages.mockImplementation(async (id: string) => ({
+    conversation_id: id,
+    generation_id: '',
+    items: [],
+    has_more: false,
+  }));
   mock.selectConversation.mockImplementation(async (id: string) => {
     mock.version++;
     mock.state.selectedConversationId = id;
@@ -821,6 +831,115 @@ function idleConversation() {
   );
 }
 
+function waitingItem(text = 'Waiting follow-up') {
+  return {
+    id: 'submission-waiting',
+    submission_id: 'submission-waiting',
+    generation_id: 'generation-waiting',
+    text,
+    revision: '2',
+    state: 'paused' as const,
+    editable: true,
+    removable: true,
+  };
+}
+
+it('drops a send the server refused because a message waits, and offers Send now (B107)', async () => {
+  const key = idleConversation();
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'user:submission:stopped',
+        message_id: 'stopped',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Stopped question' }],
+      },
+    ],
+    generation: {
+      generation_id: 'run-stopped',
+      quiesced: true,
+      can_stop: false,
+      status: 'stopped',
+    },
+  } as unknown as Snapshot;
+  mock.waitingMessages.mockResolvedValue({
+    conversation_id: 'conversation-a',
+    generation_id: '',
+    items: [waitingItem()],
+    has_more: false,
+  });
+  mock.workspaceFor.mockResolvedValue({ revision: '7', writer_status: '' });
+  mock.intent.mockImplementation(async (_id, type) => {
+    if (type === 'conversation.submit')
+      throw { code: 'queue_pending', status: 409 };
+    return { status: 'completed', conversation_id: 'conversation-a' };
+  });
+  await act(async () => {
+    conversation();
+  });
+  const waiting = await screen.findByRole(
+    'region',
+    { name: 'Waiting messages' },
+    { timeout: 2000 },
+  );
+  expect(waiting).toHaveTextContent('1 message waiting');
+  // The stopped notice points at the waiting message instead of offering a
+  // Send again the server would refuse.
+  expect(screen.queryByRole('button', { name: 'Send again' })).toBeNull();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent(
+    'A message is waiting to be sent. Send it now, or discard it first.',
+  );
+  // Refused before anything ran: no claim blocks the composer, no pending
+  // "awaiting confirmation" bubble, no check button.
+  expect(commandReceipts.read(key)).toBeNull();
+  expect(
+    screen.queryByRole('article', {
+      name: 'You message awaiting confirmation',
+    }),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Check message' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  await act(async () => {
+    fireEvent.click(within(alert).getByRole('button', { name: 'Send now' }));
+  });
+  expect(mock.intent).toHaveBeenLastCalledWith(
+    'conversation-a',
+    'conversation.queue.dispatch',
+    { submission_id: 'submission-waiting', expected_queue_revision: '2' },
+    '7',
+  );
+});
+
+it('drops a claim whose check reads a refusal instead of looping on Check (B107)', async () => {
+  const key = idleConversation(),
+    saved = { commandId: crypto.randomUUID(), steeringId: crypto.randomUUID() };
+  commandReceipts.reserve(key, saved);
+  mock.receipt.mockResolvedValue({
+    command_id: saved.commandId,
+    conversation_id: 'conversation-a',
+    status: 'rejected',
+    code: 'generation_active',
+  });
+  await act(async () => {
+    conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Check message' }));
+  });
+  expect(mock.receipt).toHaveBeenCalledWith(saved.commandId);
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(commandReceipts.read(key)).toBeNull();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Row-Bot is still answering. Wait for it to finish, or stop it first.',
+  );
+  expect(screen.queryByRole('button', { name: 'Check message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop checking' })).toBeNull();
+});
+
 function interruptedConversation() {
   idleConversation();
   mock.state.projection = {
@@ -1231,9 +1350,7 @@ it('reserves Resume before dispatch and recovers a lost accepted response after 
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check resume receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check Resume' }));
   });
   expect(mock.receipt).toHaveBeenCalledWith(saved.commandId);
   expect(mock.intent).toHaveBeenCalledTimes(1);
@@ -1274,15 +1391,11 @@ it('retains a missing Resume receipt until explicit review without replaying it'
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check resume receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check Resume' }));
   });
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
   });
@@ -1329,7 +1442,7 @@ it('coalesces Resume clicks and fences its late success after A to B to C naviga
   expect(mock.showLatest).not.toHaveBeenCalled();
   expect(mock.navigate).not.toHaveBeenCalled();
   expect(
-    screen.queryByRole('button', { name: 'Check resume receipt' }),
+    screen.queryByRole('button', { name: 'Check Resume' }),
   ).not.toBeInTheDocument();
   expect(mock.drafts.get('conversation-c')?.text).toBe('C draft');
 });
@@ -1349,9 +1462,7 @@ it('keeps pending Resume on a foreign receipt and blocks Queue while unresolved'
   });
   expect(screen.getByRole('button', { name: 'Queue message' })).toBeDisabled();
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check resume receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check Resume' }));
   });
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
@@ -1409,9 +1520,7 @@ it('persists ordinary submit identity before dispatch and recovers a lost respon
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check request receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check message' }));
   });
   expect(mock.receipt).toHaveBeenCalledWith(saved.commandId);
   expect(mock.intent).toHaveBeenCalledTimes(1);
@@ -1525,7 +1634,7 @@ it('fences a late submit result and protects B draft after switching away from A
   expect(mock.showLatest).not.toHaveBeenCalled();
   expect(mock.drafts.get('conversation-b')?.text).toBe('B draft');
   expect(
-    screen.queryByRole('button', { name: 'Check request receipt' }),
+    screen.queryByRole('button', { name: 'Check message' }),
   ).not.toBeInTheDocument();
 });
 
@@ -1538,16 +1647,12 @@ it('keeps an absent ordinary submit receipt until explicit review without resend
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check request receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check message' }));
   });
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
   });
@@ -1694,7 +1799,7 @@ it('retains the exact pending identity when a queue receipt belongs to another c
   });
   await act(async () => {
     fireEvent.click(
-      screen.getByRole('button', { name: 'Check queued message' }),
+      screen.getByRole('button', { name: 'Check waiting message' }),
     );
   });
   expect(commandReceipts.read(key)).toEqual(saved);
@@ -1738,7 +1843,7 @@ it('checks the exact lost queue receipt after remount and run completion, preser
   });
   await act(async () => {
     fireEvent.click(
-      screen.getByRole('button', { name: 'Check queued message' }),
+      screen.getByRole('button', { name: 'Check waiting message' }),
     );
   });
   expect(mock.intent).toHaveBeenCalledTimes(1);
@@ -1790,7 +1895,7 @@ it('fences A queue completion after switching through B to C and preserves edits
   );
   expect(mock.drafts.get('conversation-c')?.text).toBe('C draft');
   expect(
-    screen.queryByRole('button', { name: 'Check queued message' }),
+    screen.queryByRole('button', { name: 'Check waiting message' }),
   ).not.toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
@@ -1805,16 +1910,14 @@ it('retains an absent queue receipt until an explicit review, without creating a
   });
   await act(async () => {
     fireEvent.click(
-      screen.getByRole('button', { name: 'Check queued message' }),
+      screen.getByRole('button', { name: 'Check waiting message' }),
     );
   });
   expect(mock.intent).not.toHaveBeenCalled();
   expect(commandReceipts.read(key)).toEqual(saved);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
   expect(mock.open.mock.calls.at(-1)?.[0].description).toContain(
-    'sending again could create a duplicate',
+    'sending it again could make it appear twice',
   );
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();

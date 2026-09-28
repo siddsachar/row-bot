@@ -2133,41 +2133,102 @@
   font-size: var(--text-13);
 }
 
-/* Steering queue: shown once something is queued. */
-.composer-queue {
-  justify-self: start;
-  max-width: 100%;
-}
-.composer-queue > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
+/* Waiting messages: shown above the composer only while some wait. */
+.waiting-messages {
+  display: grid;
+  gap: 4px;
+  padding: 8px 8px 6px 12px;
+  border-radius: var(--radius-panel);
   background: var(--surface-raised);
+  font-size: var(--text-13);
+  line-height: var(--leading-13, 20px);
+}
+.waiting-messages-title {
+  margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-12);
-  list-style: none;
-  cursor: pointer;
 }
-.composer-queue > summary::-webkit-details-marker {
-  display: none;
+.waiting-messages-title strong {
+  color: var(--text-primary);
+  font-weight: 600;
 }
-.composer-queue > summary svg {
-  width: 14px;
-  height: 14px;
-}
-.composer-queue-count {
-  color: var(--text-muted);
-}
-.composer-queue[open] {
-  justify-self: stretch;
-}
-.composer-queue[open] > :not(summary) {
-  max-height: 320px;
-  margin-top: 6px;
+.waiting-message-list {
+  display: grid;
+  gap: 2px;
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
   overflow: auto;
+  list-style: none;
+}
+.waiting-message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 32px;
+}
+.waiting-message-text {
+  display: -webkit-box;
+  flex: 1 1 16rem;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.waiting-message-note {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.waiting-message-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+.waiting-message-actions .button {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-12);
+}
+.waiting-message-edit {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 6px;
+  padding-block: 2px 4px;
+}
+.waiting-message-edit textarea {
+  min-height: 56px;
+  resize: vertical;
+}
+.waiting-message-edit .waiting-message-actions {
+  margin-inline-start: 0;
+}
+@media (pointer: coarse) {
+  .waiting-message-actions .button {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+/* The error line's one fix sits before its dismiss control. */
+.chat-error .error-fix.button {
+  flex: none;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-12);
+}
+@media (pointer: coarse) {
+  .chat-error .error-fix.button {
+    min-height: 44px;
+    height: 44px;
+  }
 }
 
 /* Model picker. */

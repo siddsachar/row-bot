@@ -593,6 +593,9 @@ export const getDelegatedRun = (base: string, proof: SessionProof, conversation:
   jsonRequest(base, `/conversations/${id(conversation)}/delegated/${id(run)}`, 'DelegatedRun', proof, 'GET', undefined, undefined, signal);
 export const getQueue = (base: string, proof: SessionProof, conversation: string, generation_id?: string, cursor?: string, signal?: AbortSignal): Promise<ClientQueueView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/queue` + query({generation_id,cursor}), 'ClientQueueView', proof, 'GET', undefined, undefined, signal);
+/** Messages that have not been sent or discarded yet, oldest first, in one page. */
+export const getWaitingMessages = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ClientQueueView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/queue` + query({waiting:'true',limit:256}), 'ClientQueueView', proof, 'GET', undefined, undefined, signal);
 export const getSteering = (base: string, proof: SessionProof, conversation: string, generation_id?: string, cursor?: string, signal?: AbortSignal): Promise<ParentSteeringView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/steering` + query({generation_id,cursor}), 'ParentSteeringView', proof, 'GET', undefined, undefined, signal);
 export const saveDraft = (base: string, proof: SessionProof, conversation: string, body: DraftSave, signal?: AbortSignal): Promise<DraftView> =>

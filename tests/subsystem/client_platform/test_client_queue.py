@@ -141,6 +141,75 @@ def test_stop_pauses_unconsumed_and_explicit_dispatch_uses_frozen_controls(platf
     assert settle(platform).items[0].state == "consumed"
 
 
+def test_stop_with_a_waiting_message_stays_sendable_and_never_wedges(platform):
+    """B107: after Stop, the waiting message is listed, refuses nothing silently
+    and can be sent or discarded; a refused send ran nothing."""
+    from row_bot.application.client_platform import ClientPlatformError
+    barrier, sent_barrier = StreamBarrier(), StreamBarrier()
+    fake = ScriptedAgentStream((barrier,), completed("sent-now", sent_barrier), completed("after-discard"))
+    receipt = submit(platform, fake, "wedge-initial")
+    assert barrier.entered.wait(10)
+    queued = enqueue(platform, "wedge-waiting", "Waiting follow-up")
+    execute(platform, "conversation.stop", "wedge-stop", {})
+    barrier.release.set()
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+
+    from row_bot.application.client_platform import _COMMAND_LOCK
+    with _COMMAND_LOCK:
+        waiting = client_queue.read_queue(platform, "conversation-a", waiting=True, limit=256)
+    assert [(item.text, item.state, item.editable) for item in waiting.items] == [
+        ("Waiting follow-up", "paused", True)]
+    assert not waiting.has_more
+
+    # "Send again" for the stopped message is refused before anything runs:
+    # the command is recorded as rejected, so a check reads the refusal back.
+    again = command("conversation.submit", "wedge-send-again", {
+        "submission_id": fixture_id("wedge-send-again"), "text": "Identical synthetic input",
+        "attachment_refs": [], "model_selection": {"provider_id": "fixture", "model_ref": "fixture/model"}})
+    with pytest.raises(ClientPlatformError, match="queue_pending"):
+        platform.execute(owner_id="fixture-owner", idempotency_key=fixture_id("wedge-send-again:key"),
+                         target="conversation-a", command=again)
+    assert platform.receipt("fixture-owner", again["command_id"])["status"] == "rejected"
+    assert len(fake.calls) == 1
+
+    # Send now: the waiting message runs with its own text.
+    result = execute(platform, "conversation.queue.dispatch", "wedge-send-now", {
+        "submission_id": queued["submission_id"], "expected_queue_revision": waiting.items[0].revision})
+    try:
+        assert sent_barrier.entered.wait(10)
+        assert fake.calls[-1]["submission_id"] == queued["submission_id"]
+    finally:
+        sent_barrier.release.set()
+        assert platform.registry.get(result["execution_id"]).producer_done.wait(10)
+    with _COMMAND_LOCK:
+        assert client_queue.read_queue(platform, "conversation-a", waiting=True).items == ()
+        # The full history still pages through consumed inputs.
+        assert [item.state for item in client_queue.read_queue(platform, "conversation-a").items] == ["consumed"]
+
+
+def test_discarding_the_waiting_message_unblocks_new_messages(platform):
+    from row_bot.application.client_platform import ClientPlatformError
+    barrier = StreamBarrier()
+    fake = ScriptedAgentStream((barrier,), completed("fresh"))
+    receipt = submit(platform, fake, "discard-initial")
+    assert barrier.entered.wait(10)
+    queued = enqueue(platform, "discard-waiting", "Waiting follow-up")
+    execute(platform, "conversation.stop", "discard-stop", {})
+    barrier.release.set()
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+    with pytest.raises(ClientPlatformError, match="queue_pending"):
+        submit(platform, fake, "discard-blocked")
+    waiting = settle(platform).items[0]
+    execute(platform, "conversation.queue.remove", "discard-remove", {
+        "submission_id": queued["submission_id"], "expected_queue_revision": waiting.revision})
+    from row_bot.application.client_platform import _COMMAND_LOCK
+    with _COMMAND_LOCK:
+        assert client_queue.read_queue(platform, "conversation-a", waiting=True).items == ()
+    fresh = submit(platform, fake, "discard-fresh")
+    assert platform.registry.get(fresh["execution_id"]).producer_done.wait(10)
+    assert [call["submission_id"] for call in fake.calls] == [fixture_id("discard-initial"), fixture_id("discard-fresh")]
+
+
 def test_done_without_effect_proof_never_consumes(platform):
     initial, queued_barrier = StreamBarrier(), StreamBarrier()
     fake = ScriptedAgentStream(completed("first", initial), (queued_barrier, ("done", "No provider output")))

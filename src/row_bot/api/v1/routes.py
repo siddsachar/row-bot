@@ -2764,6 +2764,7 @@ def create_router(
         generation_id: str = "",
         cursor: str | None = None,
         limit: int = 100,
+        waiting: bool = False,
     ) -> JSONResponse:
         await session(request)
         if (
@@ -2781,6 +2782,7 @@ def create_router(
             generation_id=generation_id,
             cursor=cursor,
             limit=limit,
+            waiting=waiting,
         )
         await call(service._metadata, conversation_id)
         return await respond(request, dto.ClientQueueView, asdict(result))

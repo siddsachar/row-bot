@@ -1899,6 +1899,8 @@ export class ClientController {
     this.query(() =>
       this.transport.queue?.(conversation, generation, cursor, signal),
     );
+  waitingMessages = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.waitingMessages?.(conversation, signal));
   workspaceFor = (conversation: string, signal?: AbortSignal) =>
     this.query(() => this.transport.workspace?.(conversation, signal));
   steering = (

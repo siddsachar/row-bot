@@ -1513,6 +1513,14 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  waitingMessages(conversation: string, signal?: AbortSignal) {
+    return wire.getWaitingMessages(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
   steering(
     conversation: string,
     generation?: string,

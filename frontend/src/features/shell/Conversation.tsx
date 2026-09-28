@@ -11,7 +11,9 @@ import {
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type {
+  ClientError,
   ConversationComposer,
+  ErrorAction,
   PanelDescriptor,
   ResourceView,
   SlashCommandSpec,
@@ -19,7 +21,7 @@ import type {
   TranscriptTraceGroup,
   WriteTarget,
 } from '../../api/types';
-import { clientError } from '../../api/errors';
+import { clientError, rejectedBeforeRunning } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
@@ -46,10 +48,14 @@ import {
   X,
 } from 'lucide-react';
 import SearchConversations from './SearchConversations';
-import SteeringQueue from './SteeringQueue';
 import ConversationActions from '../settings/ConversationActions';
 import DraftConflict from './DraftConflict';
-import QueueControls from './QueueControls';
+import WaitingMessages, {
+  sendable,
+  useWaitingMessages,
+  type WaitingAction,
+  type WaitingMessage,
+} from './WaitingMessages';
 import ContextUsage from './ContextUsage';
 import DelegatedActivity, { recentReads } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
@@ -74,6 +80,7 @@ import ApprovalCard from './ApprovalCard';
 import ChatEmpty from './ChatEmpty';
 import { registerPromptSender } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
+import ErrorFix from './ErrorFix';
 import { TranscriptMessage } from './TranscriptMessage';
 import { publicBlockText } from './TranscriptBlocks';
 import { buildTranscript, liveMedia } from './transcript-model';
@@ -249,7 +256,23 @@ export default function Conversation({
     return () => abort.abort();
   }, [controller, settledIdentity]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setErrorState] = useState<{
+    message: string;
+    action?: ErrorAction;
+    retry?: () => void;
+  } | null>(null);
+  /** A sentence, or a catalogued error with its one fix; Retry reruns `retry`. */
+  const setError = useCallback(
+    (value: string | ClientError | null, retry?: () => void) =>
+      setErrorState(
+        !value
+          ? null
+          : typeof value === 'string'
+            ? { message: value }
+            : { message: value.message, action: value.action, retry },
+      ),
+    [],
+  );
   const [pending, setPending] = useState<{
     conversation: string;
     id: string;
@@ -316,7 +339,7 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [submitKey]);
+  }, [setError, submitKey]);
   const pendingSubmit = unknown?.key === submitKey ? unknown.claim : null;
   const resumeKey =
     state.handshake && id
@@ -335,7 +358,7 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [resumeKey]);
+  }, [resumeKey, setError]);
   const pendingResume =
     resumeClaim?.key === resumeKey ? resumeClaim.claim : null;
   const skillKey =
@@ -355,7 +378,7 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [skillKey]);
+  }, [setError, skillKey]);
   const pendingSkill = skillClaim?.key === skillKey ? skillClaim.claim : null;
   useEffect(() => {
     setSteeringClaim(null);
@@ -371,10 +394,9 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [steeringKey]);
+  }, [setError, steeringKey]);
   const pendingSteering =
     steeringClaim?.key === steeringKey ? steeringClaim.claim : null;
-  const [steeringOpen, setSteeringOpen] = useState(false);
   const chatContentRef = useRef<HTMLDivElement>(null);
   const chatWorkspaceRef = useRef<HTMLDivElement>(null);
   const [narrowChat, setNarrowChat] = useState(false);
@@ -525,19 +547,19 @@ export default function Conversation({
     state.workspace?.actions.find((action) => action.action === 'send')?.ready,
   );
   const composerStateReason = pendingSteering
-    ? 'Checking the queued message receipt before another message can be sent.'
+    ? 'Checking whether your waiting message went through before another message can be sent.'
     : pendingSubmit
-      ? 'Checking the message receipt before another message can be sent.'
+      ? 'Checking whether your last message went through before another message can be sent.'
       : pendingResume
-        ? 'Checking the resume receipt before another action can start.'
+        ? 'Checking whether Resume went through before another action can start.'
         : pendingSkill
-          ? 'Checking the Smart Skills receipt before another change can start.'
+          ? 'Checking whether the skill change went through before another change can start.'
           : talkBusy
             ? 'Voice controls are finishing before another message can be sent.'
             : busy
               ? 'Finishing the current conversation action.'
               : running
-                ? 'A response is in progress. Add text to queue guidance, or stop the run.'
+                ? 'Row-Bot is answering. Anything you send now waits until it finishes, or stop it.'
                 : state.status !== 'ready'
                   ? 'Reconnect to send. Your draft remains on this device.'
                   : !sendActionReady
@@ -674,7 +696,14 @@ export default function Conversation({
       clearTimeout(timer);
       abort.abort();
     };
-  }, [controller, draft.text, id, state.status, state.workspace?.composer]);
+  }, [
+    controller,
+    draft.text,
+    id,
+    setError,
+    state.status,
+    state.workspace?.composer,
+  ]);
 
   function replaceSlashToken(
     token: { start: number; end: number },
@@ -957,9 +986,10 @@ export default function Conversation({
     setBusy(true);
     setError('');
     let claim: PendingCommand | null = null;
+    let checking = false;
     try {
       claim = commandReceipts.read(scope);
-      const checking = Boolean(claim);
+      checking = Boolean(claim);
       if (!claim) {
         if (!text || !capturedDraft || !controls?.model_selection) return;
         if (resumeKey && commandReceipts.read(resumeKey)) {
@@ -968,7 +998,7 @@ export default function Conversation({
             claim: commandReceipts.read(resumeKey)!,
           });
           setError(
-            'Check the pending Resume receipt before sending another message.',
+            'Row-Bot is still checking whether Resume went through. Check it before sending another message.',
           );
           return;
         }
@@ -976,7 +1006,7 @@ export default function Conversation({
         if (steering) {
           setSteeringClaim({ key: steeringKey, claim: steering });
           setError(
-            'Check the pending queued message receipt before sending another message.',
+            'Row-Bot is still checking your waiting message. Check it before sending another message.',
           );
           return;
         }
@@ -1033,21 +1063,32 @@ export default function Conversation({
           controller.showLatest();
         }
       } else if (current()) {
-        if (receipt.status === 'rejected')
-          setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          'The message outcome is unresolved. Check its receipt before sending again.',
-        );
+        const refused = clientError({ code: receipt.code });
+        if (receipt.status === 'rejected' && rejectedBeforeRunning(refused)) {
+          dropClaim(scope, claim.commandId);
+          setError(refused);
+        } else {
+          if (receipt.status === 'rejected')
+            setMissingReceipt({ key: scope, commandId: claim.commandId });
+          setError(
+            "Row-Bot couldn't confirm whether your message was sent. Check it before sending again.",
+          );
+        }
       }
     } catch (cause) {
       if (current()) {
-        if (claim && clientError(cause).code === 'not_found')
+        const safe = clientError(cause);
+        if (cause instanceof ReceiptStorageError) setError(cause.message);
+        else if (claim && checking && safe.code === 'not_found') {
           setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          cause instanceof ReceiptStorageError
-            ? cause.message
-            : clientError(cause).message,
-        );
+          setError(safe);
+        } else if (claim && rejectedBeforeRunning(safe)) {
+          // The server refused before anything ran (a message waiting, a
+          // run in progress, no model...): nothing can be duplicated, so
+          // the request is dropped instead of blocking the composer (B107).
+          dropClaim(scope, claim.commandId);
+          setError(safe);
+        } else setError(safe, claim ? () => void recover() : undefined);
       }
     } finally {
       receiptOperation.current = false;
@@ -1089,7 +1130,7 @@ export default function Conversation({
           claim: commandReceipts.read(steeringKey)!,
         });
         setError(
-          'Check the pending queued message receipt before sending another message.',
+          'Row-Bot is still checking your waiting message. Check it before sending another message.',
         );
         return;
       }
@@ -1214,9 +1255,10 @@ export default function Conversation({
     receiptOperation.current = true;
     setBusy(true);
     let claim: PendingCommand | null = null;
+    let checking = false;
     try {
       claim = commandReceipts.read(scope);
-      const checking = Boolean(claim);
+      checking = Boolean(claim);
       if (!claim) {
         if (checkOnly) return;
         const submission = submitKey ? commandReceipts.read(submitKey) : null;
@@ -1224,7 +1266,9 @@ export default function Conversation({
         if (submission || steering) {
           if (submission) setUnknown({ key: submitKey, claim: submission });
           if (steering) setSteeringClaim({ key: steeringKey, claim: steering });
-          setError('Check the pending message receipt before resuming.');
+          setError(
+            'Row-Bot is still checking whether your last message went through. Check it before resuming.',
+          );
           return;
         }
         claim = { commandId: crypto.randomUUID(), steeringId: null };
@@ -1252,24 +1296,35 @@ export default function Conversation({
           setResumeClaim(null);
           setMissingReceipt(null);
           setError('');
-          overlay.notify('Resume receipt confirmed.');
+          if (checking) overlay.notify('Resume went through.');
         }
       } else if (current()) {
-        if (result.status === 'rejected')
-          setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          'The Resume outcome is unresolved. Check its receipt before resuming again.',
-        );
+        const refused = clientError({ code: result.code });
+        if (result.status === 'rejected' && rejectedBeforeRunning(refused)) {
+          dropClaim(scope, claim.commandId);
+          setError(refused);
+        } else {
+          if (result.status === 'rejected')
+            setMissingReceipt({ key: scope, commandId: claim.commandId });
+          setError(
+            "Row-Bot couldn't confirm whether Resume went through. Check it before resuming again.",
+          );
+        }
       }
     } catch (cause) {
       if (current()) {
-        if (claim && clientError(cause).code === 'not_found')
+        const safe = clientError(cause);
+        if (cause instanceof ReceiptStorageError) setError(cause.message);
+        else if (claim && checking && safe.code === 'not_found') {
           setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          cause instanceof ReceiptStorageError
-            ? cause.message
-            : 'The Resume outcome is unresolved. Check its receipt before resuming again.',
-        );
+          setError(safe);
+        } else if (claim && rejectedBeforeRunning(safe)) {
+          dropClaim(scope, claim.commandId);
+          setError(safe);
+        } else
+          setError(
+            "Row-Bot couldn't confirm whether Resume went through. Check it before resuming again.",
+          );
       }
     } finally {
       receiptOperation.current = false;
@@ -1289,9 +1344,10 @@ export default function Conversation({
       controller.getSelectionVersion() === selection &&
       controller.getSnapshot().handshake?.instance_id === instance;
     let claim: PendingCommand | null = null;
+    let checking = false;
     try {
       claim = commandReceipts.read(scope);
-      const checking = Boolean(claim);
+      checking = Boolean(claim);
       if (!claim) {
         if (resumeKey && commandReceipts.read(resumeKey)) {
           setResumeClaim({
@@ -1299,7 +1355,7 @@ export default function Conversation({
             claim: commandReceipts.read(resumeKey)!,
           });
           setError(
-            'Check the pending Resume receipt before queuing another message.',
+            'Row-Bot is still checking whether Resume went through. Check it before adding another message.',
           );
           return;
         }
@@ -1307,7 +1363,7 @@ export default function Conversation({
         if (submission) {
           setUnknown({ key: submitKey, claim: submission });
           setError(
-            'Check the pending message receipt before queuing another message.',
+            'Row-Bot is still checking whether your last message went through. Check it before adding another message.',
           );
           return;
         }
@@ -1315,7 +1371,7 @@ export default function Conversation({
         if (!captured.text.trim() || captured.text.length > 16000) {
           if (current())
             setError(
-              'Queued messages must contain between 1 and 16,000 characters.',
+              'A waiting message needs between 1 and 16,000 characters.',
             );
           return;
         }
@@ -1366,31 +1422,63 @@ export default function Conversation({
           setError('');
           overlay.notify(
             checking
-              ? 'Queued message receipt confirmed. Your current draft is preserved unless it is the original unchanged draft.'
-              : 'Message queued.',
+              ? 'Your waiting message went through. Your current draft is kept.'
+              : 'Message waiting: it sends when Row-Bot finishes.',
           );
+          waiting.reload();
         }
       } else if (current()) {
-        if (result.status === 'rejected')
-          setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          'The queued message outcome is unresolved. Check its receipt before sending it again.',
-        );
+        const refused = clientError({ code: result.code });
+        if (result.status === 'rejected' && rejectedBeforeRunning(refused)) {
+          dropClaim(scope, claim.commandId);
+          setError(refused);
+        } else {
+          if (result.status === 'rejected')
+            setMissingReceipt({ key: scope, commandId: claim.commandId });
+          setError(
+            "Row-Bot couldn't confirm your message is waiting. Check it before sending it again.",
+          );
+        }
       }
     } catch (cause) {
       if (current()) {
-        if (claim && clientError(cause).code === 'not_found')
+        const safe = clientError(cause);
+        if (cause instanceof ReceiptStorageError) setError(cause.message);
+        else if (claim && checking && safe.code === 'not_found') {
           setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          cause instanceof ReceiptStorageError
-            ? cause.message
-            : 'The queued message outcome is unresolved. Check its receipt before sending it again.',
-        );
+          setError(safe);
+        } else if (claim && rejectedBeforeRunning(safe)) {
+          dropClaim(scope, claim.commandId);
+          setError(safe);
+        } else
+          setError(
+            "Row-Bot couldn't confirm your message is waiting. Check it before sending it again.",
+          );
       }
     } finally {
       receiptOperation.current = false;
       if (receiptAlive.current) setBusy(false);
     }
+  }
+  /** The server refused before anything ran: forget the request (B107). */
+  function dropClaim(scope: string, commandId: string) {
+    try {
+      commandReceipts.clear(scope, commandId);
+    } catch (cause) {
+      setError(
+        cause instanceof ReceiptStorageError
+          ? cause.message
+          : clientError(cause).message,
+      );
+      return;
+    }
+    if (scope === submitKey) {
+      setUnknown(null);
+      setPending(null);
+    }
+    if (scope === steeringKey) setSteeringClaim(null);
+    if (scope === resumeKey) setResumeClaim(null);
+    setMissingReceipt(null);
   }
   function reviewMissingReceipt() {
     if (!missingReceipt) return;
@@ -1399,10 +1487,10 @@ export default function Conversation({
       instance = state.handshake?.instance_id;
     overlay.open({
       kind: 'alert',
-      title: 'Clear the pending receipt?',
+      title: 'Stop checking this message?',
       description:
-        'The receipt was rejected or could not be found. An unavailable action may still finish. Clear this record only after reviewing the conversation; sending again could create a duplicate. This does not resend an action.',
-      confirmLabel: 'Clear pending receipt',
+        "Row-Bot can't find what happened to it, so it may still arrive. Look at the conversation first: sending it again could make it appear twice. Nothing is sent now.",
+      confirmLabel: 'Stop checking',
       onConfirm: () => {
         if (
           !receiptAlive.current ||
@@ -1811,21 +1899,63 @@ export default function Conversation({
     },
     [navigate],
   );
-  const queueSeen =
-    Boolean(pendingSteering) ||
-    steeringOpen ||
-    state.activity.some((record) => QUEUE_EVENTS.has(record.event.type));
-  const queueEvent = [...state.activity]
-    .reverse()
-    .find(
-      (record) =>
-        record.event.type === 'queue.updated' ||
-        record.event.type === 'queue.changed',
-    )?.event;
-  const queueCount =
-    queueEvent?.type === 'queue.updated' || queueEvent?.type === 'queue.changed'
-      ? queueEvent.payload.submission_ids.length
-      : 0;
+  // Waiting messages come from the server's list, re-read when a queue event
+  // arrives, a run starts or ends, or the server changes (B107, B108).
+  const lastQueueEvent =
+    [...state.activity]
+      .reverse()
+      .find((record) => QUEUE_EVENTS.has(record.event.type))?.event.event_id ??
+    '';
+  const waiting = useWaitingMessages({
+    conversationId: id ?? '',
+    refreshKey: [
+      lastQueueEvent,
+      generation?.generation_id ?? '',
+      generation?.status ?? '',
+      String(Boolean(generation?.quiesced)),
+      state.projection?.server_epoch ?? '',
+      pendingSteering?.commandId ?? '',
+    ].join(':'),
+    steeringGeneration:
+      turnInFlight &&
+      state.activity.some((record) => record.event.type.startsWith('steering.'))
+        ? (generation?.generation_id ?? '')
+        : '',
+    readWaiting: (conversation, signal) =>
+      controller.waitingMessages(conversation, signal),
+    readSteering: (conversation, run, signal) =>
+      controller.steering(conversation, run, undefined, signal),
+  });
+  const waitingAction = useCallback(
+    async (action: WaitingAction, item: WaitingMessage, text?: string) => {
+      if (!id) return;
+      setError('');
+      try {
+        const current = await controller.workspaceFor(id);
+        await controller.intent(
+          id,
+          `conversation.queue.${action}`,
+          {
+            submission_id: item.id,
+            expected_queue_revision: item.revision,
+            ...(action === 'edit' ? { text } : {}),
+          },
+          current.revision,
+        );
+      } catch (cause) {
+        setError(clientError(cause), () => waiting.reload());
+        throw cause;
+      } finally {
+        waiting.reload();
+      }
+    },
+    [controller, id, setError, waiting],
+  );
+  const nextWaiting = sendable(waiting.items, turnInFlight);
+  const sendWaitingNow = () => {
+    if (nextWaiting)
+      void waitingAction('dispatch', nextWaiting).catch(() => undefined);
+  };
   // A stopped run whose transcript ends on the person's own message.
   const unanswered =
     !turnInFlight &&
@@ -1834,13 +1964,6 @@ export default function Conversation({
     items.at(-1)?.row.role === 'user' &&
     Boolean(lastUserText) &&
     pending?.conversation !== id;
-  // The queue stays out of the way once it has drained and the run is over.
-  const queueVisible =
-    queueSeen &&
-    (queueCount > 0 ||
-      Boolean(pendingSteering) ||
-      steeringOpen ||
-      turnInFlight);
   const listedTitle = state.conversations.find((item) => item.id === id)?.title;
   const title =
     listedTitle || state.conversation?.title || 'Start a conversation';
@@ -2014,7 +2137,7 @@ export default function Conversation({
       earlierAnchor.current = null;
       setError(clientError(cause).message);
     });
-  }, [controller]);
+  }, [controller, setError]);
   useLayoutEffect(() => {
     const anchor = earlierAnchor.current;
     const transcript = transcriptRef.current;
@@ -2173,7 +2296,7 @@ export default function Conversation({
               missingReceipt.key === submitKey ||
               missingReceipt.key === resumeKey) && (
               <Button disabled={busy} onClick={reviewMissingReceipt}>
-                Check pending receipt
+                Stop checking
               </Button>
             )}
         </ConversationHeader>
@@ -2401,17 +2524,23 @@ export default function Conversation({
                 <CircleStop className="turn-notice-icon" aria-hidden />
                 <div className="turn-notice-text">
                   <strong>Stopped before a reply</strong>
-                  <span>Your last message wasn't answered.</span>
+                  <span>
+                    {nextWaiting
+                      ? "Your last message wasn't answered. The message waiting below goes next."
+                      : "Your last message wasn't answered."}
+                  </span>
                 </div>
-                <div className="turn-notice-actions">
-                  <Button
-                    variant="secondary"
-                    disabled={sendBlocked || !sendActionReady}
-                    onClick={retryLast}
-                  >
-                    Send again
-                  </Button>
-                </div>
+                {!waiting.items.length && (
+                  <div className="turn-notice-actions">
+                    <Button
+                      variant="secondary"
+                      disabled={sendBlocked || !sendActionReady}
+                      onClick={retryLast}
+                    >
+                      Send again
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
             {(interrupted || failed) && (
@@ -2522,7 +2651,17 @@ export default function Conversation({
         {error && (
           <div role="alert" className="chat-error">
             <TriangleAlert aria-hidden />
-            <span>{error}</span>
+            <span>{error.message}</span>
+            {error.action && (
+              <ErrorFix
+                action={error.action}
+                retry={error.retry}
+                sendNow={nextWaiting ? sendWaitingNow : undefined}
+                chooseModel={
+                  controls ? () => setModelPickerOpen(true) : undefined
+                }
+              />
+            )}
             <button
               type="button"
               className="chat-error-dismiss"
@@ -2545,65 +2684,12 @@ export default function Conversation({
             send();
           }}
         >
-          {queueVisible && (
-            <details
-              className="activity steering-activity composer-queue"
-              onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
-            >
-              <summary>
-                <ListPlus aria-hidden />
-                <span>Steering queue</span>
-                {queueCount > 0 && (
-                  <span className="composer-queue-count">
-                    {queueCount} queued
-                  </span>
-                )}
-              </summary>
-              {steeringOpen && (
-                <QueueControls
-                  conversationId={id}
-                  generationId={generation?.generation_id ?? ''}
-                  refreshKey={
-                    state.activity
-                      .filter((record) => record.event.type === 'queue.changed')
-                      .at(-1)?.event.event_id ?? ''
-                  }
-                  loadPage={(run, cursor, signal) =>
-                    controller.queue(id, run, cursor ?? undefined, signal)
-                  }
-                  onAction={async (type, submission, revision, text) => {
-                    const current = await controller.workspaceFor(id);
-                    await controller.intent(
-                      id,
-                      `conversation.queue.${type}`,
-                      {
-                        submission_id: submission,
-                        expected_queue_revision: revision,
-                        ...(type === 'edit' ? { text } : {}),
-                      },
-                      current.revision,
-                    );
-                  }}
-                />
-              )}
-              {steeringOpen && (
-                <SteeringQueue
-                  conversationId={id}
-                  generationId={generation?.generation_id ?? ''}
-                  refreshKey={
-                    state.activity
-                      .filter((record) =>
-                        record.event.type.startsWith('steering.'),
-                      )
-                      .at(-1)?.event.event_id ?? ''
-                  }
-                  loadPage={(run, cursor, signal) =>
-                    controller.steering(id, run, cursor ?? undefined, signal)
-                  }
-                />
-              )}
-            </details>
-          )}
+          <WaitingMessages
+            items={waiting.items}
+            running={turnInFlight}
+            busy={busy || state.status !== 'ready'}
+            onAction={waitingAction}
+          />
           <div className="composer-field" ref={composerFieldRef}>
             {(!!resources.length ||
               !!draft.attachments.length ||
@@ -2764,7 +2850,7 @@ export default function Conversation({
                         ...(pendingSubmit
                           ? [
                               {
-                                label: 'Check request receipt',
+                                label: 'Check message',
                                 disabled: busy,
                                 onSelect: () => void recover(),
                               },
@@ -2773,7 +2859,7 @@ export default function Conversation({
                         ...(pendingResume
                           ? [
                               {
-                                label: 'Check resume receipt',
+                                label: 'Check Resume',
                                 disabled: busy,
                                 onSelect: () => void resume(true),
                               },
@@ -2782,7 +2868,7 @@ export default function Conversation({
                         ...(pendingSteering
                           ? [
                               {
-                                label: 'Check queued message',
+                                label: 'Check waiting message',
                                 disabled: busy,
                                 onSelect: () => void queueMessage(),
                               },
@@ -2795,17 +2881,17 @@ export default function Conversation({
                   )}
                 {!compactToolbar && pendingSubmit && (
                   <Button disabled={busy} onClick={() => void recover()}>
-                    Check request receipt
+                    Check message
                   </Button>
                 )}
                 {!compactToolbar && pendingResume && (
                   <Button disabled={busy} onClick={() => void resume(true)}>
-                    Check resume receipt
+                    Check Resume
                   </Button>
                 )}
                 {!compactToolbar && pendingSteering && (
                   <Button disabled={busy} onClick={() => void queueMessage()}>
-                    Check queued message
+                    Check waiting message
                   </Button>
                 )}
                 {!singleLine && (

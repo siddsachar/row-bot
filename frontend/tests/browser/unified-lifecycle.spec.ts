@@ -145,41 +145,39 @@ test('ordinary queued messages support edit and removal before one accepted disp
         `ordinary-${++queuedSamples}`,
       );
     }
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Steering queue/ })
-      .click();
+    // One list, read from the server: no paging, no jargon (U21).
     const queue = page.getByRole('region', {
-      name: 'Queued messages',
+      name: 'Waiting messages',
       exact: true,
     });
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(2);
+    await expect(queue).toContainText(
+      '2 messages waiting · sends when Row-Bot finishes',
+    );
+    await expect(queue.getByRole('listitem')).toHaveCount(2);
+    // While Row-Bot answers, waiting messages go by themselves.
+    await expect(
+      queue.getByRole('button', { name: 'Send now', exact: true }),
+    ).toHaveCount(0);
     const retained = queue
       .getByRole('listitem')
       .filter({ hasText: 'Retained queue input' });
+    await retained.getByRole('button', { name: 'Edit', exact: true }).click();
     await retained
-      .getByRole('button', { name: 'Edit message', exact: true })
-      .click();
-    await retained
-      .getByRole('textbox', { name: 'Edit queued message', exact: true })
+      .getByRole('textbox', { name: 'Edit waiting message', exact: true })
       .fill('Edited queue input');
-    await retained
-      .getByRole('button', { name: 'Save queued edit', exact: true })
-      .click();
+    await retained.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(
       queue.getByText('Edited queue input', { exact: true }),
     ).toBeVisible();
     const removed = queue
       .getByRole('listitem')
       .filter({ hasText: 'Remove this queued input' });
-    await removed
-      .getByRole('button', { name: 'Remove message', exact: true })
-      .click();
+    await removed.getByRole('button', { name: 'Discard', exact: true }).click();
     await page
-      .getByRole('button', { name: 'Remove queued message', exact: true })
+      .getByRole('button', { name: 'Discard message', exact: true })
       .click();
-    await expect(queue.getByText('Cancelled', { exact: true })).toHaveCount(1);
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(1);
+    await expect(queue.getByRole('listitem')).toHaveCount(1);
+    await expect(queue).toContainText('1 message waiting');
     await composer(page).fill('Unsent draft during queued dispatch');
     await releaseProducer(page, first);
     await expect
@@ -194,7 +192,8 @@ test('ordinary queued messages support edit and removal before one accepted disp
       .filter((item) => item.conversation_id === conversation)
       .at(-1)!;
     expect(second.submission_id).not.toBe(first.submission_id);
-    await expect(queue.getByText('Consumed', { exact: true })).toHaveCount(1);
+    // Sent: it leaves the list, which then goes away.
+    await expect(queue).toHaveCount(0);
     await expect(
       page
         .getByRole('log', { name: 'Conversation', exact: true })
@@ -278,15 +277,14 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
         `steering-${++queuedSamples}`,
       );
     }
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Steering queue/ })
-      .click();
     const queue = page.getByRole('region', {
-      name: 'Steering queue',
+      name: 'Waiting messages',
       exact: true,
     });
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(5);
+    const forAgents = queue
+      .getByRole('listitem')
+      .filter({ hasText: 'For the running agents' });
+    await expect(forAgents).toHaveCount(5);
     await advanceOrchestration(page, conversation, 'begin-pass');
     await expect
       .poll(
@@ -306,7 +304,7 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
         `steering-${++queuedSamples}`,
       );
     }
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(7);
+    await expect(forAgents).toHaveCount(7);
     const queued = await advanceOrchestration(page, conversation, 'state');
     expect(queued.steering.items.map((item) => item.text)).toEqual(texts);
     expect(new Set(queued.steering.items.map((item) => item.id)).size).toBe(7);
@@ -317,11 +315,10 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       'release-pass',
     );
     expect(first.batches).toEqual([texts.slice(0, 5)]);
-    await expect(queue.getByText('Consumed', { exact: true })).toHaveCount(5);
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(2);
+    await expect(forAgents).toHaveCount(2);
     const second = await advanceOrchestration(page, conversation, 'pass');
     expect(second.batches).toEqual([texts.slice(0, 5), texts.slice(5)]);
-    await expect(queue.getByText('Consumed', { exact: true })).toHaveCount(7);
+    await expect(queue).toHaveCount(0);
     const completed = await advanceOrchestration(
       page,
       conversation,
