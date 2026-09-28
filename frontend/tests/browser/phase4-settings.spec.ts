@@ -1695,7 +1695,7 @@ test('Models catalog applies a default and retains it across Providers navigatio
   // The default is a searchable picker (U12): its button names the model.
   const defaultPicker = models.getByRole('button', { name: 'Default model' });
   await expect(defaultPicker).toBeVisible();
-  const index = /Saved example 104/.test(
+  const index = /Saved example 104\b/.test(
     (await defaultPicker.textContent()) ?? '',
   )
     ? '103'

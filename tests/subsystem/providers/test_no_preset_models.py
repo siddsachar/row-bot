@@ -4,6 +4,7 @@ back to a built-in model. Profiles that already saved their choices keep them.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 
 import pytest
@@ -12,6 +13,12 @@ from row_bot import models, vision
 from row_bot.providers import config as provider_config
 from row_bot.providers.custom import custom_provider_id, delete_custom_endpoint, save_custom_endpoint
 from row_bot import api_keys
+
+
+@pytest.fixture(autouse=True)
+def _no_turn_model_override(monkeypatch):
+    """Agent turns set a per-turn model override that other tests may leave behind."""
+    monkeypatch.setattr(models, "_active_model_override", contextvars.ContextVar("test_override", default=""))
 
 
 def test_fresh_profile_has_no_chat_model():
