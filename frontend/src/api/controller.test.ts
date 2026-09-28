@@ -1318,6 +1318,31 @@ describe('connection and lifecycle ownership', () => {
     await flush();
     expect(value.getSnapshot().status).toBe('ready');
   });
+  it('re-handshakes when a long outage ends with a new server that forgot the session (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    // The server is down for half a minute; the window keeps probing.
+    transport.scenario = 'disconnected';
+    await value.reconnect().catch(() => undefined);
+    await flush();
+    expect(value.getSnapshot().status).toBe('disconnected');
+    await vi.advanceTimersByTimeAsync(30000);
+    // The new server is up, and the next probe carries the old session,
+    // which it no longer knows.
+    transport.scenario = 'unauthorized';
+    await vi.advanceTimersByTimeAsync(5000);
+    await flush();
+    expect(value.getSnapshot().status).toBe('unauthorized');
+    transport.scenario = 'normal';
+    await vi.advanceTimersByTimeAsync(5000);
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().selectedConversationId).toBe('conversation-a');
+  });
   it('halts after authentication revocation and clears protected view without replaying commands', async () => {
     vi.useFakeTimers();
     const transport = new FixtureTransport();

@@ -151,6 +151,9 @@ export class ClientController {
   private authenticationNumber = 0;
   private visible = true;
   private recoveryAttempts = 0;
+  // Re-handshakes refused as unauthorized. Kept apart from outage probes so a
+  // long outage does not use up the tries a restarted server needs (B110).
+  private sessionRecoveries = 0;
   private noticePosition = readNoticePosition();
   private noticeListeners = new Set<
     (notice: import('./types').Notice) => void
@@ -635,14 +638,17 @@ export class ClientController {
       this.recoveryTimer ||
       (status !== 'unauthorized' && status !== 'disconnected') ||
       (status === 'unauthorized' &&
-        this.recoveryAttempts >= SESSION_RECOVERY_ATTEMPTS)
+        this.sessionRecoveries >= SESSION_RECOVERY_ATTEMPTS)
     )
       return;
+    const attempt =
+      status === 'unauthorized'
+        ? this.sessionRecoveries
+        : this.recoveryAttempts;
     const delay =
-      RECOVERY_DELAYS[
-        Math.min(this.recoveryAttempts, RECOVERY_DELAYS.length - 1)
-      ];
-    this.recoveryAttempts += 1;
+      RECOVERY_DELAYS[Math.min(attempt, RECOVERY_DELAYS.length - 1)];
+    if (status === 'unauthorized') this.sessionRecoveries += 1;
+    else this.recoveryAttempts += 1;
     this.recoveryTimer = setTimeout(() => {
       this.recoveryTimer = null;
       const current = this.state.status;
@@ -795,6 +801,7 @@ export class ClientController {
       // pre-handshake intent only if no authenticated selection started since.
       const selection = this.selectionNumber;
       this.recoveryAttempts = 0;
+      this.sessionRecoveries = 0;
       this.cancelRecovery();
       for (const [id, draft] of this.unsavedDrafts) {
         this.drafts.set(id, draft);
