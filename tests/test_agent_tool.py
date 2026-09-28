@@ -31,6 +31,11 @@ def _fresh_agent_tool_modules(tmp_path, monkeypatch):
     tasks = importlib.reload(tasks)
     agent_runs = importlib.reload(agent_runs)
     agent_tool = importlib.reload(agent_tool)
+    # Nothing is preset since v4 onboarding (B147): delegation needs the chat
+    # model the person chose, so these tests choose one (B158).
+    import row_bot.models as models
+
+    monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
     return agent_tool, agent_runs
 
 
