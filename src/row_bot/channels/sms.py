@@ -125,6 +125,21 @@ def is_running() -> bool:
     return _running
 
 
+def reachability_problem() -> str | None:
+    """Why Twilio can't reach a running SMS channel, in words (B106)."""
+    if not _running or _webhook_public_url:
+        return None
+    if not ch_config.get("sms", "tunnel_enabled", True):
+        return None
+    try:
+        from row_bot.tunnel import tunnel_manager
+
+        error = tunnel_manager.last_error
+    except Exception:
+        error = None
+    return error or "Twilio can't reach it: the public tunnel isn't running."
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Thread management
 # ──────────────────────────────────────────────────────────────────────
@@ -907,6 +922,9 @@ class SMSChannel(Channel):
 
     def is_running(self) -> bool:
         return is_running()
+
+    def reachability_problem(self) -> str | None:
+        return reachability_problem()
 
     def get_default_target(self) -> str:
         phone = _get_user_phone()

@@ -244,8 +244,16 @@ def check_channels() -> list[CheckResult]:
                     results.append(CheckResult(ch.display_name, "inactive",
                                                "Not configured", settings_tab="Channels"))
                 elif ch.is_running():
-                    results.append(CheckResult(ch.display_name, "ok",
-                                               "Running", settings_tab="Channels"))
+                    problem = getattr(ch, "reachability_problem", None)
+                    problem = problem() if callable(problem) else None
+                    if problem:
+                        # Running, but not reachable: never "OK" (B106).
+                        results.append(CheckResult(ch.display_name, "warn",
+                                                   f"Running. {problem}",
+                                                   settings_tab="Channels"))
+                    else:
+                        results.append(CheckResult(ch.display_name, "ok",
+                                                   "Running", settings_tab="Channels"))
                 else:
                     results.append(CheckResult(ch.display_name, "warn",
                                                "Stopped", settings_tab="Channels"))
@@ -261,20 +269,13 @@ def check_tunnel() -> CheckResult:
     """Health check for the tunnel subsystem."""
     try:
         from row_bot.tunnel import tunnel_manager
+        # The manager reports what this process is doing, including a start
+        # that failed, never "Ready" while a wanted tunnel is down (B106).
         status_code, detail = tunnel_manager.status()
-        if not tunnel_manager.is_available():
-            return CheckResult("Tunnel", status_code, detail,
-                               settings_tab="System")
-        active = tunnel_manager.active_tunnels()
-        if active:
-            urls = ", ".join(f"{p}\u2192{u}" for p, u in active.items())
-            return CheckResult("Tunnel", "ok",
-                               f"{len(active)} active: {urls}",
-                               settings_tab="System")
-        return CheckResult("Tunnel", "inactive", "Ready (no active tunnels)",
-                           settings_tab="System")
+        return CheckResult("Tunnel", status_code, detail, settings_tab="System")
     except Exception as exc:
-        return CheckResult("Tunnel", "error", str(exc),
+        from row_bot.tunnel import describe_tunnel_error
+        return CheckResult("Tunnel", "error", describe_tunnel_error(exc),
                            settings_tab="System")
 
 

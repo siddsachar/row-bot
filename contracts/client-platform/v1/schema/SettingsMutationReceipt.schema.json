@@ -1353,6 +1353,19 @@
         "credential": {
           "$ref": "#/$defs/SettingsCredentialState"
         },
+        "last_error": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        },
         "local_owner_control_available": {
           "title": "Local Owner Control Available",
           "type": "boolean"
@@ -1379,7 +1392,13 @@
           "type": "string"
         },
         "runtime_state": {
-          "const": "not_checked",
+          "enum": [
+            "active",
+            "failed",
+            "idle",
+            "not_configured",
+            "not_checked"
+          ],
           "title": "Runtime State",
           "type": "string"
         }

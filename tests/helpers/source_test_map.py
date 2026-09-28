@@ -32,6 +32,16 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Background notices stay bounded, coalesced and delivered over the event stream once per client.",
     ),
     SourceTestRule(
+        "tunnel_lifecycle",
+        ("src/row_bot/tunnel.py",),
+        (
+            "tests/subsystem/access/test_tunnel_lifecycle.py",
+            "tests/test_tunnel_manager.py",
+            "tests/integration/access/test_managed_tunnel_access.py",
+        ),
+        "Tunnels close on every exit path, only agents Row-Bot recorded are stopped, and failures are reported in words.",
+    ),
+    SourceTestRule(
         "unified_conversation_creation_and_writer",
         (
             "src/row_bot/application/conversation_creation.py",

@@ -9,6 +9,7 @@ Run:   python app.py              →   http://localhost:8080
 from __future__ import annotations
 
 import asyncio
+import atexit
 import builtins
 from contextlib import contextmanager
 import hmac
@@ -94,6 +95,15 @@ def _startup_warning(message: str, *, source: str = "startup") -> None:
         app_notices.startup_warning(message, source=source)
     except Exception:
         logger.debug("Start-up notice failed (non-fatal)", exc_info=True)
+
+
+def _close_tunnels_at_interpreter_exit() -> None:
+    from row_bot.tunnel import close_tunnels_on_exit
+
+    close_tunnels_on_exit("interpreter exit")
+
+
+atexit.register(_close_tunnels_at_interpreter_exit)
 
 
 def _safe_console_print(message: object) -> None:
@@ -825,6 +835,16 @@ async def _run_startup_sequence():
     with _startup_phase("client_platform_recovery"):
         await application_lifecycle.startup()
 
+    # An earlier run that crashed or was stopped by force may have left its
+    # ngrok agent (and public address) running. Stop only agents Row-Bot
+    # recorded as its own, before anything could open a new tunnel.
+    try:
+        from row_bot.tunnel import cleanup_owned_agents
+        with _startup_phase("owned_tunnel_cleanup"):
+            await asyncio.to_thread(cleanup_owned_agents)
+    except Exception as exc:
+        logger.warning("Owned tunnel cleanup skipped (non-fatal): %s", exc)
+
     if live_chat_parity:
         import row_bot.ui.state as _st
 
@@ -1040,11 +1060,11 @@ async def _run_startup_sequence():
                     _safe_console_print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
                 else:
                     _status_code, status_detail = tunnel_manager.status()
-                    warning = f"Tunnel auto-start skipped: {status_detail}"
-                    logger.warning(warning)
-                    _st.startup_warnings.append(f"⚠️ {warning}")
+                    logger.warning("Tunnel auto-start skipped: %s", status_detail)
+                    _startup_warning(f"The public tunnel didn't start: {status_detail}", source="tunnel")
         except Exception as exc:
-            _st.startup_warnings.append(f"⚠️ Tunnel failed to auto-start: {exc}")
+            from row_bot.tunnel import describe_tunnel_error
+            _startup_warning(f"The public tunnel didn't start. {describe_tunnel_error(exc)}", source="tunnel")
 
     # ── Proactive OAuth token health check ───────────────────────────
     with _startup_phase("oauth_token_health_check"):
@@ -1244,6 +1264,10 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
     _shutdown_cleanup_started = True
 
     cleanup_started = time.perf_counter()
+    # Tunnels are public exposure: they close on every exit, including one
+    # where running work has not stopped yet (B104).
+    from row_bot.tunnel import close_tunnels_on_exit
+    await asyncio.to_thread(close_tunnels_on_exit, reason)
     from row_bot.application.lifecycle import application_lifecycle
     runtime_shutdown = await application_lifecycle.shutdown()
     if runtime_shutdown["status"] != "quiesced":
@@ -1254,7 +1278,7 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
     mark_shutdown(reason)
     _safe_console_print(f"[shutdown] Cleaning up sessions ({reason})...")
     try:
-        # Stop channels before tunnels so webhook/socket clients can close cleanly.
+        # Stop channels so webhook/socket clients can close cleanly.
         for _ch in _ch_registry.all_channels():
             try:
                 if _ch.is_running():
@@ -1285,12 +1309,6 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
             _safe_console_print("[shutdown] Terminal bridge destroyed")
     except Exception as exc:
         _safe_console_print(f"[shutdown] Terminal bridge cleanup error: {exc}")
-    try:
-        from row_bot.tunnel import tunnel_manager
-        tunnel_manager.stop_all()
-        _safe_console_print("[shutdown] Tunnels closed")
-    except Exception as exc:
-        _safe_console_print(f"[shutdown] Tunnel cleanup error: {exc}")
     try:
         from row_bot.mcp_client.runtime import shutdown as _mcp_shutdown
         _mcp_shutdown()

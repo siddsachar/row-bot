@@ -739,7 +739,21 @@ def _run_system_action(field: str) -> dict[str, str] | None:
         from row_bot.tunnel import tunnel_manager
 
         if field == "tunnel.check":
-            tunnel_manager.status()
+            code, detail = tunnel_manager.status()
+            state = tunnel_manager.runtime_state()
+            if state["runtime_state"] == "active":
+                message = f"The tunnel is running ({state['active_count']} active)."
+                remediation = ""
+            elif state["runtime_state"] == "failed":
+                message = "The tunnel isn't running."
+                remediation = state["last_error"] or detail
+            elif state["runtime_state"] == "not_configured":
+                message = "No ngrok authtoken is saved."
+                remediation = "Add one in Tunnel credential, then check again."
+            else:
+                message = "The tunnel is set up and not running."
+                remediation = "Start app tunnel opens it."
+            return {"code": code[:64], "message": message[:256], "remediation": remediation[:256]}
         elif field == "tunnel.start_main":
             port = get_app_port()
             existing_url = tunnel_manager.get_url(port)

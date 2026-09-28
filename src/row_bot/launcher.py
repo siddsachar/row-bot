@@ -1350,6 +1350,15 @@ class _RowBotProcess:
                 )
         finally:
             self._close_log_handle()
+            if not stopped_gracefully:
+                # A forced stop skips the server's own cleanup: stop the
+                # ngrok agent it recorded, and only that one (B104).
+                try:
+                    from row_bot.tunnel import cleanup_owned_agents
+
+                    cleanup_owned_agents(dead_owner=proc.pid)
+                except Exception:
+                    logger.debug("Owned tunnel cleanup after a forced stop failed", exc_info=True)
         logger.info(
             "%s stopped%s",
             APP_DISPLAY_NAME,

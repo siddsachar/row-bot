@@ -1011,6 +1011,26 @@ def test_reviewed_main_tunnel_persists_restart_choice_and_reports_webhook_url(
     assert len(closed) == 1
 
 
+def test_snapshot_reports_the_tunnel_failure_instead_of_not_checked(api, monkeypatch):
+    from row_bot.tunnel import tunnel_manager
+
+    client, headers, data, _ = api
+    failure = "ngrok refused a new tunnel: your ngrok account already has as many agents running as it allows."
+    monkeypatch.setattr(
+        tunnel_manager,
+        "runtime_state",
+        lambda: {"runtime_state": "failed", "active_count": 0, "last_error": failure},
+    )
+    before = _tree(data)
+
+    tunnel = client.get(BASE, headers=headers).json()["system"]["tunnel"]
+
+    assert tunnel["runtime_state"] == "failed"
+    assert tunnel["active_count"] == 0
+    assert tunnel["last_error"] == failure
+    assert _tree(data) == before
+
+
 def test_failed_main_tunnel_start_does_not_save_restart_choice(api, monkeypatch):
     from row_bot.tunnel import tunnel_manager
 

@@ -851,6 +851,48 @@ it('shows remote tunnel availability without exposing the URL or owner controls'
   expect(screen.queryByText(/api\/webhook/)).toBeNull();
 });
 
+it('shows the real tunnel state and a failed start in words (B106)', () => {
+  mutation.page = 'system';
+  const failure =
+    'ngrok refused a new tunnel: your ngrok account already has as many agents running as it allows.';
+  const view = render(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        tunnel: {
+          ...snapshot.system.tunnel,
+          runtime_state: 'failed',
+          active_count: 0,
+          last_error: failure,
+        },
+      }}
+      mutation={mutation}
+      part="access"
+    />,
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    `Not running. ${failure}`,
+  );
+  expect(document.body).not.toHaveTextContent(/Ready|Runtime status/);
+  view.rerender(
+    <SystemSnapshotPanel
+      snapshot={{
+        ...snapshot.system,
+        tunnel: {
+          ...snapshot.system.tunnel,
+          runtime_state: 'active',
+          active_count: 1,
+          last_error: null,
+        },
+      }}
+      mutation={mutation}
+      part="access"
+    />,
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByText(/Running: 1 public address\./)).toBeVisible();
+});
+
 it('recovers an interrupted tunnel command from its original receipt after remount', async () => {
   mutation.page = 'system';
   mutation.sessionId = 'fixture-tunnel-session';

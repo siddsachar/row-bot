@@ -520,6 +520,7 @@ def _system(
     from row_bot.tunnel import tunnel_manager
 
     main_app_url = tunnel_manager.get_url(get_app_port())
+    tunnel_runtime = tunnel_manager.runtime_state()
     user = _mapping(_read_json(root / "user_config.json", default={}))
     cua = _mapping(_read_json(root / "computer_use_settings.json", default={}))
     from row_bot.computer_use.readiness import DISCLOSURE_TEXT, readiness
@@ -584,8 +585,9 @@ def _system(
         "tunnel": {
             "provider": _text(tunnel.get("provider") or "ngrok", 64),
             "credential": _credential_status("NGROK_AUTHTOKEN"),
-            "runtime_state": "not_checked",
-            "active_count": None,
+            "runtime_state": tunnel_runtime["runtime_state"],
+            "active_count": tunnel_runtime["active_count"],
+            "last_error": _text(tunnel_runtime["last_error"], 500) if tunnel_runtime["last_error"] else None,
             "main_app_enabled": raw_main_app_enabled is True
             or isinstance(raw_main_app_enabled, list)
             and bool(raw_main_app_enabled)

@@ -706,8 +706,10 @@ class SettingsFileOperationsSnapshot(SettingsToggleSnapshot):
 class SettingsTunnelSnapshot(WireModel):
     provider: str = Field(max_length=64)
     credential: SettingsCredentialState
-    runtime_state: Literal["not_checked"]
+    # What this server process is doing now (read locally, no network).
+    runtime_state: Literal["active", "failed", "idle", "not_configured", "not_checked"]
     active_count: int | None = Field(ge=0)
+    last_error: str | None = Field(default=None, max_length=500)
     main_app_enabled: bool
     main_app_url: str | None = Field(max_length=512)
     local_owner_control_available: bool

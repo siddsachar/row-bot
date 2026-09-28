@@ -238,6 +238,24 @@ function VoiceModelRow({
     </li>
   );
 }
+
+/** The tunnel as it is now, in words (B106): never "Ready" when it failed. */
+function tunnelStatus(tunnel: SettingsSnapshot['system']['tunnel']): string {
+  const count = tunnel.active_count ?? 1;
+  switch (tunnel.runtime_state) {
+    case 'active':
+      return `Running: ${count} public ${count === 1 ? 'address' : 'addresses'}.`;
+    case 'failed':
+      return `Not running. ${tunnel.last_error ?? ''}`.trim();
+    case 'not_configured':
+      return 'Not set up: no ngrok authtoken is saved.';
+    case 'idle':
+      return 'Set up, not running.';
+    default:
+      return 'Not checked yet.';
+  }
+}
+
 function enabledLabel(value: boolean | null | undefined) {
   return value == null ? 'Status unavailable' : value ? 'Enabled' : 'Disabled';
 }
@@ -1803,12 +1821,14 @@ export function SystemSnapshotPanel({
             source={snapshot.tunnel.credential.source}
             fingerprint={snapshot.tunnel.credential.fingerprint}
           />
-          <p className="settings-help">
-            Runtime status: {savedStateLabel(snapshot.tunnel.runtime_state)}.{' '}
-            {snapshot.tunnel.active_count == null
-              ? 'Active tunnel count not checked.'
-              : `${snapshot.tunnel.active_count} active tunnels.`}{' '}
-            Opening Settings never starts or exposes a tunnel.
+          <p
+            className="settings-help"
+            role={
+              snapshot.tunnel.runtime_state === 'failed' ? 'alert' : undefined
+            }
+          >
+            {tunnelStatus(snapshot.tunnel)} Opening Settings never starts or
+            exposes a tunnel.
           </p>
           <Facts>
             <Fact
