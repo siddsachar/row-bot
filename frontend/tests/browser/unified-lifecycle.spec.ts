@@ -162,10 +162,11 @@ test('ordinary queued messages support edit and removal before one accepted disp
       .getByRole('listitem')
       .filter({ hasText: 'Retained queue input' });
     await retained.getByRole('button', { name: 'Edit', exact: true }).click();
-    await retained
+    // One message is edited at a time, in place.
+    await queue
       .getByRole('textbox', { name: 'Edit waiting message', exact: true })
       .fill('Edited queue input');
-    await retained.getByRole('button', { name: 'Save', exact: true }).click();
+    await queue.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(
       queue.getByText('Edited queue input', { exact: true }),
     ).toBeVisible();

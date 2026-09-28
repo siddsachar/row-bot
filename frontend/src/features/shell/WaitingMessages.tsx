@@ -169,6 +169,8 @@ export default function WaitingMessages({
     try {
       await onAction(action, item, text);
       if (action === 'edit') setEditing(null);
+    } catch {
+      // The conversation shows the error and its fix; an edit stays open.
     } finally {
       setActing(false);
     }

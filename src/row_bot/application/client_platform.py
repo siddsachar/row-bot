@@ -204,18 +204,21 @@ class ClientPlatformService:
                 "segment_id": handle.segment_id, "message_id": handle.output_message_id,
                 "checkpoint_revision": handle.output_checkpoint_revision})
             self._publish_queue(handle.conversation_id)
+            from row_bot.application import client_queue
+            # Pause waiting inputs before announcing the terminal state, so a
+            # client that re-reads its waiting messages on that state sees
+            # their paused revision rather than a stale one.
+            if status != "completed":
+                client_queue.pause_pending(self, handle.conversation_id)
             final_view = {**handle.view(), "status": status, "revision": str(handle.revision + 1),
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
             self.projection.publish(handle.conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
-            from row_bot.application import client_queue
             if status == "completed":
                 try:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)
                 except Exception:
                     client_queue.pause_pending(self, handle.conversation_id)
-            else:
-                client_queue.pause_pending(self, handle.conversation_id)
 
     def _metadata(self, conversation_id: str) -> dict:
         from row_bot import threads

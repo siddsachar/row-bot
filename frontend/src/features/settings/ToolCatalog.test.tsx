@@ -392,9 +392,7 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
   await screen.findByText('Confirmed · Core');
   fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
   expect(
-    await screen.findByText(
-      'Disconnected. What you last saw is kept.',
-    ),
+    await screen.findByText('Disconnected. What you last saw is kept.'),
   ).toBeVisible();
   expect(screen.getByText('Confirmed · Core')).toBeVisible();
   expect(load).toHaveBeenCalledTimes(2);

@@ -1930,18 +1930,34 @@ export default function Conversation({
     async (action: WaitingAction, item: WaitingMessage, text?: string) => {
       if (!id) return;
       setError('');
-      try {
+      const run = async (revision: string) => {
         const current = await controller.workspaceFor(id);
         await controller.intent(
           id,
           `conversation.queue.${action}`,
           {
             submission_id: item.id,
-            expected_queue_revision: item.revision,
+            expected_queue_revision: revision,
             ...(action === 'edit' ? { text } : {}),
           },
           current.revision,
         );
+      };
+      try {
+        try {
+          await run(item.revision);
+        } catch (cause) {
+          // Stop pauses waiting messages, which moves their revision. When
+          // only that changed (the text is what the person saw), act on the
+          // current revision once instead of refusing.
+          if (clientError(cause).code !== 'queue_revision_conflict')
+            throw cause;
+          const fresh = (await controller.waitingMessages(id)).items.find(
+            (value) => value.submission_id === item.id,
+          );
+          if (!fresh?.editable || fresh.text !== item.text) throw cause;
+          await run(fresh.revision);
+        }
       } catch (cause) {
         setError(clientError(cause), () => waiting.reload());
         throw cause;

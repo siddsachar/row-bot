@@ -187,6 +187,29 @@ def test_stop_with_a_waiting_message_stays_sendable_and_never_wedges(platform):
         assert [item.state for item in client_queue.read_queue(platform, "conversation-a").items] == ["consumed"]
 
 
+def test_waiting_inputs_are_paused_before_the_terminal_state_is_announced(platform, monkeypatch):
+    """A client re-reads its waiting messages on the terminal state; it must
+    see the paused revision, or its next Send now or Discard conflicts."""
+    # An interrupted run pauses its waiting inputs only as it finishes (an
+    # explicit Stop pauses them at once).
+    barrier = StreamBarrier()
+    receipt = submit(platform, ScriptedAgentStream((barrier, ("error", "synthetic failure"))), "order-initial")
+    assert barrier.entered.wait(10)
+    queued = enqueue(platform, "order-waiting", "Waiting follow-up")
+    seen = []
+    original = platform.projection.publish
+
+    def publish(conversation_id, kind, payload, *args, **kwargs):
+        if kind == "generation.state" and payload.get("quiesced"):
+            seen.append(client_queue._row(conversation_id, queued["submission_id"])["queue_state"])
+        return original(conversation_id, kind, payload, *args, **kwargs)
+
+    monkeypatch.setattr(platform.projection, "publish", publish)
+    barrier.release.set()
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+    assert seen and seen[-1] == "paused"
+
+
 def test_discarding_the_waiting_message_unblocks_new_messages(platform):
     from row_bot.application.client_platform import ClientPlatformError
     barrier = StreamBarrier()
