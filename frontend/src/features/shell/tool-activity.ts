@@ -93,6 +93,7 @@ const EXACT: Record<string, Verb> = {
     'Checking Row-Bot status',
     Cpu,
   ),
+  row_bot_update_setting: verb('Changed a setting', 'Changing a setting', Cpu),
   generate_image: verb('Generated an image', 'Generating an image', Image),
   edit_image: verb('Edited an image', 'Editing an image', Image),
   analyze_image: verb('Looked at an image', 'Looking at an image', Image),

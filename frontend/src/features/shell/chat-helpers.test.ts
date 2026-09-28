@@ -106,6 +106,9 @@ describe('tool activity', () => {
     expect(stepVerb('request_connection', 'blocked')).toBe(
       "Didn't ask to connect",
     );
+    expect(stepVerb('row_bot_update_setting', 'pending')).toBe(
+      'Changing a setting',
+    );
     expect(stepVerb('workspace_list_directory', 'pending')).toBe(
       'Listing files',
     );
