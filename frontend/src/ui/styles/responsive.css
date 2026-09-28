@@ -85,6 +85,18 @@
   padding: 0 10px;
   background: var(--accent-subtle);
 }
+/* Too narrow for one line (a phone at 200% zoom leaves ~180px): the text
+   takes its own row under the chips and the controls sit below it, so the
+   draft never wraps per character and the composer never grows past the
+   screen (B156). */
+@container composer (max-width: 300px) {
+  .composer[data-single-line] .composer-field {
+    grid-template-areas:
+      'chips chips chips'
+      'text text text'
+      'plus . actions';
+  }
+}
 /* Model, approvals and context usage live in the + menu. */
 .composer-plus-context {
   display: flex;
