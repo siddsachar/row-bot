@@ -124,6 +124,23 @@ it('reads as removed once the binding is gone, but not while it is live', () => 
   expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
 });
 
+it('a renamed card that is undone reads removed under the new name', () => {
+  const renamed = actions({ ...view, title: 'Tides deck' });
+  const shown = renderCards(renamed);
+  expect(
+    screen.getByRole('group', { name: 'Created design Tides deck' }),
+  ).toBeVisible();
+  renamed.resource = vi.fn(() => undefined);
+  shown.rerender(
+    <CardActionsContext.Provider value={{ ...renamed }}>
+      <TranscriptCards cards={[design]} live={false} />
+    </CardActionsContext.Provider>,
+  );
+  expect(
+    screen.getByRole('group', { name: 'Removed design Tides deck' }),
+  ).toBeVisible();
+});
+
 it('offers Connect for an account the work needs', () => {
   const value = actions();
   renderCards(value, [

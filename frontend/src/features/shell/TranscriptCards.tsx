@@ -125,6 +125,9 @@ function ResourceCard({
   const committed = useRef(false);
   const resource = actions?.resource(card.bindingId);
   const title = resource?.title || card.name;
+  // A removed card keeps the last name the person saw (after a Rename too).
+  const lastTitle = useRef(card.name);
+  if (resource?.title) lastTitle.current = resource.title;
   const noun = NOUN[card.resourceKind];
   const Icon = card.resourceKind === 'design' ? Palette : FolderCode;
   async function run(work: () => Promise<void>) {
@@ -155,12 +158,12 @@ function ResourceCard({
         data-kind="resource"
         data-state="removed"
         role="group"
-        aria-label={`Removed ${noun} ${card.name}`}
+        aria-label={`Removed ${noun} ${lastTitle.current}`}
       >
         <Icon className="transcript-card-icon" aria-hidden />
         <div className="transcript-card-text">
           <span>
-            Removed {noun} <strong>{card.name}</strong>
+            Removed {noun} <strong>{lastTitle.current}</strong>
           </span>
         </div>
       </div>
