@@ -34,11 +34,11 @@ function greeting(now = new Date()) {
 function Prompt({
   index,
   disabled,
-  onSend,
+  onChoose,
 }: {
   index: number;
   disabled: boolean;
-  onSend: (prompt: string) => void;
+  onChoose: (prompt: string) => void;
 }) {
   const Icon = ICONS[index] ?? BookOpen;
   return (
@@ -47,7 +47,7 @@ function Prompt({
       className="chat-empty-prompt"
       disabled={disabled}
       aria-label={EXAMPLE_LABELS[index]}
-      onClick={() => onSend(EXAMPLE_PROMPTS[index])}
+      onClick={() => onChoose(EXAMPLE_PROMPTS[index])}
     >
       <Icon className="chat-empty-prompt-icon" aria-hidden />
       <span className="chat-empty-prompt-label" aria-hidden>
@@ -62,18 +62,19 @@ function Prompt({
 
 /**
  * A new chat: a greeting, four prompt suggestions (two more on request) and
- * the most recent threads. Prompts send in one click; recent threads open.
+ * the most recent threads. A prompt fills the composer to edit and send
+ * (U17); recent threads open.
  */
 export default function ChatEmpty({
   conversationId,
   disabled,
-  onSend,
+  onChoose,
   recent,
   onOpen,
 }: {
   conversationId: string | null;
   disabled: boolean;
-  onSend: (prompt: string) => void;
+  onChoose: (prompt: string) => void;
   recent: ConversationView[];
   onOpen: (id: string) => void;
 }) {
@@ -110,7 +111,7 @@ export default function ChatEmpty({
             key={index}
             index={index}
             disabled={disabled}
-            onSend={onSend}
+            onChoose={onChoose}
           />
         ))}
         {more &&
@@ -119,7 +120,7 @@ export default function ChatEmpty({
               key={index}
               index={index}
               disabled={disabled}
-              onSend={onSend}
+              onChoose={onChoose}
             />
           ))}
       </div>

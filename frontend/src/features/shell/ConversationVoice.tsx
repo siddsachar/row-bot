@@ -3,7 +3,7 @@ import type { ClientController } from '../../api/controller';
 import type { DictationHandle, TalkStart, VoiceRunView } from '../../api/types';
 import type { DictationScope } from './VoiceControls';
 import { Button, Field, Select } from '../../ui/primitives';
-import { AudioLines, ChevronDown } from 'lucide-react';
+import { AudioLines } from 'lucide-react';
 import TalkControls from './TalkControls';
 import RealtimeTalkControls from './RealtimeTalkControls';
 
@@ -116,8 +116,10 @@ export default function ConversationVoice(props: {
           onClick={() => setOpen(!open)}
           disabled={busy || !props.available}
         >
+          {/* Beside Dictate, Talk shows its own glyph rather than a small
+              chevron, so it reads as a way in (U28). */}
           {props.chevron ? (
-            <ChevronDown size={14} aria-hidden />
+            <AudioLines size={17} aria-hidden />
           ) : props.compact ? (
             <AudioLines size={18} aria-hidden />
           ) : (
@@ -151,7 +153,9 @@ export default function ConversationVoice(props: {
                   }}
                 >
                   <option value="talk">Talk with this conversation</option>
-                  <option value="realtime">Realtime Talk</option>
+                  <option value="realtime">
+                    Realtime Talk · OpenAI, paid per minute
+                  </option>
                 </Select>
               </Field>
               <p className="voice-intro">

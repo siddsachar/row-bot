@@ -2082,11 +2082,6 @@
   padding: 0;
   color: var(--text-muted);
 }
-.composer-voice .conversation-voice-toggle.button.icon-button {
-  width: 16px;
-  min-width: 16px;
-  margin-inline-start: -4px;
-}
 .composer-voice .button.icon-button:hover {
   color: var(--text-primary);
 }

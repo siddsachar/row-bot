@@ -1138,20 +1138,9 @@ it('sends the files again with Send again, not their names as text (B136)', asyn
   );
 });
 
-it('shows welcome examples without a request and sends one with a single click while preserving the draft', async () => {
+it('shows welcome examples without a request and fills the composer with one instead of sending (U17)', async () => {
   idleConversation();
-  mock.drafts.set('conversation-a', {
-    text: 'An unfinished private draft',
-    attachments: [],
-  });
-  mock.intent.mockImplementation(
-    async (_conversation, _type, payload, _revision, commandId) => ({
-      command_id: commandId,
-      conversation_id: 'conversation-a',
-      submission_id: payload.submission_id,
-      status: 'accepted',
-    }),
-  );
+  mock.drafts.set('conversation-a', { text: '', attachments: [] });
   await act(async () => conversation());
   expect(mock.intent).not.toHaveBeenCalled();
   await act(async () => {
@@ -1162,16 +1151,9 @@ it('shows welcome examples without a request and sends one with a single click w
     );
   });
   expect(mock.open).not.toHaveBeenCalled();
-  expect(mock.intent).toHaveBeenCalledTimes(1);
-  expect(mock.intent.mock.calls[0][0]).toBe('conversation-a');
-  expect(mock.intent.mock.calls[0][1]).toBe('conversation.submit');
-  expect(mock.intent.mock.calls[0][2]).toMatchObject({
-    text: 'Create a disabled workflow for a weekly research briefing',
-    attachment_refs: [],
-    write_targets: [],
-  });
+  expect(mock.intent).not.toHaveBeenCalled();
   expect(mock.drafts.get('conversation-a')?.text).toBe(
-    'An unfinished private draft',
+    'Create a disabled workflow for a weekly research briefing',
   );
 });
 

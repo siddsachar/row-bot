@@ -451,12 +451,30 @@ def conversation_workspace(service: Any, identity: str) -> dict:
                     "client_revision": int(row["client_revision"]),
                 },
             ),
-            "profiles": [{"id": p["id"], "label": p["display_name"]} for p in list_agent_profiles(enabled_only=True)][:256],
+            "profiles": _people_facing_profiles(str(row.get("agent_profile_id") or "")),
             "resources": resources, "actions": [
                 {"action": action, "ready": ready, "code": None if ready else "model_configuration_required"}
                 for action in ("send", "generate")] + [
                 {"action": action, "ready": not threads._thread_write_blocked(identity), "code": None}
                 for action in ("create_deck", "bind", "preview") ]}
+
+
+def _people_facing_profiles(current: str) -> list[dict]:
+    """Profiles a person picks for a chat: not the internal helpers (U20).
+
+    Built-in worker/synthesize/verify helpers are grouped "Advanced/Internal"
+    for delegation; they stay available there, and a chat already using one
+    still lists it.
+    """
+    from row_bot.agent_profiles import list_agent_profiles
+
+    profiles = []
+    for profile in list_agent_profiles(enabled_only=True):
+        ui = profile.get("ui_json") if isinstance(profile.get("ui_json"), dict) else {}
+        if str(ui.get("group") or "") == "Advanced/Internal" and profile["id"] != current:
+            continue
+        profiles.append({"id": profile["id"], "label": profile["display_name"]})
+    return profiles[:256]
 
 
 def _sees_images(model_ref: str) -> bool | None:

@@ -2344,7 +2344,8 @@ export default function Conversation({
       id: `profile:${profile.id}`,
       group: 'Agents',
       label: profile.label,
-      description: 'Use this agent profile in this chat',
+      // One line per profile: its name, no sentence repeated on every row (U20).
+      description: '',
       icon: <Bot size={16} />,
       current:
         currentProfileChoice(
@@ -2751,14 +2752,9 @@ export default function Conversation({
               ) : (
                 <ChatEmpty
                   conversationId={id}
-                  disabled={
-                    !sendActionReady ||
-                    busy ||
-                    !!pendingSubmit ||
-                    !!pendingResume ||
-                    !!pendingSteering
-                  }
-                  onSend={(prompt) => send(prompt)}
+                  disabled={busy}
+                  // A prompt fills the composer to edit first (U17).
+                  onChoose={editMessage}
                   recent={state.conversations}
                   onOpen={(target) => navigate(`/conversations/${target}`)}
                 />

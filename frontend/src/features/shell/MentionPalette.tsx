@@ -211,7 +211,11 @@ const MentionPalette = forwardRef<
                     {item.label}
                   </span>
                   <span className="slash-palette-description">
-                    {item.current ? 'Current · ' : ''}
+                    {item.current
+                      ? item.description
+                        ? 'Current · '
+                        : 'Current'
+                      : ''}
                     {item.description}
                   </span>
                 </button>
