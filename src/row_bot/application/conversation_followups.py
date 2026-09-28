@@ -152,16 +152,26 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
-                        assistant_text: str, model_ref: str) -> None:
+                        assistant_text: str, model_ref: str, goal_id: str = "") -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
     an approval pause marks the goal as waiting; Stop and failures pause it
-    with the reason, so it never reads as working while nothing runs.
+    with the reason, so it never reads as working while nothing runs. A turn
+    in which the model finished the goal (``goal_id`` was live when it began)
+    still counts, so the card reads "Done · Turn 3 of 3".
     """
     from row_bot import goals
     goal = live_goal(conversation_id)
     if goal is None:
+        finished = (goals.get_current_goal(conversation_id, include_terminal=True)
+                    if goal_id and status == "completed" else None)
+        if finished and str(finished.get("id") or "") == goal_id:
+            try:
+                goals.after_turn(thread_id=conversation_id, turn_id=generation_id,
+                                 assistant_text=assistant_text, model_override=model_ref)
+            except Exception:
+                _LOG.exception("Counting the goal's last turn failed for %s", conversation_id)
         return
     try:
         if status == "completed":

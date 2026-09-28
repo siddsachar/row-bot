@@ -224,3 +224,33 @@ def test_the_agent_graph_input_keeps_the_follow_up_note(goal_setup):
     assert human.content.startswith("[Goal mode started]")
     assert human.additional_kwargs["platform_note"] == "continuation"
     assert human.additional_kwargs["platform_public_content"] == "Goal · turn 1 of 1"
+
+
+def test_the_turn_that_finishes_a_goal_counts(goal_setup):
+    """The model can mark the goal done with its goal tool during a turn; that
+    turn still counts ("Done · turn 1 of 3", not "turn 0"), while a later chat
+    turn after the goal ended does not."""
+    from row_bot import goals
+    platform, _ = goal_setup
+
+    class FinishesGoal(Recording):
+        def stream(self, text, enabled_tools, config, *, stop_event=None):
+            if len(self.prompts) == 0:
+                current = goals.get_current_goal(CONVERSATION)
+                goals.set_goal_status(current["id"], "completed", reason="All three notes are written.",
+                                      verdict="complete")
+            yield from super().stream(text, enabled_tools, config, stop_event=stop_event)
+
+    fake = FinishesGoal(completed("step 0"), completed("chat after"))
+    goal = start(platform, fake, max_turns=3)
+    wait_idle(platform, fake, 1)
+    latest = goals.get_goal(goal["id"])
+    assert latest["status"] == "completed"
+    assert latest["turns_used"] == 1, "the turn that finished the goal counts"
+    assert latest["last_reason"] == "All three notes are written."
+    platform.execute(owner_id="fixture", idempotency_key="chat-after", target=CONVERSATION,
+                     command=command("conversation.submit", "chat-after", {
+                         "text": "Thanks", "submission_id": "chat-after",
+                         "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}))
+    wait_idle(platform, fake, 2)
+    assert goals.get_goal(goal["id"])["turns_used"] == 1, "a chat turn after the goal ended is not counted"

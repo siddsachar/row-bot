@@ -987,8 +987,11 @@ class ClientPlatformService:
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
 
         def producer() -> None:
+            from row_bot.application.conversation_followups import after_platform_turn, live_goal
             status = "interrupted"
             final_text = ""
+            # The goal this turn works on, even if the model finishes it mid-turn.
+            started_goal = live_goal(conversation_id)
             try:
                 self.registry.check_dispatch(handle)
                 files = []
@@ -1075,9 +1078,9 @@ class ClientPlatformService:
             finally:
                 if handle.cancel_scope.is_cancelled():
                     status = "stopped"
-                from row_bot.application.conversation_followups import after_platform_turn
                 after_platform_turn(conversation_id, generation_id=generation_id, status=status,
-                                    assistant_text=final_text, model_ref=model_ref)
+                                    assistant_text=final_text, model_ref=model_ref,
+                                    goal_id=str((started_goal or {}).get("id") or ""))
                 self.finish_execution(handle, status)
         def start_failed(_exc: BaseException) -> None:
             try:
