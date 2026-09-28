@@ -29,7 +29,7 @@ test('Providers show live NiceGUI connection cards and row actions', async ({
   await expect(row).toContainText('Connected');
   await expect(row).toContainText('Saved in keyring');
   await expect(
-    row.getByRole('button', { name: 'Manage OpenAI API API key' }),
+    row.getByRole('button', { name: 'Manage OpenAI API key' }),
   ).toBeVisible();
   await expect(
     row.getByRole('button', {
@@ -94,10 +94,10 @@ test('Provider API key can be replaced through the compact row dialog', async ({
     .getByRole('listitem')
     .filter({ hasText: 'OpenAI API' })
     .first();
-  await row.getByRole('button', { name: 'Manage OpenAI API API key' }).click();
+  await row.getByRole('button', { name: 'Manage OpenAI API key' }).click();
   const dialog = page.getByRole('dialog', { name: 'Manage API key' });
   await expect(
-    dialog.getByRole('heading', { name: 'OpenAI API API key' }),
+    dialog.getByRole('heading', { name: 'OpenAI API key' }),
   ).toBeVisible();
   await dialog.getByLabel('API key').fill('synthetic-browser-replacement');
   const applied = page.waitForResponse(

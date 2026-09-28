@@ -397,7 +397,7 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
     )
     .toBe(true);
   await setup
-    .getByRole('button', { name: 'Check generation receipt', exact: true })
+    .getByRole('button', { name: 'Check generation', exact: true })
     .click();
   await expect(
     setup.getByText('Generation request accepted.', { exact: true }),
@@ -420,7 +420,7 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
   );
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   await setup
-    .getByRole('button', { name: 'Check generation receipt', exact: true })
+    .getByRole('button', { name: 'Check generation', exact: true })
     .click();
   await expect(
     setup.getByText('Generation request accepted.', { exact: true }),

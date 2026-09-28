@@ -643,7 +643,7 @@ test('Document processing reviews the selected conversation and runs the admitte
   expect(result.embeddings).toBe(pending_knowledge_embeddings + 3);
   await processing
     .getByRole('button', {
-      name: 'Check original processing receipt',
+      name: 'Check processing',
       exact: true,
     })
     .click();
@@ -1645,12 +1645,12 @@ test.skip('Subscription checks retain the original review and expose actual canc
   }
   await expect(
     editor.getByRole('button', {
-      name: 'Read original check receipt',
+      name: 'Check status',
       exact: true,
     }),
   ).toBeEnabled();
   await editor
-    .getByRole('button', { name: 'Read original check receipt', exact: true })
+    .getByRole('button', { name: 'Check status', exact: true })
     .click();
   await expect(
     editor.getByText(/Original work: cancelled. Stopped./),

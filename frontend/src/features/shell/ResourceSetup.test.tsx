@@ -61,7 +61,7 @@ it('keeps an admitting result reconcilable and never offers a duplicate create',
     view();
   });
   expect(
-    screen.getByRole('button', { name: 'Check setup receipt' }),
+    screen.getByRole('button', { name: 'Check setup' }),
   ).toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: 'Create Deck' }),
@@ -981,9 +981,7 @@ it('recovers a lost separate-history response on remount without creating anothe
     fireEvent.click(newWorkspaceButton());
   });
   const id = mock.controller.intent.mock.calls[0][4];
-  expect(
-    screen.getByRole('button', { name: 'Check setup receipt' }),
-  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Check setup' })).toBeVisible();
   rendered.unmount();
   mock.controller.receipt.mockResolvedValue(newWorkspaceConversation(id));
   await act(async () => {

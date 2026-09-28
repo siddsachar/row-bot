@@ -853,10 +853,10 @@ export default function ResourceSetup({
                     <p>
                       {generationReceipt
                         ? `Generation request ${generationReceipt.status}.`
-                        : 'Generation outcome is awaiting confirmation.'}
+                        : "Row-Bot hasn't confirmed the generation yet."}
                     </p>
                     <Button disabled={busy} onClick={() => void recover(true)}>
-                      Check generation receipt
+                      Check generation
                     </Button>
                     {generationReceipt?.status === 'rejected' && (
                       <Button
@@ -1175,7 +1175,7 @@ export default function ResourceSetup({
       {error && <p role="alert">{error}</p>}
       {unknown && (
         <Button disabled={busy} onClick={() => void recover()}>
-          Check setup receipt
+          Check setup
         </Button>
       )}
       {busy && (

@@ -484,7 +484,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await expect(
           page
             .getByRole('alert')
-            .filter({ hasText: 'Choose a configured model' }),
+            .filter({ hasText: 'Choose a model before sending' }),
         ).toBeVisible();
         await expect(composer(page)).toHaveValue(
           'Synthetic unavailable-model draft',
@@ -707,7 +707,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await composer(page).fill('stop fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
         const receipt = page.getByRole('button', {
-          name: 'Check request receipt',
+          name: 'Check message',
           exact: true,
         });
         // A compact composer keeps recovery in its Message actions menu.
@@ -726,7 +726,7 @@ test('actual state messages and recovery controls remain readable in light and d
           await messageActions.click();
           await page
             .getByRole('menuitem', {
-              name: 'Check request receipt',
+              name: 'Check message',
               exact: true,
             })
             .click();

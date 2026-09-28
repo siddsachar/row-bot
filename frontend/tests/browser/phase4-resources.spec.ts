@@ -1391,7 +1391,7 @@ test('Phase 4 double-submit and hidden response recover the original durable rec
       .dblclick();
     await arrived;
     await expect(
-      dialog.getByRole('button', { name: 'Check setup receipt', exact: true }),
+      dialog.getByRole('button', { name: 'Check setup', exact: true }),
     ).toBeDisabled();
     await expect(
       dialog.getByRole('button', { name: 'Create Deck', exact: true }),
