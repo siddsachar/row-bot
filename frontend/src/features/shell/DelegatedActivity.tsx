@@ -354,7 +354,11 @@ export default function DelegatedActivity(props: Props) {
     const request = new AbortController();
     setLoading(true);
     setError(false);
-    setPage(null);
+    // A refresh keeps the last page (and a control's "Message sent") in
+    // place; only another conversation starts from nothing (B163).
+    setPage((previous) =>
+      previous?.conversation_id === props.conversationId ? previous : null,
+    );
     setLaterPage(false);
     void callbacks.current
       .loadPage(undefined, request.signal)
@@ -482,7 +486,7 @@ export default function DelegatedActivity(props: Props) {
         </p>
       )}
       {loading && !page && <Skeleton label="Loading delegated tasks" />}
-      {page && !page.items.length && !loading && !error && (
+      {page && !page.items.length && !page.own_run && !loading && !error && (
         <p className="muted">No delegated agents in this conversation.</p>
       )}
       {!!items.length && (

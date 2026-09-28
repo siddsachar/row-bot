@@ -552,3 +552,59 @@ it('shows a child thread its own agent with Stop and Message', async () => {
     screen.getByRole('button', { name: 'Back to parent conversation' }),
   ).toBeVisible();
 });
+
+it('keeps "Message sent" in a child thread while Agents re-reads (B163)', async () => {
+  const messageRun = vi.fn().mockResolvedValue(undefined);
+  let release = () => {};
+  const child = {
+    ...page,
+    conversation_id: 'child-a',
+    parent_conversation_id: 'parent-a',
+    own_run: { ...run, status: 'waiting_approval' },
+    items: [],
+  };
+  const loadPage = vi
+    .fn()
+    .mockResolvedValueOnce(child)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(child);
+        }),
+    );
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        conversationId="child-a"
+        refreshKey=""
+        loadPage={loadPage}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+        stopRun={vi.fn()}
+        messageRun={messageRun}
+      />
+    </OverlayProvider>,
+  );
+  const own = await screen.findByRole('group', { name: 'This agent' });
+  // Its own agent is what this thread has; no "No delegated agents" beside it.
+  expect(
+    screen.queryByText('No delegated agents in this conversation.'),
+  ).toBeNull();
+  fireEvent.click(within(own).getByRole('button', { name: 'Message' }));
+  fireEvent.change(
+    within(own).getByRole('textbox', { name: 'Message to Research task' }),
+    { target: { value: 'Keep it short.' } },
+  );
+  await act(async () => {
+    fireEvent.click(within(own).getByRole('button', { name: 'Send to agent' }));
+  });
+  expect(messageRun).toHaveBeenCalledWith('run-a', 'Keep it short.');
+  await waitFor(() => expect(loadPage).toHaveBeenCalledTimes(2));
+  expect(
+    screen.getByText('Message sent. The agent reads it at its next step.'),
+  ).toBeVisible();
+  await act(async () => release());
+  expect(
+    screen.getByText('Message sent. The agent reads it at its next step.'),
+  ).toBeVisible();
+});
