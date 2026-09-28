@@ -63,6 +63,33 @@ describe('browser capabilities', () => {
     expect(await cancelled).toEqual({ status: 'cancelled' });
   });
 
+  it('lets an attachment pick take several files, other picks one (U18)', async () => {
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
+      () => undefined,
+    );
+    const adapter = createBrowserPlatform(media());
+    const attach = adapter.selectFile(undefined, {
+      intentId: 'intent-a',
+      intent: 'attachment',
+      conversationId: 'conversation-a',
+      destination: 'composer',
+    });
+    let input = document.querySelector('input')!;
+    expect(input.multiple).toBe(true);
+    const files = [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')];
+    Object.defineProperty(input, 'files', { value: files });
+    input.dispatchEvent(new Event('change'));
+    expect(await attach).toEqual({
+      status: 'ok',
+      value: { kind: 'file', files },
+    });
+    const single = adapter.selectFile();
+    input = document.querySelector('input')!;
+    expect(input.multiple).toBe(false);
+    input.dispatchEvent(new Event('cancel'));
+    await single;
+  });
+
   it('bounds pending selection and supports abort without a file or OS window', async () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
       () => undefined,

@@ -81,6 +81,7 @@ const mock = vi.hoisted(() => ({
   platformDiscover: vi.fn(),
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
+  upload: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -101,6 +102,7 @@ vi.mock('../../runtime', () => {
       getDraft: (id: string) =>
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
+      upload: mock.upload,
       intent: mock.intent,
       controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
@@ -2403,4 +2405,65 @@ it('offers the fix that matches why the model cannot answer', async () => {
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
   expect(mock.navigate).toHaveBeenCalledWith('/settings/providers');
+});
+
+function uploaded(file: File) {
+  return {
+    attachment_ref: `conversation-a:${file.name}`,
+    name: file.name,
+    mime_type: file.type,
+    size_bytes: file.size,
+    revision: '1',
+  };
+}
+
+it('attaches a pasted screenshot with a readable name (parity row 1)', async () => {
+  idleConversation();
+  mock.upload.mockImplementation(async (_id: string, file: File) =>
+    uploaded(file),
+  );
+  conversation();
+  const composer = screen.getByRole('textbox', { name: 'Message' });
+  const shot = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', {
+    type: 'image/png',
+  });
+  await act(async () => {
+    fireEvent.paste(composer, {
+      clipboardData: { files: [shot], getData: () => '' },
+    });
+  });
+  expect(mock.upload).toHaveBeenCalledOnce();
+  const sent = mock.upload.mock.calls[0][1] as File;
+  expect(sent.name).toMatch(/^Pasted image \d{4}-\d{2}-\d{2} [\d.]+\.png$/);
+  expect(mock.drafts.get('conversation-a')?.attachments).toHaveLength(1);
+});
+
+it('attaches several dropped files and names the one over the limit (U18)', async () => {
+  idleConversation();
+  mock.upload.mockImplementation(async (_id: string, file: File) =>
+    uploaded(file),
+  );
+  const { container } = conversation();
+  const field = container.querySelector('.composer-field')!;
+  const small = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+  const other = new File(['more'], 'more.txt', { type: 'text/plain' });
+  const huge = new File(['x'], 'film.mov', { type: 'video/quicktime' });
+  Object.defineProperty(huge, 'size', { value: 40 * 1024 * 1024 });
+  const dataTransfer = { types: ['Files'], files: [small, other, huge] };
+  fireEvent.dragEnter(field, { dataTransfer });
+  expect(field).toHaveAttribute('data-dragging', 'true');
+  expect(container.querySelector('.composer-drop')).toHaveTextContent(
+    'Drop to attach · up to 25 MB each',
+  );
+  await act(async () => {
+    fireEvent.drop(field, { dataTransfer });
+  });
+  expect(field).not.toHaveAttribute('data-dragging');
+  expect(mock.upload.mock.calls.map((call) => (call[1] as File).name)).toEqual([
+    'notes.txt',
+    'more.txt',
+  ]);
+  expect(
+    screen.getByText(/“film.mov” is 40 MB; files can be up to 25 MB./),
+  ).toBeVisible();
 });

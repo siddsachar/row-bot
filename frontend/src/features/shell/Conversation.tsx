@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -77,7 +78,12 @@ import {
   profileChoices,
 } from './agent-profiles';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
-import { ComposerSkillChips } from './ComposerSkills';
+import { ComposerSkillChips, chipSkills } from './ComposerSkills';
+import {
+  attachmentLimitProblem,
+  pastedFileName,
+  ATTACHMENT_LIMITS,
+} from './attachment-limits';
 import ApprovalCard from './ApprovalCard';
 import ChatEmpty from './ChatEmpty';
 import { registerPromptSender } from './composer-bridge';
@@ -1556,28 +1562,62 @@ export default function Conversation({
         destination: 'composer',
       });
     if (picked.status !== 'ok') return;
+    if ('files' in picked.value) {
+      await attachFiles(picked.value.files);
+      return;
+    }
+    if (picked.value.kind !== 'file') return;
     setBusy(true);
     try {
-      const uploadedAttachments =
-        'files' in picked.value
-          ? await Promise.all(
-              picked.value.files.map((file) => controller.upload(target, file)),
-            )
-          : picked.value.kind === 'file'
-            ? [await controller.attachmentMetadata(picked.value.reference)]
-            : [];
-      for (const uploaded of uploadedAttachments) {
+      const uploaded = await controller.attachmentMetadata(
+        picked.value.reference,
+      );
+      const previous = controller.getDraft(target);
+      controller.setDraft(target, {
+        ...previous,
+        attachments: [...previous.attachments, uploaded],
+      });
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  /**
+   * Picked, dropped or pasted files (U18, parity row 1). Files over the
+   * limits are named and left out before anything uploads; the rest attach.
+   */
+  async function attachFiles(files: File[]) {
+    if (!id || !files.length) return;
+    const target = id;
+    const current = controller.getDraft(target);
+    const { accepted, problem } = attachmentLimitProblem(
+      files,
+      current.attachments,
+    );
+    if (problem) setError(problem);
+    if (!accepted.length) return;
+    setBusy(true);
+    try {
+      for (const file of accepted) {
+        const uploaded = await controller.upload(target, file);
         const previous = controller.getDraft(target);
         controller.setDraft(target, {
           ...previous,
           attachments: [...previous.attachments, uploaded],
         });
       }
+      if (!problem) setError('');
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
       setBusy(false);
     }
+  }
+  const [dragging, setDragging] = useState(false);
+  const attachBlocked = busy || !id || state.status !== 'ready';
+  function hasFiles(event: DragEvent<HTMLElement>) {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
   }
   function resourcePanel(resource: ResourceView) {
     onResourceOpened?.(resource.binding.binding_id);
@@ -2836,13 +2876,50 @@ export default function Conversation({
               busy={busy || state.status !== 'ready'}
               onAction={waitingAction}
             />
-            <div className="composer-field" ref={composerFieldRef}>
+            <div
+              className="composer-field"
+              ref={composerFieldRef}
+              data-dragging={dragging ? 'true' : undefined}
+              onDragEnter={(event) => {
+                if (!hasFiles(event)) return;
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragOver={(event) => {
+                if (!hasFiles(event)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = attachBlocked ? 'none' : 'copy';
+              }}
+              onDragLeave={(event) => {
+                const next = event.relatedTarget;
+                if (!(
+                  next instanceof Node && event.currentTarget.contains(next)
+                ))
+                  setDragging(false);
+              }}
+              onDrop={(event) => {
+                if (!hasFiles(event)) return;
+                event.preventDefault();
+                setDragging(false);
+                if (!attachBlocked)
+                  void attachFiles(Array.from(event.dataTransfer.files));
+              }}
+            >
+              {dragging && (
+                <div className="composer-drop" aria-hidden>
+                  <Paperclip />
+                  <span>
+                    Drop to attach · up to {ATTACHMENT_LIMITS.fileMegabytes} MB
+                    each
+                  </span>
+                </div>
+              )}
               {(!!resources.length ||
                 !!draft.attachments.length ||
                 (singleLine && needsModel) ||
                 Boolean(
                   composerSnapshot &&
-                  (composerSnapshot.active_skills.length ||
+                  (chipSkills(composerSnapshot).length ||
                     composerSnapshot.suggestions.length),
                 )) && (
                 <div className="composer-chips">
@@ -2943,6 +3020,20 @@ export default function Conversation({
                 onSelect={(e) =>
                   setComposerCursor(e.currentTarget.selectionStart ?? 0)
                 }
+                onPaste={(e) => {
+                  // A pasted screenshot or copied files attach; text pastes
+                  // as text (parity row 1).
+                  const files = Array.from(e.clipboardData?.files ?? []);
+                  if (!files.length) return;
+                  if (!e.clipboardData.getData('text/plain'))
+                    e.preventDefault();
+                  if (!attachBlocked)
+                    void attachFiles(
+                      files.map((file, index) =>
+                        pastedFileName(file, new Date(), index),
+                      ),
+                    );
+                }}
                 onKeyDown={(e) => {
                   if (
                     !e.nativeEvent.isComposing &&

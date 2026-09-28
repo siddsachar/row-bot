@@ -24,6 +24,7 @@ export function createBrowserPlatform(
   function select(
     kind: 'file' | 'folder',
     signal?: AbortSignal,
+    multiple = false,
   ): Promise<CapabilityResult<Selection>> {
     if (signal?.aborted) return Promise.resolve({ status: 'cancelled' });
     if (!activated())
@@ -38,6 +39,8 @@ export function createBrowserPlatform(
       input.webkitdirectory = true;
       input.multiple = true;
     }
+    // Attaching takes several files per pick (U18).
+    if (multiple) input.multiple = true;
     input.hidden = true;
     input.setAttribute(
       'aria-label',
@@ -106,7 +109,8 @@ export function createBrowserPlatform(
         capabilities: capabilityList(),
       },
     }),
-    selectFile: (signal) => select('file', signal),
+    selectFile: (signal, intent) =>
+      select('file', signal, intent?.intent === 'attachment'),
     selectFolder: (signal) => select('folder', signal),
     upload: (conversationId, file, signal) =>
       protect(() => media.upload(conversationId, file, signal)),

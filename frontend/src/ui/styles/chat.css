@@ -1822,6 +1822,30 @@
     var(--border-subtle)
   );
 }
+/* Dragging files over the composer: one calm drop target with the limit. */
+.composer-field[data-dragging='true'] {
+  border-color: var(--accent-solid);
+  border-style: dashed;
+}
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent-subtle) 88%, var(--surface));
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  pointer-events: none;
+}
+.composer-drop svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-solid);
+}
 .composer .message-composer {
   width: 100%;
   min-height: 24px;

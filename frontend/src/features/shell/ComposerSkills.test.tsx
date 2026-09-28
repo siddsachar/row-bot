@@ -80,6 +80,21 @@ it('shows skill provenance and performs activate, dismiss, and remove actions', 
   expect(action).toHaveBeenCalledWith('remove', 'review');
 });
 
+it('keeps a default skill out of the chips (U17)', () => {
+  const seeded = {
+    ...composer,
+    suggestions: [],
+    active_skills: composer.active_skills.map((skill) => ({
+      ...skill,
+      source: 'default',
+    })),
+  };
+  const { container } = render(
+    <ComposerSkillChips composer={seeded} disabled={false} action={vi.fn()} />,
+  );
+  expect(container).toBeEmptyDOMElement();
+});
+
 function Anchored(
   props: Omit<Parameters<typeof ComposerSkills>[0], 'children'>,
 ) {

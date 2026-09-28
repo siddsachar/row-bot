@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from 'react';
+import { useId, useRef, useState, type RefObject } from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
   Bot,
@@ -100,6 +100,7 @@ export default function ComposerControls({
   const state = useClientState();
   const { controller } = useRuntime();
   const navigate = useNavigate();
+  const attachHintId = useId();
   const [saving, setSaving] = useState(false);
   const [localPickerOpen, setLocalPickerOpen] = useState(false);
   const pickerOpen = modelPickerOpen ?? localPickerOpen;
@@ -305,9 +306,15 @@ export default function ComposerControls({
                 className="menu-item"
                 disabled={attachDisabled}
                 onSelect={onAttach}
+                aria-label="Attach file"
+                aria-describedby={attachHintId}
               >
                 <Paperclip size={16} aria-hidden />
                 <span className="menu-item-label">Attach file</span>
+                {/* The limit is said before anything is refused (U18). */}
+                <span className="menu-item-meta" id={attachHintId}>
+                  Up to 25 MB each
+                </span>
               </Dropdown.Item>
             )}
             {onAddResource && (
