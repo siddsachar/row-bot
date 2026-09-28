@@ -50,6 +50,7 @@ export default function Home() {
   const [monitorLoading, setMonitorLoading] = useState(false);
   const [monitorError, setMonitorError] = useState('');
   const [monitorReload, setMonitorReload] = useState(0);
+  const [startupWarnings, setStartupWarnings] = useState<string[]>([]);
   const monitorRead = useRef({ at: 0, key: '' });
   const [setup, setSetup] = useState<OnboardingSnapshot | null>(null);
   const [setupDismissError, setSetupDismissError] = useState('');
@@ -129,6 +130,13 @@ export default function Home() {
     const abort = new AbortController();
     setMonitorLoading(true);
     setMonitorError('');
+    // Start-up warnings are listed in Monitor as well as shown once.
+    controller.notices(abort.signal).then(
+      (page) => {
+        if (!abort.signal.aborted) setStartupWarnings(page.startup_warnings);
+      },
+      () => undefined,
+    );
     controller.monitorSnapshot(abort.signal).then(
       (value) => {
         monitorRead.current = { at: Date.now(), key };
@@ -435,6 +443,7 @@ export default function Home() {
                 error={monitorError}
                 onRefresh={() => setMonitorReload((value) => value + 1)}
                 onRunDiagnosis={() => controller.systemDiagnosis()}
+                startupWarnings={startupWarnings}
                 loadLogs={loadLogs}
                 loadTasks={identity ? loadTasks : undefined}
               />

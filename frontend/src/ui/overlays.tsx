@@ -26,7 +26,8 @@ type Overlay = {
   returnFocusTo?: HTMLElement | null;
 };
 type Task = Overlay & { opener: HTMLElement | null };
-type Notice = { id: number; message: string };
+export type NoticeTone = 'warning' | 'danger';
+type Notice = { id: number; message: string; tone?: NoticeTone };
 let historyOwner = 0;
 
 /** Same-URL history entries let platform Back dismiss modal work first. */
@@ -90,7 +91,8 @@ const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
   close: (returnFocusTo?: HTMLElement | null) => void;
   dismiss: (key: string) => void;
-  notify: (message: string) => void;
+  /** A short notice; warnings and errors stay longer and are announced. */
+  notify: (message: string, tone?: NoticeTone) => void;
 } | null>(null);
 
 /** A single Radix modal focus/scroll scope; confirmation suspends a mounted task. */
@@ -159,11 +161,11 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       resumeFocus.current = null;
     }
   }, [confirmation]);
-  const notify = (message: string) =>
+  const notify = (message: string, tone?: NoticeTone) =>
     setNotices((previous) =>
       previous.some((notice) => notice.message === message)
         ? previous
-        : [...previous, { id: nextNotice.current++, message }].slice(-3),
+        : [...previous, { id: nextNotice.current++, message, tone }].slice(-3),
     );
   return (
     <OverlayContext.Provider
@@ -285,6 +287,9 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Toast.Root
                 className="toast"
                 key={notice.id}
+                data-tone={notice.tone}
+                type={notice.tone ? 'foreground' : 'background'}
+                duration={notice.tone ? 12000 : undefined}
                 onOpenChange={(value) => {
                   if (!value)
                     setNotices((values) =>

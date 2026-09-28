@@ -70,6 +70,28 @@ const DELAYS = [1000, 2000, 3000, 5000, 5000, 5000];
  */
 const RECOVERY_DELAYS = [500, 1500, 3000, 5000];
 const SESSION_RECOVERY_ATTEMPTS = 3;
+/** With no conversation stream open, background notices are read this often. */
+const NOTICE_READ_MS = 30000;
+const NOTICE_POSITION_KEY = 'row-bot.notices.v1';
+
+function readNoticePosition(): { after: number; epoch: string } {
+  try {
+    const value = JSON.parse(
+      window.sessionStorage.getItem(NOTICE_POSITION_KEY) ?? 'null',
+    ) as { after?: unknown; epoch?: unknown } | null;
+    if (
+      value &&
+      typeof value.epoch === 'string' &&
+      value.epoch.length <= 128 &&
+      Number.isSafeInteger(value.after) &&
+      (value.after as number) >= 0
+    )
+      return { after: value.after as number, epoch: value.epoch };
+  } catch {
+    // No storage: this window shows each notice once while it stays open.
+  }
+  return { after: 0, epoch: '' };
+}
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -129,6 +151,11 @@ export class ClientController {
   private authenticationNumber = 0;
   private visible = true;
   private recoveryAttempts = 0;
+  private noticePosition = readNoticePosition();
+  private noticeListeners = new Set<
+    (notice: import('./types').Notice) => void
+  >();
+  private noticeTimer: ReturnType<typeof setInterval> | null = null;
   /** The conversation to reopen once a lost session is replaced. */
   private recoverySelection: string | null = null;
   /** Unsaved drafts kept aside while there is no session. */
@@ -627,6 +654,69 @@ export class ClientController {
       void this.reconnect();
     }, delay);
   }
+  /** Background notices, each once per window (see `application/app_notices`). */
+  onNotice = (
+    listener: (notice: import('./types').Notice) => void,
+  ): (() => void) => {
+    this.noticeListeners.add(listener);
+    return () => {
+      this.noticeListeners.delete(listener);
+    };
+  };
+  private receiveNotices(
+    epoch: string,
+    notices: readonly import('./types').Notice[],
+  ): void {
+    if (!epoch || this.disposed) return;
+    if (epoch !== this.noticePosition.epoch)
+      this.noticePosition = { after: 0, epoch };
+    const fresh = notices
+      .filter((notice) => notice.id > this.noticePosition.after)
+      .sort((a, b) => a.id - b.id);
+    if (!fresh.length) return;
+    this.noticePosition = { epoch, after: fresh.at(-1)!.id };
+    try {
+      window.sessionStorage.setItem(
+        NOTICE_POSITION_KEY,
+        JSON.stringify(this.noticePosition),
+      );
+    } catch {
+      // Kept in memory for this window.
+    }
+    for (const notice of fresh)
+      this.noticeListeners.forEach((listener) => listener(notice));
+  }
+  /** Read notices while no conversation stream carries them (Home, Settings). */
+  private async readNotices(): Promise<void> {
+    if (
+      this.disposed ||
+      !this.online ||
+      !this.visible ||
+      !this.state.handshake ||
+      this.activeSubscription ||
+      !this.transport.notices
+    )
+      return;
+    try {
+      const page = await this.transport.notices(
+        this.noticePosition,
+        this.lifetime.signal,
+      );
+      this.receiveNotices(page.server_epoch, page.notices);
+    } catch {
+      // The next read, or the next conversation stream, delivers them.
+    }
+  }
+  private startNoticeReads(): void {
+    if (this.noticeTimer || this.disposed || !this.transport.notices) return;
+    this.noticeTimer = setInterval(
+      () => void this.readNotices(),
+      NOTICE_READ_MS,
+    );
+  }
+  /** Background notices and start-up warnings, for Monitor. */
+  notices = (signal?: AbortSignal) =>
+    this.query(() => this.transport.notices?.(undefined, signal));
   private cancelRecovery(): void {
     if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
     this.recoveryTimer = null;
@@ -719,6 +809,8 @@ export class ClientController {
       ) {
         opening = this.selectConversation(reopen);
       }
+      this.startNoticeReads();
+      if (!opening) void this.readNotices();
       await Promise.all([library, opening]);
     } catch (error) {
       if (authentication === this.authenticationNumber) this.failed(error);
@@ -1395,8 +1487,15 @@ export class ClientController {
               subscription.subscription_id,
               cursor,
               signal,
+              this.noticePosition,
             )) {
               if (!alive()) return;
+              if ('notice' in record) {
+                this.receiveNotices(record.notice.notices_epoch, [
+                  record.notice.notice,
+                ]);
+                continue;
+              }
               const disposition =
                 'event' in record ? this.apply(record) : 'reset';
               if (disposition === 'reset') {
@@ -1425,9 +1524,12 @@ export class ClientController {
                 subscription.subscription_id,
                 cursor,
                 signal,
+                this.noticePosition,
               ),
             );
             if (!alive()) return;
+            if (page.notices_epoch)
+              this.receiveNotices(page.notices_epoch, page.notices ?? []);
             this.metrics.polls += 1;
             if (page.snapshot_required) {
               if (!page.snapshot) {
@@ -4865,6 +4967,9 @@ export class ClientController {
     this.disposed = true;
     this.cancelRecovery();
     this.unsavedDrafts.clear();
+    if (this.noticeTimer) clearInterval(this.noticeTimer);
+    this.noticeTimer = null;
+    this.noticeListeners.clear();
     this.lifetime.abort();
     this.selection.abort();
     this.transport.clearSession();

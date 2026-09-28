@@ -3972,6 +3972,8 @@ def run_task_background(
                 message=label,
                 sound="timer",
                 icon="⏰",
+                source="workflow",
+                requested=True,
             )
             try:
                 _validate_effect()
@@ -4012,6 +4014,8 @@ def run_task_background(
                     message=f"{task['name']} — {delivery_detail}",
                     sound="timer",
                     icon="⚠️",
+                    toast_type="warning",
+                    source="workflow",
                 )
             if task.get("delete_after_run"):
                 _validate_effect()
@@ -4448,6 +4452,8 @@ def run_task_background(
                                         message=f"{task['name']}: {approval_msg}",
                                         sound="workflow",
                                         icon="⏸️",
+                                        toast_type="warning",
+                                        source="workflow",
                                     )
                                 break  # exit retry loop — approval will resume graph
                             if result:
@@ -4556,6 +4562,8 @@ def run_task_background(
                             message=f"{task['name']}: {approval_msg}",
                             sound="workflow",
                             icon="⏸️",
+                            toast_type="warning",
+                            source="workflow",
                         )
                     break  # exit the step loop — resume will continue
 
@@ -4956,6 +4964,8 @@ def run_task_background(
                             message=notify_msg,
                             sound="workflow",
                             icon="📋",
+                            source="workflow",
+                            requested=True,
                         )
                     else:
                         # Use task's delivery channel mechanism
@@ -5043,6 +5053,7 @@ def run_task_background(
                         message=f"{task['name']} was stopped.",
                         sound="workflow",
                         icon="⏹️",
+                        source="workflow",
                     )
                 return  # skip delivery, skip delete_after_run
 
@@ -5106,6 +5117,8 @@ def run_task_background(
                     message=f"{task['name']} finished ({total} step{'s' if total != 1 else ''}).{suffix}",
                     sound="workflow",
                     icon="⚡",
+                    source="workflow",
+                    requested=True,
                 )
                 if delivery_status == "delivery_failed":
                     _validate_effect()
@@ -5114,6 +5127,8 @@ def run_task_background(
                         message=f"{task['name']} — {delivery_detail}",
                         sound="timer",
                         icon="⚠️",
+                        toast_type="warning",
+                        source="workflow",
                     )
 
             # Auto-delete one-shot tasks
@@ -6982,6 +6997,8 @@ def _resume_graph_interrupted(
                     message=f"{task['name']}: {approval_msg}",
                     sound="workflow",
                     icon="⏸️",
+                    toast_type="warning",
+                    source="workflow",
                 )
                 return
 
@@ -7144,7 +7161,7 @@ def _resume_pipeline(resume_token: str, approved: bool = True, *,
         from row_bot.notifications import notify
         notify(title="❌ Task Denied",
                message=f"{task['name']}: approval denied by user",
-               sound="workflow", icon="❌")
+               sound="workflow", icon="❌", source="workflow")
         return
 
     _update_pipeline_status(state["run_id"], "running")
@@ -7411,6 +7428,8 @@ def _run_subtask_sync(
                         message=msg,
                         sound="workflow",
                         icon="📋",
+                        source="workflow",
+                        requested=True,
                     )
                 else:
                     try:

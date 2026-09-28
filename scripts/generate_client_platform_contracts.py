@@ -84,7 +84,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
     "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView")}
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView",
+    "Notice", "NoticePage", "NoticeFrame")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
 # drives OpenAPI and is checked against the actual router in the contract tests.
@@ -111,6 +112,7 @@ OPERATIONS = (
     ("post", "/approvals/{approval_id}/commands", "Command", "CommandReceipt"),
     ("post", "/conversations/{conversation_id}/subscriptions", None, "SubscriptionView"),
     ("get", "/events/poll", None, "EventPage"),
+    ("get", "/notices", None, "NoticePage"),
     ("get", "/events", None, "Event"),
     ("put", "/subscriptions/{subscription_id}/ack", "Acknowledgement", "Acknowledged"),
     ("delete", "/subscriptions/{subscription_id}", None, "Unsubscribed"),
@@ -1168,8 +1170,11 @@ export const getResource = (base: string, proof: SessionProof, reference: string
   jsonRequest(base, `/resources/${id(reference)}`, 'ResourceView', proof, 'GET', undefined, undefined, signal);
 export const subscribe = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<SubscriptionView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/subscriptions`, 'SubscriptionView', proof, 'POST', undefined, undefined, signal);
-export const poll = (base: string, proof: SessionProof, subscription_id: string, cursor: string, signal?: AbortSignal): Promise<EventPage> =>
-  jsonRequest(base, '/events/poll' + query({subscription_id,cursor}), 'EventPage', proof, 'GET', undefined, undefined, signal);
+export type NoticePosition = {after: number; epoch: string};
+export const poll = (base: string, proof: SessionProof, subscription_id: string, cursor: string, signal?: AbortSignal, notices?: NoticePosition): Promise<EventPage> =>
+  jsonRequest(base, '/events/poll' + query({subscription_id,cursor,notices_after:notices?.after,notices_epoch:notices?.epoch}), 'EventPage', proof, 'GET', undefined, undefined, signal);
+export const getNotices = (base: string, proof: SessionProof, notices?: NoticePosition, signal?: AbortSignal): Promise<NoticePage> =>
+  jsonRequest(base, '/notices' + query({after:notices?.after,epoch:notices?.epoch}), 'NoticePage', proof, 'GET', undefined, undefined, signal);
 export const acknowledge = (base: string, proof: SessionProof, subscription: string, cursor: string, signal?: AbortSignal): Promise<Acknowledged> =>
   jsonRequest(base, `/subscriptions/${id(subscription)}/ack`, 'Acknowledged', proof, 'PUT', {cursor}, undefined, signal);
 export const unsubscribe = (base: string, proof: SessionProof, subscription: string, signal?: AbortSignal, keepalive = false): Promise<Unsubscribed> =>
@@ -1254,9 +1259,9 @@ export async function downloadArtifactExport(base: string, proof: SessionProof, 
   return blob;
 }
 export async function* observeEvents(base: string, proof: SessionProof, subscription_id: string,
-  cursor: string, signal?: AbortSignal): AsyncGenerator<EventRecord | StreamReset> {
+  cursor: string, signal?: AbortSignal, notices?: NoticePosition): AsyncGenerator<EventRecord | StreamReset | {notice: NoticeFrame}> {
   signal?.throwIfAborted();
-  const response = await fetch(`${base}/api/v1/events` + query({subscription_id,cursor}), {
+  const response = await fetch(`${base}/api/v1/events` + query({subscription_id,cursor,notices_after:notices?.after,notices_epoch:notices?.epoch}), {
     credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
   });
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
@@ -1278,6 +1283,9 @@ export async function* observeEvents(base: string, proof: SessionProof, subscrip
         if (!fields.event) continue;
         if (fields.event === 'snapshot_required') {
           yield validateWire<StreamReset>('StreamReset', JSON.parse(fields.data)); return;
+        }
+        if (fields.event === 'notice') {
+          yield {notice: validateWire<NoticeFrame>('NoticeFrame', JSON.parse(fields.data))}; continue;
         }
         if (fields.event !== 'domain') throw new Error('protocol_incompatible');
         const event = JSON.parse(fields.data);
@@ -1501,6 +1509,11 @@ def outputs() -> dict[Path, str]:
         elif suffix in {"/events", "/events/poll"}:
             query_parameters = [(name, True, {"type": "string", "maxLength": 2048})
                                 for name in ("subscription_id", "cursor")]
+            query_parameters += [("notices_after", False, {"type": "integer", "minimum": 0}),
+                                 ("notices_epoch", False, {"type": "string", "maxLength": 128})]
+        elif suffix == "/notices":
+            query_parameters = [("after", False, {"type": "integer", "minimum": 0}),
+                                ("epoch", False, {"type": "string", "maxLength": 128})]
         elif suffix.endswith("/chunks"):
             query_parameters = [("offset", True, {"type": "integer", "minimum": 0, "maximum": 26214400})]
         elif suffix == "/uploads":
@@ -1542,7 +1555,7 @@ def outputs() -> dict[Path, str]:
             operation["requestBody"] = {"required": True, "content": {
                 "application/sdp" if suffix.endswith("/voice/realtime/{lease_id}/exchange") else "application/octet-stream" if request == "bytes" else "application/json": {"schema": request_schema}}}
         if suffix == "/events":
-            operation["description"] = "SSE domain data validates Event; snapshot_required data validates StreamReset. IDs are signed cursors."
+            operation["description"] = "SSE domain data validates Event; snapshot_required data validates StreamReset; notice data validates NoticeFrame. IDs are signed cursors; notice frames carry none."
         if suffix == "/documents/uploads/commands":
             operation["requestBody"] = {"required": True, "content": {
                 "application/vnd.row-bot.document-upload-v1": {"schema": {"type": "string", "format": "binary",

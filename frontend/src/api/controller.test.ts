@@ -19,6 +19,8 @@ import type {
   Event,
   EventRecord,
   Snapshot,
+  NoticeFrame,
+  NoticePage,
   StreamReset,
   SubscriptionView,
   TranscriptPage,
@@ -1134,6 +1136,104 @@ describe('connection and lifecycle ownership', () => {
     expect(transport.counters.subscribes).toBeGreaterThan(subscribes);
     expect(transport.counters.commands).toBe(0);
   });
+  it('delivers background notices from the event stream once, apart from events', async () => {
+    const epoch = '00000000-0000-4000-8000-00000000e90c';
+    const notice = (id: number, level: 'info' | 'warning' = 'warning') => ({
+      id,
+      level,
+      title: 'Approval Required',
+      message: `Digest ${id}`,
+      source: 'workflow',
+      requested: false,
+      startup: false,
+      count: 1,
+      at: '2026-09-28T12:00:00Z',
+    });
+    let positions: unknown[] = [];
+    class NoticeStream extends FixtureTransport {
+      sent = false;
+      override async *observe(
+        subscription: string,
+        cursor: string,
+        signal: AbortSignal,
+        notices?: { after: number; epoch: string },
+      ): AsyncGenerator<EventRecord | StreamReset | { notice: NoticeFrame }> {
+        positions.push(notices);
+        if (!this.sent) {
+          this.sent = true;
+          yield { notice: { notices_epoch: epoch, notice: notice(1) } };
+          yield { notice: { notices_epoch: epoch, notice: notice(1) } };
+          yield { notice: { notices_epoch: epoch, notice: notice(2) } };
+        }
+        yield* super.observe(subscription, cursor, signal);
+      }
+    }
+    sessionStorage.clear();
+    const transport = new NoticeStream();
+    const value = client(transport);
+    const received: number[] = [];
+    value.onNotice((item) => received.push(item.id));
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await vi.waitFor(() => expect(received).toEqual([1, 2]));
+    // Notices never touch the conversation's projection or cursor.
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.metrics.resets).toBe(1);
+    expect(JSON.parse(sessionStorage.getItem('row-bot.notices.v1')!)).toEqual({
+      epoch,
+      after: 2,
+    });
+    // A later stream resumes after what this window already showed.
+    positions = [];
+    value.reconnect();
+    await vi.waitFor(() =>
+      expect(positions).toContainEqual({ epoch, after: 2 }),
+    );
+    expect(received).toEqual([1, 2]);
+  });
+  it('reads notices while no conversation stream is open', async () => {
+    vi.useFakeTimers();
+    const epoch = '00000000-0000-4000-8000-00000000e90d';
+    let reads = 0;
+    class NoticeRead extends FixtureTransport {
+      async notices(): Promise<NoticePage> {
+        reads += 1;
+        return {
+          server_epoch: epoch,
+          latest: reads,
+          notices: [
+            {
+              id: reads,
+              level: 'warning',
+              title: 'Start-up warning',
+              message: `Warning ${reads}`,
+              source: 'startup',
+              requested: false,
+              startup: true,
+              count: 1,
+              at: '2026-09-28T12:00:00Z',
+            },
+          ],
+          startup_warnings: [],
+        };
+      }
+    }
+    sessionStorage.clear();
+    const transport = new NoticeRead();
+    const value = client(transport);
+    const received: string[] = [];
+    value.onNotice((item) => received.push(item.message));
+    await value.start();
+    await flush();
+    expect(received).toEqual(['Warning 1']);
+    await vi.advanceTimersByTimeAsync(30000);
+    await flush();
+    expect(received).toEqual(['Warning 1', 'Warning 2']);
+    // A hidden window does not read.
+    value.setVisible(false);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(reads).toBe(2);
+  });
   it('keeps an unsaved draft through a restart, hidden until a new session opens (B110)', async () => {
     vi.useFakeTimers();
     const transport = new FixtureTransport();
@@ -1629,7 +1729,7 @@ describe('event order, atomic reset and commands', () => {
         subscription: string,
         cursor: string,
         signal: AbortSignal,
-      ): AsyncGenerator<EventRecord | StreamReset> {
+      ): AsyncGenerator<EventRecord | StreamReset | { notice: NoticeFrame }> {
         if (this.resets > 0) {
           this.resets -= 1;
           this.revision += 1n;

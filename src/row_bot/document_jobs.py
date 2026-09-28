@@ -2585,6 +2585,9 @@ def _notify_batch_complete(service: DocumentJobService, batch: DocumentBatch) ->
             "Document Ingestion",
             f"{completed} complete, {failed} failed or cancelled, {duplicates} duplicate skipped",
             icon="📄",
+            toast_type="warning" if failed else "positive",
+            source="documents",
+            requested=True,
         )
     except Exception:
         logger.debug("Document batch completion notification skipped", exc_info=True)

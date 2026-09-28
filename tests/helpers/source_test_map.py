@@ -23,6 +23,15 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "react_background_notices",
+        (
+            "src/row_bot/application/app_notices.py",
+            "src/row_bot/notifications.py",
+        ),
+        ("tests/subsystem/client_protocol/test_background_notices.py",),
+        "Background notices stay bounded, coalesced and delivered over the event stream once per client.",
+    ),
+    SourceTestRule(
         "unified_conversation_creation_and_writer",
         (
             "src/row_bot/application/conversation_creation.py",

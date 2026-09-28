@@ -13,6 +13,7 @@ import {
   Search,
   Stethoscope,
   type LucideIcon,
+  TriangleAlert,
 } from 'lucide-react';
 import type {
   MonitorLogs,
@@ -118,6 +119,8 @@ export type MonitorHomeProps = {
   error?: string | null;
   onRefresh: () => void;
   onRunDiagnosis: () => Promise<SystemDiagnosis>;
+  /** Problems met while Row-Bot started (plugins, tunnel, tokens…). */
+  startupWarnings?: readonly string[];
   /** Up to 200 redacted entries for the console (local owner only). */
   loadLogs?: (signal?: AbortSignal) => Promise<MonitorLogs>;
   loadTasks?: () => Promise<TaskSummaryPage>;
@@ -849,6 +852,7 @@ export default function MonitorHome({
   error,
   onRefresh,
   onRunDiagnosis,
+  startupWarnings,
   loadLogs,
   loadTasks,
   writeClipboard,
@@ -1210,6 +1214,24 @@ export default function MonitorHome({
           );
         })}
       </ul>
+      {startupWarnings && startupWarnings.length > 0 && (
+        <section
+          className="monitor-section monitor-startup"
+          aria-labelledby="startup-heading"
+        >
+          <header className="monitor-section-head">
+            <h3 id="startup-heading">Start-up warnings</h3>
+          </header>
+          <ul className="monitor-startup-list">
+            {startupWarnings.map((warning, index) => (
+              <li key={index}>
+                <TriangleAlert size={14} aria-hidden />
+                <span>{warning}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {!snapshot && loading && (
         <p className="home-caption" role="status">
           Loading System Monitor…

@@ -9118,15 +9118,50 @@ def create_router(
             "cursor": security.cursor(sub, delivered_revision),
         }
 
+    def _notices_after(after: int, epoch: str) -> int:
+        # A new server numbers its notices from 1 again.
+        from row_bot.application.app_notices import app_notices
+
+        return after if epoch == app_notices.epoch and after >= 0 else 0
+
     @router.get("/events/poll")
-    async def poll(request: Request, subscription_id: str, cursor: str) -> JSONResponse:
+    async def poll(
+        request: Request,
+        subscription_id: str,
+        cursor: str,
+        notices_after: int = 0,
+        notices_epoch: str | None = None,
+    ) -> JSONResponse:
         current = await session(request, lane="observation")
         sub = security.subscription(current, subscription_id)
         if sub.streaming:
             raise ProtocolError("subscription_in_use", 409)
         result = await replay(sub, cursor)
         await _context(request)
+        if notices_epoch is not None:
+            # Only a client that asks for notices (by sending its position,
+            # empty at first) receives them.
+            from row_bot.application.app_notices import app_notices
+
+            result["notices"] = [
+                notice.view()
+                for notice in app_notices.since(
+                    _notices_after(notices_after, notices_epoch)
+                )
+            ]
+            result["notices_epoch"] = app_notices.epoch
         return await respond(request, dto.EventPage, result)
+
+    @router.get("/notices")
+    async def notices(request: Request, after: int = 0, epoch: str = "") -> JSONResponse:
+        """Background notices and start-up warnings, for a client with no
+        conversation stream open (Home, Settings) and for Monitor."""
+        await session(request)
+        from row_bot.application.app_notices import app_notices
+
+        return await respond(
+            request, dto.NoticePage, app_notices.page(_notices_after(after, epoch))
+        )
 
     @router.put("/subscriptions/{subscription_id}/ack")
     async def acknowledge(subscription_id: str, request: Request) -> JSONResponse:
@@ -9145,15 +9180,25 @@ def create_router(
 
     @router.get("/events")
     async def events(
-        request: Request, subscription_id: str, cursor: str
+        request: Request,
+        subscription_id: str,
+        cursor: str,
+        notices_after: int = 0,
+        notices_epoch: str | None = None,
     ) -> StreamingResponse:
         current = await session(request, lane="observation")
         sub = security.subscription(current, subscription_id)
         security.decode_cursor(sub, cursor)
         security.enter_stream(sub)
+        from row_bot.application.app_notices import app_notices
 
         async def stream() -> Any:
             position = cursor
+            notice_position = (
+                _notices_after(notices_after, notices_epoch)
+                if notices_epoch is not None
+                else None
+            )
             heartbeat = security.clock()
             try:
                 # Flush the accepted stream even when replay is empty; an idle
@@ -9182,6 +9227,18 @@ def create_router(
                                 + json.dumps(item["event"], separators=(",", ":"))
                                 + "\n\n"
                             )
+                    # Background notices ride the same stream as their own
+                    # frames; they never move the conversation cursor.
+                    for notice in (
+                        app_notices.since(notice_position)
+                        if notice_position is not None
+                        else ()
+                    ):
+                        frame = dto.NoticeFrame(
+                            notices_epoch=app_notices.epoch, notice=notice.view()
+                        )
+                        yield "event: notice\ndata: " + frame.model_dump_json() + "\n\n"
+                        notice_position = notice.id
                     position = result["cursor"]
                     if security.clock() - heartbeat >= 15:
                         yield ": heartbeat\n\n"

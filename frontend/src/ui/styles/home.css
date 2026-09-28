@@ -2699,3 +2699,25 @@
   font-size: var(--type-size-metadata);
   line-height: var(--type-line-metadata);
 }
+
+/* Start-up warnings: listed while they matter, in the person's words. */
+.monitor-startup-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.monitor-startup-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  overflow-wrap: anywhere;
+}
+.monitor-startup-list svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--status-warning-text);
+}

@@ -100,6 +100,7 @@ const mock = vi.hoisted(() => ({
     onboarding: vi.fn(),
     knowledgeGraph: vi.fn(),
     monitorSnapshot: vi.fn(),
+    notices: vi.fn(),
     savedTasks: vi.fn(),
     knowledgeEntityDetail: vi.fn(),
     reviewDreamRun: vi.fn(),
@@ -164,6 +165,12 @@ beforeEach(() => {
   mock.controller.onboarding.mockResolvedValue(onboarding());
   mock.controller.knowledgeGraph.mockResolvedValue(emptyGraph);
   mock.controller.monitorSnapshot.mockResolvedValue(monitorSnapshot);
+  mock.controller.notices.mockResolvedValue({
+    server_epoch: 'epoch',
+    latest: 0,
+    notices: [],
+    startup_warnings: [],
+  });
   mock.controller.savedTasks.mockResolvedValue(taskPage());
   mock.controller.monitorLogs.mockResolvedValue(monitorSnapshot.logs);
   mock.state.status = 'ready';

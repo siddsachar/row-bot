@@ -267,7 +267,9 @@ function NotificationFixture({ mounted }: { mounted: () => void }) {
       />
       <Button onClick={() => notify('Message queued')}>Queue message</Button>
       <Button
-        onClick={() => ['One', 'Two', 'Two', 'Three', 'Four'].forEach(notify)}
+        onClick={() =>
+          ['One', 'Two', 'Two', 'Three', 'Four'].forEach((text) => notify(text))
+        }
       >
         Several notices
       </Button>

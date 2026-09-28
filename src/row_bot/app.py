@@ -82,6 +82,20 @@ def _app_boot_event(event: str, **fields) -> None:
 _app_boot_event("module_logger_ready", python=sys.executable, cwd=os.getcwd())
 
 
+def _startup_warning(message: str, *, source: str = "startup") -> None:
+    """A start-up problem: kept for the legacy page, shown once in the React
+    app and listed in Monitor (parity row 11)."""
+    import row_bot.ui.state as _st
+
+    _st.startup_warnings.append(message)
+    try:
+        from row_bot.application.app_notices import app_notices
+
+        app_notices.startup_warning(message, source=source)
+    except Exception:
+        logger.debug("Start-up notice failed (non-fatal)", exc_info=True)
+
+
 def _safe_console_print(message: object) -> None:
     text = str(message)
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
@@ -545,12 +559,14 @@ async def _auto_start_channel_background(channel, _st) -> None:
             except Exception:
                 logger.debug("Channel notification reconciliation failed", exc_info=True)
         else:
-            _st.startup_warnings.append(
-                f"⚠️ {display_name} failed to auto-start — check Settings → Channels"
+            _startup_warning(
+                f"{display_name} didn't start. Check it in Settings › Channels.",
+                source="channels",
             )
     except Exception as exc:
-        _st.startup_warnings.append(
-            f"⚠️ {display_name} failed to auto-start: {exc}"
+        _startup_warning(
+            f"{display_name} didn't start. Check it in Settings › Channels.",
+            source="channels",
         )
         logger.warning("Channel auto-start failed for %s: %s", channel_name, exc)
     finally:
@@ -698,7 +714,8 @@ def _check_oauth_tokens(_st=None) -> list[str]:
             logger.warning("OAuth check failed for %s: %s", display, exc)
 
     if _st is not None:
-        _st.startup_warnings.extend(warnings)
+        for warning in warnings:
+            _startup_warning(warning, source="accounts")
     return warnings
 
 
@@ -725,7 +742,8 @@ def _check_github_account_health(_st=None) -> list[str]:
         logger.warning("GitHub account health check failed: %s", exc)
 
     if _st is not None:
-        _st.startup_warnings.extend(warnings)
+        for warning in warnings:
+            _startup_warning(warning, source="accounts")
     return warnings
 
 
@@ -737,7 +755,7 @@ def _periodic_oauth_check():
         from row_bot.notifications import notify as _oauth_notify
         for msg in warnings:
             _oauth_notify("Account Issue", msg, sound="default",
-                          icon="⚠️", toast_type="warning")
+                          icon="⚠️", toast_type="warning", source="accounts")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -767,7 +785,9 @@ async def _run_startup_sequence_guarded():
         import row_bot.ui.state as _st
 
         _st.startup_status = f"Startup error: {exc}"
-        _st.startup_warnings.append(str(exc))
+        _startup_warning(
+            "Row-Bot didn't finish starting. Some features may be unavailable; Monitor shows which.",
+        )
         logger.info(
             "startup.phase name=startup_sequence_total duration_ms=%.1f success=false",
             (time.perf_counter() - startup_total_started) * 1000.0,
@@ -881,9 +901,10 @@ async def _run_startup_sequence():
             "Document ingestion startup recovery skipped (non-fatal): %s",
             exc,
         )
-        _st.startup_warnings.append(
+        _startup_warning(
             "Document ingestion could not start. Existing document search remains available; "
-            "restart Row-Bot or review System Diagnosis before uploading more files."
+            "restart Row-Bot or review System Diagnosis before uploading more files.",
+            source="documents",
         )
 
     _set("🌙 Starting dream cycle daemon…")
@@ -905,9 +926,10 @@ async def _run_startup_sequence():
             await asyncio.to_thread(lambda: (seed_default_tasks(), start_task_scheduler()))
     except Exception as exc:
         logger.warning("Workflow startup skipped after task DB repair failure: %s", exc)
-        _st.startup_warnings.append(
+        _startup_warning(
             "Workflow data is temporarily unavailable. "
-            "Run launcher.py --reset-tasks-db if it does not recover after restart."
+            "Run launcher.py --reset-tasks-db if it does not recover after restart.",
+            source="workflow",
         )
 
     _set("Recovering Agent runs...")
@@ -941,10 +963,10 @@ async def _run_startup_sequence():
             )
         for r in results:
             if not r.success and r.error:
-                _st.startup_warnings.append(f"⚠️ Plugin '{r.plugin_id}' failed: {r.error}")
+                _startup_warning(f"The plugin '{r.plugin_id}' didn't load: {r.error}", source="plugins")
             elif getattr(r, "stale", False):
-                _st.startup_warnings.append(
-                    f"⚠️ Legacy plugin '{r.plugin_id}' moved to stale plugins."
+                _startup_warning(
+                    f"The legacy plugin '{r.plugin_id}' moved to stale plugins.", source="plugins"
                 )
     except Exception as exc:
         logger.warning("Plugin loading failed (non-fatal): %s", exc)
@@ -964,9 +986,10 @@ async def _run_startup_sequence():
     with _startup_phase("channel_module_import"):
         skipped_channels = _load_channel_modules()
     for skipped_channel in skipped_channels:
-        _st.startup_warnings.append(
+        _startup_warning(
             f"Channel adapter unavailable: {skipped_channel}. "
-            "Install the channels extra to enable it."
+            "Install the channels extra to enable it.",
+            source="channels",
         )
     try:
         from row_bot.channels.auth_store import migrate_legacy_channel_secrets

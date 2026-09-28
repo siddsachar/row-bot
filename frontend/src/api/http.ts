@@ -2537,17 +2537,38 @@ export class HttpTransport implements ClientTransport {
   subscribe(id: string, signal?: AbortSignal) {
     return wire.subscribe(this.base, this.session(), id, signal);
   }
-  observe(subscription: string, cursor: string, signal: AbortSignal) {
+  observe(
+    subscription: string,
+    cursor: string,
+    signal: AbortSignal,
+    notices?: wire.NoticePosition,
+  ) {
     return wire.observeEvents(
       this.base,
       this.session(),
       subscription,
       cursor,
       signal,
+      notices,
     );
   }
-  poll(subscription: string, cursor: string, signal?: AbortSignal) {
-    return wire.poll(this.base, this.session(), subscription, cursor, signal);
+  poll(
+    subscription: string,
+    cursor: string,
+    signal?: AbortSignal,
+    notices?: wire.NoticePosition,
+  ) {
+    return wire.poll(
+      this.base,
+      this.session(),
+      subscription,
+      cursor,
+      signal,
+      notices,
+    );
+  }
+  notices(position?: wire.NoticePosition, signal?: AbortSignal) {
+    return wire.getNotices(this.base, this.session(), position, signal);
   }
   acknowledge(subscription: string, cursor: string, signal?: AbortSignal) {
     return wire.acknowledge(

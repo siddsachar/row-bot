@@ -8786,7 +8786,7 @@
     },
     "/api/v1/events": {
       "get": {
-        "description": "SSE domain data validates Event; snapshot_required data validates StreamReset. IDs are signed cursors.",
+        "description": "SSE domain data validates Event; snapshot_required data validates StreamReset; notice data validates NoticeFrame. IDs are signed cursors; notice frames carry none.",
         "parameters": [
           {
             "in": "header",
@@ -8821,6 +8821,24 @@
             "required": true,
             "schema": {
               "maxLength": 2048,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "notices_after",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "notices_epoch",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
               "type": "string"
             }
           }
@@ -8885,6 +8903,24 @@
             "required": true,
             "schema": {
               "maxLength": 2048,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "notices_after",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "notices_epoch",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
               "type": "string"
             }
           }
@@ -11191,6 +11227,70 @@
               "application/json": {
                 "schema": {
                   "$ref": "./NativeTerminalChanged.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/notices": {
+      "get": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "epoch",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./NoticePage.schema.json"
                 }
               }
             },

@@ -344,7 +344,10 @@ export class FixtureTransport implements ClientTransport {
     subscription: string,
     _cursor: string,
     signal: AbortSignal,
-  ): AsyncGenerator<wire.EventRecord | wire.StreamReset> {
+    _notices?: wire.NoticePosition,
+  ): AsyncGenerator<
+    wire.EventRecord | wire.StreamReset | { notice: wire.NoticeFrame }
+  > {
     this.available(signal);
     this.counters.streams += 1;
     this.counters.maxStreams = Math.max(

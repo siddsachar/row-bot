@@ -6242,11 +6242,43 @@ class EventRecord(WireModel):
         return self
 
 
+class Notice(WireModel):
+    """A background notice (application.app_notices): text for people only."""
+
+    id: int = Field(ge=1, le=9007199254740991)
+    level: Literal["info", "warning", "error"]
+    title: str = Field(min_length=1, max_length=120)
+    message: str = Field(max_length=500)
+    source: str = Field(min_length=1, max_length=32)
+    requested: bool
+    startup: bool
+    count: int = Field(ge=1, le=9007199254740991)
+    at: str = Field(min_length=1, max_length=64)
+
+
+class NoticePage(WireModel):
+    server_epoch: OpaqueId
+    latest: int = Field(ge=0, le=9007199254740991)
+    notices: list[Notice] = Field(max_length=64)
+    startup_warnings: list[str] = Field(max_length=32)
+
+
+class NoticeFrame(WireModel):
+    """Data of an event-stream `notice` frame."""
+
+    notices_epoch: OpaqueId
+    notice: Notice
+
+
 class EventPage(WireModel):
     snapshot_required: bool
     snapshot: Snapshot | None = None
     events: list[EventRecord] = Field(max_length=4096)
     cursor: Cursor
+    # Background notices newer than the poll's notices_after (event stream
+    # clients receive them as `notice` frames instead).
+    notices: list[Notice] = Field(default_factory=list, max_length=64)
+    notices_epoch: OpaqueId | None = None
 
 
 class ModelChoice(WireModel):

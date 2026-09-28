@@ -1412,6 +1412,13 @@ small {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
+/* Background warnings and errors: a coloured edge plus their own words. */
+.toast[data-tone='warning'] {
+  border-inline-start: 3px solid var(--status-warning-border);
+}
+.toast[data-tone='danger'] {
+  border-inline-start: 3px solid var(--status-danger-border);
+}
 .empty-state {
   display: grid;
   justify-items: center;

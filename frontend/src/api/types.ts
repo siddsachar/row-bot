@@ -1404,12 +1404,21 @@ export interface ClientTransport {
     subscription: string,
     cursor: string,
     signal: AbortSignal,
-  ): AsyncIterable<Wire.EventRecord | Wire.StreamReset>;
+    notices?: Wire.NoticePosition,
+  ): AsyncIterable<
+    Wire.EventRecord | Wire.StreamReset | { notice: Wire.NoticeFrame }
+  >;
   poll(
     subscription: string,
     cursor: string,
     signal?: AbortSignal,
+    notices?: Wire.NoticePosition,
   ): Promise<Wire.EventPage>;
+  /** Background notices and start-up warnings (no conversation stream). */
+  notices?(
+    position?: Wire.NoticePosition,
+    signal?: AbortSignal,
+  ): Promise<Wire.NoticePage>;
   acknowledge(
     subscription: string,
     cursor: string,
