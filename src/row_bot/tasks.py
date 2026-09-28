@@ -6783,60 +6783,77 @@ def resume_reviewed_task_approval(
 
 
 def _check_approval_timeouts() -> None:
-    """Check for expired approval requests and apply timeout action."""
-    conn = _get_conn()
+    """Check for expired approval requests and apply timeout action.
+
+    Each expiry is committed before its effects run: resuming an Agent or a
+    pipeline writes this same database, and an open write here made that wait
+    until "database is locked", so the approval never timed out and the
+    monitor failed every minute (B166).
+    """
     now = datetime.now().isoformat()
-    expired = conn.execute(
-        "SELECT * FROM approval_requests "
-        "WHERE status = 'pending' AND timeout_at IS NOT NULL AND timeout_at < ?",
-        (now,),
-    ).fetchall()
-    for row in expired:
-        r = dict(row)
-        conn.execute(
-            "UPDATE approval_requests SET status = 'timed_out', responded_at = ? "
-            "WHERE id = ?",
-            (now, r["id"]),
-        )
-        # Resume pipeline with denial — for graph-interrupted steps
-        # this lets the tool return "cancelled" and the pipeline
-        # continues to subsequent steps.  For explicit approval steps
-        # this stops the pipeline.
-        _resolve_approval_on_channels(r["id"], "timed_out",
-                                      source_channel="system")
-        _emit_buddy_approval_event(
-            "timed_out",
-            run_id=str(r.get("run_id") or ""),
-            task_id=str(r.get("task_id") or ""),
-            step_id=str(r.get("step_id") or ""),
-            approval_id=str(r.get("id") or ""),
-            resume_token=str(r.get("resume_token") or ""),
-            label="Approval timed out",
-            message=str(r.get("message") or ""),
-        )
-        if str(r.get("resume_kind") or "") == "agent_run":
-            from row_bot.agent_runner import resume_agent_run
-
-            resume_agent_run(
-                str(r.get("agent_run_id") or r.get("run_id") or ""),
-                resume_token=str(r.get("resume_token") or ""),
-                approved=False,
-            )
-        elif str(r.get("resume_kind") or "") == "parent_orchestration":
-            from row_bot.agent_orchestrator import resume_parent_orchestration
-
-            resume_parent_orchestration(
-                str(r.get("step_id") or "").removeprefix("orchestration:"),
-                resume_token=str(r.get("resume_token") or ""),
-                approved=False,
-            )
-        elif str(r.get("resume_kind") or "") != "conversation":
-            _resume_pipeline(r["resume_token"], approved=False)
-        logger.info("Approval request %s timed out for task %s",
-                     r["id"], r["task_id"])
-    if expired:
+    conn = _get_conn()
+    try:
+        expired = [dict(row) for row in conn.execute(
+            "SELECT * FROM approval_requests "
+            "WHERE status = 'pending' AND timeout_at IS NOT NULL AND timeout_at < ?",
+            (now,),
+        ).fetchall()]
+        claimed = [
+            r for r in expired
+            if conn.execute(
+                "UPDATE approval_requests SET status = 'timed_out', responded_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                (now, r["id"]),
+            ).rowcount == 1
+        ]
         conn.commit()
-    conn.close()
+    finally:
+        conn.close()
+    for r in claimed:
+        try:
+            _apply_approval_timeout(r)
+        except Exception:
+            logger.exception("Timing out approval request %s failed", r["id"])
+
+
+def _apply_approval_timeout(r: dict) -> None:
+    """Resume whatever waited on an approval that timed out, as a denial."""
+    # Resume pipeline with denial — for graph-interrupted steps
+    # this lets the tool return "cancelled" and the pipeline
+    # continues to subsequent steps.  For explicit approval steps
+    # this stops the pipeline.
+    _resolve_approval_on_channels(r["id"], "timed_out",
+                                  source_channel="system")
+    _emit_buddy_approval_event(
+        "timed_out",
+        run_id=str(r.get("run_id") or ""),
+        task_id=str(r.get("task_id") or ""),
+        step_id=str(r.get("step_id") or ""),
+        approval_id=str(r.get("id") or ""),
+        resume_token=str(r.get("resume_token") or ""),
+        label="Approval timed out",
+        message=str(r.get("message") or ""),
+    )
+    if str(r.get("resume_kind") or "") == "agent_run":
+        from row_bot.agent_runner import resume_agent_run
+
+        resume_agent_run(
+            str(r.get("agent_run_id") or r.get("run_id") or ""),
+            resume_token=str(r.get("resume_token") or ""),
+            approved=False,
+        )
+    elif str(r.get("resume_kind") or "") == "parent_orchestration":
+        from row_bot.agent_orchestrator import resume_parent_orchestration
+
+        resume_parent_orchestration(
+            str(r.get("step_id") or "").removeprefix("orchestration:"),
+            resume_token=str(r.get("resume_token") or ""),
+            approved=False,
+        )
+    elif str(r.get("resume_kind") or "") != "conversation":
+        _resume_pipeline(r["resume_token"], approved=False)
+    logger.info("Approval request %s timed out for task %s",
+                 r["id"], r["task_id"])
 
 
 def _resume_graph_interrupted(
