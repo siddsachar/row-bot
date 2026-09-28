@@ -39,3 +39,37 @@ it('shows a paged content slice exactly as sent, not as Markdown', async () => {
   expect(text).toHaveAttribute('data-paged', 'true');
   expect(text.querySelector('table, pre, strong, em')).toBeNull();
 });
+
+it('shows a follow-up as a quiet note, not as the person’s message', () => {
+  const row = {
+    id: 'user:submission:note-1',
+    message_id: 'note-1',
+    role: 'user',
+    note: 'continuation',
+    blocks: [{ id: 'b', type: 'markdown', text: 'Goal · turn 2 of 10' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  render(<TranscriptMessage row={row} conversationId="conversation-a" />);
+  expect(screen.getByRole('note')).toHaveTextContent('Goal · turn 2 of 10');
+  expect(screen.queryByRole('article')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
+});
+
+it('keeps Read aloud and says what is missing without a voice (U28)', () => {
+  vi.stubGlobal('speechSynthesis', undefined);
+  const row = {
+    id: 'assistant:1',
+    message_id: 'm1',
+    role: 'assistant',
+    blocks: [{ id: 'b', type: 'markdown', text: 'Tides rise twice a day.' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  render(<TranscriptMessage row={row} conversationId="conversation-a" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }));
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Read aloud needs a voice installed on this device.',
+  );
+  vi.unstubAllGlobals();
+});

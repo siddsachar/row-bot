@@ -91,3 +91,57 @@ it('explains the action in plain words, without request ids or unrated risk', as
   );
   expect(screen.queryByText(/No server expiry/)).toBeNull();
 });
+
+it('asks to turn on a tool the work needs as a setup card (decision 12)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    reason: 'Row-Bot needs Web Search for this.',
+    setup: { kind: 'tool', label: 'Web Search' },
+  });
+  render(<ApprovalCard id="approval-a" onAllowInChat={vi.fn()} />);
+  const card = await screen.findByRole('complementary', {
+    name: 'Turn on Web Search',
+  });
+  expect(card).toHaveTextContent('Turn on Web Search?');
+  expect(card).toHaveTextContent('Row-Bot needs Web Search for this.');
+  await screen.findByRole('button', { name: 'Turn on' });
+  expect(
+    screen.queryByRole('button', { name: 'Always allow in this chat' }),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Details' })).toBeNull();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }));
+  });
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-a' },
+    '3',
+  );
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Turning on Web Search…',
+  );
+});
+
+it('keeps the tool off with Not now', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    setup: { kind: 'tool', label: 'Developer tools' },
+  });
+  render(<ApprovalCard id="approval-a" />);
+  const notNow = await screen.findByRole('button', { name: 'Not now' });
+  await screen.findByText('Delete a file in the workspace.');
+  await act(async () => {
+    fireEvent.click(notNow);
+  });
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'reject', nonce: 'nonce-a' },
+    '3',
+  );
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Developer tools stays off.',
+  );
+});

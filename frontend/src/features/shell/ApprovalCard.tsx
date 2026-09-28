@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { Power, ShieldAlert } from 'lucide-react';
 import type { ApprovalView } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -13,7 +13,12 @@ import {
   plainApprovalReason,
 } from './tool-activity';
 
-type Hint_ = { action_label?: string; reason?: string; risk_class?: string };
+type Hint_ = {
+  action_label?: string;
+  reason?: string;
+  risk_class?: string;
+  setup?: { kind: 'tool'; label: string } | null;
+};
 
 const RISK: Record<string, string> = {
   low: 'Low risk',
@@ -118,6 +123,10 @@ function editableTarget(target: EventTarget | null) {
  * An inline card anchored at the step that needs a decision: what will
  * happen, how risky it is, and Approve (⌘↵) / Deny. "Always allow in this
  * chat" switches the conversation to automatic approvals, then approves.
+ *
+ * Turning on a tool the work needs is a setup card instead (decision 12):
+ * "Turn on Web search?" with Turn on (⌘↵) / Not now, in place of sending
+ * the person to Settings.
  */
 export default function ApprovalCard({
   id,
@@ -185,6 +194,58 @@ export default function ApprovalCard({
   const action = view?.action_label || hint?.action_label || '';
   const risk = view?.risk_class || hint?.risk_class || 'unknown';
   const argument = keyArgument(view?.safe_argument_summary);
+  const setup = view?.setup ?? hint?.setup ?? null;
+  if (setup)
+    return (
+      <aside
+        className="approval-card"
+        data-kind="setup"
+        aria-label={`Turn on ${setup.label}`}
+      >
+        <span className="approval-card-icon" aria-hidden>
+          <Power />
+        </span>
+        <div className="approval-card-context">
+          <strong>Turn on {setup.label}?</strong>
+          <span className="approval-card-reason">
+            {view?.reason ||
+              hint?.reason ||
+              `Row-Bot needs ${setup.label} for this.`}
+          </span>
+        </div>
+        <div className="approval-card-actions">
+          <Button
+            disabled={!view || busy || Boolean(resolution)}
+            onClick={() => void resolve('reject')}
+          >
+            Not now
+          </Button>
+          <Button
+            variant="primary"
+            aria-keyshortcuts="Control+Enter Meta+Enter"
+            disabled={!view || busy || Boolean(resolution)}
+            onClick={() => void resolve('approve')}
+          >
+            Turn on
+            <span aria-hidden className="approval-card-kbd">
+              <Kbd keys="Mod+Enter" />
+            </span>
+          </Button>
+        </div>
+        {resolution && (
+          <p role="status" className="approval-card-status">
+            {resolution === 'Approval submitted.'
+              ? `Turning on ${setup.label}…`
+              : `${setup.label} stays off.`}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="approval-card-status">
+            {error}
+          </p>
+        )}
+      </aside>
+    );
   return (
     <aside
       className="approval-card"

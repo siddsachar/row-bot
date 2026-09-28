@@ -867,6 +867,99 @@
 .approval-card-status[role='alert'] {
   color: var(--status-danger-text);
 }
+/* A tool the work needs, as a setup card ("Turn on Web search?"). */
+.approval-card[data-kind='setup'] {
+  border-color: color-mix(in srgb, var(--accent-solid) 30%, transparent);
+  background: color-mix(in srgb, var(--accent-subtle) 60%, var(--surface));
+}
+.approval-card[data-kind='setup'] .approval-card-icon {
+  color: var(--accent-solid);
+}
+
+/* ---------------------------------------------- cards the assistant leaves */
+
+/* A design or code folder a turn created (Open · Rename · Undo), or a
+   connection it needs. Quiet, one line where it fits (decision 12). */
+.transcript-cards {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.transcript-card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+.transcript-card-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-solid);
+}
+.transcript-card-text {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+  line-height: 20px;
+}
+.transcript-card-text strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+.transcript-card-text .input {
+  width: 100%;
+}
+.transcript-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.transcript-card[data-state='removed'] {
+  background: none;
+}
+.transcript-card[data-state='removed'] .transcript-card-icon {
+  color: var(--text-muted);
+}
+.transcript-card-error {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+}
+@container transcript (max-width: 520px) {
+  .transcript-card {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .transcript-card-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* A server-started step: a goal's next turn, work continuing in a design or
+   code folder the assistant just created. A quiet divider, not a bubble. */
+.transcript-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.transcript-note svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
 .approval-detail dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Pencil,
+  Repeat2,
   RotateCcw,
   CircleStop,
   TriangleAlert,
@@ -20,10 +21,12 @@ import {
 } from './read-aloud';
 import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
+import { TranscriptCards, type TranscriptCard } from './TranscriptCards';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
 const NO_MEDIA: GeneratedMedia[] = [];
+const NO_CARDS: TranscriptCard[] = [];
 
 export type GeneratedMedia = {
   reference: string;
@@ -70,6 +73,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   traces,
   embeds = NO_BLOCKS,
   media = NO_MEDIA,
+  cards = NO_CARDS,
   latest = false,
   streaming = false,
   onRetry,
@@ -87,6 +91,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   embeds?: TranscriptRow['blocks'];
   /** Generated media, rendered once here (B22). */
   media?: GeneratedMedia[];
+  /** A design or code folder the turn created, a connection it needs. */
+  cards?: TranscriptCard[];
   /** The newest assistant turn keeps its actions visible. */
   latest?: boolean;
   /** Text is still arriving for this row. */
@@ -111,6 +117,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
   const speechOwner = `${conversationId}:${row.id}`;
+  // Read aloud stays visible without an on-device voice; pressing it says
+  // what is missing instead of the button silently vanishing (U28).
   const canSpeak = useLocalSpeechAvailable();
   const author =
     row.role === 'user'
@@ -191,6 +199,20 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const hasText = Boolean(expanded) || shown.length > 0;
   const hasActivity = Boolean(traces?.length) && Boolean(conversationId);
   const actionable = toolbar && (hasText || Boolean(copyText)) && !streaming;
+  if (row.note === 'continuation')
+    // A server-started step: a goal's next turn, or work continuing in a
+    // design or code folder the assistant just created.
+    return (
+      <div
+        className="transcript-note"
+        role="note"
+        data-message-id={row.message_id ?? row.id}
+        data-row-id={row.id}
+      >
+        <Repeat2 aria-hidden />
+        <span>{visibleText(shown)}</span>
+      </div>
+    );
   return (
     <article
       className={`message message-${row.role}`}
@@ -256,6 +278,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />
           </div>
         )}
+        <TranscriptCards cards={cards} />
         {!!media.length && (
           <div className="message-media-grid" data-count={media.length}>
             {media.map((item) => (
@@ -316,11 +339,12 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             >
               <CopyGlyph copied={copied} />
             </IconButton>
-            {row.role === 'assistant' && canSpeak && (
+            {row.role === 'assistant' && (
               <IconButton
                 size="sm"
                 label={speaking ? 'Stop reading' : 'Read aloud'}
                 pressed={speaking}
+                data-unavailable={canSpeak ? undefined : 'true'}
                 onClick={readAloud}
               >
                 {speaking ? (

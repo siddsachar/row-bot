@@ -115,6 +115,10 @@ const CATALOG: Record<string, Entry> = {
 
   // Connection and access
   action_denied: ["This device isn't allowed to do that.", 'none'],
+  agent_run_finished: [
+    'This agent has already finished, so it can’t take a message.',
+    'none',
+  ],
   action_unavailable: ["That isn't available here.", 'none'],
   authentication_required: [
     'Connect to Row-Bot to continue.',
@@ -1440,6 +1444,10 @@ const CATALOG: Record<string, Entry> = {
     "Setting up the design or code folder didn't finish. Try again; nothing will be created twice.",
     'retry',
     RETRY,
+  ],
+  resource_not_discardable: [
+    'Row-Bot can only undo a design or code folder it created in this conversation and nothing else uses. You can still remove it from this conversation in Context.',
+    'none',
   ],
   resource_state_invalid: [
     'The design or code folder is in an unexpected state. Try again.',

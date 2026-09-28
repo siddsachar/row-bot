@@ -86,6 +86,13 @@ import ErrorFix from './ErrorFix';
 import { TranscriptMessage } from './TranscriptMessage';
 import { publicBlockText } from './TranscriptBlocks';
 import { buildTranscript, liveMedia } from './transcript-model';
+import {
+  CardActionsContext,
+  cardKey,
+  liveCards,
+  TranscriptCards,
+  type CardActions,
+} from './TranscriptCards';
 import type { RecoveryAction } from './turn-errors';
 import { modelRefName, splitModelLabel } from './model-choices';
 
@@ -1862,11 +1869,41 @@ export default function Conversation({
     [items],
   );
   const pendingMedia = liveMedia(state.activity, settledMedia);
+  const settledCards = useMemo(
+    () => new Set(items.flatMap((item) => item.cards.map(cardKey))),
+    [items],
+  );
+  const pendingCards = liveCards(state.activity, settledCards);
+  const cardActions: CardActions = {
+    resource: (bindingId) =>
+      resources.find((item) => item.binding.binding_id === bindingId),
+    open: resourcePanel,
+    rename: async (bindingId, name) => {
+      if (!id || !state.conversation) return;
+      await controller.intent(
+        id,
+        'resource.rename',
+        { binding_id: bindingId, name },
+        state.conversation.revision,
+      );
+    },
+    undo: async (bindingId) => {
+      if (!id || !state.conversation) return;
+      await controller.intent(
+        id,
+        'resource.discard',
+        { binding_id: bindingId },
+        state.conversation.revision,
+      );
+    },
+    connect: (page) => navigate(`/settings/${page}`),
+  };
   // Retry and Send again resend the last message as it was: its words and
-  // its files, never the files' names as text (B136).
+  // its files, never the files' names as text (B136). A follow-up note is
+  // the server continuing, not something the person sent.
   const lastUser = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index -= 1)
-      if (items[index].row.role === 'user') {
+      if (items[index].row.role === 'user' && !items[index].row.note) {
         const blocks = items[index].row.blocks;
         return {
           text: blocks
@@ -2019,6 +2056,7 @@ export default function Conversation({
     !state.history &&
     generation?.status === 'stopped' &&
     items.at(-1)?.row.role === 'user' &&
+    !items.at(-1)?.row.note &&
     Boolean(lastUserText) &&
     pending?.conversation !== id;
   const listedTitle = state.conversations.find((item) => item.id === id)?.title;
@@ -2343,875 +2381,891 @@ export default function Conversation({
       }[generation.status] ?? '')
     : '';
   return (
-    <div
-      className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
-      ref={chatWorkspaceRef}
-    >
+    <CardActionsContext.Provider value={cardActions}>
       <div
-        className="chat-content"
-        ref={chatContentRef}
-        role="region"
-        tabIndex={0}
-        aria-label="Conversation details"
+        className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
+        ref={chatWorkspaceRef}
       >
-        <ConversationHeader
-          title={title}
-          canRename={Boolean(
-            id && state.conversation && state.status === 'ready',
-          )}
-          onRename={rename}
-          model={id ? modelName : undefined}
-          onFind={id ? findConversation : undefined}
-          onShare={id ? manageConversation : undefined}
-          onContext={
-            id && (hosted || compactContext) ? toggleContext : undefined
-          }
-          contextPressed={contextShown}
-          contextDisabled={!contextReady}
-          actions={headerActions}
-          leading={headerLeading}
-          menuActions={headerMenu}
-        >
-          {missingReceipt &&
-            (missingReceipt.key === steeringKey ||
-              missingReceipt.key === submitKey ||
-              missingReceipt.key === resumeKey) && (
-              <Button disabled={busy} onClick={reviewMissingReceipt}>
-                Stop checking
-              </Button>
-            )}
-        </ConversationHeader>
         <div
-          role="log"
-          aria-label="Conversation"
-          aria-live="polite"
-          aria-relevant="additions"
-          className="transcript"
-          ref={transcriptRef}
+          className="chat-content"
+          ref={chatContentRef}
+          role="region"
           tabIndex={0}
-          onScroll={(event) => {
-            if (state.loadingConversation) return;
-            const transcript = event.currentTarget;
-            const following =
-              transcript.scrollHeight -
-                transcript.clientHeight -
-                transcript.scrollTop <=
-              24;
-            if (state.history) {
-              setShowLatest(true);
-              return;
-            }
-            const pinned = pinnedGeometry.current;
-            if (
-              !following &&
-              followingLatest.current &&
-              pinned &&
-              (transcript.scrollHeight !== pinned.height ||
-                transcript.clientHeight !== pinned.client ||
-                transcript.clientWidth !== pinned.width)
-            ) {
-              // The layout moved under a reader who was following (a panel
-              // opened, the composer changed height): stay on the latest.
-              scrollToLatest();
-              return;
-            }
-            followingLatest.current = following;
-            setShowLatest(!following);
-            if (following) setNewCount(0);
-          }}
+          aria-label="Conversation details"
         >
-          <div
-            className="transcript-content"
-            ref={transcriptContentRef}
-            style={{ display: 'flow-root' }}
-          >
-            {canLoadEarlier && (
-              <div className="transcript-sentinel" ref={topSentinel}>
-                <Button
-                  variant="ghost"
-                  disabled={state.loadingEarlier}
-                  onClick={loadEarlier}
-                >
-                  {state.loadingEarlier
-                    ? 'Loading earlier messages…'
-                    : 'Earlier messages'}
-                </Button>
-              </div>
+          <ConversationHeader
+            title={title}
+            canRename={Boolean(
+              id && state.conversation && state.status === 'ready',
             )}
-            {state.history?.previous_cursor && (
-              <div className="transcript-sentinel">
-                <Button
-                  variant="ghost"
-                  disabled={!historyReady}
-                  onClick={() =>
-                    void controller
-                      .showHistory(undefined, state.history!.previous_cursor!)
-                      .catch((e) => setError(clientError(e).message))
-                  }
-                >
-                  Earlier messages
-                </Button>
-              </div>
-            )}
-            {state.loadingConversation ? (
-              <Skeleton label="Opening conversation" />
-            ) : items.length || pending?.conversation === id ? (
-              <>
-                {earlierIds.size > 0 && (
-                  // Loaded history is not announced as new conversation.
-                  <div className="transcript-earlier" aria-live="off">
-                    {items.map((item, index) =>
-                      earlierIds.has(item.row.id) ? (
-                        <TranscriptMessage
-                          key={`${id}:${item.row.id}`}
-                          row={item.row}
-                          conversationId={id}
-                          traces={item.traces}
-                          embeds={item.embeds}
-                          media={item.media}
-                          toolbar={turns.ends[index]}
-                          copyText={turns.texts[index]}
-                          onRecover={recoverTurn}
-                          onEdit={
-                            item.row.role === 'user' ? editMessage : undefined
-                          }
-                        />
-                      ) : null,
-                    )}
-                  </div>
-                )}
-                {items.map((item, index) =>
-                  earlierIds.has(item.row.id) ? null : (
-                    <TranscriptMessage
-                      key={`${id}:${item.row.id}`}
-                      row={item.row}
-                      conversationId={id}
-                      traces={item.traces}
-                      embeds={item.embeds}
-                      media={item.media}
-                      latest={index === lastAssistant && !turnInFlight}
-                      toolbar={turns.ends[index]}
-                      copyText={turns.texts[index]}
-                      onRecover={recoverTurn}
-                      streaming={
-                        turnInFlight &&
-                        index === items.length - 1 &&
-                        item.row.role === 'assistant'
-                      }
-                      onRetry={
-                        index === lastAssistant &&
-                        !turnInFlight &&
-                        !state.history &&
-                        lastUserText &&
-                        sendActionReady
-                          ? retryLast
-                          : undefined
-                      }
-                      onEdit={
-                        item.row.role === 'user' ? editMessage : undefined
-                      }
-                    />
-                  ),
-                )}
-              </>
-            ) : (
-              <ChatEmpty
-                conversationId={id}
-                disabled={
-                  !sendActionReady ||
-                  busy ||
-                  !!pendingSubmit ||
-                  !!pendingResume ||
-                  !!pendingSteering
-                }
-                onSend={(prompt) => send(prompt)}
-                recent={state.conversations}
-                onOpen={(target) => navigate(`/conversations/${target}`)}
-              />
-            )}
-            {pending?.conversation === id &&
-              !rows.some((row) => row.message_id === pending.id) && (
-                <article
-                  className="message message-user message-pending"
-                  aria-label="You message awaiting confirmation"
-                  data-message-id={pending.id}
-                >
-                  <div className="transcript-content">
-                    <div className="message-text">{pending.text}</div>
-                    <small className="message-delivery-state">
-                      Awaiting confirmation
-                    </small>
-                  </div>
-                </article>
-              )}
-            {id &&
-              !state.history &&
-              (isRunning ||
-                liveTraceGroups.length > 0 ||
-                pendingMedia.length > 0 ||
-                (generation?.approval_id &&
-                  generation.status === 'waiting_approval')) && (
-                <div className="message message-assistant message-live">
-                  <div className="transcript-content">
-                    <TranscriptTrace
-                      conversation={id}
-                      groups={liveTraceGroups}
-                      live={{
-                        running: isRunning,
-                        thinking: thinkingActive,
-                        waiting: generation?.status === 'waiting_approval',
-                        stopping: generation?.status === 'stopping',
-                        startedAt: runStartedAt,
-                      }}
-                    >
-                      {generation?.approval_id &&
-                        generation.status === 'waiting_approval' && (
-                          <ApprovalCard
-                            id={generation.approval_id}
-                            hint={
-                              approvalEvent?.event.type === 'approval.required'
-                                ? approvalEvent.event.payload
-                                : undefined
-                            }
-                            onAllowInChat={
-                              controls?.approval_mode === 'allow_all'
-                                ? undefined
-                                : allowInChat
-                            }
-                          />
-                        )}
-                    </TranscriptTrace>
-                    {pendingMedia.length > 0 && (
-                      <div
-                        className="message-media-grid"
-                        data-count={pendingMedia.length}
-                      >
-                        {pendingMedia.map((media) => (
-                          <MediaPreview
-                            key={media.reference}
-                            reference={media.reference}
-                            mime={media.mime}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            {unanswered && (
-              // A stop can land after queued guidance was delivered: say so
-              // instead of leaving the last message silently unanswered.
-              <div className="turn-notice" data-tone="neutral">
-                <CircleStop className="turn-notice-icon" aria-hidden />
-                <div className="turn-notice-text">
-                  <strong>Stopped before a reply</strong>
-                  <span>
-                    {nextWaiting
-                      ? "Your last message wasn't answered. The message waiting below goes next."
-                      : "Your last message wasn't answered."}
-                  </span>
-                </div>
-                {!waiting.items.length && (
-                  <div className="turn-notice-actions">
-                    <Button
-                      variant="secondary"
-                      disabled={sendBlocked || !sendActionReady}
-                      onClick={retryLast}
-                    >
-                      Send again
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-            {(interrupted || failed) && (
-              <div
-                className="turn-notice"
-                data-tone={interrupted ? 'warning' : 'danger'}
-              >
-                <TriangleAlert className="turn-notice-icon" aria-hidden />
-                <div className="turn-notice-text">
-                  <strong>
-                    {interrupted
-                      ? 'The response was interrupted'
-                      : 'The response could not finish'}
-                  </strong>
-                  <span>
-                    {interrupted
-                      ? 'Resume to continue where it stopped, or switch to another model.'
-                      : 'Try again, or switch to another model.'}
-                    {generation?.external_outcome === 'uncertain'
-                      ? ' Some steps may already have run, so check what changed before you try again.'
-                      : ''}
-                  </span>
-                </div>
-                <div className="turn-notice-actions">
-                  {interrupted && (
-                    <Button
-                      disabled={
-                        busy ||
-                        Boolean(pendingSubmit) ||
-                        Boolean(pendingSteering) ||
-                        Boolean(pendingResume)
-                      }
-                      onClick={() => void action('conversation.resume')}
-                    >
-                      Resume
-                    </Button>
-                  )}
-                  {failed && lastUserText && (
-                    <Button
-                      disabled={sendBlocked || !sendActionReady}
-                      onClick={retryLast}
-                    >
-                      Retry
-                    </Button>
-                  )}
-                  {controls && (
-                    <Button
-                      variant="ghost"
-                      onClick={() => setModelPickerOpen(true)}
-                    >
-                      Switch model
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-            {state.history?.next_cursor && (
-              <div className="transcript-sentinel">
-                <Button
-                  variant="ghost"
-                  disabled={!historyReady}
-                  onClick={() =>
-                    void controller
-                      .showHistory(undefined, state.history!.next_cursor!)
-                      .catch((e) => setError(clientError(e).message))
-                  }
-                >
-                  Later messages
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-        {(state.history || showLatest) && (
-          <button
-            type="button"
-            className="latest-pill"
-            aria-label="Latest messages"
-            aria-description={
-              generation?.status === 'waiting_approval' && !state.history
-                ? 'An approval is waiting'
-                : newCount > 0 && !state.history
-                  ? `${newCount} new`
-                  : undefined
+            onRename={rename}
+            model={id ? modelName : undefined}
+            onFind={id ? findConversation : undefined}
+            onShare={id ? manageConversation : undefined}
+            onContext={
+              id && (hosted || compactContext) ? toggleContext : undefined
             }
-            onClick={() => {
-              followingLatest.current = true;
-              setShowLatest(false);
-              setNewCount(0);
-              if (state.history || state.earlier.length)
-                controller.showLatest();
-              else scrollToLatest();
+            contextPressed={contextShown}
+            contextDisabled={!contextReady}
+            actions={headerActions}
+            leading={headerLeading}
+            menuActions={headerMenu}
+          >
+            {missingReceipt &&
+              (missingReceipt.key === steeringKey ||
+                missingReceipt.key === submitKey ||
+                missingReceipt.key === resumeKey) && (
+                <Button disabled={busy} onClick={reviewMissingReceipt}>
+                  Stop checking
+                </Button>
+              )}
+          </ConversationHeader>
+          <div
+            role="log"
+            aria-label="Conversation"
+            aria-live="polite"
+            aria-relevant="additions"
+            className="transcript"
+            ref={transcriptRef}
+            tabIndex={0}
+            onScroll={(event) => {
+              if (state.loadingConversation) return;
+              const transcript = event.currentTarget;
+              const following =
+                transcript.scrollHeight -
+                  transcript.clientHeight -
+                  transcript.scrollTop <=
+                24;
+              if (state.history) {
+                setShowLatest(true);
+                return;
+              }
+              const pinned = pinnedGeometry.current;
+              if (
+                !following &&
+                followingLatest.current &&
+                pinned &&
+                (transcript.scrollHeight !== pinned.height ||
+                  transcript.clientHeight !== pinned.client ||
+                  transcript.clientWidth !== pinned.width)
+              ) {
+                // The layout moved under a reader who was following (a panel
+                // opened, the composer changed height): stay on the latest.
+                scrollToLatest();
+                return;
+              }
+              followingLatest.current = following;
+              setShowLatest(!following);
+              if (following) setNewCount(0);
             }}
           >
-            <ArrowDown aria-hidden />
-            <span aria-hidden>
-              {generation?.status === 'waiting_approval' && !state.history
-                ? 'Approval needed'
-                : newCount > 0 && !state.history
-                  ? `${newCount} new`
-                  : 'Latest'}
-            </span>
-          </button>
-        )}
-        <p role="status" className="visually-hidden run-status">
-          {runAnnouncement}
-        </p>
-        {error && (
-          <div role="alert" className="chat-error">
-            <TriangleAlert aria-hidden />
-            <span>{error.message}</span>
-            {error.action && (
-              <ErrorFix
-                action={error.action}
-                retry={error.retry}
-                sendNow={nextWaiting ? sendWaitingNow : undefined}
-                chooseModel={
-                  controls ? () => setModelPickerOpen(true) : undefined
-                }
-              />
-            )}
-            <button
-              type="button"
-              className="chat-error-dismiss"
-              aria-label="Dismiss error"
-              onClick={() => setError('')}
+            <div
+              className="transcript-content"
+              ref={transcriptContentRef}
+              style={{ display: 'flow-root' }}
             >
-              <X aria-hidden />
-            </button>
-          </div>
-        )}
-      </div>
-      {id && (
-        <form
-          className="composer"
-          data-single-line={singleLine ? 'true' : undefined}
-          aria-label="Message composer"
-          aria-busy={busy || talkBusy}
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <WaitingMessages
-            items={waiting.items}
-            running={turnInFlight}
-            busy={busy || state.status !== 'ready'}
-            onAction={waitingAction}
-          />
-          <div className="composer-field" ref={composerFieldRef}>
-            {(!!resources.length ||
-              !!draft.attachments.length ||
-              (singleLine && needsModel) ||
-              Boolean(
-                composerSnapshot &&
-                (composerSnapshot.active_skills.length ||
-                  composerSnapshot.suggestions.length),
-              )) && (
-              <div className="composer-chips">
-                {singleLine && needsModel && setupModelButton}
-                {!!resources.length && (
-                  <ResourceTargets
-                    resources={resources}
-                    selected={targetSelection[id] ?? defaultTargetIds}
-                    onChange={chooseTarget}
-                  />
-                )}
-                {!!draft.attachments.length && (
-                  <ul className="composer-attachments" aria-label="Attachments">
-                    {draft.attachments.map((a) => (
-                      <li key={a.attachment_ref} className="attachment-chip">
-                        <Paperclip aria-hidden />
-                        <span>{a.name}</span>
-                        <button
-                          type="button"
-                          className="attachment-chip-remove"
-                          aria-label={`Remove ${a.name}`}
-                          onClick={() =>
-                            controller.setDraft(id, {
-                              ...draft,
-                              attachments: draft.attachments.filter(
-                                (item) =>
-                                  item.attachment_ref !== a.attachment_ref,
-                              ),
-                            })
-                          }
-                        >
-                          <X aria-hidden />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {state.workspace?.model_status?.sees_images === false &&
-                  draft.attachments.some((a) =>
-                    a.mime_type?.startsWith('image/'),
-                  ) && (
-                    <p className="composer-vision-note" role="status">
-                      <ImageOff aria-hidden />
-                      <span>{modelName || 'This model'} can't see images.</span>
-                      <button
-                        type="button"
-                        className="composer-vision-choose"
-                        onClick={() => navigate('/settings/models#vision')}
-                      >
-                        Choose a vision model
-                      </button>
-                    </p>
-                  )}
-                {composerSnapshot && (
-                  <ComposerSkillChips
-                    composer={composerSnapshot}
-                    disabled={isRunning || busy || composerBusy}
-                    action={skillAction}
-                  />
-                )}
-              </div>
-            )}
-            {singleLine && composerControls}
-            <label className="sr-only" htmlFor="message-composer">
-              Message
-            </label>
-            <textarea
-              ref={composerRef}
-              id="message-composer"
-              className="input message-composer"
-              value={draft.text}
-              rows={1}
-              maxLength={200000}
-              placeholder={
-                // A one-line field keeps its hint to one line.
-                isRunning
-                  ? singleLine
-                    ? 'Follow-up…'
-                    : 'Queue a follow-up…'
-                  : singleLine
-                    ? 'Message'
-                    : 'Message Row-Bot…'
-              }
-              aria-describedby={
-                composerStateReason ? 'message-composer-state' : undefined
-              }
-              onChange={(e) => {
-                controller.setDraft(id, { ...draft, text: e.target.value });
-                setComposerCursor(
-                  e.target.selectionStart ?? e.target.value.length,
-                );
-              }}
-              onSelect={(e) =>
-                setComposerCursor(e.currentTarget.selectionStart ?? 0)
-              }
-              onKeyDown={(e) => {
-                if (
-                  !e.nativeEvent.isComposing &&
-                  (slashPaletteRef.current?.key(e) ||
-                    mentionPaletteRef.current?.key(e))
-                ) {
-                  e.preventDefault();
-                  return;
-                }
-                if (
-                  e.key === 'ArrowUp' &&
-                  !draft.text &&
-                  !e.shiftKey &&
-                  !e.altKey &&
-                  !e.metaKey &&
-                  !e.ctrlKey &&
-                  lastUserText
-                ) {
-                  // ↑ in an empty composer brings back the last message.
-                  e.preventDefault();
-                  editMessage(lastUserText);
-                  return;
-                }
-                if (
-                  e.key === 'Enter' &&
-                  !e.shiftKey &&
-                  !e.metaKey &&
-                  !e.ctrlKey &&
-                  !e.nativeEvent.isComposing
-                ) {
-                  e.preventDefault();
-                  if (!isRunning) send();
-                  else if (
-                    draft.text.trim() &&
-                    draft.text.length <= 16000 &&
-                    !sendBlocked
-                  )
-                    void action('conversation.steer');
-                }
-              }}
-            />
-            {composerSnapshot && (
-              <SlashPalette
-                ref={slashPaletteRef}
-                text={draft.text}
-                cursor={composerCursor}
-                commands={composerSnapshot.commands}
-                disabled={isRunning || busy || composerBusy}
-                inputRef={composerRef}
-                onChoose={(command, token) => void chooseSlash(command, token)}
-              />
-            )}
-            <MentionPalette
-              ref={mentionPaletteRef}
-              text={draft.text}
-              cursor={composerCursor}
-              items={mentionItems}
-              disabled={busy || composerBusy}
-              inputRef={composerRef}
-              onConsume={(token) => replaceSlashToken(token)}
-            />
-            <div className="composer-toolbar" ref={toolbarRef}>
-              {!singleLine && composerControls}
-              <div className="composer-actions">
-                {compactToolbar &&
-                  (pendingSubmit || pendingResume || pendingSteering) && (
-                    <Menu
-                      label="Message actions"
-                      iconOnly
-                      variant="ghost"
-                      actions={[
-                        ...(pendingSubmit
-                          ? [
-                              {
-                                label: 'Check message',
-                                disabled: busy,
-                                onSelect: () => void recover(),
-                              },
-                            ]
-                          : []),
-                        ...(pendingResume
-                          ? [
-                              {
-                                label: 'Check Resume',
-                                disabled: busy,
-                                onSelect: () => void resume(true),
-                              },
-                            ]
-                          : []),
-                        ...(pendingSteering
-                          ? [
-                              {
-                                label: 'Check waiting message',
-                                disabled: busy,
-                                onSelect: () => void queueMessage(),
-                              },
-                            ]
-                          : []),
-                      ]}
-                    >
-                      <MoreHorizontal size={18} aria-hidden />
-                    </Menu>
-                  )}
-                {!compactToolbar && pendingSubmit && (
-                  <Button disabled={busy} onClick={() => void recover()}>
-                    Check message
-                  </Button>
-                )}
-                {!compactToolbar && pendingResume && (
-                  <Button disabled={busy} onClick={() => void resume(true)}>
-                    Check Resume
-                  </Button>
-                )}
-                {!compactToolbar && pendingSteering && (
-                  <Button disabled={busy} onClick={() => void queueMessage()}>
-                    Check waiting message
-                  </Button>
-                )}
-                {!singleLine && (
-                  <ContextUsage usage={state.workspace?.context_usage} />
-                )}
-                {voiceScope && (
-                  <span className="composer-voice">
-                    <VoiceControls
-                      compact
-                      scope={voiceScope}
-                      available={
-                        voiceExposure.key === voiceHostKey &&
-                        voiceExposure.dictate
-                      }
-                      unavailableReason={voiceExposure.dictateReason}
-                      disabled={busy || talkBusy}
-                      start={(request, signal) =>
-                        controller.startDictation(voiceScope, request, signal)
-                      }
-                      transcribe={(handle, utterance, audio, signal) =>
-                        controller.transcribeDictation(
-                          voiceScope,
-                          handle,
-                          utterance,
-                          audio,
-                          signal,
-                        )
-                      }
-                      stop={(handle, signal) =>
-                        controller.stopDictation(voiceScope, handle, signal)
-                      }
-                      applyTranscript={(scope, result) =>
-                        controller.applyDictation(scope, result)
-                      }
-                    />
-                    <ConversationVoice
-                      key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
-                      compact
-                      chevron
-                      controller={controller}
-                      scope={voiceScope}
-                      available={
-                        voiceExposure.key === voiceHostKey &&
-                        (voiceExposure.talk || voiceExposure.realtime)
-                      }
-                      unavailableReason={voiceExposure.talkReason}
-                      disabled={busy}
-                      running={isRunning}
-                      onBusy={setTalkBusy}
-                      context={
-                        controls?.model_selection && state.conversation
-                          ? {
-                              conversation_revision:
-                                state.conversation.revision,
-                              model_selection: controls.model_selection,
-                              write_targets: resources
-                                .filter((resource) =>
-                                  (
-                                    targetSelection[id ?? ''] ??
-                                    defaultTargetIds
-                                  ).includes(resource.binding.binding_id),
-                                )
-                                .map((resource) => ({
-                                  kind: resource.binding.kind as
-                                    'artifact' | 'workspace',
-                                  binding_id: resource.binding.binding_id,
-                                  resource_id: resource.binding.resource_id,
-                                  binding_revision: resource.binding.revision,
-                                  resource_revision: resource.resource_revision,
-                                })),
-                            }
-                          : null
-                      }
-                      targets={resources
-                        .filter((resource) =>
-                          (
-                            targetSelection[id ?? ''] ?? defaultTargetIds
-                          ).includes(resource.binding.binding_id),
-                        )
-                        .map((resource) => resource.title)}
-                    />
-                  </span>
-                )}
-                {isRunning && draft.text.trim() && (
+              {canLoadEarlier && (
+                <div className="transcript-sentinel" ref={topSentinel}>
                   <Button
                     variant="ghost"
-                    className="composer-queue-button"
-                    aria-label="Queue message"
-                    title="Queue this message for the running response (Enter)"
-                    disabled={
-                      draft.text.length > 16000 ||
-                      busy ||
-                      Boolean(pendingSteering) ||
-                      Boolean(pendingSubmit) ||
-                      Boolean(pendingResume)
-                    }
-                    onClick={() => void action('conversation.steer')}
+                    disabled={state.loadingEarlier}
+                    onClick={loadEarlier}
                   >
-                    <ListPlus size={16} aria-hidden />
-                    <span>Queue</span>
+                    {state.loadingEarlier
+                      ? 'Loading earlier messages…'
+                      : 'Earlier messages'}
                   </Button>
-                )}
-                {!singleLine && needsModel && setupModelButton}
-                <span className="composer-primary-slot">
-                  {/* One button morphs between Send and Stop, so focus and
-                      position hold while a response starts and ends. */}
+                </div>
+              )}
+              {state.history?.previous_cursor && (
+                <div className="transcript-sentinel">
                   <Button
-                    type={running ? 'button' : 'submit'}
-                    variant={running ? 'secondary' : 'primary'}
-                    iconOnly
-                    className={`composer-primary ${running ? 'composer-stop' : 'composer-send'}`}
-                    data-state={running ? 'stop' : 'send'}
-                    aria-label={running ? 'Stop' : 'Send'}
-                    title={running ? 'Stop' : undefined}
-                    aria-describedby={
-                      !running && composerStateReason
-                        ? 'message-composer-state'
-                        : undefined
-                    }
-                    disabled={
-                      running
-                        ? !generation.can_stop
-                        : sendBlocked ||
-                          !draft.text.trim() ||
-                          state.status !== 'ready' ||
-                          !sendActionReady
-                    }
-                    onClick={
-                      running
-                        ? (event) => {
-                            event.preventDefault();
-                            void action('conversation.stop');
-                          }
-                        : undefined
+                    variant="ghost"
+                    disabled={!historyReady}
+                    onClick={() =>
+                      void controller
+                        .showHistory(undefined, state.history!.previous_cursor!)
+                        .catch((e) => setError(clientError(e).message))
                     }
                   >
-                    <ArrowUp
-                      className="composer-primary-send"
-                      size={18}
-                      aria-hidden
-                    />
-                    <Square
-                      className="composer-primary-stop"
-                      size={14}
-                      aria-hidden
-                    />
+                    Earlier messages
                   </Button>
-                </span>
-              </div>
+                </div>
+              )}
+              {state.loadingConversation ? (
+                <Skeleton label="Opening conversation" />
+              ) : items.length || pending?.conversation === id ? (
+                <>
+                  {earlierIds.size > 0 && (
+                    // Loaded history is not announced as new conversation.
+                    <div className="transcript-earlier" aria-live="off">
+                      {items.map((item, index) =>
+                        earlierIds.has(item.row.id) ? (
+                          <TranscriptMessage
+                            key={`${id}:${item.row.id}`}
+                            row={item.row}
+                            conversationId={id}
+                            traces={item.traces}
+                            embeds={item.embeds}
+                            media={item.media}
+                            cards={item.cards}
+                            toolbar={turns.ends[index]}
+                            copyText={turns.texts[index]}
+                            onRecover={recoverTurn}
+                            onEdit={
+                              item.row.role === 'user' ? editMessage : undefined
+                            }
+                          />
+                        ) : null,
+                      )}
+                    </div>
+                  )}
+                  {items.map((item, index) =>
+                    earlierIds.has(item.row.id) ? null : (
+                      <TranscriptMessage
+                        key={`${id}:${item.row.id}`}
+                        row={item.row}
+                        conversationId={id}
+                        traces={item.traces}
+                        embeds={item.embeds}
+                        media={item.media}
+                        cards={item.cards}
+                        latest={index === lastAssistant && !turnInFlight}
+                        toolbar={turns.ends[index]}
+                        copyText={turns.texts[index]}
+                        onRecover={recoverTurn}
+                        streaming={
+                          turnInFlight &&
+                          index === items.length - 1 &&
+                          item.row.role === 'assistant'
+                        }
+                        onRetry={
+                          index === lastAssistant &&
+                          !turnInFlight &&
+                          !state.history &&
+                          lastUserText &&
+                          sendActionReady
+                            ? retryLast
+                            : undefined
+                        }
+                        onEdit={
+                          item.row.role === 'user' ? editMessage : undefined
+                        }
+                      />
+                    ),
+                  )}
+                </>
+              ) : (
+                <ChatEmpty
+                  conversationId={id}
+                  disabled={
+                    !sendActionReady ||
+                    busy ||
+                    !!pendingSubmit ||
+                    !!pendingResume ||
+                    !!pendingSteering
+                  }
+                  onSend={(prompt) => send(prompt)}
+                  recent={state.conversations}
+                  onOpen={(target) => navigate(`/conversations/${target}`)}
+                />
+              )}
+              {pending?.conversation === id &&
+                !rows.some((row) => row.message_id === pending.id) && (
+                  <article
+                    className="message message-user message-pending"
+                    aria-label="You message awaiting confirmation"
+                    data-message-id={pending.id}
+                  >
+                    <div className="transcript-content">
+                      <div className="message-text">{pending.text}</div>
+                      <small className="message-delivery-state">
+                        Awaiting confirmation
+                      </small>
+                    </div>
+                  </article>
+                )}
+              {id &&
+                !state.history &&
+                (isRunning ||
+                  liveTraceGroups.length > 0 ||
+                  pendingMedia.length > 0 ||
+                  pendingCards.length > 0 ||
+                  (generation?.approval_id &&
+                    generation.status === 'waiting_approval')) && (
+                  <div className="message message-assistant message-live">
+                    <div className="transcript-content">
+                      <TranscriptTrace
+                        conversation={id}
+                        groups={liveTraceGroups}
+                        live={{
+                          running: isRunning,
+                          thinking: thinkingActive,
+                          waiting: generation?.status === 'waiting_approval',
+                          stopping: generation?.status === 'stopping',
+                          startedAt: runStartedAt,
+                        }}
+                      >
+                        {generation?.approval_id &&
+                          generation.status === 'waiting_approval' && (
+                            <ApprovalCard
+                              id={generation.approval_id}
+                              hint={
+                                approvalEvent?.event.type ===
+                                'approval.required'
+                                  ? approvalEvent.event.payload
+                                  : undefined
+                              }
+                              onAllowInChat={
+                                controls?.approval_mode === 'allow_all'
+                                  ? undefined
+                                  : allowInChat
+                              }
+                            />
+                          )}
+                      </TranscriptTrace>
+                      <TranscriptCards cards={pendingCards} live />
+                      {pendingMedia.length > 0 && (
+                        <div
+                          className="message-media-grid"
+                          data-count={pendingMedia.length}
+                        >
+                          {pendingMedia.map((media) => (
+                            <MediaPreview
+                              key={media.reference}
+                              reference={media.reference}
+                              mime={media.mime}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              {unanswered && (
+                // A stop can land after queued guidance was delivered: say so
+                // instead of leaving the last message silently unanswered.
+                <div className="turn-notice" data-tone="neutral">
+                  <CircleStop className="turn-notice-icon" aria-hidden />
+                  <div className="turn-notice-text">
+                    <strong>Stopped before a reply</strong>
+                    <span>
+                      {nextWaiting
+                        ? "Your last message wasn't answered. The message waiting below goes next."
+                        : "Your last message wasn't answered."}
+                    </span>
+                  </div>
+                  {!waiting.items.length && (
+                    <div className="turn-notice-actions">
+                      <Button
+                        variant="secondary"
+                        disabled={sendBlocked || !sendActionReady}
+                        onClick={retryLast}
+                      >
+                        Send again
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {(interrupted || failed) && (
+                <div
+                  className="turn-notice"
+                  data-tone={interrupted ? 'warning' : 'danger'}
+                >
+                  <TriangleAlert className="turn-notice-icon" aria-hidden />
+                  <div className="turn-notice-text">
+                    <strong>
+                      {interrupted
+                        ? 'The response was interrupted'
+                        : 'The response could not finish'}
+                    </strong>
+                    <span>
+                      {interrupted
+                        ? 'Resume to continue where it stopped, or switch to another model.'
+                        : 'Try again, or switch to another model.'}
+                      {generation?.external_outcome === 'uncertain'
+                        ? ' Some steps may already have run, so check what changed before you try again.'
+                        : ''}
+                    </span>
+                  </div>
+                  <div className="turn-notice-actions">
+                    {interrupted && (
+                      <Button
+                        disabled={
+                          busy ||
+                          Boolean(pendingSubmit) ||
+                          Boolean(pendingSteering) ||
+                          Boolean(pendingResume)
+                        }
+                        onClick={() => void action('conversation.resume')}
+                      >
+                        Resume
+                      </Button>
+                    )}
+                    {failed && lastUserText && (
+                      <Button
+                        disabled={sendBlocked || !sendActionReady}
+                        onClick={retryLast}
+                      >
+                        Retry
+                      </Button>
+                    )}
+                    {controls && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => setModelPickerOpen(true)}
+                      >
+                        Switch model
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {state.history?.next_cursor && (
+                <div className="transcript-sentinel">
+                  <Button
+                    variant="ghost"
+                    disabled={!historyReady}
+                    onClick={() =>
+                      void controller
+                        .showHistory(undefined, state.history!.next_cursor!)
+                        .catch((e) => setError(clientError(e).message))
+                    }
+                  >
+                    Later messages
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
-          {composerStateReason && (
-            <p
-              id="message-composer-state"
-              className="composer-state-reason visually-hidden"
-              role="status"
+          {(state.history || showLatest) && (
+            <button
+              type="button"
+              className="latest-pill"
+              aria-label="Latest messages"
+              aria-description={
+                generation?.status === 'waiting_approval' && !state.history
+                  ? 'An approval is waiting'
+                  : newCount > 0 && !state.history
+                    ? `${newCount} new`
+                    : undefined
+              }
+              onClick={() => {
+                followingLatest.current = true;
+                setShowLatest(false);
+                setNewCount(0);
+                if (state.history || state.earlier.length)
+                  controller.showLatest();
+                else scrollToLatest();
+              }}
             >
-              {composerStateReason}
-            </p>
+              <ArrowDown aria-hidden />
+              <span aria-hidden>
+                {generation?.status === 'waiting_approval' && !state.history
+                  ? 'Approval needed'
+                  : newCount > 0 && !state.history
+                    ? `${newCount} new`
+                    : 'Latest'}
+              </span>
+            </button>
           )}
-          <div
-            className="composer-status-row"
-            data-visible={
-              state.draftStatus === 'conflict' || state.draftStatus === 'failed'
-                ? 'true'
-                : undefined
-            }
+          <p role="status" className="visually-hidden run-status">
+            {runAnnouncement}
+          </p>
+          {error && (
+            <div role="alert" className="chat-error">
+              <TriangleAlert aria-hidden />
+              <span>{error.message}</span>
+              {error.action && (
+                <ErrorFix
+                  action={error.action}
+                  retry={error.retry}
+                  sendNow={nextWaiting ? sendWaitingNow : undefined}
+                  chooseModel={
+                    controls ? () => setModelPickerOpen(true) : undefined
+                  }
+                />
+              )}
+              <button
+                type="button"
+                className="chat-error-dismiss"
+                aria-label="Dismiss error"
+                onClick={() => setError('')}
+              >
+                <X aria-hidden />
+              </button>
+            </div>
+          )}
+        </div>
+        {id && (
+          <form
+            className="composer"
+            data-single-line={singleLine ? 'true' : undefined}
+            aria-label="Message composer"
+            aria-busy={busy || talkBusy}
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
           >
-            {/* Saving is silent; only a failure or conflict is shown. */}
-            <small
-              role="status"
-              className={`draft-status${
+            <WaitingMessages
+              items={waiting.items}
+              running={turnInFlight}
+              busy={busy || state.status !== 'ready'}
+              onAction={waitingAction}
+            />
+            <div className="composer-field" ref={composerFieldRef}>
+              {(!!resources.length ||
+                !!draft.attachments.length ||
+                (singleLine && needsModel) ||
+                Boolean(
+                  composerSnapshot &&
+                  (composerSnapshot.active_skills.length ||
+                    composerSnapshot.suggestions.length),
+                )) && (
+                <div className="composer-chips">
+                  {singleLine && needsModel && setupModelButton}
+                  {!!resources.length && (
+                    <ResourceTargets
+                      resources={resources}
+                      selected={targetSelection[id] ?? defaultTargetIds}
+                      onChange={chooseTarget}
+                    />
+                  )}
+                  {!!draft.attachments.length && (
+                    <ul
+                      className="composer-attachments"
+                      aria-label="Attachments"
+                    >
+                      {draft.attachments.map((a) => (
+                        <li key={a.attachment_ref} className="attachment-chip">
+                          <Paperclip aria-hidden />
+                          <span>{a.name}</span>
+                          <button
+                            type="button"
+                            className="attachment-chip-remove"
+                            aria-label={`Remove ${a.name}`}
+                            onClick={() =>
+                              controller.setDraft(id, {
+                                ...draft,
+                                attachments: draft.attachments.filter(
+                                  (item) =>
+                                    item.attachment_ref !== a.attachment_ref,
+                                ),
+                              })
+                            }
+                          >
+                            <X aria-hidden />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {state.workspace?.model_status?.sees_images === false &&
+                    draft.attachments.some((a) =>
+                      a.mime_type?.startsWith('image/'),
+                    ) && (
+                      <p className="composer-vision-note" role="status">
+                        <ImageOff aria-hidden />
+                        <span>
+                          {modelName || 'This model'} can't see images.
+                        </span>
+                        <button
+                          type="button"
+                          className="composer-vision-choose"
+                          onClick={() => navigate('/settings/models#vision')}
+                        >
+                          Choose a vision model
+                        </button>
+                      </p>
+                    )}
+                  {composerSnapshot && (
+                    <ComposerSkillChips
+                      composer={composerSnapshot}
+                      disabled={isRunning || busy || composerBusy}
+                      action={skillAction}
+                    />
+                  )}
+                </div>
+              )}
+              {singleLine && composerControls}
+              <label className="sr-only" htmlFor="message-composer">
+                Message
+              </label>
+              <textarea
+                ref={composerRef}
+                id="message-composer"
+                className="input message-composer"
+                value={draft.text}
+                rows={1}
+                maxLength={200000}
+                placeholder={
+                  // A one-line field keeps its hint to one line.
+                  isRunning
+                    ? singleLine
+                      ? 'Follow-up…'
+                      : 'Queue a follow-up…'
+                    : singleLine
+                      ? 'Message'
+                      : 'Message Row-Bot…'
+                }
+                aria-describedby={
+                  composerStateReason ? 'message-composer-state' : undefined
+                }
+                onChange={(e) => {
+                  controller.setDraft(id, { ...draft, text: e.target.value });
+                  setComposerCursor(
+                    e.target.selectionStart ?? e.target.value.length,
+                  );
+                }}
+                onSelect={(e) =>
+                  setComposerCursor(e.currentTarget.selectionStart ?? 0)
+                }
+                onKeyDown={(e) => {
+                  if (
+                    !e.nativeEvent.isComposing &&
+                    (slashPaletteRef.current?.key(e) ||
+                      mentionPaletteRef.current?.key(e))
+                  ) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (
+                    e.key === 'ArrowUp' &&
+                    !draft.text &&
+                    !e.shiftKey &&
+                    !e.altKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    lastUserText
+                  ) {
+                    // ↑ in an empty composer brings back the last message.
+                    e.preventDefault();
+                    editMessage(lastUserText);
+                    return;
+                  }
+                  if (
+                    e.key === 'Enter' &&
+                    !e.shiftKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
+                    e.preventDefault();
+                    if (!isRunning) send();
+                    else if (
+                      draft.text.trim() &&
+                      draft.text.length <= 16000 &&
+                      !sendBlocked
+                    )
+                      void action('conversation.steer');
+                  }
+                }}
+              />
+              {composerSnapshot && (
+                <SlashPalette
+                  ref={slashPaletteRef}
+                  text={draft.text}
+                  cursor={composerCursor}
+                  commands={composerSnapshot.commands}
+                  disabled={isRunning || busy || composerBusy}
+                  inputRef={composerRef}
+                  onChoose={(command, token) =>
+                    void chooseSlash(command, token)
+                  }
+                />
+              )}
+              <MentionPalette
+                ref={mentionPaletteRef}
+                text={draft.text}
+                cursor={composerCursor}
+                items={mentionItems}
+                disabled={busy || composerBusy}
+                inputRef={composerRef}
+                onConsume={(token) => replaceSlashToken(token)}
+              />
+              <div className="composer-toolbar" ref={toolbarRef}>
+                {!singleLine && composerControls}
+                <div className="composer-actions">
+                  {compactToolbar &&
+                    (pendingSubmit || pendingResume || pendingSteering) && (
+                      <Menu
+                        label="Message actions"
+                        iconOnly
+                        variant="ghost"
+                        actions={[
+                          ...(pendingSubmit
+                            ? [
+                                {
+                                  label: 'Check message',
+                                  disabled: busy,
+                                  onSelect: () => void recover(),
+                                },
+                              ]
+                            : []),
+                          ...(pendingResume
+                            ? [
+                                {
+                                  label: 'Check Resume',
+                                  disabled: busy,
+                                  onSelect: () => void resume(true),
+                                },
+                              ]
+                            : []),
+                          ...(pendingSteering
+                            ? [
+                                {
+                                  label: 'Check waiting message',
+                                  disabled: busy,
+                                  onSelect: () => void queueMessage(),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      >
+                        <MoreHorizontal size={18} aria-hidden />
+                      </Menu>
+                    )}
+                  {!compactToolbar && pendingSubmit && (
+                    <Button disabled={busy} onClick={() => void recover()}>
+                      Check message
+                    </Button>
+                  )}
+                  {!compactToolbar && pendingResume && (
+                    <Button disabled={busy} onClick={() => void resume(true)}>
+                      Check Resume
+                    </Button>
+                  )}
+                  {!compactToolbar && pendingSteering && (
+                    <Button disabled={busy} onClick={() => void queueMessage()}>
+                      Check waiting message
+                    </Button>
+                  )}
+                  {!singleLine && (
+                    <ContextUsage usage={state.workspace?.context_usage} />
+                  )}
+                  {voiceScope && (
+                    <span className="composer-voice">
+                      <VoiceControls
+                        compact
+                        scope={voiceScope}
+                        available={
+                          voiceExposure.key === voiceHostKey &&
+                          voiceExposure.dictate
+                        }
+                        unavailableReason={voiceExposure.dictateReason}
+                        disabled={busy || talkBusy}
+                        start={(request, signal) =>
+                          controller.startDictation(voiceScope, request, signal)
+                        }
+                        transcribe={(handle, utterance, audio, signal) =>
+                          controller.transcribeDictation(
+                            voiceScope,
+                            handle,
+                            utterance,
+                            audio,
+                            signal,
+                          )
+                        }
+                        stop={(handle, signal) =>
+                          controller.stopDictation(voiceScope, handle, signal)
+                        }
+                        applyTranscript={(scope, result) =>
+                          controller.applyDictation(scope, result)
+                        }
+                      />
+                      <ConversationVoice
+                        key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
+                        compact
+                        chevron
+                        controller={controller}
+                        scope={voiceScope}
+                        available={
+                          voiceExposure.key === voiceHostKey &&
+                          (voiceExposure.talk || voiceExposure.realtime)
+                        }
+                        unavailableReason={voiceExposure.talkReason}
+                        disabled={busy}
+                        running={isRunning}
+                        onBusy={setTalkBusy}
+                        context={
+                          controls?.model_selection && state.conversation
+                            ? {
+                                conversation_revision:
+                                  state.conversation.revision,
+                                model_selection: controls.model_selection,
+                                write_targets: resources
+                                  .filter((resource) =>
+                                    (
+                                      targetSelection[id ?? ''] ??
+                                      defaultTargetIds
+                                    ).includes(resource.binding.binding_id),
+                                  )
+                                  .map((resource) => ({
+                                    kind: resource.binding.kind as
+                                      'artifact' | 'workspace',
+                                    binding_id: resource.binding.binding_id,
+                                    resource_id: resource.binding.resource_id,
+                                    binding_revision: resource.binding.revision,
+                                    resource_revision:
+                                      resource.resource_revision,
+                                  })),
+                              }
+                            : null
+                        }
+                        targets={resources
+                          .filter((resource) =>
+                            (
+                              targetSelection[id ?? ''] ?? defaultTargetIds
+                            ).includes(resource.binding.binding_id),
+                          )
+                          .map((resource) => resource.title)}
+                      />
+                    </span>
+                  )}
+                  {isRunning && draft.text.trim() && (
+                    <Button
+                      variant="ghost"
+                      className="composer-queue-button"
+                      aria-label="Queue message"
+                      title="Queue this message for the running response (Enter)"
+                      disabled={
+                        draft.text.length > 16000 ||
+                        busy ||
+                        Boolean(pendingSteering) ||
+                        Boolean(pendingSubmit) ||
+                        Boolean(pendingResume)
+                      }
+                      onClick={() => void action('conversation.steer')}
+                    >
+                      <ListPlus size={16} aria-hidden />
+                      <span>Queue</span>
+                    </Button>
+                  )}
+                  {!singleLine && needsModel && setupModelButton}
+                  <span className="composer-primary-slot">
+                    {/* One button morphs between Send and Stop, so focus and
+                      position hold while a response starts and ends. */}
+                    <Button
+                      type={running ? 'button' : 'submit'}
+                      variant={running ? 'secondary' : 'primary'}
+                      iconOnly
+                      className={`composer-primary ${running ? 'composer-stop' : 'composer-send'}`}
+                      data-state={running ? 'stop' : 'send'}
+                      aria-label={running ? 'Stop' : 'Send'}
+                      title={running ? 'Stop' : undefined}
+                      aria-describedby={
+                        !running && composerStateReason
+                          ? 'message-composer-state'
+                          : undefined
+                      }
+                      disabled={
+                        running
+                          ? !generation.can_stop
+                          : sendBlocked ||
+                            !draft.text.trim() ||
+                            state.status !== 'ready' ||
+                            !sendActionReady
+                      }
+                      onClick={
+                        running
+                          ? (event) => {
+                              event.preventDefault();
+                              void action('conversation.stop');
+                            }
+                          : undefined
+                      }
+                    >
+                      <ArrowUp
+                        className="composer-primary-send"
+                        size={18}
+                        aria-hidden
+                      />
+                      <Square
+                        className="composer-primary-stop"
+                        size={14}
+                        aria-hidden
+                      />
+                    </Button>
+                  </span>
+                </div>
+              </div>
+            </div>
+            {composerStateReason && (
+              <p
+                id="message-composer-state"
+                className="composer-state-reason visually-hidden"
+                role="status"
+              >
+                {composerStateReason}
+              </p>
+            )}
+            <div
+              className="composer-status-row"
+              data-visible={
                 state.draftStatus === 'conflict' ||
                 state.draftStatus === 'failed'
-                  ? ''
-                  : ' visually-hidden'
-              }`}
+                  ? 'true'
+                  : undefined
+              }
             >
-              {state.draftStatus === 'saving'
-                ? 'Saving draft…'
-                : state.draftStatus === 'conflict'
-                  ? 'Draft changed in another client. Your local text is preserved.'
-                  : state.draftStatus === 'failed'
-                    ? 'Draft could not be saved. Keep this page open and reconnect.'
-                    : 'Draft saved'}
-            </small>
-            {state.draftStatus === 'conflict' && (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  overlay.open({
-                    title: 'Resolve draft conflict',
-                    description:
-                      'Choose which draft to keep. Messages are unchanged.',
-                    content: <DraftConflict id={id} />,
-                  })
-                }
+              {/* Saving is silent; only a failure or conflict is shown. */}
+              <small
+                role="status"
+                className={`draft-status${
+                  state.draftStatus === 'conflict' ||
+                  state.draftStatus === 'failed'
+                    ? ''
+                    : ' visually-hidden'
+                }`}
               >
-                Resolve draft conflict
-              </Button>
-            )}
-            {state.draftStatus === 'failed' && (
-              <Button
-                variant="ghost"
-                onClick={() => void controller.retryDraft(id)}
-              >
-                Retry saving draft
-              </Button>
-            )}
-          </div>
-        </form>
-      )}
-      {(hosted || sheetHosted) &&
-        contextRail &&
-        createPortal(contextRail, contextHost!.element)}
-      {hosted ? (
-        <ContextSlot
-          active={cardActive}
-          className={`context-card ${floatingContext ? 'context-card-floating' : 'context-card-docked'}`}
-        />
-      ) : (
-        !compactContext && contextRail
-      )}
-    </div>
+                {state.draftStatus === 'saving'
+                  ? 'Saving draft…'
+                  : state.draftStatus === 'conflict'
+                    ? 'Draft changed in another client. Your local text is preserved.'
+                    : state.draftStatus === 'failed'
+                      ? 'Draft could not be saved. Keep this page open and reconnect.'
+                      : 'Draft saved'}
+              </small>
+              {state.draftStatus === 'conflict' && (
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    overlay.open({
+                      title: 'Resolve draft conflict',
+                      description:
+                        'Choose which draft to keep. Messages are unchanged.',
+                      content: <DraftConflict id={id} />,
+                    })
+                  }
+                >
+                  Resolve draft conflict
+                </Button>
+              )}
+              {state.draftStatus === 'failed' && (
+                <Button
+                  variant="ghost"
+                  onClick={() => void controller.retryDraft(id)}
+                >
+                  Retry saving draft
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+        {(hosted || sheetHosted) &&
+          contextRail &&
+          createPortal(contextRail, contextHost!.element)}
+        {hosted ? (
+          <ContextSlot
+            active={cardActive}
+            className={`context-card ${floatingContext ? 'context-card-floating' : 'context-card-docked'}`}
+          />
+        ) : (
+          !compactContext && contextRail
+        )}
+      </div>
+    </CardActionsContext.Provider>
   );
 }

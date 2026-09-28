@@ -5,6 +5,7 @@ import type {
 } from '../../api/types';
 import { publicBlockText } from './TranscriptBlocks';
 import type { GeneratedMedia } from './TranscriptMessage';
+import { cardKey, tracedCards, type TranscriptCard } from './TranscriptCards';
 
 export type TranscriptItem = {
   row: TranscriptRow;
@@ -13,6 +14,8 @@ export type TranscriptItem = {
   embeds: TranscriptRow['blocks'];
   /** Generated media from this turn's tools, rendered once (B22). */
   media: GeneratedMedia[];
+  /** Designs and code folders the turn created, connections it needs. */
+  cards: TranscriptCard[];
 };
 
 function hasContent(row: TranscriptRow) {
@@ -86,6 +89,7 @@ export function buildTranscript(
       traces,
       embeds: charts.get(row.id) ?? [],
       media: tracedMedia(traces),
+      cards: tracedCards(traces),
     };
     const content = hasContent(row);
     const previous = items.at(-1);
@@ -106,12 +110,20 @@ export function buildTranscript(
             ),
         ),
       ];
+      previous.cards = [
+        ...previous.cards,
+        ...item.cards.filter(
+          (card) =>
+            !previous.cards.some((known) => cardKey(known) === cardKey(card)),
+        ),
+      ];
       continue;
     }
     if (
       !content &&
       !traces.length &&
       !item.embeds.length &&
+      !item.cards.length &&
       row.role !== 'user'
     )
       continue;
