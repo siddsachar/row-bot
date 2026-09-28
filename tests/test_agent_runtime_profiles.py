@@ -259,6 +259,7 @@ def test_top_selector_profile_use_flows_into_direct_runtime_config(tmp_path, mon
         "url_reader",
         "filesystem",
         "shell",
+        "conversation_setup",
         "arxiv",
         "browser",
         "documents",

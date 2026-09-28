@@ -116,3 +116,23 @@ def test_stopping_a_finished_agent_is_a_quiet_no_op(service):
                                       summary="Done")
     assert _agent_command(service, parent, "agent.stop", {"run_id": run["id"]})["status"] == "completed"
     assert agent_runs.get_agent_run(run["id"])["status"] == "completed"
+
+
+def test_agent_start_spawns_a_delegated_agent_from_the_composer(service, monkeypatch):
+    """/agent [profile] <task> starts a child run of this conversation (B112)."""
+    from row_bot import agent_commands, threads
+    from row_bot.application.client_platform import ClientPlatformError
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    spawned = []
+
+    def spawn(thread_id, request, **kwargs):
+        spawned.append((thread_id, request.objective, request.profile))
+        return {"id": "run-started", "parent_thread_id": thread_id, "thread_id": "",
+                "display_name": "Agent: Summarise tide tables", "status": "queued", "summary": ""}
+
+    monkeypatch.setattr(agent_commands, "spawn_agent_from_request", spawn)
+    receipt = _agent_command(service, parent, "agent.start", {"text": "Summarise tide tables"})
+    assert receipt["status"] == "completed"
+    assert spawned and spawned[0][:2] == (parent, "Summarise tide tables")
+    with pytest.raises(ClientPlatformError, match="invalid_command"):
+        _agent_command(service, parent, "agent.start", {"text": "--model="})

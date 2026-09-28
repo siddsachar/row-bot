@@ -207,6 +207,8 @@ _COMMON_PROFILE_TOOLS = [
     "url_reader",
     "filesystem",
     "shell",
+    # Designs and code folders the work needs, and Connect cards (decision 12).
+    "conversation_setup",
 ]
 
 

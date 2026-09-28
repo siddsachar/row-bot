@@ -86,6 +86,7 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
         "url_reader",
         "filesystem",
         "shell",
+        "conversation_setup",
         "documents",
         "calculator",
     ]
