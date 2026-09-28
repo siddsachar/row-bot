@@ -559,26 +559,13 @@ export default function Workspace() {
           conversation: conversationId,
           revision: currentDesign?.resource_revision ?? '',
         };
-        const latestRequest =
-          [
-            ...((
-              controller.getSnapshot().history ??
-              controller.getSnapshot().projection
-            )?.rows ?? []),
-          ]
-            .reverse()
-            .find((row) => row.role === 'user')
-            ?.blocks.map((block) => ('text' in block ? block.text : ''))
-            .join('') ?? '';
-        const explicitDesignRequest =
-          /\b(design|deck|presentation|slides?|storyboard|social post|mock[ -]?up)\b/i.test(
-            latestRequest,
-          );
+        // Only a design the turn actually changed opens; the wording of a
+        // message never does (decision 12, B113).
         const updated = fresh.resources.find(
           (item) =>
             item.binding.kind === 'artifact' &&
             item.available &&
-            (item.resource_revision !== baseline || explicitDesignRequest),
+            item.resource_revision !== baseline,
         );
         if (!updated) return;
         handledGeneration.current = generation.generation_id;
