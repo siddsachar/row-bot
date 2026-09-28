@@ -58,6 +58,7 @@ const mock = vi.hoisted(() => ({
   routeKey: 'conversation-route',
   navigate: vi.fn(),
   intent: vi.fn(),
+  controlsSettled: vi.fn(),
   workspaceFor: vi.fn(),
   waitingMessages: vi.fn(),
   steering: vi.fn(),
@@ -101,6 +102,7 @@ vi.mock('../../runtime', () => {
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
       intent: mock.intent,
+      controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
       waitingMessages: mock.waitingMessages,
       steering: mock.steering,
@@ -178,6 +180,7 @@ beforeEach(() => {
     value: { kind: 'browser', platform: 'browser', capabilities: [] },
   });
   mock.workspaceFor.mockResolvedValue({ writer_status: '' });
+  mock.controlsSettled.mockResolvedValue(undefined);
   mock.waitingMessages.mockImplementation(async (id: string) => ({
     conversation_id: id,
     generation_id: '',
@@ -1014,6 +1017,58 @@ it('says when a stop left the last message unanswered and offers to send it agai
   const log = screen.getByRole('log', { name: 'Conversation' });
   expect(log).toHaveTextContent('Stopped before a reply');
   expect(within(log).getByRole('button', { name: 'Send again' })).toBeVisible();
+});
+
+it('waits for a model change that is still saving, then sends with it (B109)', async () => {
+  idleConversation();
+  const other = { provider_id: 'fixture', model_ref: 'fixture/other' };
+  let saved!: () => void;
+  mock.controlsSettled.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = () => {
+          // What the save wrote back: the new model and a newer revision.
+          mock.state.conversation = {
+            ...mock.state.conversation!,
+            revision: '2',
+          };
+          mock.state.workspace = {
+            ...mock.state.workspace!,
+            revision: '2',
+            controls: {
+              ...mock.state.workspace!.controls,
+              model_selection: other,
+            },
+          } as ConversationWorkspace;
+          resolve();
+        };
+      }),
+  );
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  await act(async () => saved());
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({
+      text: 'Original queued draft',
+      model_selection: other,
+    }),
+    '2',
+    expect.any(String),
+  );
 });
 
 it('sends the files again with Send again, not their names as text (B136)', async () => {

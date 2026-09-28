@@ -15,6 +15,7 @@ import { clientError } from './errors';
 import thinkingRecording from '../../../contracts/client-platform/v1/fixtures/F-P12.json';
 import type {
   Command,
+  CommandReceipt,
   ConversationView,
   Event,
   EventRecord,
@@ -1958,6 +1959,53 @@ describe('event order, atomic reset and commands', () => {
     expect(value.getSnapshot().projection?.projection_revision).toBe('11');
     expect(value.getSnapshot().projection?.server_epoch).toBe('new-epoch');
     expect(value.getSnapshot().selectedConversationId).toBe('conversation-a');
+  });
+  it('lets a send wait for a model change that is still saving (B109)', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    let finish!: (receipt: CommandReceipt) => void;
+    let fail!: (error: unknown) => void;
+    const command = vi
+      .spyOn(value, 'command')
+      .mockImplementationOnce(
+        () => new Promise<CommandReceipt>((resolve) => (finish = resolve)),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<CommandReceipt>((_resolve, reject) => (fail = reject)),
+      );
+    const saving = value.intent(
+      'conversation-a',
+      'conversation.controls',
+      { model_selection: { provider_id: 'fixture', model_ref: 'other' } },
+      '1',
+    );
+    let settled = false;
+    const waiting = value
+      .controlsSettled('conversation-a')
+      .then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    // Another conversation, or nothing saving, never waits.
+    await value.controlsSettled('conversation-b');
+    finish({ command_id: 'saved', status: 'completed' });
+    await saving;
+    await waiting;
+    expect(settled).toBe(true);
+    // A refused save also lets the send go (it reads the refusal itself).
+    const refused = value.intent(
+      'conversation-a',
+      'conversation.controls',
+      {},
+      '2',
+    );
+    const next = value.controlsSettled('conversation-a');
+    fail({ code: 'generation_active', status: 409 });
+    await expect(refused).rejects.toMatchObject({ code: 'generation_active' });
+    await next;
+    expect(command).toHaveBeenCalledTimes(2);
   });
   it('coalesces duplicate command intent, rejects changed input and never retries response loss', async () => {
     vi.stubGlobal('crypto', webcrypto);

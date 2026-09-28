@@ -988,11 +988,22 @@ export default function Conversation({
     setError('');
     let claim: PendingCommand | null = null;
     let checking = false;
+    let sendControls = controls;
+    let sendRevision = state.conversation?.revision ?? '';
     try {
       claim = commandReceipts.read(scope);
       checking = Boolean(claim);
       if (!claim) {
-        if (!text || !capturedDraft || !controls?.model_selection) return;
+        // A model or mode change that is still saving goes first, so this
+        // message carries it and the revision it made (B109).
+        await controller.controlsSettled?.(target);
+        if (!current()) return;
+        const latest = controller.getSnapshot();
+        if (latest.workspace?.conversation_id === target)
+          sendControls = latest.workspace.controls;
+        if (latest.conversation?.id === target)
+          sendRevision = latest.conversation.revision;
+        if (!text || !capturedDraft || !sendControls?.model_selection) return;
         if (resumeKey && commandReceipts.read(resumeKey)) {
           setResumeClaim({
             key: resumeKey,
@@ -1035,10 +1046,10 @@ export default function Conversation({
               attachment_refs: capturedDraft!.attachments.map(
                 (a) => a.attachment_ref,
               ),
-              model_selection: controls!.model_selection,
+              model_selection: sendControls!.model_selection,
               write_targets: targets,
             },
-            state.conversation!.revision,
+            sendRevision,
             claim.commandId,
           );
       if (

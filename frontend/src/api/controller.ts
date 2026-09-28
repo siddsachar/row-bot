@@ -4630,12 +4630,30 @@ export class ClientController {
     this.query(() =>
       this.transport.content?.(conversation, message, cursor, signal),
     );
-  async intent(
+  intent(
     target: string | null,
     type: Command['type'],
     payload: object,
     revision: string,
     identity: string = crypto.randomUUID(),
+  ): Promise<CommandReceipt> {
+    const run = this.runIntent(target, type, payload, revision, identity);
+    if (type === 'conversation.controls' && target) {
+      this.controlSaves.set(target, run);
+      const forget = () => {
+        if (this.controlSaves.get(target) === run)
+          this.controlSaves.delete(target);
+      };
+      run.then(forget, forget);
+    }
+    return run;
+  }
+  private async runIntent(
+    target: string | null,
+    type: Command['type'],
+    payload: object,
+    revision: string,
+    identity: string,
   ): Promise<CommandReceipt> {
     const session = this.state.handshake?.client_session_id;
     if (!session) throw clientError({ code: 'authentication_required' });
@@ -4651,6 +4669,19 @@ export class ClientController {
       await this.refreshWorkspace();
     await this.loadMoreConversations(true);
     return receipt;
+  }
+  // Model, mode and profile changes still saving, per conversation. A send
+  // waits for them so it carries the new choice and the revision it made
+  // instead of being refused as out of date (B109).
+  private controlSaves = new Map<string, Promise<CommandReceipt>>();
+  /** Resolves once no conversation-controls change is still saving. */
+  async controlsSettled(conversation: string): Promise<void> {
+    let pending = this.controlSaves.get(conversation);
+    while (pending) {
+      await pending.catch(() => undefined);
+      const next = this.controlSaves.get(conversation);
+      pending = next === pending ? undefined : next;
+    }
   }
 
   setVisible(visible: boolean): void {
