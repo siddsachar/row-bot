@@ -5,8 +5,13 @@ import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
-import { absoluteTime, relativeTime } from '../../ui/format';
-import { approvalQuestion, keyArgument } from './tool-activity';
+import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import {
+  approvalAction,
+  approvalQuestion,
+  keyArgument,
+  plainApprovalReason,
+} from './tool-activity';
 
 type Hint_ = { action_label?: string; reason?: string; risk_class?: string };
 
@@ -17,14 +22,45 @@ const RISK: Record<string, string> = {
   critical: 'Critical risk',
 };
 
+/** The server's scope sentences, in the card's words. */
+function plainScope(scope: string | null | undefined): string {
+  if (!scope || /^Only this requested action will be resolved\.?$/.test(scope))
+    return 'Only this action.';
+  const together =
+    /^(\d+) requested actions will be resolved together\.?$/.exec(scope);
+  return together ? `These ${together[1]} actions, together.` : scope;
+}
+
+/** `{"file_path":"notes.txt"}` reads "File path: notes.txt". */
+function plainArguments(summary: string): string[] {
+  try {
+    const value: unknown = JSON.parse(summary);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const lines = Object.entries(value).map(
+        ([key, item]) =>
+          `${humanizeToken(key)}: ${
+            typeof item === 'string' ? item : JSON.stringify(item)
+          }`,
+      );
+      if (lines.length) return lines;
+    }
+  } catch {
+    // Not JSON: show it as it is.
+  }
+  return [summary];
+}
+
 function ApprovalDetails({ view }: { view: ApprovalView }) {
   const risk = RISK[view.risk_class ?? ''];
+  const reason = view.reason || view.summary;
   return (
     <div className="approval-detail stack">
-      <p>{view.reason || view.summary || 'Row-Bot needs your go-ahead.'}</p>
+      <p>
+        {reason ? plainApprovalReason(reason) : 'Row-Bot needs your go-ahead.'}
+      </p>
       <dl>
         <dt>Action</dt>
-        <dd>{view.action_label}</dd>
+        <dd>{approvalAction(view.action_label || '')}</dd>
         {risk && (
           <>
             <dt>Risk</dt>
@@ -32,12 +68,16 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
           </>
         )}
         <dt>Affects</dt>
-        <dd>{view.scope || 'Only this action.'}</dd>
+        <dd>{plainScope(view.scope)}</dd>
         {view.safe_argument_summary && (
           <>
             <dt>With</dt>
             <dd>
-              <code>{view.safe_argument_summary}</code>
+              {plainArguments(view.safe_argument_summary).map((line) => (
+                <span key={line} className="approval-detail-argument">
+                  {line}
+                </span>
+              ))}
             </dd>
           </>
         )}
@@ -159,7 +199,7 @@ export default function ApprovalCard({
           <div className="approval-card-context">
             <strong>{approvalQuestion(view.action_label || '')}</strong>
             <span className="approval-card-reason">
-              {view.reason || view.summary}
+              {plainApprovalReason(view.reason || view.summary || '')}
             </span>
             {argument && (
               <code className="approval-card-argument">{argument}</code>
@@ -174,7 +214,7 @@ export default function ApprovalCard({
               disabled={busy || Boolean(resolution)}
               onClick={() =>
                 overlay.open({
-                  title: `Approval details · ${view.action_label}`,
+                  title: approvalQuestion(view.action_label || ''),
                   description: 'What Row-Bot wants to do, and what it affects.',
                   content: <ApprovalDetails view={view} />,
                 })

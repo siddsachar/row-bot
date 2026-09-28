@@ -287,7 +287,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await assertControlTextUnclipped(details);
   await details.click();
   const dialog = page.getByRole('dialog', {
-    name: 'Approval details · fixture_action',
+    name: 'Allow Fixture action?',
     exact: true,
   });
   await expect(dialog).toBeVisible();

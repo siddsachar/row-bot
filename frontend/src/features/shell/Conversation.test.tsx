@@ -417,7 +417,7 @@ it('anchors bounded approval context inline with canonical resolve controls', as
     fireEvent.click(within(bar).getByRole('button', { name: 'Details' })),
   );
   expect(mock.open.mock.lastCall?.[0]).toMatchObject({
-    title: 'Approval details · fixture_tool',
+    title: 'Allow Fixture tool?',
   });
   await act(async () =>
     fireEvent.click(within(bar).getByRole('button', { name: 'Approve' })),

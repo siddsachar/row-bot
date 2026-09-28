@@ -20,10 +20,12 @@ import {
 } from './syntax-languages';
 import {
   activityLabel,
+  approvalAction,
   approvalQuestion,
   formatElapsed,
   imperative,
   keyArgument,
+  plainApprovalReason,
   stepVerb,
   summarizeActivity,
 } from './tool-activity';
@@ -110,6 +112,29 @@ describe('tool activity', () => {
     expect(imperative('Scrolling')).toBe('Scroll');
     expect(approvalQuestion('send_gmail_message')).toBe('Send an email?');
     expect(approvalQuestion('fixture_action')).toBe('Allow Fixture action?');
+    expect(approvalAction('workspace_file_delete')).toBe('Delete a file');
+    expect(approvalAction('fixture_action')).toBe('Fixture action');
+  });
+
+  it("reads the agent's approval line in plain words (U22)", () => {
+    expect(plainApprovalReason("Delete file: file_path='notes.txt'")).toBe(
+      'Delete file: notes.txt',
+    );
+    expect(
+      plainApprovalReason(
+        "Move / rename file: source='a.txt', destination=\"it's b.txt\"",
+      ),
+    ).toBe("Move / rename file: source a.txt · destination it's b.txt");
+    expect(plainApprovalReason('Delete task: 🗓️ Weekly brief')).toBe(
+      'Delete task: 🗓️ Weekly brief',
+    );
+    expect(plainApprovalReason('Delete a file in the workspace.')).toBe(
+      'Delete a file in the workspace.',
+    );
+    // A cut-off or unusual argument list is shown as it is.
+    expect(plainApprovalReason("Send email: to='a@b.c', body='Hello…")).toBe(
+      "Send email: to='a@b.c', body='Hello…",
+    );
   });
 
   it('shows the one argument that matters, bounded and without markup', () => {

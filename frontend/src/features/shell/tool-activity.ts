@@ -435,3 +435,46 @@ export function approvalQuestion(name: string): string {
     return `Allow ${humanizeToken(bareName(name)) || 'this action'}?`;
   return `${imperative(stepVerb(name, 'pending'))}?`;
 }
+
+/** The action itself, for a label: "Delete a file", or "Fixture action". */
+export function approvalAction(name: string): string {
+  if (!describe(name)) return humanizeToken(bareName(name)) || 'This action';
+  return imperative(stepVerb(name, 'pending'));
+}
+
+// One `key=value` argument as the agent writes it (Python repr).
+const ARGUMENT =
+  /(\w+)=('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^,'"]*)(?:, (?=\w+=)|$)/y;
+
+function unquote(value: string): string {
+  const quoted = /^(['"])([\s\S]*)\1$/.exec(value);
+  if (!quoted) return value;
+  return quoted[2].replace(/\\(.)/g, (_match, character: string) =>
+    character === 'n' ? ' ' : character,
+  );
+}
+
+/**
+ * "Delete file: file_path='notes.txt'" reads "Delete file: notes.txt".
+ * Anything that is not that shape is shown as it is.
+ */
+export function plainApprovalReason(reason: string): string {
+  const match = /^([^:\n]{1,80}): ([\s\S]+)$/.exec(reason.trim());
+  if (!match) return reason;
+  const pairs: [string, string][] = [];
+  ARGUMENT.lastIndex = 0;
+  while (ARGUMENT.lastIndex < match[2].length) {
+    const start = ARGUMENT.lastIndex;
+    const pair = ARGUMENT.exec(match[2]);
+    if (!pair || ARGUMENT.lastIndex === start) return reason;
+    pairs.push([pair[1], unquote(pair[2].trim())]);
+  }
+  if (!pairs.length) return reason;
+  const values =
+    pairs.length === 1
+      ? pairs[0][1]
+      : pairs
+          .map(([key, value]) => `${midSentence(humanizeToken(key))} ${value}`)
+          .join(' · ');
+  return `${match[1]}: ${values}`;
+}

@@ -80,8 +80,12 @@ it('explains the action in plain words, without request ids or unrated risk', as
   expect(details.description).toBe(
     'What Row-Bot wants to do, and what it affects.',
   );
+  expect(details.title).toBe('Delete a file?');
   render(details.content);
   expect(screen.getByText('Only this action.')).toBeVisible();
+  expect(screen.getByText('Delete a file')).toBeVisible();
+  expect(screen.getByText('File path: notes.txt')).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/workspace_file_delete|\{"/);
   expect(screen.queryByText(/Risk|Request approval-a|policy revision/)).toBe(
     null,
   );

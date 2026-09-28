@@ -632,7 +632,7 @@ test('current approval is reviewed once and resumes its original conversation', 
   await expect(approval.getByRole('button', { name: 'Deny' })).toBeEnabled();
   await approval.getByRole('button', { name: 'Details' }).click();
   const dialog = page.getByRole('dialog', {
-    name: 'Approval details · fixture_action',
+    name: 'Allow Fixture action?',
     exact: true,
   });
   await expect(dialog).toBeVisible();
