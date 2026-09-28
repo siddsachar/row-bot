@@ -1460,11 +1460,14 @@
   gap: 2px;
 }
 .context-agents .delegated-run-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
   padding: 0;
   border: 0;
   background: transparent;
 }
-.context-agents .delegated-run-item > .button {
+.context-agents .delegated-run-item > .button:not(.icon-button) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1478,7 +1481,7 @@
   text-align: start;
   white-space: normal;
 }
-.context-agents .delegated-run-item > .button:hover {
+.context-agents .delegated-run-item > .button:not(.icon-button):hover {
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 .context-agents .delegated-run-name {
@@ -1497,6 +1500,49 @@
   color: var(--text-muted);
   font-size: var(--text-12);
   line-height: var(--leading-13);
+}
+
+/* Inside a delegated agent's thread: its name, status, Stop and Message. */
+.delegated-own-run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  margin-bottom: 8px;
+}
+.delegated-own-run .agent-controls {
+  grid-column: 1 / -1;
+}
+.agent-controls {
+  display: grid;
+  gap: 6px;
+}
+.agent-controls .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.agent-message {
+  display: grid;
+  gap: 6px;
+}
+.agent-message label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.agent-message textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+}
+.agent-controls-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.agent-controls-status[role='alert'] {
+  color: var(--status-danger-text);
 }
 
 /* A thread holding two kinds: its first as the glyph, the second as a badge. */

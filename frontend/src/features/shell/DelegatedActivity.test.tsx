@@ -435,3 +435,118 @@ it('reports how many delegated agents are live once each page settles', async ()
   );
   await waitFor(() => expect(onLiveChange).toHaveBeenLastCalledWith(0));
 });
+
+it('stops and messages a running agent from its detail (parity row 9)', async () => {
+  const working = { ...run, status: 'running' };
+  const stopRun = vi.fn().mockResolvedValue(undefined);
+  const messageRun = vi.fn().mockResolvedValue(undefined);
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={async () => ({ ...page, items: [working] })}
+        loadRun={async () => working}
+        openConversation={async () => {}}
+        stopRun={stopRun}
+        messageRun={messageRun}
+      />
+    </OverlayProvider>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Research task' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('status')).toHaveTextContent('Working');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Message' }));
+  fireEvent.change(
+    within(dialog).getByRole('textbox', { name: 'Message to Research task' }),
+    { target: { value: 'Also cover tides.' } },
+  );
+  await act(async () => {
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Send to agent' }),
+    );
+  });
+  expect(messageRun).toHaveBeenCalledWith('run-a', 'Also cover tides.');
+  expect(
+    await within(dialog).findByText(
+      'Message sent. The agent reads it at its next step.',
+    ),
+  ).toBeVisible();
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop' }));
+  });
+  expect(stopRun).toHaveBeenCalledWith('run-a');
+});
+
+it('offers Stop in place on a working row and none on a finished one', async () => {
+  const stopRun = vi.fn().mockResolvedValue(undefined);
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        compact
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={async () => ({
+          ...page,
+          items: [
+            run,
+            {
+              ...run,
+              run_id: 'run-b',
+              name: 'Working task',
+              status: 'running',
+            },
+          ],
+        })}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+        stopRun={stopRun}
+      />
+    </OverlayProvider>,
+  );
+  const stop = await screen.findByRole('button', {
+    name: 'Stop Working task',
+  });
+  await act(async () => {
+    fireEvent.click(stop);
+  });
+  expect(stopRun).toHaveBeenCalledWith('run-b');
+  expect(
+    screen.queryByRole('button', { name: 'Stop Research task' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText('Done')).toBeVisible();
+});
+
+it('shows a child thread its own agent with Stop and Message', async () => {
+  const stopRun = vi.fn().mockResolvedValue(undefined);
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        conversationId="child-a"
+        refreshKey=""
+        loadPage={async () => ({
+          ...page,
+          conversation_id: 'child-a',
+          parent_conversation_id: 'parent-a',
+          own_run: { ...run, status: 'running' },
+          items: [],
+        })}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+        stopRun={stopRun}
+        messageRun={vi.fn()}
+      />
+    </OverlayProvider>,
+  );
+  const own = await screen.findByRole('group', { name: 'This agent' });
+  expect(own).toHaveTextContent('Research task');
+  expect(own).toHaveTextContent('Working');
+  expect(within(own).getByRole('button', { name: 'Message' })).toBeVisible();
+  await act(async () => {
+    fireEvent.click(within(own).getByRole('button', { name: 'Stop' }));
+  });
+  expect(stopRun).toHaveBeenCalledWith('run-a');
+  expect(
+    screen.getByRole('button', { name: 'Back to parent conversation' }),
+  ).toBeVisible();
+});

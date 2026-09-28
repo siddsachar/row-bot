@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { CircleStop, MessageSquare } from 'lucide-react';
 import type { DelegatedActivityView, DelegatedRun } from '../../api/types';
-import { Button, Skeleton } from '../../ui/primitives';
+import { clientError } from '../../api/errors';
+import { Button, IconButton, Skeleton } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 
 type Props = {
@@ -13,6 +15,10 @@ type Props = {
   ) => Promise<DelegatedActivityView>;
   loadRun: (runId: string, signal?: AbortSignal) => Promise<DelegatedRun>;
   openConversation: (id: string) => Promise<void>;
+  /** Stop a delegated agent (parity row 9). */
+  stopRun?: (runId: string) => Promise<void>;
+  /** Send a delegated agent a message it reads at its next step. */
+  messageRun?: (runId: string, text: string) => Promise<void>;
   compact?: boolean;
   /** Reports whether there is anything to show once a load settles. */
   onContentChange?: (hasContent: boolean) => void;
@@ -62,18 +68,161 @@ const ACTIVE_STATES = new Set([
   'running',
   'waiting',
   'waiting_approval',
+  'waiting_user',
+  'paused',
+  'interrupted',
   'stopping',
 ]);
+
+const STATUS_WORDS: Record<string, string> = {
+  queued: 'Queued',
+  starting: 'Starting',
+  running: 'Working',
+  waiting: 'Waiting',
+  waiting_approval: 'Waiting for approval',
+  waiting_user: 'Needs you',
+  paused: 'Paused',
+  interrupted: 'Interrupted',
+  stopping: 'Stopping',
+  completed: 'Done',
+  completed_delivery_failed: 'Done · not delivered',
+  failed: 'Failed',
+  stopped: 'Stopped',
+  blocked: 'Blocked',
+  timed_out: 'Timed out',
+  cancelled: 'Cancelled',
+};
+
+/** A run's status in words ("running" reads "Working"). */
+export function runStatus(status: string) {
+  return STATUS_WORDS[status] ?? status.replaceAll('_', ' ');
+}
+
+/**
+ * Stop and Message for a delegated agent that is still going. A message is
+ * read at the agent's next step; Stop ends it (parity row 9).
+ */
+export function AgentControls({
+  run,
+  stopRun,
+  messageRun,
+  onChanged,
+}: {
+  run: DelegatedRun;
+  stopRun?: Props['stopRun'];
+  messageRun?: Props['messageRun'];
+  onChanged?: () => void;
+}) {
+  const [writing, setWriting] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  if (!ACTIVE_STATES.has(run.status) || (!stopRun && !messageRun)) return null;
+  async function act(work: () => Promise<void>, done: string) {
+    setBusy(true);
+    setError('');
+    try {
+      await work();
+      setStatus(done);
+      onChanged?.();
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="agent-controls">
+      {writing && messageRun ? (
+        <form
+          className="agent-message"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = text.trim();
+            if (!value) return;
+            void act(async () => {
+              await messageRun(run.run_id, value);
+              setText('');
+              setWriting(false);
+            }, 'Message sent. The agent reads it at its next step.');
+          }}
+        >
+          <label>
+            <span>Message to {run.name}</span>
+            <textarea
+              className="input"
+              rows={2}
+              maxLength={16000}
+              autoFocus
+              value={text}
+              disabled={busy}
+              onChange={(event) => setText(event.target.value)}
+            />
+          </label>
+          <div className="button-row">
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setWriting(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={busy || !text.trim()}
+            >
+              Send to agent
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="button-row">
+          {messageRun && (
+            <Button disabled={busy} onClick={() => setWriting(true)}>
+              <MessageSquare size={14} aria-hidden /> Message
+            </Button>
+          )}
+          {stopRun && run.status !== 'stopping' && (
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void act(() => stopRun(run.run_id), 'Stop requested.')
+              }
+            >
+              <CircleStop size={14} aria-hidden /> Stop
+            </Button>
+          )}
+        </div>
+      )}
+      {status && (
+        <p role="status" className="agent-controls-status">
+          {status}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="agent-controls-status">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function RunDetail({
   runId,
   loadRun,
   openConversation,
+  stopRun,
+  messageRun,
   close,
 }: {
   runId: string;
   loadRun: Props['loadRun'];
   openConversation: Props['openConversation'];
+  stopRun?: Props['stopRun'];
+  messageRun?: Props['messageRun'];
   close: () => void;
 }) {
   const [run, setRun] = useState<DelegatedRun | null>(null);
@@ -131,12 +280,17 @@ function RunDetail({
       {run && (
         <div className="delegated-run-detail">
           <p role="status" className="delegated-run-status">
-            <span className="eyebrow">Status</span>{' '}
-            {run.status.replaceAll('_', ' ')}
+            <span className="eyebrow">Status</span> {runStatus(run.status)}
           </p>
           <p className="delegated-run-summary">
             {run.summary || 'No public summary is available yet.'}
           </p>
+          <AgentControls
+            run={run}
+            stopRun={stopRun}
+            messageRun={messageRun}
+            onChanged={() => setAttempt((value) => value + 1)}
+          />
           {run.child_conversation_id ? (
             <Button
               disabled={opening || error}
@@ -296,6 +450,21 @@ export default function DelegatedActivity(props: Props) {
       className="activity delegated-activity"
       aria-busy={loading}
     >
+      {page?.own_run && (
+        // Inside a delegated agent's own thread: its status, Stop and Message.
+        <div className="delegated-own-run" aria-label="This agent" role="group">
+          <span className="delegated-run-name">{page.own_run.name}</span>
+          <span className="delegated-run-state">
+            {runStatus(page.own_run.status)}
+          </span>
+          <AgentControls
+            run={page.own_run}
+            stopRun={props.stopRun}
+            messageRun={props.messageRun}
+            onChanged={() => setAttempt((value) => value + 1)}
+          />
+        </div>
+      )}
       {page?.parent_conversation_id && (
         <Button
           onClick={() =>
@@ -343,6 +512,8 @@ export default function DelegatedActivity(props: Props) {
                           runId={run.run_id}
                           loadRun={props.loadRun}
                           openConversation={props.openConversation}
+                          stopRun={props.stopRun}
+                          messageRun={props.messageRun}
                           close={() => dismiss.current(key)}
                         />
                       ),
@@ -351,9 +522,24 @@ export default function DelegatedActivity(props: Props) {
                 >
                   <span className="delegated-run-name">{run.name}</span>
                   <span className="delegated-run-state">
-                    {run.status.replaceAll('_', ' ')}
+                    {runStatus(run.status)}
                   </span>
                 </Button>
+                {props.stopRun &&
+                  ACTIVE_STATES.has(run.status) &&
+                  run.status !== 'stopping' && (
+                    <IconButton
+                      size="sm"
+                      label={`Stop ${run.name}`}
+                      onClick={() =>
+                        void props.stopRun!(run.run_id)
+                          .then(() => setAttempt((value) => value + 1))
+                          .catch(() => setError(true))
+                      }
+                    >
+                      <CircleStop size={14} aria-hidden />
+                    </IconButton>
+                  )}
               </li>
             ))}
           </ul>

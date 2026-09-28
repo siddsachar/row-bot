@@ -1721,6 +1721,24 @@ export default function Conversation({
         controller.delegatedActivity(id, cursor, signal)
       }
       loadRun={(run, signal) => controller.delegatedRun(id, run, signal)}
+      // The dialog keeps these from when it opened: read the conversation's
+      // revision when the person acts, not the render's.
+      stopRun={async (run) => {
+        await controller.intent(
+          id,
+          'agent.stop',
+          { run_id: run },
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
+      messageRun={async (run, text) => {
+        await controller.intent(
+          id,
+          'agent.message',
+          { run_id: run, message_id: crypto.randomUUID(), text },
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
       openConversation={async (target) => {
         if (controller.getSnapshot().selectedConversationId !== id) return;
         await controller.selectConversation(target);
