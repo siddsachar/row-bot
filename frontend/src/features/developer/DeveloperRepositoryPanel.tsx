@@ -514,7 +514,7 @@ export default function DeveloperRepositoryPanel(
       if (receipt.status === 'partial') {
         session.update({
           pending: attempt,
-          message: `The original change is unconfirmed (${labelCode(receipt.code)}).`,
+          message: `Row-Bot couldn't confirm the change (${labelCode(receipt.code)}).`,
         });
       } else {
         session.update({
@@ -947,8 +947,8 @@ export default function DeveloperRepositoryPanel(
         <section className="dev-git-section" aria-label="Managed worktree">
           <h4>Worktree</h4>
           <p className="muted">
-            A conversation-owned Git worktree, seeded with the current changes,
-            keeps agent work apart from the project folder.
+            A Git worktree for this conversation, seeded with the current
+            changes, keeps agent work apart from the project folder.
           </p>
           <ul className="dev-worktrees">
             {snapshot.worktrees.map((worktree) => (

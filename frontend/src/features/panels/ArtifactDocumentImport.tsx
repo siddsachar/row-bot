@@ -79,7 +79,7 @@ export default function ArtifactDocumentImport({
       onImported();
     } catch {
       setError(
-        'Import was not confirmed. Check the original design command receipt before retrying.',
+        "Row-Bot couldn't confirm the import. Check the design before trying again.",
       );
     } finally {
       setBusy(false);

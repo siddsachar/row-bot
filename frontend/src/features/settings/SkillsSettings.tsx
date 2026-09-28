@@ -484,7 +484,7 @@ export default function SkillsSettings({
         session.update({
           busy: '',
           message:
-            'The original change is unconfirmed. Check its receipt before doing anything else.',
+            "Row-Bot couldn't confirm that change. Check again before doing anything else.",
         });
         return;
       }
@@ -511,7 +511,7 @@ export default function SkillsSettings({
       session.update({
         busy: '',
         message:
-          'The original change is unconfirmed. Check its receipt before doing anything else.',
+          "Row-Bot couldn't confirm that change. Check again before doing anything else.",
       });
     }
   };
@@ -549,7 +549,7 @@ export default function SkillsSettings({
         session.update({
           busy: '',
           message:
-            'The original receipt is unavailable. No new change was started.',
+            "Row-Bot can't find what happened. No new change was started.",
         });
     } finally {
       session.endRead(abort);
@@ -738,11 +738,12 @@ export default function SkillsSettings({
       {state.pending && (
         <Surface elevated>
           <p>
-            The original {state.pending.command.type.replaceAll('.', ' ')} is
-            retained for receipt recovery.
+            Row-Bot couldn't confirm the last{' '}
+            {state.pending.command.type.replaceAll('.', ' ')}. Check it before
+            anything else.
           </p>
           <Button disabled={Boolean(state.busy)} onClick={() => void recover()}>
-            Check original receipt
+            Check again
           </Button>
         </Surface>
       )}

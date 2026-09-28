@@ -475,7 +475,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
       update((value) => ({
         ...value,
         error:
-          'The process session is full. Stop an owned process before starting another.',
+          'Too many commands are running. Stop one before starting another.',
       }));
       return;
     }
@@ -519,7 +519,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
           attempt: { ...owned, uncertain: !stopped },
           error: stopped
             ? ''
-            : 'Start is unconfirmed. Keep this command identity; retry the original Start or stop its owned process. A new command will not be sent automatically.',
+            : "Row-Bot couldn't confirm the command started. Retry Start to check it, or stop the command. Nothing new is sent automatically.",
         };
       });
     } finally {

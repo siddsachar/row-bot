@@ -353,7 +353,7 @@ export default function ProviderConfiguration(
       session.update({
         error: clientError(cause).message,
         notice:
-          'The original outcome is unconfirmed. Check its receipt; it will not be sent again.',
+          "Row-Bot couldn't confirm the change. Check again; it won't be sent twice.",
       });
     } finally {
       session.update({ busy: '' });
@@ -368,8 +368,7 @@ export default function ProviderConfiguration(
       if (abort.signal.aborted) return;
       if (outcome === 'uncertain')
         session.update({
-          notice:
-            'The original outcome is still unconfirmed. No request was replayed.',
+          notice: 'Still unconfirmed. Nothing was sent twice.',
         });
       else
         session.update({
@@ -513,7 +512,7 @@ export default function ProviderConfiguration(
               busy: '',
               error: clientError(cause).message,
               notice: session.getSnapshot().pending
-                ? 'Endpoint saved; the model refresh outcome is uncertain. Read its original receipt.'
+                ? "Endpoint saved, but Row-Bot couldn't confirm the model refresh. Check again."
                 : 'Endpoint saved, but model refresh did not start.',
             });
             if (!session.getSnapshot().pending) void load();
@@ -525,7 +524,7 @@ export default function ProviderConfiguration(
         busy: '',
         error: clientError(cause).message,
         notice:
-          'The outcome is uncertain. Read the original receipt before another action.',
+          "Row-Bot couldn't confirm that. Check again before another action.",
       });
     }
   }
@@ -915,14 +914,14 @@ export default function ProviderConfiguration(
                   </label>
                   <label>
                     <Toggle
-                      label="Replay preserved reasoning"
+                      label="Send earlier reasoning back"
                       checked={fields.supports_reasoning_replay}
                       disabled={locked}
                       onChange={(event) =>
                         field('supports_reasoning_replay', event.target.checked)
                       }
                     />{' '}
-                    Replay preserved reasoning
+                    Send earlier reasoning back
                   </label>
                   <Field label="Extra request JSON">
                     <textarea
@@ -972,7 +971,7 @@ export default function ProviderConfiguration(
                     disabled={!!state.busy}
                     onClick={() => void receipt()}
                   >
-                    Read original receipt
+                    Check again
                   </Button>
                 )}
               </div>
@@ -981,7 +980,7 @@ export default function ProviderConfiguration(
         )}
         {pending && !state.editing && (
           <Button disabled={!!state.busy} onClick={() => void receipt()}>
-            Read original receipt
+            Check again
           </Button>
         )}
         {probeDetails && (
@@ -1427,7 +1426,7 @@ export default function ProviderConfiguration(
                             label={
                               key === 'supports_reasoning_content'
                                 ? 'Endpoint returns reasoning content'
-                                : 'Replay preserved reasoning'
+                                : 'Send earlier reasoning back'
                             }
                             checked={fields[key]}
                             disabled={locked}
@@ -1437,7 +1436,7 @@ export default function ProviderConfiguration(
                           />
                           {key === 'supports_reasoning_content'
                             ? 'Endpoint returns reasoning content'
-                            : 'Replay preserved reasoning'}
+                            : 'Send earlier reasoning back'}
                         </label>
                       ))}
                       <Field label="Credential-free extra request JSON">
@@ -1528,7 +1527,7 @@ export default function ProviderConfiguration(
       )}
       {pending && (
         <Button disabled={!!state.busy} onClick={() => void receipt()}>
-          Check original configuration receipt
+          Check configuration
         </Button>
       )}
       <Button disabled={locked || state.dirty} onClick={() => void load()}>

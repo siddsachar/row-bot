@@ -1202,7 +1202,7 @@ export default function TaskLibrary() {
                   ? 'saving'
                   : draft.dirty
                     ? 'unsaved changes'
-                    : 'waiting for the save receipt';
+                    : 'waiting for the save to be confirmed';
               return (
                 <li
                   className="workflow-recovery-row"

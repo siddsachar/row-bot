@@ -447,7 +447,7 @@ export default function ConversationLibrary({
       const receipt = await controller.receipt(pendingRecovery.key);
       if (receipt.status === 'admitting' || receipt.status === 'accepted') {
         setRecoveryStatus(
-          'The earlier deletion is still active. Check this receipt again.',
+          'The earlier deletion is still running. Check again.',
         );
         return;
       }
@@ -508,7 +508,7 @@ export default function ConversationLibrary({
             receipt or reconcile the current library before another batch.
           </p>
           <Button disabled={busy} onClick={() => void checkOriginalReceipt()}>
-            Check original deletion receipt
+            Check deletion
           </Button>
           <Button
             disabled={busy || refreshing}

@@ -217,7 +217,7 @@ export default function ResourceSetup({
     const current = setupSessions.read(scope);
     if (current.commandId || current.generationId) {
       setError(
-        'Review the earlier setup receipt before starting another resource. Your new selection has not replaced it.',
+        "Check the earlier setup before starting another. Your new choice hasn't replaced it.",
       );
       return;
     }
@@ -263,7 +263,7 @@ export default function ResourceSetup({
         .catch(() => {
           if (!abort.signal.aborted)
             setError(
-              'The earlier setup needs reconciliation. Check its receipt before trying again.',
+              "The earlier setup didn't finish. Check it before trying again.",
             );
         });
     }
@@ -277,7 +277,7 @@ export default function ResourceSetup({
         .catch(() => {
           if (!abort.signal.aborted)
             setError(
-              'First draft generation has an uncertain outcome. Check its receipt.',
+              "Row-Bot couldn't confirm the first draft started. Check it.",
             );
         });
     }
@@ -716,7 +716,7 @@ export default function ResourceSetup({
       setError('');
     } catch {
       setError(
-        'Reconcile the pending setup and generation receipts before starting another resource.',
+        'Check the earlier setup and first draft before starting another.',
       );
     }
   }

@@ -255,9 +255,7 @@ it('retains an uncertain picker command across route remount and reads only its 
   });
   view(props);
   expect(session.hasRetained()).toBe(true);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original picker receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check picker' }));
   await screen.findByText(
     'Vision picker membership saved. No provider or model was started.',
   );

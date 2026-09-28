@@ -269,9 +269,7 @@ it('checks an interrupted deletion receipt after remount before allowing another
     await screen.findByText(/earlier deletion has an uncertain result/),
   ).toBeVisible();
   expect(transport.counters.commands).toBe(0);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original deletion receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check deletion' }));
   expect(
     await screen.findByText(
       'The earlier deletion completed. The library has been refreshed.',

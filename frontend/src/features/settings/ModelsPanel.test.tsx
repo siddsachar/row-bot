@@ -351,7 +351,7 @@ it('keeps only the original receipt action visible while a Brain save is uncerta
   });
   fireEvent.change(selector, { target: { value: 'model:codex:gpt-5.5' } });
   const button = await screen.findByRole('button', {
-    name: 'Check original Brain save receipt',
+    name: 'Check the save',
   });
   expect(button).toBeVisible();
   expect(selector).toBeDisabled();

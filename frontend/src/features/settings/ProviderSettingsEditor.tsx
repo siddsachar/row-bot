@@ -172,7 +172,7 @@ export default function ProviderSettingsEditor(
         if (!rejected && generation === epoch.current) onSaved(current);
       } else
         setNotice(
-          'No completed receipt is available. The original change has not been sent again.',
+          "Row-Bot can't confirm what happened. Nothing was sent twice.",
         );
     } catch (cause) {
       if (!abort.signal.aborted && alive(generation))
@@ -259,7 +259,7 @@ export default function ProviderSettingsEditor(
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The outcome is uncertain. Read the original receipt before another change.',
+        "Row-Bot couldn't confirm that. Check again before another change.",
       );
     } finally {
       effectPending.current = false;
@@ -324,7 +324,7 @@ export default function ProviderSettingsEditor(
         <div className="actions">
           {pending && (
             <Button disabled={!!busy} onClick={() => void checkReceipt()}>
-              Read original receipt
+              Check again
             </Button>
           )}
           <Button disabled={!!busy || !!pending} onClick={onCancel}>
@@ -421,7 +421,7 @@ export default function ProviderSettingsEditor(
             </Button>
             {pending && (
               <Button disabled={!!busy} onClick={() => void checkReceipt()}>
-                Check original receipt
+                Check again
               </Button>
             )}
           </div>

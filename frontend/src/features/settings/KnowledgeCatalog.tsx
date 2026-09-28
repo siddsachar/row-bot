@@ -552,7 +552,7 @@ export default function KnowledgeCatalog({
       }
     } catch {
       setError(
-        'The deletion outcome is unconfirmed. Check the original receipt before trying again.',
+        "Row-Bot couldn't confirm the deletion. Check again before retrying.",
       );
     }
   }
@@ -609,12 +609,12 @@ export default function KnowledgeCatalog({
         setMemoryCommand(null);
       } else
         setError(
-          'The memory setting outcome is uncertain. Check its original receipt before retrying.',
+          "Row-Bot couldn't confirm the memory setting. Check again before retrying.",
         );
     } catch (cause) {
       setError(
         admitted
-          ? 'The memory setting outcome is uncertain. Check its original receipt before retrying.'
+          ? "Row-Bot couldn't confirm the memory setting. Check again before retrying."
           : clientError(cause).message,
       );
     } finally {
@@ -667,7 +667,7 @@ export default function KnowledgeCatalog({
           disabled={memoryPending}
           onClick={() => void checkMemoryReceipt()}
         >
-          Check original memory setting receipt
+          Check memory setting
         </Button>
       )}
       {wikiSession && (
@@ -1018,7 +1018,7 @@ export default function KnowledgeCatalog({
       )}
       {maintenancePending && (
         <Button onClick={() => void checkDeleteReceipt()}>
-          Check original deletion receipt
+          Check deletion
         </Button>
       )}
       {snapshot && (

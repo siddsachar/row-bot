@@ -226,11 +226,9 @@ it('never retries an uncertain command and reconciles only its receipt', async (
   fireEvent.click(
     screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
   );
-  await screen.findByText(/outcome is unconfirmed/);
+  await screen.findByText(/couldn't confirm that change/);
   const commandId = session.getSnapshot().pending?.commandId;
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await screen.findByText(/Finished: 2 completed/);
   expect(io.execute).toHaveBeenCalledTimes(1);
   expect(io.receipt).toHaveBeenCalledWith(commandId, expect.any(AbortSignal));

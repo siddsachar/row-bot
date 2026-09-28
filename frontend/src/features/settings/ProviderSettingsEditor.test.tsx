@@ -110,9 +110,7 @@ it('settles an in-flight result after unmount and preserves the original receipt
   expect(
     screen.getByRole('button', { name: 'Reload saved status' }),
   ).toBeDisabled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await waitFor(() =>
     expect(options.receipt).toHaveBeenCalledWith(
       'openai',
@@ -140,7 +138,7 @@ it('updates a retained session after late success without notifying an unmounted
   );
   render(<ProviderSettingsEditor {...options} session={session} />);
   expect(
-    screen.queryByRole('button', { name: 'Check original receipt' }),
+    screen.queryByRole('button', { name: 'Check again' }),
   ).not.toBeInTheDocument();
   expect(session.retained()).toBe(false);
   expect(options.onSaved).not.toHaveBeenCalled();
@@ -155,13 +153,9 @@ it('does not call a rejected receipt a successful replacement and unlocks fresh 
   render(<ProviderSettingsEditor {...options} session={session} />);
   await enterAndSave(options);
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Check original receipt' }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled(),
   );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await screen.findByText(
     'The original change was rejected. Review the current saved status before trying again.',
   );
@@ -233,13 +227,13 @@ it('keeps uncertain identity and only reads the original receipt without resendi
   render(<ProviderSettingsEditor {...options} />);
   await enterAndSave(options);
   const receipt = await screen.findByRole('button', {
-    name: 'Check original receipt',
+    name: 'Check again',
   });
   await waitFor(() => expect(receipt).toBeEnabled());
   const identity = options.apply.mock.calls[0][4];
   fireEvent.click(receipt);
   await screen.findByText(
-    'No completed receipt is available. The original change has not been sent again.',
+    "Row-Bot can't confirm what happened. Nothing was sent twice.",
   );
   expect(options.receipt).toHaveBeenCalledWith(
     'openai',

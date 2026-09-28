@@ -386,7 +386,7 @@ export class WikiSettingsSession {
     } catch {
       this.set({
         error:
-          'The outcome is unconfirmed. Check the original receipt before another change.',
+          "Row-Bot couldn't confirm that change. Check again before another change.",
       });
     } finally {
       this.set({ busy: false });
@@ -622,7 +622,7 @@ export default function WikiSettings({
           disabled={state.busy}
           onClick={() => void session.checkReceipt()}
         >
-          Check original receipt
+          Check again
         </Button>
       )}
       {state.status && (

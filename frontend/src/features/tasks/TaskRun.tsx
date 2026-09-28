@@ -204,7 +204,7 @@ export default function TaskRun({
       setNotice(
         result.replayed
           ? 'Showing the existing run for this request.'
-          : 'Run admitted. Refresh to see its latest saved progress.',
+          : 'Run started. Refresh to see its latest progress.',
       );
     });
   }

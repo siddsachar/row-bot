@@ -471,7 +471,7 @@ function SavedSetting({
             : `${label} saved.`,
         );
       } else if (receipt.status === 'partial') {
-        setNotice('The outcome is unconfirmed. Check the original receipt.');
+        setNotice("Row-Bot couldn't confirm that. Check again.");
       } else {
         setPendingCommand('');
         setError('The change was rejected. Refresh and try again.');
@@ -479,8 +479,7 @@ function SavedSetting({
     } catch (cause) {
       if (!abort.current.signal.aborted) {
         setError(clientError(cause).message);
-        if (submitted)
-          setNotice('The outcome is unconfirmed. Check the original receipt.');
+        if (submitted) setNotice("Row-Bot couldn't confirm that. Check again.");
       }
     } finally {
       running.current = false;
@@ -598,7 +597,7 @@ function SavedSetting({
         )}
         {pendingCommand && (
           <Button onClick={() => void checkReceipt()} disabled={!!busy}>
-            {busy === 'save' ? 'Checking…' : 'Check original receipt'}
+            {busy === 'save' ? 'Checking…' : 'Check again'}
           </Button>
         )}
         {dirty && !autoSave && !pendingCommand && (
@@ -707,7 +706,7 @@ function ReviewedSettingsAction({
             : `${label} completed.`,
         );
       } else if (receipt.status === 'partial') {
-        setMessage('The outcome is unconfirmed. Check the original receipt.');
+        setMessage("Row-Bot couldn't confirm that. Check again.");
       } else {
         storePending('');
         setPendingCommand('');
@@ -717,7 +716,7 @@ function ReviewedSettingsAction({
       if (!abort.current.signal.aborted) {
         setError(clientError(cause).message);
         if (submitted)
-          setMessage('The outcome is unconfirmed. Check the original receipt.');
+          setMessage("Row-Bot couldn't confirm that. Check again.");
       }
     } finally {
       running.current = false;
@@ -805,7 +804,7 @@ function ReviewedSettingsAction({
       )}
       {pendingCommand && (
         <Button disabled={busy} onClick={() => void checkReceipt()}>
-          {busy ? 'Checking…' : 'Check original receipt'}
+          {busy ? 'Checking…' : 'Check again'}
         </Button>
       )}
       {pendingCommand &&
@@ -1744,7 +1743,7 @@ export function SystemSnapshotPanel({
             hint="Comma-separated exact origins."
           />
           <p className="settings-help">
-            Tailscale and host admission: not checked.
+            Tailscale and allowed addresses: not checked.
           </p>
           <Facts>
             <Fact
@@ -2463,7 +2462,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
         setNotice('All tracker data deleted.');
       } else if (receipt.status === 'partial') {
         setNotice(
-          'The deletion outcome is unconfirmed. Check the original receipt before trying again.',
+          "Row-Bot couldn't confirm the deletion. Check again before retrying.",
         );
       } else {
         setPendingCommand('');
@@ -2548,7 +2547,7 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
       )}
       {pendingCommand && (
         <Button disabled={!!busy} onClick={() => void checkReceipt()}>
-          {busy === 'delete' ? 'Checking…' : 'Check original receipt'}
+          {busy === 'delete' ? 'Checking…' : 'Check again'}
         </Button>
       )}
       {error && <p role="alert">{error}</p>}
@@ -2950,7 +2949,7 @@ export function DocumentEmbeddingSnapshot({
     return (
       <Section
         title="Embedding Engine"
-        description="Local models stay private; cloud models send admitted text to the provider."
+        description="Local models stay private; cloud models send the document text to the provider."
         icon={Bot}
       >
         <StateChip warning>Embedding settings unavailable</StateChip>
@@ -2992,7 +2991,7 @@ export function DocumentEmbeddingSnapshot({
       </SettingsSummary>
       <Section
         title="Embedding Engine"
-        description={`Local models stay private; cloud models send admitted text to the provider. Active: ${activeEmbedding}.`}
+        description={`Local models stay private; cloud models send the document text to the provider. Active: ${activeEmbedding}.`}
         icon={Network}
         anchor="embedding"
       >
@@ -3077,7 +3076,7 @@ export function DocumentEmbeddingSnapshot({
               mutation={mutation}
               field="vectors.rebuild"
               label="rebuild document vectors"
-              description="Recreate document search vectors from the admitted local document vault."
+              description="Recreate document search vectors from the documents already added."
             />
             <ReviewedSettingsAction
               mutation={mutation}

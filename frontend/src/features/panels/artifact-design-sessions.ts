@@ -595,7 +595,7 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
           else if (!receipt)
             update({
               notice:
-                'The original receipt is unavailable. No effect was repeated.',
+                "Row-Bot can't find what happened to that change. Nothing was done twice.",
             });
         } catch {
           guard();

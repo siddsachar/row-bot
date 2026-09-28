@@ -81,7 +81,7 @@ it('locks uncertain intent and explicitly retries the original snapshot and byte
   await userEvent.clear(input);
   await userEvent.type(input, 'Retained');
   await userEvent.click(screen.getByRole('button', { name: 'Save file' }));
-  await screen.findByText(/The save is incomplete/);
+  await screen.findByText(/The save didn't finish/);
   expect(input).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Discard draft' })).toBeDisabled();
   await userEvent.click(

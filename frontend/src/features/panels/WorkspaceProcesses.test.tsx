@@ -242,7 +242,7 @@ it('retains uncertain Start across remount and retries only the original approve
   const { props, view, session } = fixture();
   props.start.mockRejectedValueOnce(new TypeError('lost response'));
   await runCommand();
-  await screen.findByText(/Start is unconfirmed/);
+  await screen.findByText(/couldn't confirm the command started/);
   const original = session.getSnapshot().attempt;
   view.unmount();
   render(<WorkspaceProcesses {...props} />);
@@ -309,7 +309,7 @@ it('recovers the same uncertain process ID after reopen without sending another 
   const { props, view, session } = fixture();
   props.start.mockRejectedValueOnce(new Error('unknown outcome'));
   await runCommand();
-  await screen.findByText(/Start is unconfirmed/);
+  await screen.findByText(/couldn't confirm the command started/);
   const id = session.getSnapshot().attempt!.command_id;
   view.unmount();
   render(<WorkspaceProcesses {...props} />);

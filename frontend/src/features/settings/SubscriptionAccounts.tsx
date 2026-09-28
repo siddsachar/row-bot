@@ -271,7 +271,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The outcome is uncertain. Read the original receipt before another action.',
+        "Row-Bot couldn't confirm that. Check again before another action.",
       );
     } finally {
       setBusy('');
@@ -293,9 +293,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         throw { code: 'operation_uncertain' };
       setSnapshot(result.accounts);
       if (result.status === 'uncertain')
-        setNotice(
-          'The original outcome remains unconfirmed. No request was replayed.',
-        );
+        setNotice('Still unconfirmed. Nothing was sent twice.');
       else {
         setPending(null);
         setCode('');
@@ -445,7 +443,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
         {flow && <p>Sign-in: {flow.state.replaceAll('_', ' ')}</p>}
         {pending && (
           <Button disabled={!!busy} onClick={() => void readReceipt()}>
-            Read original receipt
+            Check again
           </Button>
         )}
         {active && (
@@ -592,7 +590,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
             )}
           {pending && (
             <Button disabled={!!busy} onClick={() => void readReceipt()}>
-              Read original receipt
+              Check again
             </Button>
           )}
           <Button disabled={!!busy || !!pending} onClick={props.onClose}>
@@ -782,7 +780,7 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
               disabled={!!busy || !session.active}
               onClick={() => void readReceipt()}
             >
-              Read original account receipt
+              Check account
             </Button>
             <Button
               disabled={!!busy || !session.active}

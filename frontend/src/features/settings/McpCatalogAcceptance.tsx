@@ -304,14 +304,14 @@ export default function McpCatalogAcceptance({
         session.update({
           busy: '',
           message:
-            'The original acceptance is unconfirmed. Check its receipt before making another change.',
+            "Row-Bot couldn't confirm the tools were accepted. Check again before another change.",
         });
       }
     } catch {
       session.update({
         busy: '',
         message:
-          'The original acceptance is unconfirmed. Check its receipt before making another change.',
+          "Row-Bot couldn't confirm the tools were accepted. Check again before another change.",
       });
     }
   };

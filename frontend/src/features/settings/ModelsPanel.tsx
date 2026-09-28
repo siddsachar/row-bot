@@ -615,7 +615,7 @@ export default function ModelsPanel({
         </p>
         {pending && (
           <Button onClick={() => void checkBrainReceipt()}>
-            Check original Brain save receipt
+            Check the save
           </Button>
         )}
         <details className="settings-model-context disclosure">
@@ -903,9 +903,7 @@ export default function ModelsPanel({
           </div>
         )}
         {pinPending && (
-          <Button onClick={() => void checkPinReceipt()}>
-            Check original picker receipt
-          </Button>
+          <Button onClick={() => void checkPinReceipt()}>Check picker</Button>
         )}
       </section>
     </div>

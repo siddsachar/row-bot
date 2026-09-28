@@ -87,6 +87,6 @@ it('denies remote owner mutations in the view', async () => {
     ),
   ).toBeInTheDocument();
   expect(
-    screen.queryByRole('button', { name: 'Disable owned Serve' }),
+    screen.queryByRole('button', { name: 'Stop Tailscale sharing' }),
   ).not.toBeInTheDocument();
 });

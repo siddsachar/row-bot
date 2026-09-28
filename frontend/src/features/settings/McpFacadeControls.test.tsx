@@ -93,7 +93,7 @@ it('preserves the original uncertain command across full remount and checks only
   props.execute.mockRejectedValueOnce(Error('response lost'));
   let rendered = render(<McpFacadeControls {...props} />);
   await toggle();
-  await screen.findByText(/original save is unconfirmed/);
+  await screen.findByText(/couldn't confirm the save/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
   rendered = render(<McpFacadeControls {...props} />);
@@ -197,7 +197,7 @@ it('rejects another command receipt and retains its own uncertain command', asyn
   });
   render(<McpFacadeControls {...props} />);
   await toggle();
-  await screen.findByText(/original save is unconfirmed/);
+  await screen.findByText(/couldn't confirm the save/);
   expect(props.session.hasRetained()).toBe(true);
 });
 

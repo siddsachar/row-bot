@@ -113,14 +113,12 @@ it('keeps an uncertain original intent locked after remount and never replays it
   });
   const view = render(<SubscriptionOptions {...p} />);
   await saveReference(p);
-  await screen.findByText(/The original outcome is unconfirmed/);
+  await screen.findByText(/couldn't confirm that/);
   const id = vi.mocked(p.apply).mock.calls[0][1];
   view.unmount();
   render(<SubscriptionOptions {...p} />);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Read original option receipt' }),
-  );
-  await screen.findByText(/The original outcome remains unconfirmed/);
+  fireEvent.click(screen.getByRole('button', { name: 'Check option' }));
+  await screen.findByText(/Still unconfirmed/);
   expect(p.receipt).toHaveBeenCalledWith(id, expect.any(AbortSignal));
   expect(p.apply).toHaveBeenCalledTimes(1);
   expect(screen.getByLabelText('xAI OAuth client ID override')).toBeDisabled();

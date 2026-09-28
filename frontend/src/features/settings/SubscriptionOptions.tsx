@@ -190,7 +190,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The original outcome is unconfirmed. Read its receipt before taking another action.',
+        "Row-Bot couldn't confirm that. Check again before another action.",
       );
     } finally {
       setBusy('');
@@ -207,9 +207,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
       if (result.command_id !== pending.commandId)
         throw { code: 'operation_uncertain' };
       if (result.status === 'uncertain')
-        setNotice(
-          'The original outcome remains unconfirmed. No operation was replayed.',
-        );
+        setNotice('Still unconfirmed. Nothing was done twice.');
       else {
         accept(result.options);
         setPending(null);
@@ -287,7 +285,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The outcome is uncertain. Read the original receipt before another action.',
+        "Row-Bot couldn't confirm that. Check again before another action.",
       );
     } finally {
       setBusy('');
@@ -366,7 +364,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
         <div className="actions">
           {pending && (
             <Button disabled={!!busy} onClick={() => void receipt()}>
-              Read original receipt
+              Check again
             </Button>
           )}
           <Button disabled={!!busy || !!pending} onClick={props.onClose}>
@@ -470,7 +468,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
             disabled={!pending || !!busy || !session.active}
             onClick={() => void receipt()}
           >
-            Read original option receipt
+            Check option
           </Button>
           <Button
             disabled={locked || (!dirty && !reviewed)}

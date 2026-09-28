@@ -427,15 +427,11 @@ it('keeps the exact unconfirmed command and performs receipt-only recovery', asy
     (await screen.findByText('✨ Sample skill')).closest('li')!,
   );
   fireEvent.click(row.getByRole('button', { name: 'Pin for new work' }));
-  expect(
-    await screen.findByText(/original change is unconfirmed/),
-  ).toBeVisible();
+  expect(await screen.findByText(/couldn't confirm that change/)).toBeVisible();
   const command = original.getSnapshot().pending?.command;
   first.unmount();
   render(<SkillsSettings session={original} io={api} />);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await screen.findByText('The original skill change is confirmed.');
   expect(api.receipt).toHaveBeenCalledWith(
     command?.command_id,

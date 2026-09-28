@@ -387,7 +387,7 @@ it('retains an unsent draft and late uncertain command across remount without re
   ).toBeDisabled();
   fireEvent.click(
     screen.getByRole('button', {
-      name: 'Check original configuration receipt',
+      name: 'Check configuration',
     }),
   );
   await waitFor(() =>
@@ -450,13 +450,13 @@ it('labels rejected receipts as rejection and allows explicit unsent discard', a
   await waitFor(() =>
     expect(
       screen.getByRole('button', {
-        name: 'Check original configuration receipt',
+        name: 'Check configuration',
       }),
     ).toBeEnabled(),
   );
   fireEvent.click(
     screen.getByRole('button', {
-      name: 'Check original configuration receipt',
+      name: 'Check configuration',
     }),
   );
   await screen.findByText(

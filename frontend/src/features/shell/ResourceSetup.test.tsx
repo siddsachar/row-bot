@@ -532,7 +532,9 @@ it('protects an unresolved setup receipt from a new Home starter', async () => {
   await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
   expect(setupSessions.read(scope).commandId).toBe('pending-before-home');
   expect(setupSessions.read(scope).kind).toBe('artifact');
-  expect(screen.getByText(/Review the earlier setup receipt/)).toBeVisible();
+  expect(
+    screen.getByText(/Check the earlier setup before starting another/),
+  ).toBeVisible();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 

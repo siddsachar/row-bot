@@ -701,7 +701,7 @@ export default function SettingRoute() {
                           setProcessingSelectionError('');
                         } catch {
                           setProcessingSelectionError(
-                            'Check the original processing receipt before selecting another batch.',
+                            'Check processing before choosing another batch.',
                           );
                         }
                       }

@@ -184,7 +184,7 @@ export default function AccessTailscale({
           )}
           {status?.state === 'active_owned' && !pending && (
             <Button disabled={busy} onClick={() => void run('disable')}>
-              <Power size={18} aria-hidden="true" /> Disable owned Serve
+              <Power size={18} aria-hidden="true" /> Stop Tailscale sharing
             </Button>
           )}
           {pending && (

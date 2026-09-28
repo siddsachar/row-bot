@@ -194,14 +194,12 @@ it('retains an uncertain original receipt and locks input without resending', as
   });
   const view = render(<SubscriptionAccounts {...p} />);
   await startSignIn(p);
-  await screen.findByRole('button', { name: 'Read original account receipt' });
+  await screen.findByRole('button', { name: 'Check account' });
   const id = vi.mocked(p.apply).mock.calls[0][2];
   view.unmount();
   render(<SubscriptionAccounts {...p} />);
   expect(screen.getByRole('button', { name: 'Start sign-in' })).toBeDisabled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Read original account receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check account' }));
   await waitFor(() =>
     expect(p.receipt).toHaveBeenCalledWith(
       'codex',
@@ -241,9 +239,7 @@ it('supports explicit cancel while a login check is still running', async () => 
   await waitFor(() => expect(p.cancel).toHaveBeenCalledTimes(1));
   await act(async () => reject({ code: 'subscription_cancelled' }));
   expect(apply).toHaveBeenCalledTimes(2);
-  expect(
-    screen.getByRole('button', { name: 'Read original account receipt' }),
-  ).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Check account' })).toBeEnabled();
 });
 it('purges private intent on authentication disposal and ignores late success', async () => {
   let resolve!: (

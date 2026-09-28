@@ -200,7 +200,7 @@ export class WorkspaceUndoSession {
       this.publish({
         error: clientError(error).message,
         notice:
-          'The outcome is unconfirmed. Check the original receipt or retry this same operation.',
+          "Row-Bot couldn't confirm the undo. Check again, or retry the same undo.",
       });
     } finally {
       this.publish({ busy: false });
@@ -269,7 +269,7 @@ export class WorkspaceUndoSession {
       else
         this.publish({
           notice:
-            'No confirmed receipt is available. The original operation remains retained.',
+            "Row-Bot can't confirm what happened. The undo is kept so it can be checked.",
         });
     } catch (error) {
       if (this.read === abort && !abort.signal.aborted)
@@ -394,7 +394,7 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
             disabled={state.busy || state.reading}
             onClick={() => void owned.check(props)}
           >
-            Check Undo receipt
+            Check Undo
           </Button>
           <Button
             disabled={state.busy || state.reading}

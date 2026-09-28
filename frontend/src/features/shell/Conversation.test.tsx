@@ -220,9 +220,7 @@ function Conversation(props: Parameters<typeof ConversationView>[0]) {
       </button>
       {owner.error && <p role="alert">{owner.error}</p>}
       {owner.canReview && (
-        <button onClick={owner.reviewMissingReceipt}>
-          Check pending receipt
-        </button>
+        <button onClick={owner.reviewMissingReceipt}>Stop checking</button>
       )}
       <ConversationView
         {...props}
@@ -1434,7 +1432,7 @@ it.each(['throw', 'discard'] as const)(
     expect(mock.intent).not.toHaveBeenCalled();
     expect(mock.setDraft).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Receipt storage is unavailable',
+      "This browser can't store what Row-Bot needs",
     );
   },
 );
@@ -1651,7 +1649,7 @@ it('does not submit when its persisted recovery identity write fails', async () 
   expect(mock.intent).not.toHaveBeenCalled();
   expect(mock.setDraft).not.toHaveBeenCalled();
   expect(screen.getByRole('alert')).toHaveTextContent(
-    'Receipt storage is unavailable',
+    "This browser can't store what Row-Bot needs",
   );
 });
 
@@ -1732,7 +1730,7 @@ it.each(['throw', 'discard'] as const)(
     });
     expect(mock.intent).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Receipt storage is unavailable',
+      "This browser can't store what Row-Bot needs",
     );
     expect(screen.getByRole('alert')).not.toHaveTextContent(
       'Private storage detail',
@@ -1759,12 +1757,8 @@ it('checks an absent New chat receipt without replay and requires explicit revie
       `row-bot.new-chat.${mock.state.handshake.instance_id}`,
     ),
   ).toBe(identity);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
-  expect(mock.open.mock.calls.at(-1)?.[0].confirmLabel).toBe(
-    'Clear pending receipt',
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
+  expect(mock.open.mock.calls.at(-1)?.[0].confirmLabel).toBe('Stop checking');
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
   });
@@ -1786,7 +1780,7 @@ it('fails closed before queue dispatch if its recovery identity cannot be saved'
   expect(mock.intent).not.toHaveBeenCalled();
   expect(mock.setDraft).not.toHaveBeenCalled();
   expect(screen.getByRole('alert')).toHaveTextContent(
-    'Receipt storage is unavailable',
+    "This browser can't store what Row-Bot needs",
   );
 });
 

@@ -150,7 +150,7 @@ it('starts only one explicit operation and requires fresh review for another run
   expect(callbacks.run).toHaveBeenCalledTimes(1);
   expect(screen.queryByText(EMPTY_HISTORY)).not.toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent(
-    'Run admitted. Refresh to see its latest saved progress.',
+    'Run started. Refresh to see its latest progress.',
   );
   expect(
     screen.getByRole('button', { name: 'Show run run-a' }),

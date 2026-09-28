@@ -874,7 +874,7 @@ it('recovers an interrupted tunnel command from its original receipt after remou
   );
   fireEvent.click(screen.getByRole('button', { name: 'Start app tunnel' }));
   expect(
-    await screen.findByRole('button', { name: 'Check original receipt' }),
+    await screen.findByRole('button', { name: 'Check again' }),
   ).toBeVisible();
   const priorReviews = vi.mocked(mutation.review).mock.calls.length;
   first.unmount();
@@ -885,13 +885,9 @@ it('recovers an interrupted tunnel command from its original receipt after remou
       part="access"
     />,
   );
-  expect(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Check again' })).toBeVisible();
   expect(vi.mocked(mutation.review).mock.calls.length).toBe(priorReviews);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   expect(
     await screen.findByRole('button', { name: 'Inspect current tunnel state' }),
   ).toBeVisible();
@@ -1012,9 +1008,7 @@ it('checks the original receipt instead of replaying an uncertain save', async (
     target: { value: 'medium' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
   await waitFor(() => expect(mutation.receipt).toHaveBeenCalledTimes(1));
   expect(execute).toHaveBeenCalledTimes(1);
   expect(mutation.onSnapshot).toHaveBeenCalledWith(
@@ -1100,9 +1094,7 @@ it('checks the original tracker deletion receipt without replaying it', async ()
   fireEvent.click(
     screen.getByRole('button', { name: 'Confirm Delete All Tracker Data' }),
   );
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
 
   await waitFor(() => expect(mutation.receipt).toHaveBeenCalledTimes(1));
   expect(mutation.execute).toHaveBeenCalledTimes(1);

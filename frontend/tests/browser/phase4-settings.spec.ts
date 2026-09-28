@@ -611,7 +611,7 @@ test('Document processing reviews the selected conversation and runs the admitte
     processing.getByText(/^Chat model: .* · OpenAI · /),
   ).toBeVisible();
   await expect(processing.getByRole('status')).toContainText(
-    'Processing admitted.',
+    'Processing started.',
   );
   const run = await page.request.post(
     `/__p4_fixture/document-processing/${batch_id}/run`,
@@ -648,7 +648,7 @@ test('Document processing reviews the selected conversation and runs the admitte
     })
     .click();
   await expect(processing.getByRole('status')).toContainText(
-    'Processing admitted.',
+    'Processing started.',
   );
   expect(
     await (

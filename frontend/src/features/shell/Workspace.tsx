@@ -1436,7 +1436,7 @@ export default function Workspace() {
             )}
             {creation.canReview && (
               <Button onClick={creation.reviewMissingReceipt}>
-                Check pending receipt
+                Stop checking
               </Button>
             )}
           </aside>

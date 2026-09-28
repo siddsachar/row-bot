@@ -141,7 +141,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
           : state.sourceCommandId,
       message: terminal(receipt)
         ? receipt.installation.stage
-        : 'Original operation retained. Refresh its receipt; do not start another installation.',
+        : "Row-Bot couldn't confirm the install. Check again rather than starting another.",
     });
   };
   return {
@@ -310,8 +310,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
       } catch {
         if (!abort.signal.aborted)
           update({
-            message:
-              'Response unavailable. Recover the original receipt; do not repeat the action.',
+            message: 'No answer arrived. Check again rather than repeating it.',
           });
       } finally {
         aborters.delete(abort);
@@ -349,8 +348,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
       } catch {
         if (!abort.signal.aborted)
           update({
-            message:
-              'Cancellation response unavailable. Refresh the original receipts.',
+            message: 'No answer arrived for the cancellation. Check again.',
           });
       } finally {
         aborters.delete(abort);
@@ -473,7 +471,7 @@ export function McpRuntimeInstallation({
           {state.result.installation.quiesced === true
             ? 'confirmed'
             : state.result.installation.quiesced === false
-              ? 'still owned'
+              ? 'still running'
               : 'unconfirmed'}
           .
         </p>

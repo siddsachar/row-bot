@@ -182,7 +182,7 @@ it('retains an uncertain original across remount and never creates another accep
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const rendered = render(<McpCatalogAcceptance {...props} />);
   await accept();
-  await screen.findByText(/original acceptance is unconfirmed/);
+  await screen.findByText(/couldn't confirm the tools were accepted/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
   render(<McpCatalogAcceptance {...props} />);

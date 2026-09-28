@@ -187,7 +187,7 @@ it('does not equate quiescent snapshot or a partial receipt with completed clean
   }));
   render(<McpRuntimeControls {...props} />);
   await trigger('Disconnect');
-  expect(screen.getByText(/saved receipt still needs recovery/)).toBeVisible();
+  expect(screen.getByText(/record still needs checking/)).toBeVisible();
   await screen.findByText(/outcome is not confirmed/);
   expect(
     screen.getByRole('button', { name: 'Check original disconnect' }),

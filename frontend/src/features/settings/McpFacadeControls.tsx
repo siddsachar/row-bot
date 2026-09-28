@@ -258,14 +258,14 @@ export default function McpFacadeControls({
         session.update({
           busy: '',
           message:
-            'The original save is unconfirmed. Check its receipt; do not create another save.',
+            "Row-Bot couldn't confirm the save. Check again rather than saving twice.",
         });
       }
     } catch {
       session.update({
         busy: '',
         message:
-          'The original save is unconfirmed. Check its receipt; do not create another save.',
+          "Row-Bot couldn't confirm the save. Check again rather than saving twice.",
       });
     }
   };

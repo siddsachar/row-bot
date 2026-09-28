@@ -138,11 +138,11 @@ it('keeps an uncertain original on an absent or mismatched receipt without resen
   });
   render(<WorkspaceUndo {...io} />);
   await started(io);
-  await screen.findByText(/outcome is unconfirmed/);
-  fireEvent.click(screen.getByRole('button', { name: 'Check Undo receipt' }));
-  await screen.findByText(/No confirmed receipt/);
+  await screen.findByText(/couldn't confirm the undo/);
+  fireEvent.click(screen.getByRole('button', { name: 'Check Undo' }));
+  await screen.findByText(/can't confirm what happened/);
   vi.mocked(io.receipt).mockResolvedValue(result('another-command'));
-  fireEvent.click(screen.getByRole('button', { name: 'Check Undo receipt' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check Undo' }));
   await waitFor(() => expect(io.receipt).toHaveBeenCalledTimes(2));
   expect(io.apply).toHaveBeenCalledTimes(1);
   expect(io.recover).not.toHaveBeenCalled();

@@ -128,7 +128,7 @@ export function createDocumentProcessingSession(
       if (!disposed)
         emit({
           error:
-            'Processing could not be confirmed. Check the original receipt if an admission was sent.',
+            "Row-Bot couldn't confirm processing started. Check again before starting another batch.",
         });
       throw error;
     } finally {
@@ -351,15 +351,15 @@ export function DocumentProcessingPanel({
         <>
           <p>Original command: {state.original.command_id}</p>
           <Button disabled={state.busy} onClick={() => invoke(owner.refresh)}>
-            Check original processing receipt
+            Check processing
           </Button>
         </>
       )}
       {(state.pending || state.receipt) && (
         <p role="status">
           {state.receipt?.status === 'completed'
-            ? 'Processing admitted. Documents may still be indexing, extracting, or finalizing. Check the queue for progress.'
-            : 'Admission is unconfirmed. Keep this original command and check its receipt before another action.'}
+            ? 'Processing started. Documents may still be indexing, extracting or finishing; the queue shows progress.'
+            : "Row-Bot couldn't confirm processing started. Check again before another action."}
         </p>
       )}
     </section>

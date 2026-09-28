@@ -163,10 +163,8 @@ it('cancels while apply is pending and retains uncertainty until a proven stoppe
   await act(async () => reject({ code: 'operation_uncertain' }));
   view.unmount();
   render(<SubscriptionProbes {...p} />);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Read original check receipt' }),
-  );
-  await screen.findByText(/No provider request was replayed/);
+  fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
+  await screen.findByText(/Nothing was sent to the provider twice/);
   expect(p.receipt).toHaveBeenCalledWith(id, expect.any(AbortSignal));
   expect(p.apply).toHaveBeenCalledTimes(1);
   expect(
@@ -205,10 +203,8 @@ it('does not unlock published receipt while the original work remains active', a
   });
   render(<SubscriptionProbes {...p} />);
   await runCheck(p);
-  await screen.findByText(/The original outcome is unconfirmed/);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Read original check receipt' }),
-  );
+  await screen.findByText(/couldn't confirm the check/);
+  fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
   await screen.findByText(/Waiting for the original work to stop/);
   expect(screen.getByRole('button', { name: 'Run check' })).toBeDisabled();
   expect(p.apply).toHaveBeenCalledTimes(1);
@@ -294,10 +290,8 @@ it('does not settle a result or receipt for a different original intent', async 
   });
   render(<SubscriptionProbes {...p} />);
   await runCheck(p);
-  await screen.findByText(/The original outcome is unconfirmed/);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Read original check receipt' }),
-  );
+  await screen.findByText(/couldn't confirm the check/);
+  fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
   await waitFor(() => expect(p.receipt).toHaveBeenCalledTimes(1));
   expect(p.status).not.toHaveBeenCalled();
   expect(

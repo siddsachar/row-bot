@@ -94,7 +94,7 @@ export default function KnowledgeEditorDialog({
                 id="knowledge-editor-description"
               >
                 Update fields, lifecycle, provenance, and reviewed relations.
-                Drafts and pending receipts remain available if this dialog
+                Drafts and unconfirmed changes stay available if this dialog
                 closes.
               </Dialog.Description>
             </div>

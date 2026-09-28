@@ -358,7 +358,7 @@ export default function ModelSurfaceSettings({
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The original outcome is unconfirmed. Check its receipt; this change will not be sent again.',
+        "Row-Bot couldn't confirm the change. Check again; it won't be sent twice.",
       );
     } finally {
       setBusy('');
@@ -376,9 +376,7 @@ export default function ModelSurfaceSettings({
       if (value.command_id !== pending.commandId)
         throw { code: 'operation_uncertain' };
       if (value.status === 'uncertain')
-        setNotice(
-          'The original outcome remains unconfirmed. No request was replayed.',
-        );
+        setNotice('Still unconfirmed. Nothing was sent twice.');
       else if (value.status === 'completed')
         settle(pending, value.configuration_revision);
       else {
@@ -541,7 +539,7 @@ export default function ModelSurfaceSettings({
             disabled={!!busy || !session.active}
             onClick={() => void receipt()}
           >
-            Check original picker receipt
+            Check picker
           </Button>
         )}
         <Button disabled={locked} onClick={() => void load()}>

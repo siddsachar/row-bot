@@ -244,7 +244,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The original outcome is unconfirmed. Check its progress or receipt; it will not be replayed.',
+        "Row-Bot couldn't confirm the check. Look at its progress; it won't run twice.",
       );
     } finally {
       setBusy('');
@@ -315,7 +315,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
         setNotice(
           receipt?.published
             ? 'The saved result is confirmed. The original work has not yet been confirmed stopped.'
-            : 'The original outcome remains unconfirmed. No provider request was replayed.',
+            : 'Still unconfirmed. Nothing was sent to the provider twice.',
         );
       }
     } catch (cause) {
@@ -483,7 +483,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
             disabled={!pending || !!busy || !!checking || !session.active}
             onClick={() => void inspect('receipt')}
           >
-            Read original check receipt
+            Check status
           </Button>
           <Button
             disabled={locked || (!dirty && !reviewed)}

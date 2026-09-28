@@ -182,7 +182,7 @@ const stateLabels: Record<string, string> = {
   failed: 'Connection failed.',
   dependency_missing: 'A required runtime is unavailable.',
   cleanup_incomplete:
-    'Cleanup or its saved receipt is incomplete. Keep the original command for recovery.',
+    "Cleanup didn't finish completely. Check again to finish it.",
 };
 
 export default function McpRuntimeControls({
@@ -444,10 +444,7 @@ export default function McpRuntimeControls({
       </p>
       {snapshot?.session_quiesced === true &&
         snapshot.state === 'cleanup_incomplete' && (
-          <p>
-            Session cleanup finished, but the original saved receipt still needs
-            recovery.
-          </p>
+          <p>Session cleanup finished, but its record still needs checking.</p>
         )}
       <Button disabled={!state.active} onClick={() => session.refresh()}>
         Refresh connection
