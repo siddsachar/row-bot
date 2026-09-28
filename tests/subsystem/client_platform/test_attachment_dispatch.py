@@ -94,3 +94,30 @@ def test_stop_before_producer_entry_finalizes_admission_without_attachment_reads
     assert handle.producer_done.wait(10) and handle.status == "stopped"
     from row_bot.runtime import admissions
     assert admissions.queued_submission_ids("conversation-a") == []
+
+
+def test_graph_input_keeps_what_the_person_sent_with_the_admitted_input(platform, monkeypatch):
+    """B111: the graph re-adds the admitted input by id with the prepared text;
+    it must carry the public text and attachments, or the transcript shows the
+    attachment context instead of a file chip."""
+    from row_bot.application.attachments import register_attachment
+    from row_bot.agent import _new_agent_graph_input
+    monkeypatch.setattr("row_bot.file_context.file_budget", lambda *_: 10000)
+    ref = register_attachment("conversation-a", "notes.txt", b"Synthetic attached text")["attachment_ref"]
+    graph_inputs = []
+    fake = ScriptedAgentStream((CheckpointCommit((AIMessage(content="Done", id="graph-final"),), "graph-final"), ("done", "Done")))
+
+    def provider(text, tools, config, **kwargs):
+        graph_inputs.append(_new_agent_graph_input(text, config)[1])
+        yield from fake.stream(text, tools, config, **kwargs)
+
+    platform.stream_factory = provider
+    receipt = platform.execute(owner_id="fixture", idempotency_key="graph-input", target="conversation-a",
+        command=command("conversation.submit", "graph-input", {"text": "Summarise the file", "attachment_refs": [ref],
+            "submission_id": "graph-input", "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}))
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(20)
+    human = graph_inputs[0]["messages"][0]
+    assert human.id == "graph-input"
+    assert "Synthetic attached text" in human.content
+    assert human.additional_kwargs["platform_public_content"] == "Summarise the file"
+    assert [item["name"] for item in human.additional_kwargs["platform_attachments"]] == ["notes.txt"]

@@ -754,9 +754,18 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
     normalized["recursion_limit"] = framework_recursion_limit(
         remaining_iterations(budget)
     )
+    submission = str(configurable.get("platform_submission_id") or "")
+    if submission:
+        from row_bot.threads import admitted_human_metadata
+
+        # The graph replaces the admitted input by id; keep what the person
+        # sent on it so the transcript never shows the attachment context.
+        human = HumanMessage(
+            content=user_input, id=submission,
+            additional_kwargs=admitted_human_metadata(str(configurable.get("thread_id") or ""), submission),
+        )
     return normalized, {
-        "messages": [HumanMessage(content=user_input, id=str(configurable["platform_submission_id"]))]
-        if configurable.get("platform_submission_id") else [("human", user_input)],
+        "messages": [human] if submission else [("human", user_input)],
         "execution_budget": budget,
     }
 

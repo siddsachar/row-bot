@@ -1,4 +1,5 @@
 from langgraph.checkpoint.sqlite import SqliteSaver
+import copy
 import logging
 import sqlite3
 import uuid
@@ -2114,6 +2115,26 @@ def replace_admitted_human_content(thread_id: str, message_id: str, content: str
         updated["channel_versions"] = versions
         written = checkpointer.put(saved.config, updated, {**(saved.metadata or {}), "source": "update"}, {"messages": versions["messages"]})
         return str(written["configurable"]["checkpoint_id"])
+
+
+def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
+    """What the person sent (public text, attachments) with an admitted input.
+
+    The agent graph re-adds the admitted input by id with the prepared text
+    (attachment context included); keeping this metadata on it keeps the
+    transcript showing what the person wrote plus file chips (B111).
+    """
+    if not thread_id or not message_id:
+        return {}
+    saved = checkpointer.get_tuple({"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}})
+    if not saved:
+        return {}
+    for message in saved.checkpoint.get("channel_values", {}).get("messages", []) or []:
+        if getattr(message, "id", None) == message_id and getattr(message, "type", "") == "human":
+            extra = getattr(message, "additional_kwargs", None) or {}
+            return {key: copy.deepcopy(extra[key])
+                    for key in ("platform_public_content", "platform_attachments") if key in extra}
+    return {}
 
 
 def _append_checkpoint_messages_locked(thread_id: str, messages: list) -> bool:
