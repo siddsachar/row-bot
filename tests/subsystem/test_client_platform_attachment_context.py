@@ -18,7 +18,7 @@ def test_preparation_uses_existing_materializer_vision_and_data_owner(monkeypatc
 
     calls = []
     files = [{"name": "plot.png", "data": b"image"}, {"name": "plot.csv", "data": b"x,y\n1,2"}]
-    vision = SimpleNamespace(enabled=True, analyze=lambda data, prompt: calls.append((data, prompt)) or "A blue graph")
+    vision = SimpleNamespace(enabled=True, analyze=lambda data, prompt, chat_model=None: calls.append((data, prompt, chat_model)) or "A blue graph")
     monkeypatch.setattr(vision_runtime, "get_vision_service", lambda: vision)
     def materialize(items):
         calls.append("materialize")
@@ -33,6 +33,7 @@ def test_preparation_uses_existing_materializer_vision_and_data_owner(monkeypatc
     with context.prepared_attachments("first", files, model_ref="fixture:model") as text:
         assert calls[0] == "materialize"
         assert calls[1][0] == b"image"
+        assert calls[1][2] == "fixture:model"
         assert "A blue graph" in text and "ALREADY ANALYZED" in text
         assert "Received Files/plot.csv" in text and "1 row" in text
         assert text.startswith("<row_bot_attachment_context>")

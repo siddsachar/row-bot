@@ -434,6 +434,15 @@ def _buddy(root: Path) -> dict[str, Any]:
     }
 
 
+def _whisper_installed(root: Path, size: str) -> bool:
+    cache = Path(os.environ.get("ROW_BOT_WHISPER_CACHE_DIR") or root / "cache" / "whisper")
+    model_dir = cache / f"models--Systran--faster-whisper-{size}"
+    try:
+        return model_dir.is_dir() and any(model_dir.iterdir())
+    except OSError:
+        return False
+
+
 def _voice(root: Path) -> dict[str, Any]:
     runtime = _mapping(_read_json(root / "voice_runtime_settings.json", default={}))
     local = _mapping(_read_json(root / "voice_settings.json", default={}))
@@ -479,6 +488,7 @@ def _voice(root: Path) -> dict[str, Any]:
         },
         "local": {
             "whisper_model": whisper,
+            "whisper_installed": _whisper_installed(root, whisper),
             "sensevoice_path_configured": bool(
                 _text(local.get("sensevoice_model_path"))
             ),

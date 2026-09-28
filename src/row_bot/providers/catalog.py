@@ -212,6 +212,44 @@ def get_provider_definition(provider_id: str) -> ProviderDefinition | None:
     return PROVIDER_DEFINITIONS.get(provider_id)
 
 
+# How each provider is paid for, so the same model reached through several
+# routes (a subscription, a router, the vendor's API) never surprises anyone.
+PROVIDER_BILLING: dict[str, str] = {
+    "ollama": "local",
+    "codex": "subscription",
+    "claude_subscription": "subscription",
+    "xai_oauth": "subscription",
+    "opencode_go": "subscription",
+    "openrouter": "credits",
+    "requesty": "credits",
+    "openai": "pay_per_use",
+    "anthropic": "pay_per_use",
+    "google": "pay_per_use",
+    "xai": "pay_per_use",
+    "minimax": "pay_per_use",
+    "atlascloud": "pay_per_use",
+    "ollama_cloud": "pay_per_use",
+    "opencode_zen": "pay_per_use",
+}
+
+
+def provider_billing(provider_id: str) -> str | None:
+    """"subscription", "pay_per_use", "credits", "local", or None when unknown."""
+    provider_id = str(provider_id or "")
+    if provider_id in PROVIDER_BILLING:
+        return PROVIDER_BILLING[provider_id]
+    if provider_id.startswith("custom_openai_"):
+        try:
+            from row_bot.providers.custom import get_custom_endpoint
+
+            endpoint = get_custom_endpoint(provider_id) or {}
+        except Exception:
+            return None
+        location = str(endpoint.get("execution_location") or endpoint.get("privacy") or "")
+        return "local" if location == "local" or endpoint.get("risk_label") == "local_private" else None
+    return None
+
+
 def infer_provider_id(model_id: str, cached_provider: str | None = None) -> str | None:
     if cached_provider:
         return cached_provider

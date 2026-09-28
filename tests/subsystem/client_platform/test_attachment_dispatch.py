@@ -15,8 +15,10 @@ def test_actual_submission_consumes_text_data_and_configured_vision_after_admiss
     from row_bot.application.attachment_context import current_caches
     from row_bot import vision_runtime, threads
     calls = []
-    def analyze(data, prompt):
+    def analyze(data, prompt, *, chat_model=None):
         assert platform.registry.active("conversation-a")
+        # "Same as chat model" (decision 11): Vision is told the turn's model.
+        assert chat_model
         calls.append((data, prompt))
         return "Synthetic green rectangle"
     monkeypatch.setattr(vision_runtime, "get_vision_service", lambda: SimpleNamespace(enabled=True, analyze=analyze))

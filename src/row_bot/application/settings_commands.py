@@ -137,6 +137,7 @@ _BOOL_FIELDS = {
 }
 _ACTION_FIELDS = {
     ("voice", "tts.install"),
+    ("voice", "whisper.install"),
     ("voice", "tts.test"),
     ("voice", "sensevoice.install"),
     ("system", "browser.install"),
@@ -403,6 +404,8 @@ def review_settings_update(
         summary = "Download and install Kokoro speech output locally"
     elif (page, field) == ("voice", "sensevoice.install"):
         summary = "Download and install SenseVoice Small locally"
+    elif (page, field) == ("voice", "whisper.install"):
+        summary = "Download the selected Whisper speech recognition model from Hugging Face and keep it on this computer"
     elif (page, field) == ("voice", "tts.test"):
         summary = "Play one local test phrase through the selected output device"
     elif (page, field) == ("system", "browser.install"):
@@ -657,6 +660,17 @@ def _clear_tracker_data(
 
 
 def _run_voice_action(field: str) -> None:
+    if field == "whisper.install":
+        # The running service loads the size saved in Voice settings, so
+        # Dictate can use it at once (B140).
+        from row_bot.voice import _load_voice_settings, get_voice_service
+
+        service = get_voice_service()
+        size = str(_load_voice_settings().get("whisper_model") or service.whisper_size)
+        if size != service.whisper_size:
+            service.whisper_size = size
+        service.install_whisper_model()
+        return
     if field == "tts.install":
         from row_bot.tts import TTSService
 

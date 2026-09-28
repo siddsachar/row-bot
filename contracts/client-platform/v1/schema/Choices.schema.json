@@ -50,6 +50,24 @@
           "title": "Available",
           "type": "boolean"
         },
+        "billing": {
+          "anyOf": [
+            {
+              "enum": [
+                "subscription",
+                "pay_per_use",
+                "credits",
+                "local"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Billing"
+        },
         "label": {
           "maxLength": 256,
           "title": "Label",

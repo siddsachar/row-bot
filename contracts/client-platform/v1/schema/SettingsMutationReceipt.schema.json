@@ -1871,6 +1871,11 @@
           "title": "Sensevoice Path Configured",
           "type": "boolean"
         },
+        "whisper_installed": {
+          "default": false,
+          "title": "Whisper Installed",
+          "type": "boolean"
+        },
         "whisper_model": {
           "enum": [
             "tiny",

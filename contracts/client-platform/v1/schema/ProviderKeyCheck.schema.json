@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "maxLength": 512,
+      "title": "Detail",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "valid",
+        "invalid",
+        "unchecked",
+        "unreachable"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "detail"
+  ],
+  "title": "ProviderKeyCheck",
+  "type": "object"
+}

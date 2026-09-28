@@ -8,6 +8,24 @@
           "title": "Account Id Hash",
           "type": "string"
         },
+        "billing": {
+          "anyOf": [
+            {
+              "enum": [
+                "subscription",
+                "pay_per_use",
+                "credits",
+                "local"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Billing"
+        },
         "chat_count": {
           "minimum": 0,
           "title": "Chat Count",

@@ -1,13 +1,14 @@
 """Shared first-run choices and Setup Center steps."""
 
-ONBOARDING_VERSION = 3
+# 4: no preset models; the first run asks how Row-Bot should think (decision 9).
+ONBOARDING_VERSION = 4
 
 INTENT_OPTIONS: dict[str, str] = {
     "chat": "Chat assistant",
     "research": "Research and documents",
     "workflows": "Workflow automation",
-    "designer": "Designer Studio",
-    "developer": "Developer Studio",
+    "designer": "Designs",
+    "developer": "Code",
     "channels": "Messaging channels",
     "local": "Local/private AI",
 }

@@ -1122,6 +1122,8 @@ def cached_choices() -> dict:
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
+    from row_bot.providers.catalog import provider_billing
+
     snapshot = read_model_catalog_cache()
     models = [
         {
@@ -1132,6 +1134,7 @@ def cached_choices() -> dict:
             "unavailable_reason": "configuration_required"
             if not row.get("active")
             else None,
+            "billing": provider_billing(row["provider_id"]),
         }
         for row in list_model_choice_options(include_inactive=True)
     ]
@@ -5083,8 +5086,39 @@ def create_router(
             action=body.action,
             profile=body.profile,
             step=body.step,
+            model_ref=body.model_ref,
         )
         return await respond(request, dto.OnboardingReceipt, result)
+
+    @router.get("/setup/local-runtime")
+    async def setup_local_runtime(request: Request) -> JSONResponse:
+        # Loopback-only detection; Setup polls it while the local choice is open.
+        await session(request)
+        from row_bot.application.client_first_run import detect_local_runtime
+
+        return await respond(
+            request, dto.LocalRuntimeSnapshot, await call(detect_local_runtime)
+        )
+
+    @router.post("/setup/model-test")
+    async def setup_model_test(request: Request) -> JSONResponse:
+        # One short message to the model the person just chose (its provider is
+        # contacted, like any message); the result is words, never an error.
+        await session(request, lane="mutation")
+        from row_bot.application.client_first_run import run_model_test
+
+        return await respond(request, dto.ModelTestResult, await call(run_model_test))
+
+    @router.post("/setup/provider-key/check")
+    async def setup_provider_key_check(request: Request) -> JSONResponse:
+        # Asks the provider whether a key works before it is saved; the key is
+        # neither stored nor logged here.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProviderKeyCheckRequest, 20000)
+        from row_bot.application.client_first_run import check_provider_key
+
+        result = await call(check_provider_key, body.provider_id, body.value)
+        return await respond(request, dto.ProviderKeyCheck, result)
 
     @router.post("/monitor/dream/review")
     async def monitor_dream_review(request: Request) -> JSONResponse:

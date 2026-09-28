@@ -8,7 +8,8 @@
         "mark_done",
         "skip_step",
         "dismiss_home",
-        "add_starters"
+        "add_starters",
+        "choose_model"
       ],
       "title": "Action",
       "type": "string"
@@ -21,6 +22,12 @@
     "expected_revision": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Expected Revision",
+      "type": "string"
+    },
+    "model_ref": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Model Ref",
       "type": "string"
     },
     "profile": {

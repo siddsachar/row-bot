@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from row_bot.docs_capture import docs_capture_fake_provider_status, docs_capture_provider_cards
 from row_bot.providers.status import provider_status_cards
+from row_bot.providers.catalog import provider_billing
 
 
 def read_live_provider_cards() -> dict:
@@ -44,5 +45,6 @@ def read_live_provider_cards() -> dict:
             "reconnect_required": str(card.get("token_health") or "") in {"missing", "expired", "error", "revoked"},
             "risk_label": card.get("risk_label") or "api_key",
             "last_runtime_probe_ok": bool(probe.get("ok")) if probe else None,
+            "billing": provider_billing(card["provider_id"]),
         })
     return {"schema_version": 1, "providers": cards}

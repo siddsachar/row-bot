@@ -639,6 +639,7 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
 
 class VoiceLocalSettingsSnapshot(WireModel):
     whisper_model: Literal["tiny", "base", "small", "medium"]
+    whisper_installed: bool = False
     sensevoice_path_configured: bool
     runtime_state: Literal["cached_unknown"]
 
@@ -2150,10 +2151,23 @@ class OnboardingIntent(WireModel):
     label: str = Field(max_length=64)
 
 
+class OnboardingImportSource(WireModel):
+    id: Literal["hermes", "openclaw"]
+    label: str = Field(max_length=64)
+
+
 class OnboardingSnapshot(WireModel):
     schema_version: Literal[1]
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     setup_complete: bool
+    # No default model yet: the client opens Setup until one is chosen.
+    needs_model: bool = False
+    default_model: str | None = Field(default=None, max_length=1024)
+    # Areas whose real state says they are done (a chosen model, Developer tools on).
+    live_done: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        default_factory=list, max_length=11
+    )
+    import_sources: list[OnboardingImportSource] = Field(default_factory=list, max_length=2)
     starter_workflows_missing: int = Field(ge=0, le=32)
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         max_length=7
@@ -2173,12 +2187,14 @@ class OnboardingCommand(WireModel):
     command_id: UUID
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: Literal[
-        "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters"
+        "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters",
+        "choose_model",
     ]
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         default_factory=list, max_length=7
     )
     step: str = Field(default="", max_length=32)
+    model_ref: str = Field(default="", max_length=1024)
 
 
 class OnboardingReceipt(WireModel):
@@ -2186,6 +2202,38 @@ class OnboardingReceipt(WireModel):
     command_id: UUID
     status: Literal["completed"]
     snapshot: OnboardingSnapshot
+
+
+class LocalRuntimeModel(WireModel):
+    model_ref: str = Field(min_length=1, max_length=1024)
+    name: str = Field(max_length=512)
+    agent_ready: bool | None = None
+
+
+class LocalRuntimeSnapshot(WireModel):
+    schema_version: Literal[1]
+    state: Literal["running", "installed", "not_installed"]
+    platform: Literal["windows", "macos", "linux"]
+    download_url: str = Field(max_length=256)
+    models: list[LocalRuntimeModel] = Field(max_length=256)
+
+
+class ModelTestResult(WireModel):
+    schema_version: Literal[1]
+    ok: bool
+    detail: str = Field(max_length=512)
+    elapsed_ms: int = Field(ge=0)
+
+
+class ProviderKeyCheckRequest(WireModel):
+    provider_id: OpaqueId
+    value: str = Field(min_length=1, max_length=16384)
+
+
+class ProviderKeyCheck(WireModel):
+    schema_version: Literal[1]
+    state: Literal["valid", "invalid", "unchecked", "unreachable"]
+    detail: str = Field(max_length=512)
 
 
 class MonitorSnapshot(WireModel):
@@ -4008,6 +4056,7 @@ class ProviderLiveCard(WireModel):
     reconnect_required: bool = False
     risk_label: str = Field(max_length=80)
     last_runtime_probe_ok: bool | None = None
+    billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
 
 
 class ProviderLiveSnapshot(WireModel):
@@ -6283,12 +6332,16 @@ class EventPage(WireModel):
     notices_epoch: OpaqueId | None = None
 
 
+ProviderBilling = Literal["subscription", "pay_per_use", "credits", "local"]
+
+
 class ModelChoice(WireModel):
     provider_id: OpaqueId
     model_ref: str = Field(min_length=1, max_length=256)
     label: str = Field(max_length=256)
     available: bool
     unavailable_reason: Literal["configuration_required", "unavailable"] | None = None
+    billing: ProviderBilling | None = None
 
 
 class CapabilityChoice(WireModel):
@@ -6557,10 +6610,22 @@ class SlashCommandResult(WireModel):
     text: str = Field(max_length=16384)
 
 
+class ConversationModelStatus(WireModel):
+    """What the composer's model pill says about the conversation's model."""
+
+    state: Literal["ready", "unavailable", "missing"]
+    reason: str = Field(default="", max_length=256)
+    fix: Literal["reconnect", "choose"] | None = None
+    local: bool = False
+    # Whether images attached here can be seen; None when it cannot be known.
+    sees_images: bool | None = None
+
+
 class ConversationWorkspace(WireModel):
     conversation_id: OpaqueId
     revision: Revision
     controls: ConversationControls
+    model_status: ConversationModelStatus | None = None
     profiles: list[ProfileChoice] = Field(max_length=256)
     resources: list[ResourceView] = Field(max_length=200)
     generated_outputs: list[MediaAvailable] = Field(default_factory=list, max_length=20)

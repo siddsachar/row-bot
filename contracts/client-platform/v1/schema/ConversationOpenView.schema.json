@@ -614,6 +614,65 @@
       "title": "ConversationControls",
       "type": "object"
     },
+    "ConversationModelStatus": {
+      "additionalProperties": false,
+      "description": "What the composer's model pill says about the conversation's model.",
+      "properties": {
+        "fix": {
+          "anyOf": [
+            {
+              "enum": [
+                "reconnect",
+                "choose"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix"
+        },
+        "local": {
+          "default": false,
+          "title": "Local",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Reason",
+          "type": "string"
+        },
+        "sees_images": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sees Images"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "unavailable",
+            "missing"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "ConversationModelStatus",
+      "type": "object"
+    },
     "ConversationView": {
       "additionalProperties": false,
       "properties": {
@@ -769,6 +828,17 @@
           "maxItems": 20,
           "title": "Generated Outputs",
           "type": "array"
+        },
+        "model_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationModelStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "profiles": {
           "items": {

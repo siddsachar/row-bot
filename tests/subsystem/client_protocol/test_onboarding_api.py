@@ -65,30 +65,31 @@ def test_starter_names_match_task_templates(tmp_path, monkeypatch):
     )
 
 
+def _choose(tmp_path, reference="model:fixture:ready"):
+    """The person's pick, saved the way choose_model saves it."""
+    (tmp_path / "model_settings.json").write_text(json.dumps({"model": reference}), encoding="utf-8")
+
+
 def test_onboarding_model_finish_and_checklist_resume(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
-    from row_bot.application import client_models_settings
-
-    monkeypatch.setattr(client_models_settings, "read_models_settings", lambda: {"brain": {"current_ref": "", "warning": ""}})
     first = client_onboarding.read_onboarding()
+    assert first["needs_model"] is True
+    assert first["default_model"] is None
+    # No preset model can finish the first run (decision 9).
     with pytest.raises(Exception, match="onboarding_model_required"):
         client_onboarding.execute_onboarding(
             command_id=str(uuid4()), expected_revision=first["revision"],
             action="finish_models", profile=[], step="",
         )
-    monkeypatch.setattr(client_models_settings, "read_models_settings", lambda: {"brain": {"current_ref": "model:fixture:offline", "warning": "Provider unavailable"}})
-    with pytest.raises(Exception, match="onboarding_model_required"):
-        client_onboarding.execute_onboarding(
-            command_id=str(uuid4()), expected_revision=first["revision"],
-            action="finish_models", profile=[], step="",
-        )
-    monkeypatch.setattr(client_models_settings, "read_models_settings", lambda: {"brain": {"current_ref": "model:fixture:ready", "warning": ""}})
+    _choose(tmp_path)
     finished = client_onboarding.execute_onboarding(
         command_id=str(uuid4()), expected_revision=first["revision"],
         action="finish_models", profile=[], step="",
     )["snapshot"]
     assert finished["setup_complete"] is True
+    assert finished["needs_model"] is False
     assert "models" in finished["completed_steps"]
+    assert json.loads((tmp_path / "app_config.json").read_text(encoding="utf-8"))["onboarding_version"] == 4
     skipped = client_onboarding.execute_onboarding(
         command_id=str(uuid4()), expected_revision=finished["revision"],
         action="skip_step", profile=[], step="voice",
@@ -104,11 +105,9 @@ def test_onboarding_model_finish_and_checklist_resume(tmp_path, monkeypatch):
 
 def test_starter_workflows_are_explicit_and_replay_one_receipt(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
-    from row_bot.application import client_models_settings
     from row_bot import tasks
 
-    monkeypatch.setattr(client_models_settings, "read_models_settings", lambda: {
-        "brain": {"current_ref": "model:fixture:ready", "warning": ""}})
+    _choose(tmp_path)
     first = client_onboarding.read_onboarding()
     ready = client_onboarding.execute_onboarding(
         command_id=str(uuid4()), expected_revision=first["revision"],
@@ -146,9 +145,6 @@ def test_onboarding_refuses_to_overwrite_unreadable_existing_config(tmp_path, mo
 
 def test_onboarding_api_requires_session_and_returns_receipt(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
-    from row_bot.application import client_models_settings
-
-    monkeypatch.setattr(client_models_settings, "read_models_settings", lambda: {"brain": {"current_ref": "", "warning": ""}})
     client, _, _ = client_app()
     with client:
         assert client.get("/api/v1/setup/onboarding").status_code in {401, 403}

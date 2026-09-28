@@ -430,12 +430,14 @@ def conversation_workspace(service: Any, identity: str) -> dict:
         resources.append({"resource_ref": identity + ":" + binding.binding_id, "conversation_revision": str(row["client_revision"]),
                           "binding": asdict(binding), "title": descriptor.title, "resource_revision": descriptor.resource_revision,
                           "available": descriptor.available})
-    ready = generation_readiness(service, controls)
+    status = model_status(service, controls)
+    ready = status["state"] == "ready"
     from row_bot.application.context_status import read_usage
     from row_bot.application.reasoning_controls import reasoning_view
     from row_bot.application.attachments import list_generated_outputs
     from row_bot.application.conversation_writer import writer_status
     return {"conversation_id": identity, "revision": str(row["client_revision"]), "controls": controls,
+            "model_status": status,
             "generated_outputs": list_generated_outputs(identity),
             "writer_status": writer_status(identity),
             "context_usage": read_usage(service, identity, controls),
@@ -455,6 +457,72 @@ def conversation_workspace(service: Any, identity: str) -> dict:
                 for action in ("send", "generate")] + [
                 {"action": action, "ready": not threads._thread_write_blocked(identity), "code": None}
                 for action in ("create_deck", "bind", "preview") ]}
+
+
+def _sees_images(model_ref: str) -> bool | None:
+    """False when attached images can't be seen here; None when unknown."""
+    try:
+        from row_bot.vision import vision_model_compatibility
+        from row_bot.vision_runtime import get_vision_service
+
+        vision = get_vision_service()
+        if not vision.enabled:
+            return False
+        compatibility = vision_model_compatibility(vision.effective_model(model_ref))
+        if compatibility.get("explicit") and not compatibility.get("usable"):
+            return False
+    except Exception:
+        return None
+    return None
+
+
+def _unavailable_reason(model_ref: str, provider_id: str, result: Any, runtime_mode: str) -> tuple[str, str]:
+    """A short reason in words and the one fix that helps (decision 10)."""
+    from row_bot.providers.selection import provider_display_label
+
+    chosen = result.chat if runtime_mode == "chat_only" else result.agent
+    if chosen.credential_status == "missing":
+        if provider_id == "ollama":
+            return "Ollama isn't running", "reconnect"
+        if provider_id.startswith("custom_openai_"):
+            from row_bot.providers.custom import get_custom_endpoint
+
+            if not get_custom_endpoint(provider_id):
+                return "Its endpoint was removed", "choose"
+        return f"{provider_display_label(provider_id)} isn't connected", "reconnect"
+    if runtime_mode != "chat_only" and result.chat.ready:
+        return "It can't use tools; switch to Chat only or choose another model", "choose"
+    errors = " ".join(chosen.errors).lower()
+    if "context window" in errors:
+        return "Its context window is too small", "choose"
+    return "It isn't ready right now", "choose"
+
+
+def model_status(service: Any, controls: dict) -> dict:
+    """What the composer's model pill shows: never "Ready" for an unavailable model."""
+    selection = controls.get("model_selection")
+    if not selection:
+        return {"state": "missing", "reason": "No model chosen yet", "fix": "choose",
+                "local": False, "sees_images": None}
+    model_ref = str(selection.get("model_ref") or "")
+    provider_id = str(selection.get("provider_id") or "")
+    from row_bot.providers.catalog import provider_billing
+
+    base = {"local": provider_billing(provider_id) == "local", "sees_images": _sees_images(model_ref)}
+    if service.readiness_factory is not None:
+        ready = bool(service.readiness_factory(controls))
+        return {**base, "state": "ready" if ready else "unavailable",
+                "reason": "" if ready else "It isn't ready right now", "fix": None if ready else "choose"}
+    from row_bot.providers.readiness import evaluate_runtime_readiness
+    try:
+        result = evaluate_runtime_readiness(model_ref, refresh_provider_status=False, probe_ollama_tools=False)
+    except (ValueError, RuntimeError):
+        return {**base, "state": "unavailable", "reason": "This model can't be used right now", "fix": "choose"}
+    runtime_mode = str(controls.get("runtime_mode") or "agent")
+    if (result.chat if runtime_mode == "chat_only" else result.agent).ready:
+        return {**base, "state": "ready", "reason": "", "fix": None}
+    reason, fix = _unavailable_reason(model_ref, provider_id, result, runtime_mode)
+    return {**base, "state": "unavailable", "reason": reason, "fix": fix}
 
 
 def generation_readiness(service: Any, controls: dict) -> bool:

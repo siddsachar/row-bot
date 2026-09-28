@@ -58,7 +58,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -178,6 +178,9 @@ OPERATIONS = (
     ("get", "/system/migration/apply/{command_id}", None, "MigrationApplyReceipt"),
     ("get", "/setup/onboarding", None, "OnboardingSnapshot"),
     ("post", "/setup/onboarding/commands", "OnboardingCommand", "OnboardingReceipt"),
+    ("get", "/setup/local-runtime", None, "LocalRuntimeSnapshot"),
+    ("post", "/setup/model-test", None, "ModelTestResult"),
+    ("post", "/setup/provider-key/check", "ProviderKeyCheckRequest", "ProviderKeyCheck"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
     ("get", "/monitor/dream/commands/{command_id}", None, "DreamRunReceipt"),
     ("post", "/monitor/dream/commands", "DreamRunCommand", "DreamRunReceipt"),
@@ -678,6 +681,12 @@ export const getOnboarding = (base: string, proof: SessionProof, signal?: AbortS
   jsonRequest(base, '/setup/onboarding', 'OnboardingSnapshot', proof, 'GET', undefined, undefined, signal);
 export const sendOnboardingCommand = (base: string, proof: SessionProof, command: OnboardingCommand, signal?: AbortSignal): Promise<OnboardingReceipt> =>
   jsonRequest(base, '/setup/onboarding/commands', 'OnboardingReceipt', proof, 'POST', validateWire('OnboardingCommand', command), command.command_id, signal);
+export const getLocalRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalRuntimeSnapshot> =>
+  jsonRequest(base, '/setup/local-runtime', 'LocalRuntimeSnapshot', proof, 'GET', undefined, undefined, signal);
+export const testChosenModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelTestResult> =>
+  jsonRequest(base, '/setup/model-test', 'ModelTestResult', proof, 'POST', undefined, undefined, signal);
+export const checkProviderKey = (base: string, proof: SessionProof, body: ProviderKeyCheckRequest, signal?: AbortSignal): Promise<ProviderKeyCheck> =>
+  jsonRequest(base, '/setup/provider-key/check', 'ProviderKeyCheck', proof, 'POST', validateWire('ProviderKeyCheckRequest', body), undefined, signal);
 export const reviewDreamRun = (base: string, proof: SessionProof, body: DreamRunRequest, signal?: AbortSignal): Promise<DreamRunReview> =>
   jsonRequest(base, '/monitor/dream/review', 'DreamRunReview', proof, 'POST', validateWire('DreamRunRequest', body), undefined, signal);
 export const getDreamRunReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<DreamRunReceipt> =>

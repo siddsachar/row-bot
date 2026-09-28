@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "LocalRuntimeModel": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_ready": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Ready"
+        },
+        "model_ref": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 512,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_ref",
+        "name"
+      ],
+      "title": "LocalRuntimeModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "download_url": {
+      "maxLength": 256,
+      "title": "Download Url",
+      "type": "string"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/LocalRuntimeModel"
+      },
+      "maxItems": 256,
+      "title": "Models",
+      "type": "array"
+    },
+    "platform": {
+      "enum": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "running",
+        "installed",
+        "not_installed"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "platform",
+    "download_url",
+    "models"
+  ],
+  "title": "LocalRuntimeSnapshot",
+  "type": "object"
+}

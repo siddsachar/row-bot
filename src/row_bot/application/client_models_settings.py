@@ -112,7 +112,12 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
     from row_bot.tools import registry
     from row_bot.vision_runtime import get_vision_service
 
-    if action == "default":
+    if action == "default" and surface == "vision" and selection_ref == "":
+        # "Same as chat model" (decision 11): Vision follows the chat model.
+        get_vision_service().model = ""
+        from row_bot.agent import clear_agent_cache
+        clear_agent_cache()
+    elif action == "default":
         state = read_models_settings(validate=validate)
         options = state[surface]["options"]
         if not selection_ref or not any(item["selection_ref"] == selection_ref and item["available"] for item in options):
