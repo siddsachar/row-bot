@@ -1692,9 +1692,12 @@ test('Models catalog applies a default and retains it across Providers navigatio
   ).toBe(true);
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
-  const defaultPicker = models.getByRole('combobox', { name: 'Default model' });
+  // The default is a searchable picker (U12): its button names the model.
+  const defaultPicker = models.getByRole('button', { name: 'Default model' });
   await expect(defaultPicker).toBeVisible();
-  const index = (await defaultPicker.inputValue()).endsWith('-104')
+  const index = /Saved example 104/.test(
+    (await defaultPicker.textContent()) ?? '',
+  )
     ? '103'
     : '104';
   const label = 'Saved example ' + index;
@@ -1712,11 +1715,11 @@ test('Models catalog applies a default and retains it across Providers navigatio
   await row
     .getByRole('button', { name: 'Set ' + label + ' as chat default' })
     .click();
-  await expect(defaultPicker).toHaveValue('model:openai:phase4-' + index);
+  await expect(defaultPicker).toContainText(label);
   await models.getByRole('link', { name: 'Provider connections' }).click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
   await page.goBack();
-  await expect(defaultPicker).toHaveValue('model:openai:phase4-' + index);
+  await expect(defaultPicker).toContainText(label);
   await assertNoOverflow(page);
   await screenshot(page, info, 'models-default-retained');
   await accessibility(page, info, 'models-default-retained');

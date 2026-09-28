@@ -47,7 +47,7 @@ test('Providers and Models share the contained shell and Models opens without pr
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('combobox', { name: 'Default model' }),
+    models.getByRole('button', { name: 'Default model' }),
   ).toBeVisible();
   await expect(
     models.getByRole('combobox', { name: 'Vision model' }),
@@ -80,7 +80,7 @@ test('Model catalog rows remain lazy and bounded', async ({ page }, info) => {
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('combobox', { name: 'Default model' }),
+    models.getByRole('button', { name: 'Default model' }),
   ).toBeVisible();
   await expect(
     models.getByRole('listitem').filter({ hasText: 'Saved example 000' }),
@@ -131,7 +131,7 @@ test('Vision, media, context, and delegation controls write local settings', asy
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('combobox', { name: 'Default model' }),
+    models.getByRole('button', { name: 'Default model' }),
   ).toBeVisible();
   const vision = models.locator('[aria-label="vision"]');
   await vision.getByRole('switch', { name: 'Enable vision' }).uncheck();
@@ -199,7 +199,7 @@ test('Catalog pin and default actions update the picker through reviewed command
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('combobox', { name: 'Default model' }),
+    models.getByRole('button', { name: 'Default model' }),
   ).toBeVisible();
   await models.getByRole('button', { name: 'Model Catalog' }).click();
   await models.getByRole('button', { name: 'Open' }).first().click();
@@ -214,9 +214,10 @@ test('Catalog pin and default actions update the picker through reviewed command
   await row
     .getByRole('button', { name: `Set ${label} as chat default` })
     .click();
+  // The default is a searchable picker (U12): its button names the model.
   await expect(
-    models.getByRole('combobox', { name: 'Default model' }),
-  ).toHaveValue(`model:openai:phase4-${index}`);
+    models.getByRole('button', { name: 'Default model' }),
+  ).toContainText(label);
   await expect(row.getByText('default', { exact: true })).toBeVisible();
   await assertNoOverflow(page);
 });
@@ -236,7 +237,7 @@ test('Catalog refresh starts only from its explicit Models action', async ({
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   await expect(
-    models.getByRole('combobox', { name: 'Default model' }),
+    models.getByRole('button', { name: 'Default model' }),
   ).toBeVisible();
   expect(refreshes).toHaveLength(0);
   const requested = page.waitForRequest(

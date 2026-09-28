@@ -1707,7 +1707,8 @@ def _p10_install_fakes() -> None:
 
     client_first_run.test_invoker = invoke
     client_first_run.key_validators = lambda: {
-        provider: (lambda key: key.endswith("-fixture-good"))
+        # A key the spec marks "refused" is refused; any other synthetic key passes.
+        provider: (lambda key: "refused" not in key)
         for provider in ("openai", "anthropic", "google", "openrouter", "xai")
     }
 

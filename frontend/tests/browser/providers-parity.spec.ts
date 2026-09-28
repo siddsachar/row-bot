@@ -153,7 +153,7 @@ test('A keyed custom endpoint opens its credential dialog after Save', async ({
   ).toBeVisible();
 });
 
-test('ChatGPT sign-in runs from its row and Check login advances the flow', async ({
+test('ChatGPT sign-in runs from its row and Check now advances the flow', async ({
   page,
 }) => {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -173,11 +173,16 @@ test('ChatGPT sign-in runs from its row and Check login advances the flow', asyn
     name: 'Manage subscription account',
   });
   await dialog.getByRole('button', { name: 'Connect' }).click();
-  await expect(dialog.getByLabel('Device code')).toHaveValue('SYNTHETIC');
-  await expect(dialog.getByRole('button', { name: 'Check login' })).toHaveCount(
+  // The code is shown large with a Copy button; the sign-in is also checked
+  // by itself, so "Check now" only saves waiting (Phase 10).
+  await expect(dialog.getByText('SYNTHETIC', { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByRole('button', { name: 'Copy device code' }),
+  ).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Check now' })).toHaveCount(
     1,
   );
-  await dialog.getByRole('button', { name: 'Check login' }).click();
+  await dialog.getByRole('button', { name: 'Check now' }).click();
   await expect(dialog.getByText('Connected')).toBeVisible();
 });
 

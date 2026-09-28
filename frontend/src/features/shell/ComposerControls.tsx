@@ -52,7 +52,8 @@ const APPROVAL_ICONS = {
  * keeps only the +: the model, approvals and context usage move into it and
  * the picker opens above the field.
  */
-let choicesReadAt = 0;
+// The start-up handshake just read the list; later opens re-read it.
+let choicesReadAt = Date.now();
 /** Re-read the model list when the picker opens, at most every 30 s. */
 function refreshChoicesSoon(controller: {
   refreshChoices?: () => Promise<void>;
