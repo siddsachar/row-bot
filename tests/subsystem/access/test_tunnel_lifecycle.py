@@ -246,6 +246,19 @@ def test_agents_row_bot_did_not_start_are_never_touched(processes, owned):
     assert not owned.exists()  # stale records are dropped
 
 
+def test_forced_stop_matches_the_server_child_that_recorded_the_agent(processes, owned):
+    # The launcher started the venv shim (4242); the interpreter it runs
+    # (4243) recorded the agent and may still look alive for a moment.
+    processes.add(4243, 401.0, name="python.exe")
+    processes.add(AGENT_PID, 5000.0)
+    _record(owned, _agent(AGENT_PID, 5000.0, owner_pid=4243, owner_created=401.0))
+
+    assert tunnel.cleanup_owned_agents(dead_owner={4242, 4243}) == 1
+
+    assert processes.terminated == [AGENT_PID]
+    assert not owned.exists()
+
+
 def test_forced_stop_cleans_up_the_agent_of_the_server_it_killed(processes, owned):
     # The killed server may not be reaped yet, so it still looks alive.
     processes.add(4242, 400.0, name="python.exe")
@@ -291,12 +304,15 @@ def test_launcher_forced_stop_asks_for_owned_agent_cleanup(monkeypatch, tmp_path
         lambda self, proc, **kwargs: proc.kill(),  # noqa: ARG005
     )
     monkeypatch.setattr(tunnel, "cleanup_owned_agents", lambda *, dead_owner=None: cleaned.append(dead_owner))
+    # A venv python.exe runs the real server as its child: the whole tree is
+    # named before the stop (never a real process table here).
+    monkeypatch.setattr(launcher, "_process_tree", lambda pid: {pid, pid + 1})
 
     process = launcher._RowBotProcess(port=8125, host="127.0.0.1")
     process.start()
     process.stop()
 
-    assert cleaned == ([] if graceful else [4242])
+    assert cleaned == ([] if graceful else [{4242, 4243}])
 
 
 def test_session_limit_refusal_is_reported_in_words_and_frees_the_agent(ngrok, owned):

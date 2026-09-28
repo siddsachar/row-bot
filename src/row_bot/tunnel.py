@@ -34,6 +34,7 @@ import os
 import sys
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol
 
@@ -118,22 +119,27 @@ def forget_owned_agents(*, path: Path | None = None) -> None:
         _write_owned(path, [agent for agent in agents if int(agent["owner_pid"]) != os.getpid()])
 
 
-def cleanup_owned_agents(*, dead_owner: int | None = None, path: Path | None = None) -> int:
+def cleanup_owned_agents(
+    *, dead_owner: int | Iterable[int] | None = None, path: Path | None = None
+) -> int:
     """Stop recorded ngrok agents whose Row-Bot process is gone.
 
-    ``dead_owner`` is a server process the launcher has just stopped by
-    force. Agents of a Row-Bot process that is still running are kept, and
-    a process that is not the recorded agent (a reused pid, anything that is
-    not ngrok) is never touched. Returns how many agents were stopped.
+    ``dead_owner`` is the server process (or process tree: on Windows a venv
+    ``python.exe`` starts the real interpreter as its child) the launcher
+    has just stopped by force. Agents of a Row-Bot process that is still
+    running are kept, and a process that is not the recorded agent (a reused
+    pid, anything that is not ngrok) is never touched. Returns how many
+    agents were stopped.
     """
     path = path or owned_agents_path()
+    dead = {dead_owner} if isinstance(dead_owner, int) else set(dead_owner or ())
     stopped = 0
     with _owned_lock:
         kept = []
         for agent in _read_owned(path):
             owner = int(agent["owner_pid"])
             if owner == os.getpid() or (
-                owner != dead_owner and _same_process(owner, float(agent["owner_created"]))
+                owner not in dead and _same_process(owner, float(agent["owner_created"]))
             ):
                 kept.append(agent)
                 continue

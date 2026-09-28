@@ -1132,6 +1132,17 @@ def _select_app_port(preferred: int = _PORT, max_tries: int = 50) -> tuple[int, 
 # ── NiceGUI subprocess management ───────────────────────────────────────────
 
 
+def _process_tree(pid: int) -> set[int]:
+    """A process and its descendants, as far as they can be read."""
+    try:
+        import psutil
+
+        root = psutil.Process(pid)
+        return {pid, *(child.pid for child in root.children(recursive=True))}
+    except Exception:
+        return {pid}
+
+
 def _set_process_launch_environment(
     process: object,
     values: dict[str, str],
@@ -1316,6 +1327,9 @@ class _RowBotProcess:
             self._close_log_handle()
             return
         proc = self._proc
+        # The server and its children (a venv python.exe runs the real
+        # interpreter as a child), named before anything is stopped.
+        server_tree = _process_tree(proc.pid)
         stopped_gracefully = False
         shutdown_started = time.monotonic()
         try:
@@ -1356,7 +1370,7 @@ class _RowBotProcess:
                 try:
                     from row_bot.tunnel import cleanup_owned_agents
 
-                    cleanup_owned_agents(dead_owner=proc.pid)
+                    cleanup_owned_agents(dead_owner=server_tree)
                 except Exception:
                     logger.debug("Owned tunnel cleanup after a forced stop failed", exc_info=True)
         logger.info(
