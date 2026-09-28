@@ -99,6 +99,13 @@ describe('tool activity', () => {
     expect(stepVerb('🖥️ shell', 'pending')).toBe('Running a command');
     expect(stepVerb('🧩 frobnicate', 'succeeded')).toBe('Frobnicate');
     expect(stepVerb('workspace_write_file', 'succeeded')).toBe('Wrote a file');
+    expect(stepVerb('create_code_folder', 'pending')).toBe(
+      'Creating a code folder',
+    );
+    expect(stepVerb('create_design', 'succeeded')).toBe('Created a design');
+    expect(stepVerb('request_connection', 'blocked')).toBe(
+      "Didn't ask to connect",
+    );
     expect(stepVerb('workspace_list_directory', 'pending')).toBe(
       'Listing files',
     );
