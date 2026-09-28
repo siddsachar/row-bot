@@ -1682,6 +1682,141 @@ def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
     return {"model_ref": reference}
 
 
+
+# ── Phase 10: first run ─────────────────────────────────────────────────────
+# Setup detects Ollama, tests the chosen model, checks keys and loads provider
+# catalogs. In this disposable server all of that is synthetic: nothing reaches
+# a runtime, a provider or the network, and the real machine's Ollama is never
+# seen (a fixed "not installed" unless a spec says otherwise).
+_p10_state: dict = {"runtime": "not_installed", "models": [], "test": "ok", "backup": None, "active": False}
+_P10_SYNTHETIC_CHAT = ("fixture-chat-1", "fixture-chat-2")
+
+
+def _p10_install_fakes() -> None:
+    from row_bot.application import client_first_run
+    from row_bot.providers import model_catalog_cache as cache
+
+    client_first_run.ollama_running = lambda: _p10_state["runtime"] == "running"
+    client_first_run.ollama_installed = lambda: _p10_state["runtime"] != "not_installed"
+    client_first_run.local_models = lambda: list(_p10_state["models"]) if _p10_state["runtime"] == "running" else []
+
+    def invoke(_reference):
+        if _p10_state["test"] != "ok":
+            raise RuntimeError("synthetic model failed to load")
+        return "ready"
+
+    client_first_run.test_invoker = invoke
+    client_first_run.key_validators = lambda: {
+        provider: (lambda key: key.endswith("-fixture-good"))
+        for provider in ("openai", "anthropic", "google", "openrouter", "xai")
+    }
+
+    def refresh(*, reason="manual", force=False, provider_id=None):
+        """Write synthetic rows for the provider instead of contacting it."""
+        snapshot = cache.read_model_catalog_cache()
+        cloud = dict(snapshot.cloud_cache)
+        ollama_rows = list(snapshot.ollama_rows)
+        if provider_id == "ollama":
+            ollama_rows = [
+                {"provider_id": "ollama", "model_id": name, "display_name": name, "installed": True,
+                 "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"],
+                                           "output_modalities": ["text"], "tool_calling": True}}
+                for name in _p10_state["models"]
+            ]
+        elif provider_id:
+            for model_id in _P10_SYNTHETIC_CHAT:
+                cloud[f"model:{provider_id}:{model_id}"] = {
+                    "provider": provider_id, "model_id": model_id, "label": f"Fixture chat {model_id[-1]}",
+                    "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"],
+                                              "output_modalities": ["text"], "tool_calling": True},
+                }
+        updated = cache.CatalogCacheSnapshot(
+            1, snapshot.generated_at + 1, cloud, ollama_rows,
+            {provider_id or "all": {"status": "ok", "count": len(_P10_SYNTHETIC_CHAT)}}, (), "synthetic-browser",
+        )
+        cache.write_model_catalog_cache(updated)
+        return updated
+
+    cache.refresh_model_catalog_cache = refresh
+
+    def start(*, reason="manual", provider_id=None, force=False):
+        refresh(reason=reason, force=force, provider_id=provider_id)
+        return True
+
+    cache.start_model_catalog_refresh_background = start
+    cache.model_catalog_refresh_state = lambda: {
+        "running": False, "last_result": {"ok": True, "provider_id": "", "provider_status": {}},
+    }
+
+    # A real sign-in stores runnable tokens; the synthetic ones are not, so
+    # while a first-run spec runs a signed-in subscription counts as runnable.
+    from row_bot.providers import model_catalog
+
+    statuses = model_catalog._provider_status_by_id
+
+    def first_run_statuses():
+        result = statuses()
+        if _p10_state["active"]:
+            for provider_id in ("codex", "claude_subscription", "xai_oauth"):
+                status = result.get(provider_id)
+                if isinstance(status, dict) and status.get("configured"):
+                    status["runtime_enabled"] = True
+        return result
+
+    model_catalog._provider_status_by_id = first_run_statuses
+
+
+@app.post("/__p10_fixture/first-run/{action}")
+def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = "",
+                  x_fixture_token: str = Header(default="")) -> dict:
+    """fresh: no default model (and not finished); restore: the seeded profile back."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models as runtime_models
+    from row_bot.providers import config as provider_config, model_catalog_cache, saved_model_settings
+
+    settings = predecessor.DATA / "model_settings.json"
+    app_config = predecessor.DATA / "app_config.json"
+    # A first run pins its pick and loads catalogs; restore puts both back.
+    kept = {"providers": Path(provider_config.CONFIG_PATH), "catalog": Path(model_catalog_cache.CATALOG_CACHE_PATH)}
+    if not settings.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if runtime:
+        if runtime not in {"not_installed", "installed", "running"}:
+            raise HTTPException(status_code=422, detail="Unknown runtime state")
+        _p10_state["runtime"] = runtime
+        _p10_state["models"] = [name for name in models.split(",") if name]
+    if test:
+        _p10_state["test"] = test
+    if action == "fresh":
+        _p10_state["active"] = True
+        if _p10_state["backup"] is None:
+            _p10_state["backup"] = {
+                "settings": settings.read_text(encoding="utf-8") if settings.exists() else None,
+                "app_config": app_config.read_text(encoding="utf-8") if app_config.exists() else None,
+                **{key: path.read_text(encoding="utf-8") if path.exists() else None for key, path in kept.items()},
+            }
+        saved_model_settings.update_saved_model_settings(
+            lambda raw: {key: value for key, value in raw.items() if key != "model"}, path=settings)
+        runtime_models.adopt_saved_default("")
+        config = json.loads(app_config.read_text(encoding="utf-8")) if app_config.exists() else {}
+        config.update({"setup_complete": False, "onboarding_version": 4,
+                       "onboarding_completed_steps": [], "onboarding_skipped_steps": []})
+        app_config.write_text(json.dumps(config), encoding="utf-8")
+    elif action == "restore":
+        backup = _p10_state["backup"] or {}
+        for path, key in ((settings, "settings"), (app_config, "app_config"), *((p, k) for k, p in kept.items())):
+            if backup.get(key) is not None:
+                path.write_text(backup[key], encoding="utf-8")
+            elif key in kept and path.exists() and backup:
+                path.unlink()
+        restored = json.loads(settings.read_text(encoding="utf-8")).get("model", "") if settings.exists() else ""
+        runtime_models.adopt_saved_default(restored)
+        _p10_state.update(runtime="not_installed", models=[], test="ok", backup=None, active=False)
+    elif action != "runtime":
+        raise HTTPException(status_code=422, detail="Unknown first-run action")
+    return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
+
+
 def main() -> None:
     # Resolve the fixture's already selected isolated Python for child probes.
     os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
@@ -1815,6 +1950,7 @@ def main() -> None:
     from row_bot.application.folder_selections import FolderSelections
 
     client_platform_service.readiness_factory = lambda _: True
+    _p10_install_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = predecessor.resume
     from row_bot import agent_orchestrator as orchestration

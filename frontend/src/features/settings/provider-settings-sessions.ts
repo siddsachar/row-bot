@@ -355,6 +355,8 @@ export function createProviderSettingsSessions(
           review: guard(transport.review),
           apply: guard(transport.apply),
           receipt: guard(transport.receipt),
+          // The provider checks a key before it is saved (Setup and Settings).
+          ...(transport.check ? { check: guard(transport.check) } : {}),
         };
         entries.set(providerId, entry);
       }

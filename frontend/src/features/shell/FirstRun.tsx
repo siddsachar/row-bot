@@ -374,7 +374,13 @@ function ProviderModels({
           if (!state?.running) break;
           await new Promise((resolve) => window.setTimeout(resolve, 1000));
         }
-        const page = await controller.cachedModels(providerId, '', undefined);
+        // The catalog read that assesses readiness (as Settings › Models does).
+        const page = await controller.modelCatalogPage(
+          'chat',
+          providerId,
+          '',
+          undefined,
+        );
         if (stopped) return;
         setRows(
           (page?.items ?? []).filter(
@@ -422,7 +428,7 @@ function ProviderModels({
     );
   return (
     <div className="first-run-panel-body">
-      <h3>Pick a {label} model</h3>
+      <h3>Pick a model from {label}</h3>
       <ModelOptions
         label={`${label} models`}
         options={rows.map((row) => ({

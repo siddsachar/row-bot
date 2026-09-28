@@ -276,3 +276,33 @@ it('bounds secret UTF-8 bytes independently of characters and bounds owner capac
   session.dispose();
   expect(session.get('secret', '')).toBe('');
 });
+
+it('hands the key check to the dialog it opens, so keys are checked before saving', async () => {
+  const api = {
+    ...transport(),
+    checkProviderKey: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      state: 'invalid',
+      detail: 'Refused',
+    }),
+  };
+  let handshake = {
+    instance_id: 'instance',
+    server_epoch: 'epoch',
+    client_session_id: 'session',
+  };
+  const controller = {
+    getSnapshot: () => ({ handshake }),
+    subscribe: () => () => undefined,
+  } as unknown as ClientController;
+  const owner = createProviderSettingsSessions(controller, () =>
+    providerSettingsCallbacks(api),
+  );
+  const entry = owner.open('anthropic')!;
+  expect(entry.check).toBeTypeOf('function');
+  await expect(entry.check!('anthropic', 'sk-ant-x')).resolves.toMatchObject({
+    state: 'invalid',
+  });
+  expect(api.checkProviderKey).toHaveBeenCalledWith('anthropic', 'sk-ant-x');
+  handshake = { ...handshake };
+});

@@ -10,7 +10,7 @@ const mock = vi.hoisted(() => ({
     liveProviderStatus: vi.fn(),
     testChosenModel: vi.fn(),
     refreshChoices: vi.fn(),
-    cachedModels: vi.fn(),
+    modelCatalogPage: vi.fn(),
     refreshLiveProvider: vi.fn(),
     liveProviderRefresh: vi.fn(),
   },
@@ -233,4 +233,55 @@ it('never traps the person: Set up later and the custom endpoint link', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Set up later' }));
   expect(sessionStorage.getItem(SETUP_LATER_KEY)).toBe('1');
   expect(location()).toBe('/');
+});
+
+it("lists a connected provider's usable chat models from the assessed catalog", async () => {
+  mock.controller.liveProviderStatus.mockResolvedValue({
+    schema_version: 1,
+    providers: [
+      {
+        provider_id: 'anthropic',
+        configured: true,
+        group: 'api',
+        billing: 'pay_per_use',
+      },
+    ],
+  });
+  mock.controller.refreshLiveProvider.mockResolvedValue({ running: true });
+  mock.controller.liveProviderRefresh.mockResolvedValue({ running: false });
+  const row = (model_id: string, extra = {}) => ({
+    provider_id: 'anthropic',
+    model_id,
+    selection_ref: `model:anthropic:${model_id}`,
+    display_name: model_id,
+    categories: ['chat'],
+    configured: true,
+    runtime_ready: true,
+    installed: true,
+    runtime_mode: 'agent',
+    ...extra,
+  });
+  mock.controller.modelCatalogPage.mockResolvedValue({
+    items: [
+      row('claude-usable'),
+      row('claude-not-ready', { runtime_ready: false }),
+    ],
+  });
+  const actions = show();
+  fireEvent.click(screen.getByRole('button', { name: /With an API key/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Anthropic/ }));
+  const list = await screen.findByRole('list', { name: 'Anthropic models' });
+  expect(within(list).getAllByRole('button')).toHaveLength(1);
+  expect(mock.controller.modelCatalogPage).toHaveBeenCalledWith(
+    'chat',
+    'anthropic',
+    '',
+    undefined,
+  );
+  fireEvent.click(within(list).getByRole('button', { name: /claude-usable/ }));
+  await vi.waitFor(() =>
+    expect(actions.choose).toHaveBeenCalledWith(
+      'model:anthropic:claude-usable',
+    ),
+  );
 });
