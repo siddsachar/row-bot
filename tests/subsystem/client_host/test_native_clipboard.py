@@ -84,3 +84,12 @@ def test_window_script_stays_ascii():
     # The script is handed to the window process as text in the console code
     # page, which cannot carry other characters.
     assert launcher._WINDOW_SCRIPT.isascii()
+
+
+def test_app_windows_allow_selecting_text():
+    # pywebview's default (text_select=False) injects body { user-select: none },
+    # which left messages impossible to select or copy in the desktop window.
+    main = _script_part("main_window = webview.create_window(", "\n)")
+    managed = _script_part('child = webview.create_window("Row-Bot"', ")\n")
+    assert "text_select=True" in main
+    assert "text_select=True" in managed

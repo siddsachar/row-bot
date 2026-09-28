@@ -2337,7 +2337,8 @@ def _attach_client_v2(window, instance_id, role="main"):
                 return True
             except Exception:
                 _NAMED_WINDOWS.pop(key, None)
-        child = webview.create_window("Row-Bot", _NATIVE_ORIGIN + route, width=1280, height=900)
+        child = webview.create_window("Row-Bot", _NATIVE_ORIGIN + route, width=1280, height=900,
+                                      text_select=True)
         _NAMED_WINDOWS[key] = child
         _attach_client_v2(child, instance_id)
         return True
@@ -2384,11 +2385,15 @@ def _attach_client_v2(window, instance_id, role="main"):
         open_terminal=open_terminal,
     )
 
+# pywebview blocks text selection unless asked (body { user-select: none }),
+# so messages could not be selected or copied; the app window works like the
+# browser app instead (parity row 14).
 main_window = webview.create_window(
     title,
     url,
     width=w,
     height=h,
+    text_select=True,
     **({} if _CLIENT_V2 else {"js_api": _JS_API}),
 )
 _NAMED_WINDOWS["main"] = main_window
