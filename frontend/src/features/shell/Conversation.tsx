@@ -11,6 +11,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type {
+  AttachmentView,
   ClientError,
   ConversationComposer,
   ErrorAction,
@@ -1095,10 +1096,12 @@ export default function Conversation({
       if (receiptAlive.current) setBusy(false);
     }
   }
-  function send(example?: string, keepTargets = false) {
-    const outgoing = example
-      ? { text: example, attachments: [] as typeof draft.attachments }
-      : draft;
+  function send(
+    example?: string,
+    keepTargets = false,
+    attachments: typeof draft.attachments = [],
+  ) {
+    const outgoing = example ? { text: example, attachments } : draft;
     if (
       !id ||
       !outgoing.text.trim() ||
@@ -1842,15 +1845,36 @@ export default function Conversation({
     [items],
   );
   const pendingMedia = liveMedia(state.activity, settledMedia);
-  const lastUserText = useMemo(() => {
+  // Retry and Send again resend the last message as it was: its words and
+  // its files, never the files' names as text (B136).
+  const lastUser = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index -= 1)
-      if (items[index].row.role === 'user')
-        return items[index].row.blocks
-          .map(publicBlockText)
-          .filter(Boolean)
-          .join('\n');
-    return '';
+      if (items[index].row.role === 'user') {
+        const blocks = items[index].row.blocks;
+        return {
+          text: blocks
+            .filter((block) => block.type !== 'attachment')
+            .map(publicBlockText)
+            .filter(Boolean)
+            .join('\n'),
+          attachments: blocks.flatMap((block) =>
+            block.type === 'attachment'
+              ? [
+                  {
+                    attachment_ref: block.attachment_ref,
+                    name: block.name,
+                    mime_type: block.mime_type as AttachmentView['mime_type'],
+                    size_bytes: block.size_bytes,
+                    revision: block.revision,
+                  },
+                ]
+              : [],
+          ),
+        };
+      }
+    return { text: '', attachments: [] as AttachmentView[] };
   }, [items]);
+  const lastUserText = lastUser.text;
   let lastAssistant = -1;
   for (let index = items.length - 1; index >= 0; index -= 1)
     if (items[index].row.role === 'assistant') {
@@ -2008,7 +2032,7 @@ export default function Conversation({
   const retryAction = useRef<() => void>(() => undefined);
   useLayoutEffect(() => {
     retryAction.current = () => {
-      if (lastUserText) send(lastUserText, true);
+      if (lastUserText) send(lastUserText, true, lastUser.attachments);
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);

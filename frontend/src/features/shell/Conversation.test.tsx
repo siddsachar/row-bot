@@ -1018,6 +1018,63 @@ it('says when a stop left the last message unanswered and offers to send it agai
   expect(within(log).getByRole('button', { name: 'Send again' })).toBeVisible();
 });
 
+it('sends the files again with Send again, not their names as text (B136)', async () => {
+  idleConversation();
+  mock.download.mockResolvedValue(new Blob(['notes'], { type: 'text/plain' }));
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:attachment');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'user:with-file',
+        message_id: 'with-file',
+        role: 'user',
+        blocks: [
+          { type: 'text', text: 'Summarise this file' },
+          {
+            id: 'attachment:one',
+            type: 'attachment',
+            attachment_ref: 'conversation-a:attachment-one',
+            name: 'notes.txt',
+            mime_type: 'application/octet-stream',
+            size_bytes: 12,
+            revision: 'rev-1',
+          },
+        ],
+      },
+    ],
+    generation: {
+      generation_id: 'stopped-run',
+      quiesced: true,
+      can_stop: false,
+      status: 'stopped',
+    },
+  } as unknown as Snapshot;
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  await act(async () => {
+    fireEvent.click(within(log).getByRole('button', { name: 'Send again' }));
+  });
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({
+      text: 'Summarise this file',
+      attachment_refs: ['conversation-a:attachment-one'],
+    }),
+    '1',
+    expect.any(String),
+  );
+});
+
 it('shows welcome examples without a request and sends one with a single click while preserving the draft', async () => {
   idleConversation();
   mock.drafts.set('conversation-a', {
