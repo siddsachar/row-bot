@@ -10,6 +10,14 @@ from tests.fixtures.memory_stack import fresh_memory_stack
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.fixture(autouse=True)
+def _chosen_model(monkeypatch):
+    """Nothing is preset (decision 9): these flows run with a chosen model."""
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
+
+
 def test_active_thread_tracking_and_idle_detection_use_fake_monotonic(tmp_path, monkeypatch) -> None:
     stack = fresh_memory_stack(tmp_path, monkeypatch)
     memory_extraction = stack["memory_extraction"]

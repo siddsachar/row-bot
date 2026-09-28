@@ -11,6 +11,14 @@ from tests.fixtures.memory_stack import fresh_memory_stack
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.fixture(autouse=True)
+def _chosen_model(monkeypatch):
+    """Nothing is preset (decision 9): these flows run with a chosen model."""
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
+
+
 def test_memory_entity_crud_relations_aliases_and_delete_cascade(tmp_path, monkeypatch) -> None:
     stack = fresh_memory_stack(tmp_path, monkeypatch)
     kg = stack["kg"]

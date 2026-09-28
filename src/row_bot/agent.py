@@ -4130,6 +4130,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 raise ValueError("The explicitly selected model is unavailable.") from None
     else:
         model_label = get_current_model()
+    if not model_label:
+        # Nothing is preset (decision 9): every consumer refuses the same way.
+        from row_bot.models import NoModelChosenError
+
+        raise NoModelChosenError()
 
     readiness = _ensure_agent_mode_ready(model_label)
     from row_bot.providers.reasoning import canonical_reasoning_model_ref, request_plan_for
@@ -4999,7 +5004,12 @@ def _selected_model_label_from_config(config: dict) -> tuple[str, bool]:
         if str(model_override).startswith("model:") or is_model_local(model_override) or is_cloud_model(model_override):
             return model_override, True
         raise ValueError("The explicitly selected model is unavailable.")
-    return get_current_model(), False
+    current = get_current_model()
+    if not current:
+        from row_bot.models import NoModelChosenError
+
+        raise NoModelChosenError()
+    return current, False
 
 
 def _chat_only_content_from_ui_message(msg: dict) -> str:
@@ -5420,6 +5430,12 @@ def _reasoning_notice_events(thread_id: str):
         logger.debug("Could not read reasoning notices", exc_info=True)
 
 
+NO_MODEL_CHANNEL_REPLY = (
+    "Row-Bot doesn't have a model yet, so it can't answer here. Open Row-Bot on "
+    "your computer and choose how it should think; then send your message again."
+)
+
+
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                   *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
@@ -5464,6 +5480,11 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     runtime_mode = str(configurable.get("runtime_mode") or "agent")
     _model_ov = configurable.get("model_override")
     _tool_allowlist = _runtime_tool_allowlist(configurable)
+    if runtime_surface == "channel" and not str(_model_ov or get_current_model() or "").strip():
+        # A channel message is answered politely instead of failing (decision 9).
+        yield ("token", NO_MODEL_CHANNEL_REPLY)
+        yield ("done", NO_MODEL_CHANNEL_REPLY)
+        return
     model_label, _ = _selected_model_label_from_config(config)
     phase_timings: dict[str, Any] = {
         "generation.generation_id": str(configurable.get("generation_id") or ""),

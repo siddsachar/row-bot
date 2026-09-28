@@ -463,6 +463,11 @@ def _delegate_work(
                 "message": str(exc),
                 "model": str(model or "").strip(),
             })
+    if not model_override and not parent_model_ref:
+        # Nothing is preset (decision 9): a child agent needs a chosen model.
+        from row_bot.models import NO_MODEL_CHOSEN
+
+        return _json_response({"ok": False, "message": NO_MODEL_CHOSEN, "run": {}})
     orchestration: dict[str, Any] = {}
     if not wait:
         try:

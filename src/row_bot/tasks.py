@@ -4062,6 +4062,7 @@ def run_task_background(
                 _workflow_entry_failed(run_id, thread_id, exc)
                 raise
         from row_bot.agent import invoke_agent, TaskStoppedError
+        from row_bot.models import NoModelChosenError
         from row_bot.threads import _save_thread_meta, _list_threads
 
         def _thread_exists(tid):
@@ -4470,6 +4471,13 @@ def run_task_background(
                             break
                         except _WorkflowEffectDenied:
                             raise
+                        except NoModelChosenError as exc:
+                            # No preset and no fallback (decision 9): stop at once
+                            # with the one "choose a model" reason, no retries.
+                            failure_message = str(exc)
+                            _task_log(f"✗ {failure_message}")
+                            step_on_error = "stop"
+                            break
                         except Exception as exc:
                             _task_log(f"✗ Step {step_index + 1} error: {str(exc)[:80]}")
                             err_str = str(exc).lower()

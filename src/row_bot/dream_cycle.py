@@ -270,6 +270,9 @@ def _should_dream() -> bool:
         return False
     if not _is_idle():
         return False
+    if not _model_chosen():
+        logger.info("Dream cycle deferred — no model is chosen yet")
+        return False
     if _is_ollama_busy():
         logger.info("Dream cycle deferred — Ollama is busy processing a request")
         return False
@@ -291,6 +294,16 @@ def _should_dream() -> bool:
 
 
 # ── LLM helper ───────────────────────────────────────────────────────────────
+
+NO_MODEL_SKIP = "Skipped — no model is chosen yet. Choose a model in Row-Bot."
+
+
+def _model_chosen() -> bool:
+    """Nothing is preset (decision 9): Dream Cycle waits for a chosen model."""
+    from row_bot.models import get_current_model
+
+    return bool(str(get_current_model() or "").strip())
+
 
 def _llm_call(prompt: str) -> str:
     """Make a direct LLM call. Returns raw response text."""
@@ -1355,6 +1368,12 @@ def run_dream_cycle(on_status=None) -> dict:
         logger.info("Dream [%s]: %s", cycle_id, msg)
         if on_status:
             on_status(msg)
+
+    if not _model_chosen():
+        _status(NO_MODEL_SKIP)
+        summary["summary"] = NO_MODEL_SKIP
+        summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
+        return summary
 
     # Check minimum entity count
     entity_count = kg.count_entities()

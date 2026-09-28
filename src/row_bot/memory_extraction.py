@@ -687,7 +687,15 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
     int
         Number of new/updated memories saved.
     """
+    from row_bot.models import get_current_model
     from row_bot.threads import _list_threads
+
+    if not str(get_current_model() or "").strip():
+        # Nothing is preset (decision 9). Leave the bookmark where it is so the
+        # conversations are read once a model is chosen, instead of skipped.
+        if on_status:
+            on_status("Waiting for a model: memories are read once one is chosen")
+        return 0
 
     state = _load_state()
     last_run = state.get("last_extraction", "2000-01-01T00:00:00")

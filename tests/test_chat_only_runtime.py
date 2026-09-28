@@ -3,6 +3,15 @@ import logging
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _chosen_model(monkeypatch):
+    """Nothing is preset (decision 9): these flows run with a chosen model."""
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
+
+
+
 def test_chat_only_prompt_is_compact_and_guards_against_imagined_tasks():
     from row_bot.prompts import get_chat_only_system_prompt
 
