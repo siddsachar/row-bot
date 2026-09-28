@@ -1342,7 +1342,7 @@ it('names the composer and explains why sending is unavailable', async () => {
   });
   await act(async () => conversation());
   const composer = screen.getByRole('form', { name: 'Message composer' });
-  const reason = screen.getByText(/choose a configured model to send/i);
+  const reason = screen.getByText(/choose a model to send/i);
   expect(composer).toContainElement(reason);
   expect(
     screen.getByRole('textbox', { name: 'Message' }),
@@ -2359,4 +2359,48 @@ it('floats Context below 740px and docks it again only from 780px', () => {
   // Hysteresis: a floating chat stays floating until it is clearly wide.
   expect(isNarrowChat(760, true)).toBe(true);
   expect(isNarrowChat(780, true)).toBe(false);
+});
+
+it('says so when an attached image cannot be seen and offers a vision model (decision 11)', async () => {
+  idleConversation();
+  mock.state.workspace!.model_status = {
+    state: 'ready',
+    local: false,
+    sees_images: false,
+  };
+  mock.drafts.set('conversation-a', {
+    text: 'What is in this picture?',
+    attachments: [
+      {
+        attachment_ref: 'attachment-photo',
+        name: 'photo.png',
+        mime_type: 'image/png',
+        size_bytes: 1024,
+        revision: '1',
+      },
+    ],
+  } as never);
+  await act(async () => conversation());
+  expect(screen.getByText(/can't see images\./)).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Choose a vision model' }),
+  );
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/models#vision');
+});
+
+it('offers the fix that matches why the model cannot answer', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "Ollama isn't running",
+    fix: 'reconnect',
+    local: true,
+  };
+  await act(async () => conversation());
+  expect(
+    screen.getByText(/The model is unavailable: Ollama isn't running\./),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/providers');
 });

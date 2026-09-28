@@ -686,6 +686,12 @@ export interface ClientTransport {
     command: Wire.OnboardingCommand,
     signal?: AbortSignal,
   ): Promise<Wire.OnboardingReceipt>;
+  localRuntime?(signal?: AbortSignal): Promise<Wire.LocalRuntimeSnapshot>;
+  testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
+  checkProviderKey?(
+    body: Wire.ProviderKeyCheckRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProviderKeyCheck>;
   browserPreview?(
     conversationId: string,
     revision: string,

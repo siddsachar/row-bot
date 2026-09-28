@@ -39,6 +39,7 @@ import {
   ArrowUp,
   Bot,
   Code2,
+  ImageOff,
   ListPlus,
   MoreHorizontal,
   Palette,
@@ -564,7 +565,9 @@ export default function Conversation({
                 : state.status !== 'ready'
                   ? 'Reconnect to send. Your draft remains on this device.'
                   : !sendActionReady
-                    ? 'Choose a configured model to send. You can still create or open resources.'
+                    ? state.workspace?.model_status?.state === 'unavailable'
+                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. Reconnect or choose another model; your message stays here.`
+                      : 'Choose a model to send. Your message stays here.'
                     : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   useEffect(() => {
@@ -2270,12 +2273,30 @@ export default function Conversation({
     Boolean(state.workspace) &&
     state.status === 'ready' &&
     !sendActionReady;
+  // One way forward when the model can't answer (decision 10): reconnect its
+  // provider, or choose a model (Setup when nothing can be chosen yet).
+  const modelStatus = state.workspace?.model_status;
+  const reconnect =
+    modelStatus?.state === 'unavailable' && modelStatus.fix === 'reconnect';
+  const anyModel = (state.handshake?.models ?? []).some(
+    (model) => model.available,
+  );
   const setupModelButton = (
     <Button
       className="composer-setup-model"
-      onClick={() => navigate('/settings/models')}
+      onClick={() =>
+        reconnect
+          ? navigate('/settings/providers')
+          : anyModel
+            ? setModelPickerOpen(true)
+            : navigate('/setup')
+      }
     >
-      Set up a model
+      {reconnect
+        ? 'Reconnect'
+        : modelStatus?.state === 'unavailable'
+          ? 'Choose another model'
+          : 'Choose a model'}
     </Button>
   );
   const composerControls = (
@@ -2785,6 +2806,22 @@ export default function Conversation({
                     ))}
                   </ul>
                 )}
+                {state.workspace?.model_status?.sees_images === false &&
+                  draft.attachments.some((a) =>
+                    a.mime_type?.startsWith('image/'),
+                  ) && (
+                    <p className="composer-vision-note" role="status">
+                      <ImageOff aria-hidden />
+                      <span>{modelName || 'This model'} can't see images.</span>
+                      <button
+                        type="button"
+                        className="composer-vision-choose"
+                        onClick={() => navigate('/settings/models#vision')}
+                      >
+                        Choose a vision model
+                      </button>
+                    </p>
+                  )}
                 {composerSnapshot && (
                   <ComposerSkillChips
                     composer={composerSnapshot}

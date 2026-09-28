@@ -52,6 +52,17 @@ const APPROVAL_ICONS = {
  * keeps only the +: the model, approvals and context usage move into it and
  * the picker opens above the field.
  */
+let choicesReadAt = 0;
+/** Re-read the model list when the picker opens, at most every 30 s. */
+function refreshChoicesSoon(controller: {
+  refreshChoices?: () => Promise<void>;
+}) {
+  const now = Date.now();
+  if (!controller.refreshChoices || now - choicesReadAt < 30_000) return;
+  choicesReadAt = now;
+  void controller.refreshChoices().catch(() => undefined);
+}
+
 export default function ComposerControls({
   composer,
   onSkillAction = async () => undefined,
@@ -409,9 +420,16 @@ export default function ComposerControls({
       <ModelPicker
         models={state.handshake?.models ?? []}
         current={controls.model_selection?.model_ref}
+        status={workspace.model_status}
+        runtimeMode={controls.runtime_mode}
         disabled={blocked}
         open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        onOpenChange={(next) => {
+          // The list can change after start-up (a provider connected, a new
+          // default); re-read it at most every 30 s when the picker opens.
+          if (next) refreshChoicesSoon(controller);
+          setPickerOpen(next);
+        }}
         onChoose={(item) => {
           rememberRecentModel(item.model_ref);
           if (item.model_ref === controls.model_selection?.model_ref) return;
@@ -426,6 +444,7 @@ export default function ComposerControls({
         thinkingLabel={thinkingLabel}
         onThinking={(selection) => void chooseThinking(selection)}
         onConnect={() => navigate('/settings/providers')}
+        onReconnect={() => navigate('/settings/providers')}
         onManage={() => navigate('/settings/models')}
         anchor={singleLine ? anchor : undefined}
         returnFocusTo={singleLine ? () => plusRef.current : undefined}

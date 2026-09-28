@@ -2317,6 +2317,53 @@ export class ClientController {
     this.query(() => this.transport.onboarding?.(signal));
   onboardingCommand = (command: OnboardingCommand, signal?: AbortSignal) =>
     this.query(() => this.transport.onboardingCommand?.(command, signal));
+  /** Ollama on this computer: running with models, installed, or not installed. */
+  localRuntime = (signal?: AbortSignal) =>
+    this.query(() => this.transport.localRuntime?.(signal));
+  /** One short message to the model just chosen; the result is in words. */
+  testChosenModel = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.testChosenModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.testChosenModel(signal);
+    });
+  /** Asks the provider whether a key works; nothing is saved. */
+  checkProviderKey = (providerId: string, value: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.checkProviderKey)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.checkProviderKey(
+        { provider_id: providerId, value },
+        signal,
+      );
+    });
+  /**
+   * Re-read the model list (and capabilities) on this session: a first model,
+   * a new default or a connected provider changes what the pickers offer.
+   */
+  refreshChoices = async (signal?: AbortSignal): Promise<void> => {
+    const current = this.state.handshake;
+    if (this.disposed || !current) return;
+    const view = validateWire<import('./types').HandshakeView>(
+      'HandshakeView',
+      await this.transport.connect(signal ?? this.lifetime.signal),
+    );
+    const latest = this.state.handshake;
+    if (
+      !latest ||
+      view.client_session_id !== latest.client_session_id ||
+      view.instance_id !== latest.instance_id
+    )
+      return;
+    this.update({
+      handshake: {
+        ...latest,
+        models: view.models,
+        capabilities: view.capabilities,
+        catalog_stale: view.catalog_stale,
+      },
+    });
+  };
   browserPreview = (
     conversationId: string,
     revision: string,

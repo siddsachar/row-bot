@@ -1,15 +1,8 @@
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type RefObject,
-} from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Check, ChevronDown, HardDrive, Search } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Cloud, HardDrive } from 'lucide-react';
 import type {
+  ConversationModelStatus,
   ModelChoice,
   ReasoningSelectionValue,
   ReasoningView,
@@ -19,40 +12,32 @@ import {
   Disclosure,
   Hint,
   Input,
-  Kbd,
   Segmented,
   Select,
   StatusDot,
 } from '../../ui/primitives';
+import ModelList from './ModelList';
 import {
-  groupModels,
-  matchesModel,
+  isLocalProvider,
   modelRefName,
-  readRecentModels,
   splitModelLabel,
 } from './model-choices';
-
-type Row = { key: string; model: ModelChoice };
-type Section = {
-  key: string;
-  label: string;
-  connected: boolean;
-  local: boolean;
-  rows: Row[];
-};
 
 function selectionKey(value: ReasoningSelectionValue) {
   return JSON.stringify(value);
 }
 
 /**
- * The composer's model pill and searchable picker: grouped by provider with a
- * status dot, recent choices on top, an on-device glyph for local providers,
- * unconnected providers muted with Connect, and Thinking in the footer.
+ * The composer's model pill and picker (parity row 6): a local/cloud glyph,
+ * "Chat only" when tools are off, and the unavailable state with its reason
+ * and one fix ("Reconnect", "Choose another model"); never "Ready" for a
+ * model that cannot answer (B115). The list itself is the shared ModelList.
  */
 export default function ModelPicker({
   models,
   current,
+  status,
+  runtimeMode,
   disabled,
   open,
   onOpenChange,
@@ -61,12 +46,16 @@ export default function ModelPicker({
   thinkingLabel,
   onThinking,
   onConnect,
+  onReconnect,
   onManage,
   anchor,
   returnFocusTo,
 }: {
   models: readonly ModelChoice[];
   current: string | undefined;
+  /** The server's view of the conversation's model (ready, unavailable, missing). */
+  status?: ConversationModelStatus | null;
+  runtimeMode?: string;
   disabled: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -76,6 +65,8 @@ export default function ModelPicker({
   onThinking: (selection: ReasoningSelectionValue) => void;
   /** Open provider setup (for unconnected providers). */
   onConnect: () => void;
+  /** Reconnect the conversation's provider (defaults to onConnect). */
+  onReconnect?: () => void;
   /** Open the model catalog settings. */
   onManage: () => void;
   /**
@@ -86,107 +77,21 @@ export default function ModelPicker({
   /** Where focus goes when a triggerless picker closes. */
   returnFocusTo?: () => HTMLElement | null;
 }) {
-  const id = useId();
-  const [query, setQuery] = useState('');
-  const [active, setActive] = useState<string | null>(null);
   const [budget, setBudget] = useState('');
-  const [recent, setRecent] = useState<string[]>([]);
-  const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const selected = models.find((model) => model.model_ref === current);
-  const name = selected
-    ? splitModelLabel(selected.label).name
-    : modelRefName(current) || 'Choose model';
-  useEffect(() => {
-    if (open) {
-      setQuery('');
-      setRecent(readRecentModels());
-      setActive(null);
-    }
-  }, [open]);
-  const sections = useMemo<Section[]>(() => {
-    const matching = models.filter((model) => matchesModel(model, query));
-    const result: Section[] = [];
-    if (!query) {
-      const recentModels = recent
-        .map((ref) => models.find((model) => model.model_ref === ref))
-        .filter((model): model is ModelChoice => Boolean(model?.available));
-      if (recentModels.length)
-        result.push({
-          key: 'recent',
-          label: 'Recent',
-          connected: true,
-          local: false,
-          rows: recentModels.map((model) => ({
-            key: `recent:${model.model_ref}`,
-            model,
-          })),
-        });
-    }
-    const groups = groupModels(matching);
-    const currentGroup = groups.findIndex((group) =>
-      group.models.some((model) => model.model_ref === current),
-    );
-    if (currentGroup > 0) groups.unshift(...groups.splice(currentGroup, 1));
-    for (const group of groups)
-      result.push({
-        key: `provider:${group.id}`,
-        label: group.label,
-        connected: group.connected,
-        local: group.local,
-        rows: group.models.map((model) => ({
-          key: `${group.id}:${model.model_ref}`,
-          model,
-        })),
-      });
-    return result;
-  }, [current, models, query, recent]);
-  const rows = sections.flatMap((section) => section.rows);
-  const enabled = rows.filter((row) => row.model.available);
-  const activeRow =
-    enabled.find((row) => row.key === active) ??
-    (active === null
-      ? (enabled.find((row) => row.model.model_ref === current) ?? enabled[0])
-      : enabled[0]) ??
-    null;
-  const optionId = (key: string) =>
-    `${id}-option-${rows.findIndex((row) => row.key === key)}`;
-  useEffect(() => {
-    if (!open || !activeRow) return;
-    const target = optionId(activeRow.key);
-    // Wait for placement to apply the height bound before revealing it.
-    const frame = requestAnimationFrame(() =>
-      list.current
-        ?.querySelector<HTMLElement>(`[id="${target}"]`)
-        ?.scrollIntoView?.({ block: 'nearest' }),
-    );
-    return () => cancelAnimationFrame(frame);
-    // optionId is derived from rows, which the active key already tracks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeRow?.key]);
-  const choose = (model: ModelChoice) => {
-    if (!model.available) return;
-    onChoose(model);
-    onOpenChange(false);
-  };
-  const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing || !enabled.length) return;
-    const index = activeRow ? enabled.indexOf(activeRow) : -1;
-    const move = (next: number) => {
-      event.preventDefault();
-      setActive(enabled[Math.max(0, Math.min(enabled.length - 1, next))].key);
-    };
-    if (event.key === 'ArrowDown')
-      move(index + 1 >= enabled.length ? 0 : index + 1);
-    else if (event.key === 'ArrowUp')
-      move(index - 1 < 0 ? enabled.length - 1 : index - 1);
-    else if (event.key === 'PageDown') move(index + 8);
-    else if (event.key === 'PageUp') move(index - 8);
-    else if (event.key === 'Enter') {
-      event.preventDefault();
-      if (activeRow) choose(activeRow.model);
-    }
-  };
+  const missing = status?.state === 'missing' || !current;
+  const unavailable =
+    status?.state === 'unavailable' ||
+    (!status && selected?.available === false);
+  const name = missing
+    ? 'Choose a model'
+    : selected
+      ? splitModelLabel(selected.label).name
+      : modelRefName(current) || 'Choose a model';
+  const local =
+    status?.local ?? (selected ? isLocalProvider(selected.provider_id) : false);
+  const chatOnly = runtimeMode === 'chat_only';
   const choices = reasoning?.choices ?? [];
   const short = (label: string) =>
     label === 'Provider default' ? 'Default' : label;
@@ -195,7 +100,13 @@ export default function ModelPicker({
     choices.length <= 5 &&
     choices.every((choice) => short(choice.label).length <= 12);
   const currentThinking = reasoning ? selectionKey(reasoning.selection) : '';
-  const hint = `Model: ${name}${reasoning?.available ? ` · Thinking: ${thinkingLabel}` : ''}`;
+  const reason = unavailable
+    ? `Unavailable — ${status?.reason || "it isn't ready right now"}`
+    : '';
+  const hint = missing
+    ? 'No model chosen yet'
+    : `Model: ${name}${chatOnly ? ' · Chat only' : ''}${reason ? ` · ${reason}` : ''}${reasoning?.available ? ` · Thinking: ${thinkingLabel}` : ''}`;
+  const Glyph = local ? HardDrive : Cloud;
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       {anchor ? (
@@ -210,12 +121,31 @@ export default function ModelPicker({
               aria-description={hint}
               aria-haspopup="dialog"
               disabled={disabled}
+              data-state-model={
+                missing ? 'missing' : unavailable ? 'unavailable' : 'ready'
+              }
             >
-              <StatusDot
-                tone={selected?.available === false ? 'warning' : 'success'}
-                label={selected?.available === false ? 'Needs setup' : 'Ready'}
-              />
+              {missing ? (
+                <StatusDot tone="neutral" label="No model yet" />
+              ) : unavailable ? (
+                <AlertTriangle
+                  className="composer-model-warning"
+                  size={13}
+                  role="img"
+                  aria-label="Unavailable"
+                />
+              ) : (
+                <Glyph
+                  className="composer-model-glyph"
+                  size={13}
+                  role="img"
+                  aria-label={local ? 'Runs on this device' : 'Cloud model'}
+                />
+              )}
               <span className="composer-model-name">{name}</span>
+              {chatOnly && !missing && (
+                <span className="composer-model-tag">Chat only</span>
+              )}
               <ChevronDown size={14} aria-hidden />
             </Button>
           </Popover.Trigger>
@@ -240,136 +170,47 @@ export default function ModelPicker({
             target.focus({ preventScroll: true });
           }}
         >
-          <div className="model-picker-search">
-            <Search size={14} aria-hidden />
-            <input
-              ref={input}
-              className="model-picker-input"
-              role="combobox"
-              aria-label="Search models"
-              aria-expanded
-              aria-controls={`${id}-listbox`}
-              aria-autocomplete="list"
-              aria-activedescendant={
-                activeRow ? optionId(activeRow.key) : undefined
-              }
-              placeholder="Search models"
-              value={query}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(null);
-              }}
-              onKeyDown={keyDown}
-            />
-            <span aria-hidden>
-              <Kbd keys="Esc" />
-            </span>
-          </div>
-          <div
-            ref={list}
-            id={`${id}-listbox`}
-            role="listbox"
-            aria-label="Models"
-            className="model-picker-list"
-          >
-            {sections.map((section, sectionIndex) => (
-              <div
-                key={section.key}
-                role="group"
-                aria-labelledby={`${id}-group-${sectionIndex}`}
-                className="model-picker-group"
-                data-connected={section.connected ? 'true' : 'false'}
-              >
-                <div
-                  id={`${id}-group-${sectionIndex}`}
-                  className="model-picker-group-label"
-                  role="presentation"
+          {unavailable && (
+            <div className="model-picker-unavailable" role="status">
+              <AlertTriangle size={14} aria-hidden />
+              <p>
+                <strong>{name}</strong> · {reason}
+              </p>
+              <div className="model-picker-unavailable-actions">
+                {status?.fix === 'reconnect' && (
+                  <Button
+                    className="small"
+                    onClick={() => {
+                      onOpenChange(false);
+                      (onReconnect ?? onConnect)();
+                    }}
+                  >
+                    Reconnect
+                  </Button>
+                )}
+                <Button
+                  className="small"
+                  variant="ghost"
+                  onClick={() => input.current?.focus()}
                 >
-                  <span>{section.label}</span>
-                  {section.key !== 'recent' && (
-                    <StatusDot
-                      tone={section.connected ? 'success' : 'neutral'}
-                      label={section.connected ? 'Connected' : 'Not connected'}
-                      showLabel={!section.connected}
-                    />
-                  )}
-                  {section.local && section.key !== 'recent' && (
-                    <span
-                      className="model-picker-local"
-                      title="Runs on this device"
-                    >
-                      <HardDrive size={12} aria-hidden />
-                      <span className="visually-hidden">
-                        Runs on this device
-                      </span>
-                    </span>
-                  )}
-                </div>
-                {section.rows.map((row) => {
-                  const label = splitModelLabel(row.model.label);
-                  const isCurrent = row.model.model_ref === current;
-                  return (
-                    <div
-                      key={row.key}
-                      id={optionId(row.key)}
-                      role="option"
-                      className="model-picker-option"
-                      aria-selected={row.key === activeRow?.key}
-                      aria-disabled={!row.model.available || undefined}
-                      data-current={isCurrent ? 'true' : undefined}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onMouseMove={() => {
-                        if (row.model.available && active !== row.key)
-                          setActive(row.key);
-                      }}
-                      onClick={() => choose(row.model)}
-                    >
-                      <span className="model-picker-option-name">
-                        {label.name}
-                      </span>
-                      {section.key === 'recent' && label.provider && (
-                        <span className="model-picker-option-provider">
-                          {label.provider}
-                        </span>
-                      )}
-                      {!row.model.available ? (
-                        <button
-                          type="button"
-                          className="model-picker-connect"
-                          tabIndex={-1}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onOpenChange(false);
-                            onConnect();
-                          }}
-                        >
-                          Connect
-                        </button>
-                      ) : (
-                        isCurrent && (
-                          <Check
-                            className="model-picker-check"
-                            size={14}
-                            role="img"
-                            aria-label="Current"
-                          />
-                        )
-                      )}
-                    </div>
-                  );
-                })}
+                  Choose another model
+                </Button>
               </div>
-            ))}
-          </div>
-          {!rows.length && (
-            <p className="model-picker-empty" role="status">
-              {models.length
-                ? 'No models match.'
-                : 'No cached models. Open Models in Settings.'}
-            </p>
+            </div>
           )}
+          <ModelList
+            models={models}
+            current={current}
+            inputRef={input}
+            onChoose={(model) => {
+              onChoose(model);
+              onOpenChange(false);
+            }}
+            onConnect={() => {
+              onOpenChange(false);
+              onConnect();
+            }}
+          />
           <div className="model-picker-footer">
             {reasoning?.available && (
               <div className="model-picker-thinking">

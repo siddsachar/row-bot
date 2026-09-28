@@ -2676,3 +2676,104 @@
     background: none;
   }
 }
+
+/*
+ * Phase 10: the model pill carries a local/cloud glyph, "Chat only" when
+ * tools are off and a warning for an unavailable model (never "Ready").
+ */
+.composer-model-glyph {
+  flex: none;
+  color: var(--text-muted);
+}
+.composer-model-warning {
+  flex: none;
+  color: var(--status-warning-text);
+}
+.composer-model-pill[data-state-model='unavailable'] .composer-model-name {
+  color: var(--status-warning-text);
+}
+.composer-model-pill[data-state-model='missing'] .composer-model-name {
+  color: var(--text-link);
+}
+.composer-model-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+/* How a provider is paid for: Subscription, Pay per use, Credits, Local · free. */
+.model-billing {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font: var(--weight-regular) var(--text-12) / 1.4 var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+.model-billing[data-billing='subscription'],
+.model-billing[data-billing='local'] {
+  color: var(--status-success-text);
+}
+.model-billing[data-billing='credits'],
+.model-billing[data-billing='pay_per_use'] {
+  color: var(--text-secondary);
+}
+.model-picker-group-label .model-billing {
+  margin-inline-start: auto;
+}
+.model-picker-unavailable {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 8px;
+  margin: 8px 8px 2px;
+  padding: 10px 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--status-warning-text) 36%, var(--border-hairline));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--status-warning-text) 8%, var(--surface));
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.model-picker-unavailable > svg {
+  margin-top: 2px;
+  color: var(--status-warning-text);
+}
+.model-picker-unavailable p {
+  margin: 0;
+}
+.model-picker-unavailable-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* An image attached where the model can't see: say so, offer the fix. */
+.composer-vision-note {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--status-warning-text);
+  font-size: var(--text-13);
+}
+.composer-vision-note > svg {
+  width: 14px;
+  height: 14px;
+}
+.composer-vision-choose {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

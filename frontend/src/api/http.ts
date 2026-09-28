@@ -326,6 +326,15 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  localRuntime(signal?: AbortSignal) {
+    return wire.getLocalRuntime(this.base, this.session(), signal);
+  }
+  testChosenModel(signal?: AbortSignal) {
+    return wire.testChosenModel(this.base, this.session(), signal);
+  }
+  checkProviderKey(body: wire.ProviderKeyCheckRequest, signal?: AbortSignal) {
+    return wire.checkProviderKey(this.base, this.session(), body, signal);
+  }
   browserPreview(conversation: string, revision: string, signal?: AbortSignal) {
     return wire.getBrowserPreview(
       this.base,
