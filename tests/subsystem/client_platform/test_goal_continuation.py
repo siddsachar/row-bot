@@ -199,3 +199,28 @@ def test_a_restart_pauses_goals_left_working(goal_setup):
     latest = goals.get_goal(goal["id"])
     assert latest["status"] == "paused"
     assert latest["last_reason"] == "Row-Bot restarted. Resume to continue."
+
+
+def test_the_agent_graph_input_keeps_the_follow_up_note(goal_setup):
+    """The real graph re-adds the admitted input by id; the follow-up note must
+    ride on it or the transcript shows the note as the person's bubble."""
+    from row_bot import goals
+    from row_bot.agent import _new_agent_graph_input
+    from row_bot.application import conversation_followups
+    platform, _ = goal_setup
+    fake = Recording(completed("step 0"))
+    graph_inputs = []
+
+    def provider(text, tools, config, **kwargs):
+        graph_inputs.append(_new_agent_graph_input(text, config)[1])
+        yield from fake.stream(text, tools, config, **kwargs)
+
+    platform.stream_factory = provider
+    platform.resume_factory = fake.resume
+    goal = goals.start_goal(CONVERSATION, "Write one synthetic note", max_turns=1)
+    conversation_followups.after_goal_change(platform, CONVERSATION, "start", goal)
+    wait_idle(platform, fake, 1)
+    human = graph_inputs[0]["messages"][0]
+    assert human.content.startswith("[Goal mode started]")
+    assert human.additional_kwargs["platform_note"] == "continuation"
+    assert human.additional_kwargs["platform_public_content"] == "Goal · turn 1 of 1"

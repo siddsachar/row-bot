@@ -2122,7 +2122,8 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
 
     The agent graph re-adds the admitted input by id with the prepared text
     (attachment context included); keeping this metadata on it keeps the
-    transcript showing what the person wrote plus file chips (B111).
+    transcript showing what the person wrote plus file chips (B111), and a
+    server-started follow-up showing its note instead of its prompt.
     """
     if not thread_id or not message_id:
         return {}
@@ -2133,7 +2134,8 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
         if getattr(message, "id", None) == message_id and getattr(message, "type", "") == "human":
             extra = getattr(message, "additional_kwargs", None) or {}
             return {key: copy.deepcopy(extra[key])
-                    for key in ("platform_public_content", "platform_attachments") if key in extra}
+                    for key in ("platform_public_content", "platform_attachments", "platform_note")
+                    if key in extra}
     return {}
 
 
