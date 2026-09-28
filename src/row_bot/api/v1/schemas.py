@@ -4240,6 +4240,33 @@ class UnbindPayload(WireModel):
     binding_id: OpaqueId
 
 
+class ResourceDiscardPayload(WireModel):
+    """Undo a design or code folder this conversation created."""
+
+    binding_id: OpaqueId
+
+
+class ResourceRenamePayload(WireModel):
+    binding_id: OpaqueId
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+
+
+class AgentStopPayload(WireModel):
+    run_id: OpaqueId
+
+
+class AgentMessagePayload(WireModel):
+    run_id: OpaqueId
+    message_id: UUID
+    text: Annotated[str, StringConstraints(min_length=1, max_length=16000)]
+
+
+class AgentStartPayload(WireModel):
+    """``/agent [profile] <task>`` from the composer."""
+
+    text: Annotated[str, StringConstraints(min_length=1, max_length=16000)]
+
+
 class ApprovalPayload(WireModel):
     decision: Literal["approve", "reject"]
     nonce: Annotated[str, StringConstraints(min_length=32, max_length=256)]
@@ -5349,6 +5376,11 @@ class Command(WireModel):
         "conversation.skills",
         "resource.setup",
         "resource.continue",
+        "resource.discard",
+        "resource.rename",
+        "agent.stop",
+        "agent.message",
+        "agent.start",
         "media.save",
         "conversation.queue.edit",
         "conversation.queue.remove",
@@ -5519,6 +5551,11 @@ COMMAND_PAYLOADS = {
     "conversation.skills": ConversationSkillPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
+    "resource.discard": ResourceDiscardPayload,
+    "resource.rename": ResourceRenamePayload,
+    "agent.stop": AgentStopPayload,
+    "agent.message": AgentMessagePayload,
+    "agent.start": AgentStartPayload,
     "media.save": MediaSavePayload,
     "conversation.queue.edit": QueueEditPayload,
     "conversation.queue.remove": QueueItemCommand,
@@ -5700,6 +5737,13 @@ class TranscriptDelta(WireModel):
     public_text_delta: Annotated[str, StringConstraints(max_length=60000)]
 
 
+class ApprovalSetup(WireModel):
+    """An approval that turns on something the work needs (a setup card)."""
+
+    kind: Literal["tool"]
+    label: str = Field(min_length=1, max_length=120)
+
+
 class ToolActivity(WireModel):
     state: Literal["tool_call", "tool_done"]
     tool_name: str = Field(default="", max_length=128)
@@ -5718,6 +5762,9 @@ class ToolActivity(WireModel):
     safe_summary: str = Field(default="", max_length=512)
     summary_truncated: bool = False
     content_ref: str = Field(default="", max_length=256)
+    # Only for results shown as a card (a created design or code folder, a
+    # connection the work needs), so the card appears while the turn runs.
+    specialization: TraceSpecialization | None = None
 
 
 class GenerationActivity(WireModel):
@@ -5733,6 +5780,7 @@ class ApprovalRequired(WireModel):
     scope: str = Field(default="", max_length=1024)
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
+    setup: ApprovalSetup | None = None
 
 
 class GenerationError(WireModel):
@@ -6178,7 +6226,7 @@ class TraceMediaReference(WireModel):
 
 
 class TraceSpecialization(WireModel):
-    kind: Literal["skill_load", "delegated_agent", "media"]
+    kind: Literal["skill_load", "delegated_agent", "media", "resource_created", "setup_needed"]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
     source: str = Field(default="", max_length=180)
@@ -6188,6 +6236,13 @@ class TraceSpecialization(WireModel):
     media_kind: str = Field(default="", max_length=64)
     media: list[TraceMediaReference] = Field(default_factory=list, max_length=8)
     error_code: str = Field(default="", max_length=80)
+    # resource_created: the card's Open / Rename / Undo act on this binding.
+    resource_kind: Literal["", "design", "code"] = ""
+    resource_id: str = Field(default="", max_length=256)
+    binding_id: str = Field(default="", max_length=256)
+    # setup_needed: a Connect card for an account or channel.
+    setup_target: str = Field(default="", max_length=64)
+    settings_page: Literal["", "accounts", "channels"] = ""
 
 
 class TranscriptTraceItem(WireModel):
@@ -6238,6 +6293,9 @@ class TranscriptRow(WireModel):
     content_ref: str | None = Field(default=None, max_length=256)
     traces: list[TranscriptTraceGroup] = Field(default_factory=list, max_length=256)
     trace_parent_id: str | None = Field(default=None, max_length=1024)
+    # A server-started follow-up (a goal step, work continuing in a resource
+    # the assistant created): the row's text is a short public note.
+    note: Literal["continuation"] | None = None
 
 
 class Snapshot(WireModel):
@@ -6495,6 +6553,7 @@ class ApprovalView(WireModel):
     scope: str = Field(default="", max_length=1024)
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
+    setup: ApprovalSetup | None = None
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -6648,6 +6707,7 @@ class DelegatedRun(WireModel):
 class DelegatedActivityView(WireModel):
     conversation_id: OpaqueId
     parent_conversation_id: OpaqueId | None = None
+    own_run: DelegatedRun | None = None
     items: list[DelegatedRun] = Field(max_length=50)
     next_cursor: str | None = Field(default=None, max_length=2048)
     has_more: bool

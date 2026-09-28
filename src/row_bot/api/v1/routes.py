@@ -104,6 +104,8 @@ _STATUS.update(
         "resource_limit": 413,
         "resource_binding_revoked": 403,
         "resource_setup_partial": 409,
+        "resource_not_discardable": 409,
+        "agent_run_finished": 409,
         "media_scope_conflict": 403,
         "media_type_conflict": 422,
         "media_destination_unavailable": 409,
@@ -2861,6 +2863,7 @@ def create_router(
             if body.type
             in {
                 "conversation.stop",
+                "agent.stop",
                 "task.stop",
                 "task.approval",
                 "approval.resolve",
@@ -4630,6 +4633,7 @@ def create_router(
         from row_bot.application.client_goal_profile_commands import (
             execute_goal_command,
         )
+        from row_bot.application.conversation_followups import after_goal_change
 
         result = await call(
             execute_goal_command,
@@ -4638,6 +4642,9 @@ def create_router(
             command=wire,
             validate=validate,
             validate_review=validate_review,
+            on_change=lambda operation, target, goal: after_goal_change(
+                service, target, operation, goal
+            ),
         )
         return await respond(request, dto.GoalReceipt, result)
 

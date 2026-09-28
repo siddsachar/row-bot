@@ -1,4 +1,4 @@
-"""Clear conversation requests create one durable resource without Git or a provider."""
+"""Draft code folders and designs in a conversation, without Git or a provider."""
 
 from __future__ import annotations
 
@@ -35,21 +35,15 @@ def creation(service, tmp_path, monkeypatch):
     return service, conversation, root
 
 
-@pytest.mark.parametrize("prompt,expected", [
-    ("Hello, how are you?", None),
-    ("Explain how a landing page works", None),
-    ("Generate an image of a cat", None),
-    ("Build me a landing page", ("workspace", "draft")),
-    ("Design a landing page", ("artifact", "landing")),
-    ("Create a social post", ("artifact", "app_mockup")),
-    ("Make a presentation deck", ("artifact", "deck")),
-    ("Work in my existing repository", None),
-    ("Build the app in repo alpha", None),
-])
-def test_conservative_route(prompt, expected):
-    from row_bot.application.conversation_creation import requested_resource
-
-    assert requested_resource(prompt) == expected
+def _draft(service, conversation):
+    identity = str(uuid4())
+    result = service.execute(owner_id="fixture", idempotency_key=identity, command={
+        "type": "resource.setup", "command_id": identity,
+        "expected_revision": str(service._metadata(conversation)["client_revision"]),
+        "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True},
+    }, target=conversation)
+    assert result["status"] == "completed"
+    return result
 
 
 def test_media_requests_expose_only_one_generation_family():
@@ -68,47 +62,12 @@ def test_media_requests_expose_only_one_generation_family():
     assert media_tool_selection("Edit the cover page", enabled, has_design=True) == enabled
 
 
-def test_draft_creation_is_bound_non_git_and_replayed_once(creation):
-    from row_bot.application.conversation_creation import ensure_for_submission
-    from row_bot.conversation_resources import list_bindings
-    from row_bot.developer.storage import get_workspace, list_workspaces
-
-    service, conversation, root = creation
-    command_id = str(uuid4())
-    first = ensure_for_submission(service, conversation, "Build me a landing page", command_id)
-    assert first and first["status"] == "completed"
-    second = ensure_for_submission(service, conversation, "Build me a landing page", command_id)
-    assert second is None
-    bindings = list_bindings(conversation).bindings
-    assert len(bindings) == 1 and bindings[0].kind == "workspace"
-    workspace = get_workspace(bindings[0].resource_id)
-    assert workspace is not None
-    assert Path(workspace.path).parent == root / "Drafts"
-    assert not (Path(workspace.path) / ".git").exists()
-    assert len(list_workspaces()) == 1
-
-
-def test_partial_auto_setup_retries_the_same_receipt(creation, monkeypatch):
-    from row_bot.application.conversation_creation import ensure_for_submission
-
-    service, conversation, _ = creation
-    submitted = []
-    def partial(**kwargs):
-        submitted.append(kwargs["command"]["command_id"])
-        return {"status": "partial", "command_id": submitted[-1]}
-    monkeypatch.setattr(service, "execute", partial)
-    for _ in range(2):
-        assert ensure_for_submission(service, conversation, "Make a presentation deck",
-                                     str(uuid4()))["status"] == "partial"
-    assert submitted[0] == submitted[1]
-
-
 def test_second_workspace_is_rejected_before_creating_an_orphan(creation):
-    from row_bot.application.conversation_creation import ensure_for_submission, _draft_parent
+    from row_bot.application.conversation_creation import _draft_parent
     from row_bot.application.client_platform import ClientPlatformError
 
     service, conversation, root = creation
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     before = tuple((root / "Drafts").iterdir())
     command_id = str(uuid4())
     with pytest.raises(ClientPlatformError, match="resource_ambiguous"):
@@ -139,60 +98,6 @@ def test_context_fallback_creates_default_draft_without_native_folder_grant(crea
     assert result["status"] == "completed"
     workspace = get_workspace(list_bindings(conversation).bindings[0].resource_id)
     assert workspace is not None and Path(workspace.path).parent == root / "Drafts"
-
-
-def test_design_creation_is_bound_and_replayed_once(creation):
-    from row_bot.application.conversation_creation import ensure_for_submission
-    from row_bot.conversation_resources import list_bindings
-    from row_bot.designer.client_service import read_artifact
-
-    service, conversation, _ = creation
-    command_id = str(uuid4())
-    first = ensure_for_submission(service, conversation, "Make a presentation deck", command_id)
-    assert first and first["status"] == "completed"
-    assert ensure_for_submission(service, conversation, "Make a presentation deck", command_id) is None
-    bindings = list_bindings(conversation).bindings
-    assert len(bindings) == 1 and bindings[0].kind == "artifact"
-    project = read_artifact(bindings[0].resource_id)
-    assert project.mode == "deck" and project.thread_id == conversation
-
-
-@pytest.mark.parametrize("prompt,kind", [
-    ("Build me a landing page", "workspace"),
-    ("Make a presentation deck", "artifact"),
-])
-def test_submitted_turn_uses_just_created_binding(creation, monkeypatch, prompt, kind):
-    from row_bot.application import workspace_setup
-    from row_bot.conversation_resources import current_execution_context, list_bindings
-    from row_bot.designer.session import get_active_project
-    from row_bot.developer.tool_context import get_workspace_id
-
-    service, conversation, _ = creation
-    monkeypatch.setattr(workspace_setup, "generation_readiness", lambda *_: True)
-    observed = []
-
-    def stream(_text, _enabled, _config, *, stop_event):
-        context = current_execution_context()
-        assert context is not None
-        selected = context.resolve(kind)
-        observed.append((selected.resource_id, get_workspace_id(),
-                         get_active_project().id if kind == "artifact" else None))
-        yield "done", None
-
-    service.stream_factory = stream
-    receipt = service._start(conversation, {
-        "submission_id": str(uuid4()), "text": prompt, "attachment_refs": [],
-        "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"},
-        "write_targets": [],
-    }, resume=False, command_id=str(uuid4()))
-    assert receipt["status"] == "accepted"
-    handle = service.registry.get(receipt["execution_id"])
-    assert handle.producer_done.wait(5)
-    bindings = list_bindings(conversation).bindings
-    assert len(bindings) == 1 and bindings[0].kind == kind
-    assert observed == [(bindings[0].resource_id,
-                         bindings[0].resource_id if kind == "workspace" else "",
-                         bindings[0].resource_id if kind == "artifact" else None)]
 
 
 def test_two_chat_writers_queue_and_cancel_without_releasing_owner(creation):
@@ -254,7 +159,6 @@ def test_child_mutation_requires_its_own_writer_lease(creation, monkeypatch):
 
 
 def test_full_replacement_requires_current_file_hash_inside_captured_run(creation, monkeypatch):
-    from row_bot.application.conversation_creation import ensure_for_submission
     from row_bot.application.conversation_writer import writer_run
     from row_bot.conversation_resources import execution_context, list_bindings
     from row_bot.developer.edits import write_file_to_workspace
@@ -263,7 +167,7 @@ def test_full_replacement_requires_current_file_hash_inside_captured_run(creatio
     import hashlib
 
     service, conversation, _ = creation
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     workspace_id = list_bindings(conversation).bindings[0].resource_id
     path = Path(get_workspace(workspace_id).path) / "index.html"
     with writer_run(conversation, workspace_id, str(uuid4()), Event()) as run_id:
@@ -283,7 +187,6 @@ def test_full_replacement_requires_current_file_hash_inside_captured_run(creatio
 
 def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkeypatch, tmp_path):
     from row_bot.application.attachments import register_attachment
-    from row_bot.application.conversation_creation import ensure_for_submission
     from row_bot.application.conversation_writer import writer_run
     from row_bot.conversation_resources import execution_context, list_bindings
     from row_bot.developer import change_ledger
@@ -292,7 +195,7 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
     from row_bot import agent
 
     service, conversation, _ = creation
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     workspace_id = list_bindings(conversation).bindings[0].resource_id
     root = Path(get_workspace(workspace_id).path)
     monkeypatch.setattr(change_ledger, "DEVELOPER_DIR", tmp_path / "ledger")
@@ -327,7 +230,6 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
 def test_explicit_output_save_is_scoped_idempotent_and_outside_code_folder(creation):
     from row_bot.application.attachments import register_attachment, list_generated_outputs
     from row_bot.application.conversation_media_copy import save_output
-    from row_bot.application.conversation_creation import ensure_for_submission
 
     service, conversation, root = creation
     output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
@@ -340,7 +242,7 @@ def test_explicit_output_save_is_scoped_idempotent_and_outside_code_folder(creat
     assert saved.read_bytes() == b"\x89PNG\r\n\x1a\nfixture"
     assert save_output(conversation, reference) == name
     # If the configured root itself is a code folder, it must use Developer.
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     assert saved.exists()
     from row_bot.thread_cleanup import delete_thread
     assert delete_thread(conversation).deleted is True

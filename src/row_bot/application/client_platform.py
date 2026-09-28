@@ -35,6 +35,8 @@ class ClientPlatformError(ValueError):
 
 _COMMAND_LOCK = threading.RLock()
 _LOG = logging.getLogger(__name__)
+# The client shows a trailing marker as a "Stopped" chip (TranscriptMessage).
+_STOPPED_MARKER = "\n\n⏹️ *[Stopped]*"
 
 
 def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, maximum: int = 128 * 1024) -> list[tuple[int, dict]]:
@@ -116,7 +118,8 @@ class ClientPlatformService:
     def admit_execution(self, conversation_id: str, config: dict, *, text: str | None = None,
                         cancel_scope: Any = None, queued_pass_id: str = "", queue_context: dict | None = None,
                         resume_pending: bool = False,
-                        attachments: list[dict[str, Any]] | None = None) -> Any:
+                        attachments: list[dict[str, Any]] | None = None,
+                        note: str = "") -> Any:
         """Single admission path for the API and retained NiceGUI producer."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
@@ -151,6 +154,10 @@ class ClientPlatformService:
                 if attachments
                 else {}
             )
+            if note:
+                # A server-started follow-up: the transcript shows the note,
+                # the model reads the prompt.
+                public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
             if text is not None and not threads.append_checkpoint_messages(
                     conversation_id, [HumanMessage(content=text, id=submission_id,
                                                    additional_kwargs=public_metadata)]):
@@ -170,6 +177,7 @@ class ClientPlatformService:
             handle.segment_id = admissions.start_segment(handle.pass_id)
             handle.input_checkpoint_revision = threads.get_latest_checkpoint_revision(conversation_id)
             handle.model_ref = str(configurable.get("model_override") or "")
+            handle.submission_id = submission_id
             handle.runtime_surface = str(configurable.get("runtime_surface") or "normal_chat")
             configurable.update({"generation_id": generation_id, "platform_submission_id": submission_id,
                                  "platform_pass_id": handle.pass_id, "platform_segment_id": handle.segment_id})
@@ -189,6 +197,8 @@ class ClientPlatformService:
             if handle.producer_done.is_set():
                 return
             status = "stopped" if handle.cancel_scope.is_cancelled() else status
+            if status == "stopped":
+                self._keep_stopped_reply(handle)
             # Clients reset on a checkpoint installed below and resubscribe
             # from a snapshot, which carries no queue: an update published
             # after it never reaches them and they kept "1 queued" (B97).
@@ -219,6 +229,42 @@ class ClientPlatformService:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)
                 except Exception:
                     client_queue.pause_pending(self, handle.conversation_id)
+            if handle.followups:
+                from row_bot.application import conversation_followups
+                conversation_followups.after_finish(self, handle, status)
+
+    def _keep_stopped_reply(self, handle: Any) -> None:
+        """Stop keeps the reply streamed so far (B149).
+
+        The model's message is only saved when its step completes, so a stop
+        mid-answer used to leave nothing but the spool this cleanup discards.
+        The current segment's text becomes the assistant's reply, marked as
+        stopped; a segment whose message was already saved (a tool-calling
+        step, or one that finished just before Stop) is left as it is.
+        """
+        from langchain_core.messages import AIMessage
+        from row_bot import threads
+        from row_bot.application.live_content import read_text
+        conversation_id = handle.conversation_id
+        if not handle.segment_id or handle.segment_committed:
+            return
+        try:
+            if admissions.deletion_state(conversation_id) != "active":
+                return
+            text = read_text(conversation_id, f"live:{handle.pass_id}:{handle.segment_id}").rstrip()
+            if not text.strip():
+                return
+            messages = threads.get_latest_checkpoint_messages(conversation_id)
+            last = messages[-1] if messages else None
+            if last is not None and getattr(last, "type", "") == "ai":
+                # Its step completed: the text is saved (with any tool calls).
+                return
+            identity = str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                      f"row-bot:stopped:{handle.submission_id or handle.pass_id}"))
+            threads.append_checkpoint_messages(conversation_id, [AIMessage(
+                id=identity, content=text + _STOPPED_MARKER)])
+        except Exception:
+            _LOG.warning("A stopped reply could not be kept for %s", conversation_id, exc_info=True)
 
     def _metadata(self, conversation_id: str) -> dict:
         from row_bot import threads
@@ -655,6 +701,22 @@ class ClientPlatformService:
         expected = command.get("expected_revision")
         if expected is None or str(expected) != str(row["client_revision"]):
             raise ClientPlatformError("revision_conflict", str(row["client_revision"]))
+        if kind == "resource.discard":
+            from row_bot.application.conversation_resource_commands import discard
+            return discard(self, target, str(payload["binding_id"]), expected_revision=str(expected))
+        if kind == "resource.rename":
+            from row_bot.application.conversation_resource_commands import rename
+            return rename(self, target, str(payload["binding_id"]), str(payload["name"]))
+        if kind in {"agent.stop", "agent.message", "agent.start"}:
+            from row_bot.application import delegated_activity
+            if kind == "agent.stop":
+                delegated_activity.stop_run(self, target, str(payload["run_id"]))
+            elif kind == "agent.message":
+                delegated_activity.message_run(self, target, str(payload["run_id"]), str(payload["text"]),
+                                               str(payload["message_id"]))
+            else:
+                delegated_activity.start_run(self, target, str(payload["text"]))
+            return {"conversation_id": target, "revision": str(row["client_revision"]), "status": "completed"}
         if kind == "media.save":
             from row_bot.application.conversation_media_copy import save_output
             try:
@@ -800,7 +862,8 @@ class ClientPlatformService:
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",
                approval_context: dict | None = None, queue_record: dict | None = None,
                frozen_context: dict | None = None,
-               runtime_surface: str = "normal_chat") -> dict:
+               runtime_surface: str = "normal_chat",
+               followup: Any = None) -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
         from row_bot.application import client_queue
@@ -827,27 +890,12 @@ class ClientPlatformService:
                    "agent_profile_id": frozen_config.get("agent_profile_id"),
                    "client_runtime_mode": frozen_config.get("runtime_mode")}
         runtime_mode = row.get("client_runtime_mode") or "agent"
-        auto_setup = None
-        if not resume and frozen_context is None and command_id:
-            from row_bot.application.conversation_creation import ensure_for_submission
-            auto_setup = ensure_for_submission(self, conversation_id, str(payload.get("text") or ""), command_id)
-            if auto_setup is not None and auto_setup.get("status") != "completed":
-                raise ClientPlatformError("resource_setup_partial")
+        # Designs and code folders are created by the assistant's own tools
+        # when the work needs one (conversation_setup_tool), never from the
+        # wording of a message.
         from row_bot.conversation_resources import list_bindings, describe
         captured_bindings = list_bindings(conversation_id).bindings
         targets = frozen_context.get("write_targets") if frozen_context is not None else payload.get("write_targets")
-        if auto_setup is not None:
-            selected_auto = next((binding for binding in captured_bindings
-                                  if binding.binding_id == auto_setup.get("binding_id")), None)
-            if selected_auto is None:
-                raise ClientPlatformError("resource_binding_revoked")
-            targets = [*(targets or []), {
-                "kind": selected_auto.kind,
-                "binding_id": selected_auto.binding_id,
-                "resource_id": selected_auto.resource_id,
-                "binding_revision": selected_auto.revision,
-                "resource_revision": describe(selected_auto).resource_revision,
-            }]
         if frozen_context is not None:
             from row_bot.conversation_resources import ResourceBinding
             frozen_bindings = tuple(ResourceBinding(**value) for value in frozen_context["bindings"])
@@ -878,6 +926,8 @@ class ClientPlatformService:
         submission_id = str(payload.get("submission_id") or uuid.uuid4())
         generation_id = str(queue_record["generation_id"]) if queue_record else str(uuid.uuid4())
         text = str(payload.get("text") or "")
+        if followup is not None:
+            text = followup.prompt
         attachment_refs = list(payload.get("attachment_refs") or ())
         if len(attachment_refs) > 32:
             raise ClientPlatformError("payload_too_large")
@@ -907,6 +957,9 @@ class ClientPlatformService:
                   "platform_submission_id": submission_id,
                   "platform_command_id": command_id,
                   "model_override": model_ref}}
+        if followup is not None:
+            # Continues the conversation's own work; never routed as steering.
+            config["configurable"]["internal_goal_continuation"] = True
         from copy import deepcopy
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
@@ -922,11 +975,20 @@ class ClientPlatformService:
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
         handle = self.admit_execution(conversation_id, config, text=None if resume else text,
             queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
-            resume_pending=resume, attachments=None if resume else attachment_views)
+            resume_pending=resume, attachments=None if resume else attachment_views,
+            note=followup.note if followup is not None else "")
+        handle.followups = True
+        if not resume and frozen_context is None and queue_record is None and followup is None and command_id:
+            from row_bot.application.conversation_drafts import consume_admitted_draft
+            try:
+                consume_admitted_draft(self, conversation_id, text, attachment_refs)
+            except Exception:
+                _LOG.warning("The sent draft could not be cleared for %s", conversation_id, exc_info=True)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
 
         def producer() -> None:
             status = "interrupted"
+            final_text = ""
             try:
                 self.registry.check_dispatch(handle)
                 files = []
@@ -1000,6 +1062,7 @@ class ClientPlatformService:
                         self.observe_event(conversation_id, event, handle)
                         if event[0] == "done":
                             status = "completed"
+                            final_text = str(event[1] or "") if len(event) > 1 else ""
                         elif event[0] == "interrupt":
                             status = "waiting_approval"
                         elif event[0] == "error":
@@ -1010,6 +1073,11 @@ class ClientPlatformService:
                 _LOG.exception("Conversation generation failed for %s", conversation_id)
                 self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
             finally:
+                if handle.cancel_scope.is_cancelled():
+                    status = "stopped"
+                from row_bot.application.conversation_followups import after_platform_turn
+                after_platform_turn(conversation_id, generation_id=generation_id, status=status,
+                                    assistant_text=final_text, model_ref=model_ref)
                 self.finish_execution(handle, status)
         def start_failed(_exc: BaseException) -> None:
             try:
@@ -1084,6 +1152,8 @@ class ClientPlatformService:
         elif kind in {"tool_call", "tool_done"}:
             getter = getattr(payload, "get", lambda key, default="": default)
             from row_bot.application.conversation_traces import (
+                CARD_SPECIALIZATIONS,
+                _public_specialization as public_specialization,
                 build_trace_item,
                 canonical_group,
                 canonical_tool_name,
@@ -1130,7 +1200,10 @@ class ClientPlatformService:
                 "status": item.status, "safe_input": item.safe_input,
                 "safe_summary": item.safe_summary,
                 "summary_truncated": item.summary_truncated,
-                "content_ref": item.content_ref})
+                "content_ref": item.content_ref,
+                **({"specialization": public_specialization(item.specialization)}
+                   if item.specialization is not None and item.specialization.kind in CARD_SPECIALIZATIONS
+                   else {})})
             if kind == "tool_done":
                 for metadata in getter("media", []) or []:
                     self.projection.publish(conversation_id, metadata["type"], {
@@ -1256,6 +1329,8 @@ class ClientPlatformService:
         if row["resume_kind"] == "conversation":
             conversation_id = str(row["source_thread_id"])
             context = self.claim_legacy_approval(approval_id, conversation_id, payload.get("decision") == "approve")
+            from row_bot.application.conversation_followups import after_approval
+            after_approval(conversation_id, approved=payload.get("decision") == "approve")
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
                                  approval_context={"approved": payload.get("decision") == "approve",
                                                    "interrupt_ids": context["interrupt_ids"],

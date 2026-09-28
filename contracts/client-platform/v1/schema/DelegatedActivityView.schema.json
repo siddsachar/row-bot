@@ -93,6 +93,17 @@
       "default": null,
       "title": "Next Cursor"
     },
+    "own_run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DelegatedRun"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "parent_conversation_id": {
       "anyOf": [
         {

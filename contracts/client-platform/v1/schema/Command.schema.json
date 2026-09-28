@@ -1,5 +1,180 @@
 {
   "$defs": {
+    "AgentMessageCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentMessagePayload"
+        },
+        "type": {
+          "const": "agent.message",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "AgentMessageCommand",
+      "type": "object"
+    },
+    "AgentMessagePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "message_id",
+        "text"
+      ],
+      "title": "AgentMessagePayload",
+      "type": "object"
+    },
+    "AgentStartCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentStartPayload"
+        },
+        "type": {
+          "const": "agent.start",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "AgentStartCommand",
+      "type": "object"
+    },
+    "AgentStartPayload": {
+      "additionalProperties": false,
+      "description": "``/agent [profile] <task>`` from the composer.",
+      "properties": {
+        "text": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "AgentStartPayload",
+      "type": "object"
+    },
+    "AgentStopCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentStopPayload"
+        },
+        "type": {
+          "const": "agent.stop",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "AgentStopCommand",
+      "type": "object"
+    },
+    "AgentStopPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "AgentStopPayload",
+      "type": "object"
+    },
     "ApprovalPayload": {
       "additionalProperties": false,
       "properties": {
@@ -7105,6 +7280,122 @@
       "title": "ResourceContinueCommand",
       "type": "object"
     },
+    "ResourceDiscardCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResourceDiscardPayload"
+        },
+        "type": {
+          "const": "resource.discard",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceDiscardCommand",
+      "type": "object"
+    },
+    "ResourceDiscardPayload": {
+      "additionalProperties": false,
+      "description": "Undo a design or code folder this conversation created.",
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id"
+      ],
+      "title": "ResourceDiscardPayload",
+      "type": "object"
+    },
+    "ResourceRenameCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResourceRenamePayload"
+        },
+        "type": {
+          "const": "resource.rename",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceRenameCommand",
+      "type": "object"
+    },
+    "ResourceRenamePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "name"
+      ],
+      "title": "ResourceRenamePayload",
+      "type": "object"
+    },
     "ResourceSetupCommand": {
       "additionalProperties": false,
       "properties": {
@@ -10425,6 +10716,9 @@
   },
   "discriminator": {
     "mapping": {
+      "agent.message": "#/$defs/AgentMessageCommand",
+      "agent.start": "#/$defs/AgentStartCommand",
+      "agent.stop": "#/$defs/AgentStopCommand",
       "approval.resolve": "#/$defs/ApprovalResolveCommand",
       "artifact.asset.upload": "#/$defs/ArtifactAssetUploadCommand",
       "artifact.design.control": "#/$defs/ArtifactDesignControlCommand",
@@ -10527,6 +10821,8 @@
       "provider.subscription.start": "#/$defs/ProviderSubscriptionStartCommand",
       "provider.subscription.submit": "#/$defs/ProviderSubscriptionSubmitCommand",
       "resource.continue": "#/$defs/ResourceContinueCommand",
+      "resource.discard": "#/$defs/ResourceDiscardCommand",
+      "resource.rename": "#/$defs/ResourceRenameCommand",
       "resource.setup": "#/$defs/ResourceSetupCommand",
       "skill.create": "#/$defs/SkillCreateCommand",
       "skill.delete": "#/$defs/SkillDeleteCommand",
@@ -10617,6 +10913,21 @@
     },
     {
       "$ref": "#/$defs/ResourceContinueCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceDiscardCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceRenameCommand"
+    },
+    {
+      "$ref": "#/$defs/AgentStopCommand"
+    },
+    {
+      "$ref": "#/$defs/AgentMessageCommand"
+    },
+    {
+      "$ref": "#/$defs/AgentStartCommand"
     },
     {
       "$ref": "#/$defs/MediaSaveCommand"

@@ -691,6 +691,26 @@ def build_continuation_prompt(goal: Mapping[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def settle_interrupted_goals() -> int:
+    """Pause goals a previous process left working (nothing continues them).
+
+    A goal waiting for an approval stays waiting: the approval survives a
+    restart and deciding it lets the goal go on.
+    """
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        rows = conn.execute("SELECT id, revision FROM thread_goals WHERE status = 'active'").fetchall()
+    finally:
+        conn.close()
+    settled = 0
+    for row in rows:
+        if set_goal_status(str(row[0]), "paused", reason="Row-Bot restarted. Resume to continue.",
+                           verdict="paused", expected_revision=int(row[1] or 0)):
+            settled += 1
+    return settled
+
+
 def after_turn(
     *,
     thread_id: str,

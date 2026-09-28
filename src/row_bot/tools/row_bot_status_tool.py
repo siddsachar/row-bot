@@ -2164,12 +2164,23 @@ def _update_setting(setting: str, value: str) -> str:
         if current_state == on:
             return f"Tool '{resolved_label}' is already {'enabled' if on else 'disabled'}."
         canonical_value = f"{resolved_name}:{'on' if on else 'off'}"
-        approval = interrupt({
+        request = {
             "tool": "row_bot_update_setting",
             "label": f"{'Enable' if on else 'Disable'} tool '{resolved_label}'",
             "description": f"Set tool '{resolved_label}' to {'enabled' if on else 'disabled'}",
             "args": {"setting": "tool_toggle", "value": canonical_value},
-        })
+        }
+        if on:
+            # Shown as a "Turn on …" card in the conversation (decision 12).
+            request.update({
+                "label": f"Turn on {resolved_label}",
+                "description": (
+                    f"Row-Bot needs {resolved_label} for this. You can turn it off again in "
+                    "Settings › Tools."
+                ),
+                "setup": {"kind": "tool", "label": resolved_label},
+            })
+        approval = interrupt(request)
         if not approval:
             return "Tool toggle cancelled."
         try:

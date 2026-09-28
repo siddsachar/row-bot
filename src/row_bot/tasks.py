@@ -5565,6 +5565,11 @@ def start_task_scheduler() -> None:
             settle_interrupted_runs()
         except Exception:
             logger.warning("Could not settle interrupted workflow runs", exc_info=True)
+        try:
+            from row_bot.goals import settle_interrupted_goals
+            settle_interrupted_goals()
+        except Exception:
+            logger.warning("Could not pause goals left working", exc_info=True)
     _get_scheduler()
     sync_all_jobs()
     start_approval_monitor()

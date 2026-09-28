@@ -239,6 +239,11 @@ def test_skill_specialization_exposes_only_reviewed_bounded_metadata():
         "media_kind": "",
         "media": (),
         "error_code": "",
+        "resource_kind": "",
+        "resource_id": "",
+        "binding_id": "",
+        "setup_target": "",
+        "settings_page": "",
     }
     assert private not in repr(specialized)
 

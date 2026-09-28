@@ -1,4 +1,29 @@
 {
+  "$defs": {
+    "ApprovalSetup": {
+      "additionalProperties": false,
+      "description": "An approval that turns on something the work needs (a setup card).",
+      "properties": {
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "ApprovalSetup",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "action_label": {
@@ -78,6 +103,17 @@
       "maxLength": 1024,
       "title": "Scope",
       "type": "string"
+    },
+    "setup": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ApprovalSetup"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "status": {
       "const": "pending",

@@ -25,7 +25,15 @@ TraceStatus = Literal[
     "uncertain",
 ]
 TraceGroupKind = Literal["generic", "browser", "computer"]
-TraceSpecializationKind = Literal["skill_load", "delegated_agent", "media"]
+TraceSpecializationKind = Literal[
+    "skill_load", "delegated_agent", "media", "resource_created", "setup_needed"
+]
+CARD_SPECIALIZATIONS = frozenset({"resource_created", "setup_needed"})
+_CONNECTION_PAGES = {
+    "google": "accounts", "github": "accounts", "x": "accounts",
+    "telegram": "channels", "slack": "channels", "discord": "channels",
+    "sms": "channels", "whatsapp": "channels", "email": "channels",
+}
 
 TRACE_STATUSES: frozenset[str] = frozenset(
     {"pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"}
@@ -100,6 +108,11 @@ class TraceSpecialization:
     media_kind: str = ""
     media: tuple[MediaReference, ...] = ()
     error_code: str = ""
+    resource_kind: str = ""
+    resource_id: str = ""
+    binding_id: str = ""
+    setup_target: str = ""
+    settings_page: str = ""
 
 
 @dataclass(frozen=True)
@@ -577,6 +590,30 @@ def _media_specialization(result: Any) -> TraceSpecialization | None:
     )
 
 
+def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpecialization | None:
+    """A created design or code folder, or a connection the work needs."""
+    if not payload or payload.get("ok") is not True:
+        return None
+    if name in {"create_design", "create_code_folder"} and payload.get("kind") == "resource_created":
+        kind = str(payload.get("resource_kind") or "")
+        binding = _clean_text(payload.get("binding_id"), MAX_IDENTIFIER_CHARS)
+        resource = _clean_text(payload.get("resource_id"), MAX_IDENTIFIER_CHARS)
+        display = _clean_text(payload.get("name"), 180)
+        if kind not in {"design", "code"} or not binding or not resource or not display:
+            return None
+        return TraceSpecialization(kind="resource_created", display_name=display, resource_kind=kind,
+                                   resource_id=resource, binding_id=binding)
+    if name == "request_connection" and payload.get("kind") == "setup_needed":
+        target = _clean_text(payload.get("target"), 64)
+        page = _CONNECTION_PAGES.get(target, "")
+        display = _clean_text(payload.get("label"), 180)
+        if not page or not display:
+            return None
+        return TraceSpecialization(kind="setup_needed", display_name=display, setup_target=target,
+                                   settings_page=page)
+    return None
+
+
 def specialize_tool_result(result: Any) -> TraceSpecialization | None:
     """Return only reviewed specialization metadata, never the raw payload."""
 
@@ -586,6 +623,7 @@ def specialize_tool_result(result: Any) -> TraceSpecialization | None:
     return (
         _skill_specialization(name, payload)
         or _agent_specialization(name, payload)
+        or _card_specialization(name, payload)
         or _media_specialization(result)
     )
 
@@ -693,7 +731,19 @@ def _public_specialization(
 ) -> dict[str, Any] | None:
     if specialization is None:
         return None
+    card = (
+        {
+            "resource_kind": specialization.resource_kind,
+            "resource_id": specialization.resource_id,
+            "binding_id": specialization.binding_id,
+            "setup_target": specialization.setup_target,
+            "settings_page": specialization.settings_page,
+        }
+        if specialization.kind in CARD_SPECIALIZATIONS
+        else {}
+    )
     return {
+        **card,
         "kind": specialization.kind,
         "skill_id": specialization.skill_id,
         "display_name": specialization.display_name,

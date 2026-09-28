@@ -205,6 +205,17 @@
           "title": "Scope",
           "type": "string"
         },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalSetup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "status": {
           "const": "waiting_approval",
           "title": "Status",
@@ -316,6 +327,29 @@
         "payload"
       ],
       "title": "ApprovalRequiredEvent",
+      "type": "object"
+    },
+    "ApprovalSetup": {
+      "additionalProperties": false,
+      "description": "An approval that turns on something the work needs (a setup card).",
+      "properties": {
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "ApprovalSetup",
       "type": "object"
     },
     "ContextUpdated": {
@@ -2119,6 +2153,17 @@
           "default": null,
           "title": "Segment Id"
         },
+        "specialization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceSpecialization"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "state": {
           "enum": [
             "tool_call",
@@ -2263,6 +2308,180 @@
         "payload"
       ],
       "title": "ToolActivityEvent",
+      "type": "object"
+    },
+    "TraceAgentReference": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "display_name",
+        "status"
+      ],
+      "title": "TraceAgentReference",
+      "type": "object"
+    },
+    "TraceMediaReference": {
+      "additionalProperties": false,
+      "properties": {
+        "media_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Media Ref",
+          "type": "string"
+        },
+        "mime_type": {
+          "maxLength": 128,
+          "title": "Mime Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_ref",
+        "mime_type"
+      ],
+      "title": "TraceMediaReference",
+      "type": "object"
+    },
+    "TraceSpecialization": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_runs": {
+          "items": {
+            "$ref": "#/$defs/TraceAgentReference"
+          },
+          "maxItems": 16,
+          "title": "Agent Runs",
+          "type": "array"
+        },
+        "binding_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "display_name": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "error_code": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Error Code",
+          "type": "string"
+        },
+        "evicted_skill_id": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Evicted Skill Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "skill_load",
+            "delegated_agent",
+            "media",
+            "resource_created",
+            "setup_needed"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "media": {
+          "items": {
+            "$ref": "#/$defs/TraceMediaReference"
+          },
+          "maxItems": 8,
+          "title": "Media",
+          "type": "array"
+        },
+        "media_kind": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Media Kind",
+          "type": "string"
+        },
+        "newly_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Newly Active"
+        },
+        "resource_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "",
+          "enum": [
+            "",
+            "design",
+            "code"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "settings_page": {
+          "default": "",
+          "enum": [
+            "",
+            "accounts",
+            "channels"
+          ],
+          "title": "Settings Page",
+          "type": "string"
+        },
+        "setup_target": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Setup Target",
+          "type": "string"
+        },
+        "skill_id": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "maxLength": 180,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "TraceSpecialization",
       "type": "object"
     },
     "TranscriptCheckpoint": {

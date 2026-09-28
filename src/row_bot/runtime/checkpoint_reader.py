@@ -307,6 +307,7 @@ class BlobReader:
         attachments: list[dict[str, Any]] = []
         media: list[dict[str, Any]] = []
         media_error = ""
+        note = ""
         if "additional_kwargs" in fields:
             metadata = self.fields(
                 fields["additional_kwargs"],
@@ -315,12 +316,15 @@ class BlobReader:
                     "platform_attachments",
                     "platform_media",
                     "platform_media_error",
+                    "platform_note",
                 },
             )
             if name == "HumanMessage":
                 public_position = metadata.get("platform_public_content")
                 if public_position is not None and self.node(public_position).kind == "str":
                     content_position = public_position
+                if "platform_note" in metadata and self.text(metadata["platform_note"], 32) == "continuation":
+                    note = "continuation"
                 if "platform_attachments" in metadata:
                     attachments = self.safe_attachments(metadata["platform_attachments"])
             elif name == "ToolMessage":
@@ -334,7 +338,7 @@ class BlobReader:
                 "tool_call_ids": tool_ids, "tool_calls": tool_calls,
                 "tool_calls_position": fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
                 "tool_call_id": self.text(fields["tool_call_id"]) if "tool_call_id" in fields else "",
-                "attachments": attachments, "media": media, "media_error": media_error}
+                "attachments": attachments, "media": media, "media_error": media_error, "note": note}
 
     def _json_string(self, position: int) -> Iterator[bytes]:
         node = self.node(position)
@@ -468,6 +472,8 @@ class BlobReader:
             row["media"] = record["media"]
         if record.get("media_error"):
             row["media_error"] = record["media_error"]
+        if record.get("note"):
+            row["note"] = record["note"]
         content = bytearray()
         for chunk in self.content_chunks(record):
             if len(content) + len(chunk) > maximum:

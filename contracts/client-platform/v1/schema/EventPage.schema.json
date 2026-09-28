@@ -205,6 +205,17 @@
           "title": "Scope",
           "type": "string"
         },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalSetup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "status": {
           "const": "waiting_approval",
           "title": "Status",
@@ -316,6 +327,29 @@
         "payload"
       ],
       "title": "ApprovalRequiredEvent",
+      "type": "object"
+    },
+    "ApprovalSetup": {
+      "additionalProperties": false,
+      "description": "An approval that turns on something the work needs (a setup card).",
+      "properties": {
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "ApprovalSetup",
       "type": "object"
     },
     "AttachmentBlock": {
@@ -2529,6 +2563,17 @@
           "default": null,
           "title": "Segment Id"
         },
+        "specialization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceSpecialization"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "state": {
           "enum": [
             "tool_call",
@@ -2737,6 +2782,12 @@
           "title": "Agent Runs",
           "type": "array"
         },
+        "binding_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Binding Id",
+          "type": "string"
+        },
         "display_name": {
           "default": "",
           "maxLength": 180,
@@ -2759,7 +2810,9 @@
           "enum": [
             "skill_load",
             "delegated_agent",
-            "media"
+            "media",
+            "resource_created",
+            "setup_needed"
           ],
           "title": "Kind",
           "type": "string"
@@ -2789,6 +2842,38 @@
           ],
           "default": null,
           "title": "Newly Active"
+        },
+        "resource_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "",
+          "enum": [
+            "",
+            "design",
+            "code"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "settings_page": {
+          "default": "",
+          "enum": [
+            "",
+            "accounts",
+            "channels"
+          ],
+          "title": "Settings Page",
+          "type": "string"
+        },
+        "setup_target": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Setup Target",
+          "type": "string"
         },
         "skill_id": {
           "default": "",
@@ -3160,6 +3245,19 @@
           ],
           "default": null,
           "title": "Message Id"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "const": "continuation",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         },
         "render_revision": {
           "anyOf": [

@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from copy import deepcopy
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 from typing import Any
@@ -925,7 +926,9 @@ def execute_goal_command(
     validate: Callable[[], None],
     validate_review: Callable[[dict[str, Any]], None],
     goal_owner: Any = goals,
+    on_change: Callable[[str, str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    """Review and apply one goal command; ``on_change`` runs the goal's turns."""
     validate()
     if not isinstance(command, dict) or set(command) != {
         "command_id",
@@ -976,6 +979,11 @@ def execute_goal_command(
         validate_review(current)
         changed = _execute_goal(review, goal_owner=goal_owner)
         validate()
+        if on_change is not None:
+            try:
+                on_change(review["operation"], review["conversation_id"], changed)
+            except Exception:
+                logging.getLogger(__name__).exception("Goal turn after %s failed", review["operation"])
         result = {
             "command_id": command["command_id"],
             "status": "completed",

@@ -23,6 +23,38 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "conversation_first_creation",
+        (
+            "src/row_bot/tools/conversation_setup_tool.py",
+            "src/row_bot/application/conversation_resource_commands.py",
+        ),
+        (
+            "tests/subsystem/developer/test_conversation_setup_tools.py",
+            "tests/subsystem/developer/test_conversation_creation.py",
+        ),
+        "The assistant creates designs and code folders with tools (never from wording), with Undo and Rename.",
+    ),
+    SourceTestRule(
+        "conversation_followups_and_goals",
+        (
+            "src/row_bot/application/conversation_followups.py",
+            "src/row_bot/application/conversation_drafts.py",
+            "src/row_bot/application/live_content.py",
+        ),
+        (
+            "tests/subsystem/client_platform/test_goal_continuation.py",
+            "tests/subsystem/client_platform/test_stop_and_sent_drafts.py",
+            "tests/subsystem/client_platform/test_conversation_drafts.py",
+        ),
+        "Goals continue on the client-platform path; Stop keeps the partial reply; a sent message is never a draft again.",
+    ),
+    SourceTestRule(
+        "delegated_agent_controls",
+        ("src/row_bot/application/delegated_activity.py",),
+        ("tests/subsystem/client_platform/test_delegated_activity.py",),
+        "Delegated agents can be stopped and messaged from Agents and from their own thread.",
+    ),
+    SourceTestRule(
         "react_background_notices",
         (
             "src/row_bot/application/app_notices.py",

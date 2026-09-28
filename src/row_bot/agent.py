@@ -1189,7 +1189,42 @@ def _agent_runtime_system_context() -> str:
         "memory are unavailable because of older transcript messages. "
         f"Approval mode for action-capable tools: {get_approval_mode()}. "
         f"{tool_line}"
+        + _setup_guidance(tool_names)
     )
+
+
+def _setup_guidance(tool_names: list[str]) -> str:
+    """How to get what the work needs without sending people to Settings."""
+    parts: list[str] = []
+    if "conversation_setup" in tool_names:
+        from row_bot.tools.conversation_setup_tool import GUIDANCE
+
+        parts.append(GUIDANCE)
+    if "row_bot_status" in tool_names:
+        try:
+            from row_bot.tools import registry as tool_registry
+            from row_bot.tools.row_bot_status_tool import _tool_display_label
+
+            off = sorted(
+                f"{_tool_display_label(tool)} ({tool.name})"
+                for tool in tool_registry.get_all_tools()
+                if not tool_registry.is_enabled(tool.name)
+            )[:16]
+        except Exception:
+            off = []
+        if off:
+            parts.append(
+                "TOOLS THAT ARE OFF: " + ", ".join(off) + ". If the request needs one of them, call "
+                "row_bot_update_setting with setting 'tool_toggle' and value '<name>:on'; the person "
+                "sees a 'Turn on …' card in the chat and decides. Never tell them to open Settings for this."
+            )
+        parts.append(
+            "ACCOUNTS AND CHANNELS: if the work needs an account or channel that is not connected "
+            "(Google for Gmail or Calendar, GitHub, X, or a messaging channel), call request_connection "
+            "so the person gets a Connect card, then stop."
+        )
+    return (" " + " ".join(parts)) if parts else ""
+
 
 
 def _interactive_progress_contract(runtime_surface: str) -> str:

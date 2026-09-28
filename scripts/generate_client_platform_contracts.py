@@ -517,7 +517,7 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   const intent = body && typeof body === 'object' && 'payload' in body ? body.payload : body;
   const operation = intent && typeof intent === 'object' && 'operation' in intent ? intent.operation : undefined;
   const mcpCleanup = operation === 'disconnect' && (type === 'mcp.runtime.control' || path === '/settings/mcp/runtime/review');
-  const control = method === 'POST' && path.endsWith('/commands') && ['conversation.stop', 'approval.resolve', 'mcp.runtime.install.cancel', 'document.batch.pause', 'document.batch.cancel', 'document.job.cancel'].includes(String(type))
+  const control = method === 'POST' && path.endsWith('/commands') && ['conversation.stop', 'agent.stop', 'approval.resolve', 'mcp.runtime.install.cancel', 'document.batch.pause', 'document.batch.cancel', 'document.job.cancel'].includes(String(type))
     || method === 'DELETE' && /^\/uploads\/[^/]+$/.test(path);
   // Draft autosaves, uploads and ordinary commands consume one server bucket.
   // Stop/approval/cancel and ACK retain their independent admission paths.

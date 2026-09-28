@@ -42,6 +42,10 @@ class ExecutionHandle:
     output_message_id: str = ""
     output_checkpoint_revision: str = ""
     input_checkpoint_revision: str = ""
+    # Platform turns advance goals and may start a follow-up turn when done.
+    followups: bool = False
+    # The admitted input's message id (a stopped reply is keyed on it).
+    submission_id: str = ""
 
 
     def view(self) -> dict:
