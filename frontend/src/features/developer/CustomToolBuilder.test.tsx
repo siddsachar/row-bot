@@ -223,3 +223,71 @@ it('shows a safe request error instead of an object string', async () => {
   expect(screen.queryByText('[object Object]')).toBeNull();
   expect(screen.getByRole('button', { name: 'Check outcome' })).toBeTruthy();
 });
+
+it('asks with the approval card before a test command that needs it runs', async () => {
+  const approval = {
+    command_name: 'Hello',
+    command: 'curl https://example.invalid/x',
+    label: 'Network',
+    reason: 'It uses the network.',
+    nonce: 'c'.repeat(64),
+  };
+  const created: CustomToolSnapshot = {
+    ...inspected,
+    drafts: [{ ...inspected.drafts[0], created_tool_id: 'tool-1' }],
+    tools: [
+      {
+        id: 'tool-1',
+        name: 'Example',
+        version: '1.0.0',
+        enabled: false,
+        available_in_chat: false,
+        commands: inspected.drafts[0].commands,
+      },
+    ],
+  };
+  const executeCustomTool = vi
+    .fn()
+    .mockImplementationOnce(async (_c, _b, command) => ({
+      command_id: command.command_id,
+      status: 'approval_required',
+      summary: 'Hello needs your approval before it runs.',
+      snapshot: created,
+      approval,
+    }))
+    .mockImplementationOnce(async (_c, _b, command) => ({
+      command_id: command.command_id,
+      status: 'completed',
+      summary: 'Command passed.',
+      snapshot: created,
+      approval: null,
+    }));
+  const controller = {
+    customTools: vi.fn().mockResolvedValue(created),
+    executeCustomTool,
+  } as unknown as ClientController;
+  render(
+    <CustomToolBuilder
+      controller={controller}
+      conversation="conversation"
+      binding="binding"
+      visible
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Run Hello' }));
+  const card = await screen.findByRole('complementary', {
+    name: 'Approval required: Run “Hello” once?',
+  });
+  expect(card.textContent).toContain('curl https://example.invalid/x');
+  fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  await waitFor(() => expect(executeCustomTool).toHaveBeenCalledTimes(2));
+  expect(executeCustomTool.mock.calls[1][2]).toMatchObject({
+    action: 'test',
+    payload: {
+      draft_id: 'draft-1',
+      command_name: 'Hello',
+      approval_nonce: 'c'.repeat(64),
+    },
+  });
+  expect(await screen.findByText('Command passed.')).toBeTruthy();
+});

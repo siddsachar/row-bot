@@ -8,6 +8,8 @@ import type { ClientController } from '../../api/controller';
 import { clientError } from '../../api/errors';
 import { readRetainedCommand, retainCommand } from '../../api/retained-command';
 import { Button, ErrorState, Field, Input, Toggle } from '../../ui/primitives';
+import { CommandApprovalCard } from '../shell/ApprovalCard';
+import type { CustomToolApproval } from '../../api/types';
 
 type Action = CustomToolCommand['action'];
 
@@ -32,6 +34,8 @@ export default function CustomToolBuilder({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  // A test command that needs approval waits for the standard card.
+  const [approval, setApproval] = useState<CustomToolApproval | null>(null);
   const commandScope = `custom-tool:${conversation}:${binding}`;
   const [pending, setPending] = useState(() =>
     readRetainedCommand(commandScope),
@@ -100,6 +104,11 @@ export default function CustomToolBuilder({
         },
       );
       setSnapshot(receipt.snapshot);
+      setApproval(
+        receipt.status === 'approval_required'
+          ? (receipt.approval ?? null)
+          : null,
+      );
       if (receipt.status === 'failed') setError(receipt.summary);
       else setMessage(receipt.summary);
       remember('');
@@ -267,6 +276,25 @@ export default function CustomToolBuilder({
               )}
             </div>
           ))}
+          {approval && (
+            <CommandApprovalCard
+              question={`Run “${approval.command_name}” once?`}
+              reason={approval.reason}
+              command={approval.command}
+              busy={busy || Boolean(pending)}
+              onDeny={() => {
+                setApproval(null);
+                setMessage('Nothing ran.');
+              }}
+              onApprove={() =>
+                void run('test', {
+                  command_name: approval.command_name,
+                  query,
+                  approval_nonce: approval.nonce,
+                })
+              }
+            />
+          )}
           <Field label="Test query">
             <Input
               value={query}

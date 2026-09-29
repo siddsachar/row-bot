@@ -3529,11 +3529,21 @@ class CustomToolCommand(WireModel):
     payload: dict[str, Any] = Field(default_factory=dict, max_length=8)
 
 
+class CustomToolApproval(WireModel):
+    """What the standard approval card shows before a test command runs once."""
+    command_name: str = Field(max_length=128)
+    command: str = Field(max_length=4096)
+    label: str = Field(max_length=64)
+    reason: str = Field(max_length=1024)
+    nonce: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class CustomToolReceipt(WireModel):
     command_id: UUID
-    status: Literal["completed", "failed", "uncertain"]
+    status: Literal["completed", "failed", "uncertain", "approval_required"]
     summary: str = Field(max_length=1024)
     snapshot: CustomToolSnapshot
+    approval: CustomToolApproval | None = None
 
 
 class CustomToolLibraryDraft(CustomToolDraftView):
@@ -3551,15 +3561,6 @@ class CustomToolLibrary(WireModel):
     tools: list[CustomToolLibraryTool] = Field(max_length=64)
     drafts: list[CustomToolLibraryDraft] = Field(max_length=32)
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class CustomToolApproval(WireModel):
-    """What the standard approval card shows before a test command runs once."""
-    command_name: str = Field(max_length=128)
-    command: str = Field(max_length=4096)
-    label: str = Field(max_length=64)
-    reason: str = Field(max_length=1024)
-    nonce: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class CustomToolLibraryCommand(WireModel):

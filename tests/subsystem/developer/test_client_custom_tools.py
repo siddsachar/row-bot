@@ -174,3 +174,36 @@ def test_draft_scope_and_stale_revision_are_enforced(local_builder, monkeypatch)
             "resource", "conversation", {**_command(snapshot, "inspect"), "revision": "0" * 64},
             owner_id="owner", validate=lambda: None,
         )
+
+
+def test_a_test_command_that_needs_approval_waits_for_that_approval(local_builder, monkeypatch):
+    workspace, _records = local_builder
+
+    def propose(path: str, *, source_url: str, use_ai: bool):
+        return capsules.CapsuleManifestProposal(
+            "Example", "1.0.0", source_url, path,
+            [{"name": "Fetch", "description": "Download", "command": "curl https://example.invalid/x"}],
+        )
+
+    monkeypatch.setattr(capsules, "propose_capsule_manifest", propose)
+    ran = []
+
+    def fake_test(draft_id, *, command_name, approval_mode, query, approved_once=False):
+        ran.append((command_name, approved_once))
+        return capsules.CommandResult(command="curl", cwd=str(workspace), returncode=0, stdout="ok",
+                                      stderr="", decision=capsules.ApprovalDecision("allow", "ok"))
+
+    monkeypatch.setattr(capsules, "test_custom_tool_draft_command", fake_test)
+    inspected = client.execute_custom_tool("resource", "conversation", _command(
+        client.read_custom_tools("resource", "conversation", validate=lambda: None), "inspect"),
+        owner_id="owner", validate=lambda: None)
+    draft_id = inspected["snapshot"]["drafts"][0]["id"]
+    asked = client.execute_custom_tool("resource", "conversation", _command(
+        inspected["snapshot"], "test", draft_id=draft_id, command_name="Fetch"),
+        owner_id="owner", validate=lambda: None)
+    assert asked["status"] == "approval_required" and ran == []
+    assert asked["approval"]["command"] == "curl https://example.invalid/x"
+    done = client.execute_custom_tool("resource", "conversation", _command(
+        asked["snapshot"], "test", draft_id=draft_id, command_name="Fetch",
+        approval_nonce=asked["approval"]["nonce"]), owner_id="owner", validate=lambda: None)
+    assert done["status"] == "completed" and ran == [("Fetch", True)]
