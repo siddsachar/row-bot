@@ -58,6 +58,7 @@ import {
 } from './ArtifactLifecyclePanel';
 import DesignPageStrip from './DesignPageStrip';
 import type { DesignDrafting } from './design-drafting';
+import { registerDesignCommands } from './design-commands';
 import DesignSelection, {
   askText,
   type AskOutcome,
@@ -582,6 +583,67 @@ export default function ArtifactPreview({
     // gesture; where full screen is refused the presentation stays in the panel.
     void stage.current?.requestFullscreen?.().catch(() => {});
   }
+
+  // While shown, this design's actions are in the global ⌘K palette.
+  const commandActions = useRef<Record<string, () => void>>({});
+  commandActions.current = {
+    present,
+    export: () => openSide('export'),
+    share: () => openSide('share'),
+    addPage,
+    duplicate: () => void duplicateDesign(),
+    review: () => openInspector('review'),
+    history: () => openInspector('history'),
+  };
+  const shownTitle = (renamed?.name ?? title ?? 'this design').slice(0, 80);
+  const word = pageLabel.toLowerCase();
+  const offers = [
+    presentation && lifecycleState.available('presentation')
+      ? ['present', `Present ${shownTitle}`, 'slideshow full screen play']
+      : null,
+    createExport && downloadExport && lifecycleState.available('export')
+      ? [
+          'export',
+          `Export ${shownTitle}…`,
+          'pdf png pptx powerpoint html download save',
+        ]
+      : null,
+    sharing && lifecycleState.available('sharing')
+      ? [
+          'share',
+          `Share or publish ${shownTitle}…`,
+          'publish link qr copy send channel',
+        ]
+      : null,
+    edit && current
+      ? ['addPage', `Add a ${word} to ${shownTitle}`, 'page slide screen new']
+      : null,
+    duplicate && current
+      ? ['duplicate', `Duplicate ${shownTitle}`, 'copy design']
+      : null,
+    design
+      ? ['review', `Review ${shownTitle}`, 'check fix issues critique']
+      : null,
+    loadEditing && edit
+      ? ['history', `${shownTitle}: versions`, 'history undo restore']
+      : null,
+  ].filter(Boolean) as [string, string, string][];
+  const offerKey = JSON.stringify(offers);
+  useEffect(() => {
+    if (!visible || !offers.length) return;
+    return registerDesignCommands({
+      resourceId,
+      title: shownTitle,
+      commands: offers.map(([id, label, keywords]) => ({
+        id,
+        label,
+        keywords: `design ${keywords}`,
+        run: () => commandActions.current[id]?.(),
+      })),
+    });
+    // offerKey carries the offered commands; actions are read when run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, resourceId, offerKey]);
 
   // Each finished drafting step refreshes the page shown, so the design
   // appears as it is written instead of only when the turn ends.

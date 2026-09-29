@@ -15,6 +15,7 @@ import type {
   CommandReceipt,
 } from '../../api/types';
 import ArtifactPreview, { type ArtifactPreviewProps } from './ArtifactPreview';
+import { designCommandSets } from './design-commands';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -1421,4 +1422,43 @@ it('says what a drafting turn is doing and refreshes the page per saved step', a
   await waitFor(() => expect(load.mock.calls.length).toBe(before + 2));
   view.rerender(<ArtifactPreview {...base} drafting={null} />);
   expect(screen.queryByText(/Drafting/)).toBeNull();
+});
+
+it('offers the actions of the shown design to the global palette while visible', async () => {
+  const user = userEvent.setup();
+  const duplicate = vi.fn(async () => {});
+  const view = render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible
+      load={vi.fn(async () => snapshot())}
+      loadEditing={vi.fn(async () => editing())}
+      edit={vi.fn(async () => receipt('resource-2'))}
+      duplicate={duplicate}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  const set = designCommandSets().find((item) => item.resourceId === 'deck-a');
+  expect(set?.commands.map((command) => command.label)).toEqual([
+    'Add a slide to Launch deck',
+    'Duplicate Launch deck',
+    'Launch deck: versions',
+  ]);
+  await act(async () =>
+    set!.commands.find((command) => command.id === 'duplicate')!.run(),
+  );
+  expect(duplicate).toHaveBeenCalledOnce();
+  await user.click(screen.getByRole('button', { name: 'Design history' }));
+  view.rerender(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible={false}
+      load={vi.fn(async () => snapshot())}
+    />,
+  );
+  expect(designCommandSets()).toEqual([]);
 });

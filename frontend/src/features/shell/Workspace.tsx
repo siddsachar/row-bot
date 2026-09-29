@@ -97,6 +97,7 @@ import {
   onResourcePanelRequest,
   type ResourcePanelRequest,
 } from '../panels/panel-requests';
+import { designCommandSets } from '../panels/design-commands';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
 import NativeTerminal from '../panels/NativeTerminal';
 import { WorkspaceActionsContext } from './workspace-actions';
@@ -858,6 +859,19 @@ export default function Workspace() {
           },
         };
       }),
+      // The shown design's own actions (present, export, share, …).
+      ...designCommandSets().flatMap((set) =>
+        set.commands.map((command) => ({
+          id: `design:${set.resourceId}:${command.id}`,
+          label: command.label,
+          keywords: command.keywords,
+          icon: <Palette size={16} />,
+          run: () => {
+            overlay.close();
+            command.run();
+          },
+        })),
+      ),
       {
         id: 'reset-layout',
         label: 'Reset layout',
