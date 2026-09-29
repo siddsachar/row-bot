@@ -299,6 +299,18 @@ test('generated output is retained explicitly and can be handed to Developer wit
 test('a deck request gets a design from the assistant, drafted in the next step', async ({
   page,
 }, testInfo) => {
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature:
+        'Failed to load resource: the server responded with a status of 409 (Conflict)',
+      count: 1,
+      upTo: true,
+      owner: 'Phase 11 conversation-first creation',
+      fixture:
+        'The follow-up step drafts the deck while its panel opens: a preview read for the revision before the draft answers 409 and the panel re-reads the current one',
+    }),
+  });
   const conversation = await newConversation(page);
   await composer(page).fill('Make a presentation deck natural design fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
