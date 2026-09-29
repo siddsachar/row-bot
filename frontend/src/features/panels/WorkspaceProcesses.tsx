@@ -14,10 +14,48 @@ import {
   Skeleton,
   StatusDot,
 } from '../../ui/primitives';
+import { clientError } from '../../api/errors';
 
 /** Output lines kept for the live console of one process. */
 const LOG_LIMIT = 2000;
 type LogEntry = WorkspaceProcessOutput['entries'][number];
+
+/** The operators the server refuses (`developer/runtime.py`), outside quotes. */
+const SHELL_OPERATORS = ['&&', '||', '|', '>', '<'] as const;
+
+/**
+ * Commands run as one program with its arguments, never through a shell, so
+ * the server refuses shell operators. Say so before sending (B142), with the
+ * same unquoting rule the server applies.
+ */
+export function shellOperators(command: string): string[] {
+  let text = '',
+    single = false,
+    double = false,
+    escaped = false;
+  for (const char of command) {
+    if (escaped) {
+      escaped = false;
+      if (!single && !double) text += char;
+    } else if (char === '\\' && double) escaped = true;
+    else if (char === "'" && !double) single = !single;
+    else if (char === '"' && !single) double = !double;
+    else if (!single && !double) text += char;
+  }
+  const found: string[] = [];
+  let rest = text;
+  for (const operator of SHELL_OPERATORS)
+    if (rest.includes(operator)) {
+      found.push(operator);
+      rest = rest.split(operator).join(' ');
+    }
+  return found;
+}
+
+function operatorNote(operators: string[]) {
+  const names = operators.join(' ');
+  return `Row-Bot runs one command without a shell, so ${names} can't be used here. Run the commands one at a time, or put them in a script and run that.`;
+}
 
 // Structural domain DTOs; shared generated aliases are integrated by the owner.
 export type WorkspaceProcessInfo = {
@@ -441,11 +479,13 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
               ? 'Approval is pending. Review its approval card, then check approval here.'
               : 'This command was not approved. No process was started.',
       }));
-    } catch {
+    } catch (cause) {
       update((value) => ({
         ...value,
         error:
-          'Approval could not be confirmed. Check the original review again; no process was started.',
+          clientError(cause).code === 'process_command_invalid'
+            ? "That command can't run here. Row-Bot runs one program with its arguments, without a shell; check it and run it again."
+            : 'Approval could not be confirmed. Check the original review again; no process was started.',
       }));
     } finally {
       update((value) => ({ ...value, activity: null }));
@@ -679,14 +719,15 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
       (current.attempt?.started && !owned?.quiesced)
     )
       return;
+    const operators = shellOperators(command);
     update((value) => ({
       ...value,
       draft: command,
       attempt: null,
-      notice: '',
+      notice: operators.length ? operatorNote(operators) : '',
       error: '',
     }));
-    await continueRun();
+    if (!operators.length) await continueRun();
   }
   async function continueRun() {
     await review();

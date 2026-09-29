@@ -828,3 +828,35 @@ it('observes asynchronous cleanup while visible and stops reads after confirmati
     vi.useRealTimers();
   }
 });
+
+it('explains shell operators instead of sending the command (B142)', async () => {
+  const { props } = fixture();
+  await type('npm test && npm run lint');
+  await userEvent.click(runButton());
+  const note = await screen.findByRole('status');
+  expect(note).toHaveTextContent(/without a shell/);
+  expect(note).toHaveTextContent('&&');
+  expect(note).toHaveTextContent(/one at a time/);
+  expect(props.review).not.toHaveBeenCalled();
+  expect(commandBox()).toHaveValue('npm test && npm run lint');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('runs quoted operators as plain text', async () => {
+  const { props } = fixture();
+  await runCommand('python -c "print(1 > 0)"');
+  await waitFor(() => expect(props.start).toHaveBeenCalledOnce());
+});
+
+it('names a refused command instead of calling it an approval failure (B142)', async () => {
+  const { props } = fixture();
+  props.review.mockRejectedValueOnce({
+    code: 'process_command_invalid',
+    status: 422,
+  });
+  await runCommand('python check.py');
+  const alert = await screen.findByRole('alert');
+  expect(alert).not.toHaveTextContent(/Approval could not be confirmed/);
+  expect(alert).toHaveTextContent(/can't run here/);
+  expect(props.start).not.toHaveBeenCalled();
+});
