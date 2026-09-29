@@ -106,6 +106,31 @@ def _clone_workspace(command: dict, target: str, *, owner_id: str, key: str,
     return result, registration
 
 
+def forget_saved_resource(command: dict, target: str, *, validate: Any = None) -> dict:
+    """Remove a saved code folder from Open saved, or put it back (``restore``).
+
+    Only the saved-list entry changes (see ``set_workspace_listed``); the
+    folder, its files and every conversation using it are untouched.
+    Removing an entry already gone, or restoring one already listed, is a
+    harmless repeat.
+    """
+    from row_bot.developer.client_workspace import set_workspace_listed
+    payload = command["payload"]
+    if target != "resources" or payload.get("kind") != "workspace":
+        raise ClientPlatformError("invalid_command")
+    try:
+        choice = set_workspace_listed(str(payload["resource_id"]), str(payload["expected_resource_revision"]),
+                                      listed=payload.get("restore") is True, validate=validate)
+    except ClientPlatformError:
+        raise
+    except ValueError as exc:
+        code = str(exc)
+        raise ClientPlatformError(code if code in {"resource_revision_conflict", "resource_unavailable",
+                                                   "action_denied"} else "invalid_resource") from None
+    return {"status": "completed", "resource_id": choice.resource_id, "resource_kind": "workspace",
+            "resource_revision": choice.revision}
+
+
 def resource_choice(kind: str, identity: str, revision: str | None = None) -> dict:
     from row_bot import threads
     if kind == "artifact":

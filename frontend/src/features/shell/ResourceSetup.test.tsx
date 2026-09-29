@@ -1307,3 +1307,115 @@ it('keeps the latest continuation when an earlier request completes out of order
     screen.queryByRole('button', { name: 'More saved resources' }),
   ).not.toBeInTheDocument();
 });
+
+const removeSaved = () =>
+  screen.getByRole('button', {
+    name: 'Remove Saved workspace from this list',
+  });
+
+it('removes a saved code folder from the list and puts it back with Undo', async () => {
+  await savedWorkspaceView();
+  expect(screen.getByRole('button', { name: 'Open resource' })).toBeEnabled();
+  mock.controller.intent.mockImplementation(
+    async (_target, _kind, _payload, _revision, id) => ({
+      command_id: id,
+      status: 'completed',
+      resource_id: savedWorkspace.resource_id,
+      resource_kind: 'workspace',
+      resource_revision: 'revision-after-remove',
+    }),
+  );
+  mock.controller.library.mockResolvedValue({ items: [], next_cursor: null });
+  await act(async () => fireEvent.click(removeSaved()));
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    null,
+    'resource.forget',
+    {
+      kind: 'workspace',
+      resource_id: 'workspace-saved',
+      expected_resource_revision: 'workspace-revision',
+    },
+    '0',
+    expect.any(String),
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Removed Saved workspace from the list',
+  );
+  expect(
+    screen.queryByRole('button', {
+      name: 'Saved workspace Resource ID: workspace-saved',
+    }),
+  ).not.toBeInTheDocument();
+  // The removed choice is no longer selected.
+  expect(screen.getByRole('button', { name: 'Open resource' })).toBeDisabled();
+
+  mock.controller.library.mockResolvedValue({
+    items: [savedWorkspace],
+    next_cursor: null,
+  });
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' })),
+  );
+  expect(mock.controller.intent).toHaveBeenLastCalledWith(
+    null,
+    'resource.forget',
+    {
+      kind: 'workspace',
+      resource_id: 'workspace-saved',
+      expected_resource_revision: 'revision-after-remove',
+      restore: true,
+    },
+    '0',
+    expect.any(String),
+  );
+  expect(
+    screen.queryByText('Removed Saved workspace from the list'),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', {
+      name: 'Saved workspace Resource ID: workspace-saved',
+    }),
+  ).toBeVisible();
+});
+
+it('says why a saved code folder could not be removed', async () => {
+  await savedWorkspaceView();
+  mock.controller.intent.mockRejectedValue({
+    code: 'resource_revision_conflict',
+  });
+  await act(async () => fireEvent.click(removeSaved()));
+  expect(screen.getByRole('alert')).toBeVisible();
+  expect(screen.queryByText(/from the list/)).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', {
+      name: 'Saved workspace Resource ID: workspace-saved',
+    }),
+  ).toBeVisible();
+});
+
+it('offers removal only for saved code folders', async () => {
+  setupSessions.update(setupSessions.scope(mock.handshake.instance_id, null), {
+    kind: 'artifact',
+    mode: 'existing',
+  });
+  mock.controller.library.mockResolvedValue({
+    items: [
+      {
+        resource_id: 'saved-deck',
+        kind: 'artifact',
+        name: 'Saved Deck',
+        revision: 'deck-revision',
+        origin_status: 'available',
+        available: true,
+      },
+    ],
+    next_cursor: null,
+  });
+  await act(async () => view(null));
+  expect(
+    screen.getByRole('button', { name: 'Saved Deck Resource ID: saved-deck' }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: /^Remove / }),
+  ).not.toBeInTheDocument();
+});

@@ -5346,6 +5346,21 @@ details[open] > summary > .settings-disclosure-chevron {
   z-index: 1;
   box-shadow: 0 -6px 0 var(--surface-raised);
 }
+.setup-saved-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.setup-saved-item .setup-saved-choice {
+  flex: 1;
+  min-width: 0;
+}
+.resource-setup .setup-removed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
 @media (max-width: 600px) {
   .setup-grid {
     grid-template-columns: minmax(0, 1fr);

@@ -23,13 +23,14 @@ import {
   Button,
   Disclosure,
   Field,
+  Hint,
   Input,
   Segmented,
   Select,
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
-import { Code2, Palette } from 'lucide-react';
+import { Code2, Palette, X } from 'lucide-react';
 import { setupSessions, type SetupDraft } from './setup-state';
 
 export type ResourceSetupEntry = {
@@ -182,6 +183,12 @@ export default function ResourceSetup({
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [review, setReview] = useState<ConversationWorkspace | null>(null);
+  // The saved code folder just removed from the list, for Undo.
+  const [removed, setRemoved] = useState<{
+    resource_id: string;
+    name: string;
+    revision: string;
+  } | null>(null);
   const unknown =
     record.commandId &&
     (!receipt || !confirmed || receipt.status === 'admitting')
@@ -423,6 +430,53 @@ export default function ResourceSetup({
       if (current()) setError(clientError(cause).message);
     } finally {
       if (continuation.current === abort) continuation.current = null;
+    }
+  }
+  // Remove a saved code folder from this list (files stay on disk) or put
+  // it back. Only the list entry changes on the server.
+  async function listSaved(
+    item: { resource_id: string; name: string; revision: string },
+    restore: boolean,
+  ) {
+    if (operation.current || kind !== 'workspace') return;
+    operation.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await controller.intent(
+        null,
+        'resource.forget',
+        {
+          kind: 'workspace',
+          resource_id: item.resource_id,
+          expected_resource_revision: item.revision,
+          ...(restore ? { restore: true } : {}),
+        },
+        '0',
+        crypto.randomUUID(),
+      );
+      if (!alive.current) return;
+      if (restore) setRemoved(null);
+      else {
+        if (
+          setupSessions.read(scope).selected?.resource_id === item.resource_id
+        )
+          setSelected(null);
+        setRemoved({
+          resource_id: item.resource_id,
+          name: item.name,
+          revision: result.resource_revision ?? item.revision,
+        });
+      }
+      continuation.current?.abort();
+      const ticket = ++queryNumber.current;
+      const page = await controller.library('workspace');
+      if (alive.current && ticket === queryNumber.current) setLibrary(page);
+    } catch (cause) {
+      if (alive.current) setError(clientError(cause).message);
+    } finally {
+      operation.current = false;
+      if (alive.current) setBusy(false);
     }
   }
   function openConversation(target: string) {
@@ -963,26 +1017,57 @@ export default function ResourceSetup({
           />
           {mode === 'existing' ? (
             <div className="stack" role="group" aria-label="Saved resources">
+              {kind === 'workspace' && removed && (
+                <p role="status" className="setup-removed">
+                  Removed {removed.name} from the list
+                  <span aria-hidden> · </span>
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void listSaved(removed, true)}
+                  >
+                    Undo
+                  </Button>
+                </p>
+              )}
               {library ? (
                 <>
                   {library.items.map((item) => (
-                    <Button
-                      key={item.resource_id}
-                      disabled={!item.available || busy}
-                      aria-pressed={selected?.resource_id === item.resource_id}
-                      onClick={() => setSelected(item)}
-                    >
-                      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                        {item.name}
-                        <small style={{ display: 'block' }}>
-                          Resource ID: {item.resource_id}
-                        </small>
-                      </span>
-                      {item.origin_status === 'repair_required'
-                        ? ' · Original conversation missing'
-                        : ''}
-                      {!item.available ? ' · Unavailable in this client' : ''}
-                    </Button>
+                    <div key={item.resource_id} className="setup-saved-item">
+                      <Button
+                        className="setup-saved-choice"
+                        disabled={!item.available || busy}
+                        aria-pressed={
+                          selected?.resource_id === item.resource_id
+                        }
+                        onClick={() => setSelected(item)}
+                      >
+                        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                          {item.name}
+                          <small style={{ display: 'block' }}>
+                            Resource ID: {item.resource_id}
+                          </small>
+                        </span>
+                        {item.origin_status === 'repair_required'
+                          ? ' · Original conversation missing'
+                          : ''}
+                        {!item.available ? ' · Unavailable in this client' : ''}
+                      </Button>
+                      {kind === 'workspace' && (
+                        <Hint label="Remove from list — files stay on disk">
+                          <Button
+                            iconOnly
+                            variant="ghost"
+                            className="icon-action icon-action-sm"
+                            aria-label={`Remove ${item.name} from this list`}
+                            disabled={busy}
+                            onClick={() => void listSaved(item, false)}
+                          >
+                            <X size={14} aria-hidden />
+                          </Button>
+                        </Hint>
+                      )}
+                    </div>
                   ))}
                   {library.next_cursor && (
                     <Button onClick={() => void moreResources()}>

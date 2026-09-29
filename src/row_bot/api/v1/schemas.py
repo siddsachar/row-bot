@@ -4349,6 +4349,18 @@ class ResourceRenamePayload(WireModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
 
 
+class ResourceForgetPayload(WireModel):
+    """Remove a saved code folder from Open saved; ``restore`` puts it back.
+
+    Only the list entry changes: files and conversations using it stay.
+    """
+
+    kind: Literal["workspace"]
+    resource_id: OpaqueId
+    expected_resource_revision: str = Field(min_length=1, max_length=128)
+    restore: bool = False
+
+
 class AgentStopPayload(WireModel):
     run_id: OpaqueId
 
@@ -5538,6 +5550,7 @@ class Command(WireModel):
         "resource.continue",
         "resource.discard",
         "resource.rename",
+        "resource.forget",
         "agent.stop",
         "agent.message",
         "agent.start",
@@ -5713,6 +5726,7 @@ COMMAND_PAYLOADS = {
     "resource.continue": SetupContinuePayload,
     "resource.discard": ResourceDiscardPayload,
     "resource.rename": ResourceRenamePayload,
+    "resource.forget": ResourceForgetPayload,
     "agent.stop": AgentStopPayload,
     "agent.message": AgentMessagePayload,
     "agent.start": AgentStartPayload,

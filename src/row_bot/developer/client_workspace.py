@@ -454,6 +454,37 @@ def resolve_workspace_open(resource_id: str, expected_revision: str) -> Workspac
     return _choice(workspace)
 
 
+def _is_worktree(resource_id: str) -> bool:
+    try:
+        from row_bot.developer.worktrees import get_worktree_for_workspace
+        return get_worktree_for_workspace(resource_id) is not None
+    except Exception:
+        # Unknown: never put it in the saved list.
+        return True
+
+
+def set_workspace_listed(resource_id: str, expected_revision: str, *, listed: bool,
+                         validate: Callable[[], None] | None = None) -> WorkspaceChoice:
+    """Remove a saved code folder from the saved list, or put it back (Undo).
+
+    This is Developer's "Remove from recents": only the entry's ``hidden``
+    flag changes. Files, Git state, history, origin and every binding stay;
+    a bound conversation keeps reading the folder (``get_workspace`` and
+    ``describe`` include hidden entries) at the same revision. Registering
+    the same folder again also shows it. Worktree checkouts are always
+    hidden and never join the list.
+    """
+    with storage.workspace_transaction():
+        workspace = _workspace(resource_id)
+        if workspace.updated_at != expected_revision:
+            raise ValueError("resource_revision_conflict")
+        if listed and workspace.hidden and _is_worktree(resource_id):
+            raise ValueError("action_denied")
+        if validate is not None:
+            validate()
+        return _choice(storage.set_workspace_hidden(resource_id, not listed))
+
+
 def associate_workspace(resource_id: str, conversation_id: str, expected_revision: str,
                         expected_origin_id: str | None, repair: bool = False) -> WorkspaceChoice:
     """CAS a resume association. Binding and deletion authority remain separate."""

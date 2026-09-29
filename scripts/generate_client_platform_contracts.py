@@ -1357,7 +1357,7 @@ export async function sendConversationCommand(baseUrl: string, conversationId: s
     : command.type.startsWith('provider.') ? '/settings/providers/commands'
     : command.type.startsWith('mcp.') ? '/settings/mcp/commands'
     : command.type.startsWith('task.') ? '/tasks/commands'
-    : conversationId === null && (command.type === 'resource.setup' || command.type === 'resource.continue') ? '/resources/commands'
+    : conversationId === null && (command.type === 'resource.setup' || command.type === 'resource.continue' || command.type === 'resource.forget') ? '/resources/commands'
     : conversationId === null ? '/conversations/commands'
     : `/conversations/${encodeURIComponent(conversationId)}/commands`;
   return jsonRequest(baseUrl, suffix, 'CommandReceipt', proof, 'POST', command, idempotencyKey, signal);

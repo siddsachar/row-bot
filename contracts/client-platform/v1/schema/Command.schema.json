@@ -7359,6 +7359,79 @@
       "title": "ResourceDiscardPayload",
       "type": "object"
     },
+    "ResourceForgetCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResourceForgetPayload"
+        },
+        "type": {
+          "const": "resource.forget",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceForgetCommand",
+      "type": "object"
+    },
+    "ResourceForgetPayload": {
+      "additionalProperties": false,
+      "description": "Remove a saved code folder from Open saved; ``restore`` puts it back.\n\nOnly the list entry changes: files and conversations using it stay.",
+      "properties": {
+        "expected_resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Expected Resource Revision",
+          "type": "string"
+        },
+        "kind": {
+          "const": "workspace",
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "restore": {
+          "default": false,
+          "title": "Restore",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "resource_id",
+        "expected_resource_revision"
+      ],
+      "title": "ResourceForgetPayload",
+      "type": "object"
+    },
     "ResourceRenameCommand": {
       "additionalProperties": false,
       "properties": {
@@ -10875,6 +10948,7 @@
       "provider.subscription.submit": "#/$defs/ProviderSubscriptionSubmitCommand",
       "resource.continue": "#/$defs/ResourceContinueCommand",
       "resource.discard": "#/$defs/ResourceDiscardCommand",
+      "resource.forget": "#/$defs/ResourceForgetCommand",
       "resource.rename": "#/$defs/ResourceRenameCommand",
       "resource.setup": "#/$defs/ResourceSetupCommand",
       "skill.create": "#/$defs/SkillCreateCommand",
@@ -10972,6 +11046,9 @@
     },
     {
       "$ref": "#/$defs/ResourceRenameCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceForgetCommand"
     },
     {
       "$ref": "#/$defs/AgentStopCommand"

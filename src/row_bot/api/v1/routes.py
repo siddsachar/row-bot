@@ -3031,7 +3031,11 @@ def create_router(
             raise ProtocolError("invalid_command", 422)
         if document_command != body.type.startswith("document."):
             raise ProtocolError("invalid_command", 422)
-        if resource_setup and body.type not in {"resource.setup", "resource.continue"}:
+        if resource_setup and body.type not in {
+            "resource.setup",
+            "resource.continue",
+            "resource.forget",
+        }:
             raise ProtocolError("invalid_command", 422)
         try:
             key = str(UUID(request.headers.get("idempotency-key", "")))

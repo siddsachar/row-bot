@@ -162,6 +162,23 @@ def remove_workspace(workspace_id: str) -> DeveloperWorkspace:
 
 
 @_registry_mutation
+def set_workspace_hidden(workspace_id: str, hidden: bool) -> DeveloperWorkspace:
+    """Hide or show a saved workspace in lists, keeping its revision.
+
+    Unlike ``remove_workspace`` this leaves ``updated_at`` alone: the
+    revision is what conversations using the folder hold, and a list entry
+    is not a change to the folder.
+    """
+    workspace = get_workspace(workspace_id)
+    if workspace is None:
+        raise ValueError(f"Developer workspace not found: {workspace_id}")
+    if workspace.hidden != hidden:
+        workspace.hidden = hidden
+        save_workspace(workspace)
+    return workspace
+
+
+@_registry_mutation
 def delete_workspace_record(workspace_id: str) -> bool:
     """Delete only a Row-Bot workspace registry row; never touch its files."""
 

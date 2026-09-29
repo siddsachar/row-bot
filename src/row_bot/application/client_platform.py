@@ -617,6 +617,9 @@ class ClientPlatformService:
                     from row_bot.application.workspace_setup import setup
                     result = setup(self, command, target, owner_id=owner_id, key=idempotency_key,
                                    authorized_folder=authorized_folder, validate=validate)
+                elif command["type"] == "resource.forget":
+                    from row_bot.application.workspace_setup import forget_saved_resource
+                    result = forget_saved_resource(command, target, validate=validate)
                 elif command["type"] == "artifact.edit":
                     from row_bot.application.artifact_controls import edit_artifact
                     result = edit_artifact(self, command, target, validate=validate)
