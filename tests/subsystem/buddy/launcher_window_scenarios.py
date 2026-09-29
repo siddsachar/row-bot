@@ -33,6 +33,8 @@ def overlay_lifecycle(webview: Any, script: Any, report: dict[str, Any]) -> None
     report["main_options"] = sorted(main.options)
     main.load()
     report["main_discover"] = main.dispatch("discover", {"attestation": "attest-main"})
+    report["main_terminal_external"] = main.dispatch("terminal_external", {"conversationId": "conversation-1"})
+    report["main_terminal_external_path"] = main.dispatch("terminal_external", {"path": "/home/person"})
     report["main_read"] = main.dispatch("buddy_follow", {})
     report["main_publish"] = main.dispatch("buddy_follow", {"conversationId": "conversation-1"})
     report["main_hide"] = main.dispatch("buddy_placement", {"action": "hide"})
@@ -60,6 +62,7 @@ def overlay_lifecycle(webview: Any, script: Any, report: dict[str, Any]) -> None
             ("managed_window", {"route": "/app-v2/"}),
             ("save", {"reference": "fixture", "name": "fixture.txt"}),
             ("terminal_open", {"conversationId": None}),
+            ("terminal_external", {"conversationId": None}),
         )
     }
     report["buddy_malformed"] = [

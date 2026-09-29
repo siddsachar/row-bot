@@ -641,6 +641,55 @@ describe('desktop Buddy operations', () => {
   });
 });
 
+describe('Open in your terminal', () => {
+  it('sends only the conversation id and accepts only an empty success', async () => {
+    const dispatch = vi.fn().mockResolvedValue({ status: 'ok', value: null });
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+    );
+    expect(await adapter.openExternalTerminal('conversation-1')).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('terminal_external', {
+      conversationId: 'conversation-1',
+    });
+    expect(await adapter.openExternalTerminal(null)).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('terminal_external', {
+      conversationId: null,
+    });
+    expect(await adapter.openExternalTerminal('../elsewhere')).toMatchObject({
+      status: 'unavailable',
+      reason: 'invalid_conversation',
+    });
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    dispatch.mockResolvedValueOnce({ status: 'ok', value: 'C:\\Users' });
+    expect(await adapter.openExternalTerminal(null)).toMatchObject({
+      status: 'unavailable',
+      reason: 'invalid_native_response',
+    });
+  });
+
+  it('is unavailable in browsers and scripted in the fake', async () => {
+    expect(
+      await createBrowserPlatform(media()).openExternalTerminal('c'),
+    ).toEqual({ status: 'unavailable', reason: 'terminal_requires_native' });
+    const fake = createFakePlatform({
+      openExternalTerminal: { status: 'ok', value: null },
+    });
+    expect(await fake.openExternalTerminal('c')).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(fake.calls).toEqual(['openExternalTerminal']);
+  });
+});
+
 describe('native selection at a cold start (B95)', () => {
   const nativeAdapter = {
     native_adapter: {

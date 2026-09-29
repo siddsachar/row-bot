@@ -2323,6 +2323,22 @@ def _attach_client_v2(window, instance_id, role="main"):
         })
         return str(value["terminal_id"])
 
+    def open_external_terminal(authority, conversation_id):
+        # The server resolves the folder and starts the person's terminal app.
+        try:
+            value = _native_json("/api/v1/native/terminal/external", {
+                "session_id": authority.session_id,
+                "policy_revision": authority.policy_revision,
+                "authority_grant": authority.authority_grant,
+                "instance_id": authority.instance_id,
+                "window_id": authority.window_id,
+                "window_epoch": authority.window_epoch,
+                "conversation_id": conversation_id,
+            })
+        except Exception:
+            return False
+        return value.get("ok") is True
+
     def open_managed(route):
         if not isinstance(route, str) or not route.startswith("/app-v2/"):
             return False
@@ -2383,6 +2399,7 @@ def _attach_client_v2(window, instance_id, role="main"):
         register_selection=register_selection,
         revoke_document=revoke,
         open_terminal=open_terminal,
+        open_external_terminal=open_external_terminal,
     )
 
 # pywebview blocks text selection unless asked (body { user-select: none }),

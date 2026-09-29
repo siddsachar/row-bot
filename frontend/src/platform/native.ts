@@ -269,6 +269,10 @@ export function createPyWebViewPlatform(
           reference(value.terminalId) &&
           Object.keys(value).length === 1,
       ),
+    openExternalTerminal: (conversationId) =>
+      conversationId === null || nativeConversationId(conversationId)
+        ? call('terminal_external', { conversationId }, nullValue)
+        : Promise.resolve(unavailable('invalid_conversation')),
     save: async (ref, name, signal) => {
       if (signal?.aborted) return { status: 'cancelled' };
       if (!reference(ref) || !safeDownloadName(name))

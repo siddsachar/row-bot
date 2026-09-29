@@ -24,7 +24,8 @@ _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
-                         "terminal_open", "buddy_placement", "buddy_follow", "main_window"})
+                         "terminal_open", "terminal_external", "buddy_placement", "buddy_follow",
+                         "main_window"})
 # Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
 # itself and reports that its first view is drawn ("ready").
 _BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
@@ -265,6 +266,9 @@ class NativeClientBridge:
                  open_terminal: Callable[
                      [NativeSelectionAuthority, str | None], str
                  ] | None = None,
+                 open_external_terminal: Callable[
+                     [NativeSelectionAuthority, str | None], bool
+                 ] | None = None,
                  shell_path: str | None = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         parsed = urlsplit(origin)
@@ -287,6 +291,8 @@ class NativeClientBridge:
         self._cancel_selection = cancel_selection
         self._revoke_document = revoke_document
         self._open_terminal = open_terminal
+        # Opens the person's own terminal app; the server picks the folder.
+        self._open_external_terminal = open_external_terminal
         # A window bound to one document (the desktop Buddy) keeps its
         # bridge only while it shows exactly that document.
         if shell_path is not None and not re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", shell_path):
@@ -444,6 +450,8 @@ class NativeClientBridge:
             available = self._driver.capabilities()
             if self._open_terminal is not None:
                 available.append("terminal_open")
+            if self._open_external_terminal is not None:
+                available.append("terminal_external")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
@@ -506,6 +514,21 @@ class NativeClientBridge:
                     if not _REFERENCE.fullmatch(reference):
                         return _unavailable("invalid_reference")
                 return {"status": "ok", "value": {"terminalId": reference}}
+            if operation == "terminal_external":
+                target = payload.get("conversationId")
+                if set(payload) != {"conversationId"} or not (
+                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)):
+                    return _unavailable("invalid_request")
+                assert self._open_external_terminal is not None
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                    authority = self._selection_authority()
+                opened = self._open_external_terminal(authority, target)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return {"status": "ok", "value": None} if opened is True else _unavailable()
             if (operation == "save" and set(payload) == {"reference", "name"}
                     and isinstance(payload["reference"], str) and _REFERENCE.fullmatch(payload["reference"])
                     and isinstance(payload["name"], str)
@@ -609,6 +632,9 @@ def attach_native_client(
     open_terminal: Callable[
         [NativeSelectionAuthority, str | None], str
     ] | None = None,
+    open_external_terminal: Callable[
+        [NativeSelectionAuthority, str | None], bool
+    ] | None = None,
     shell_path: str | None = None,
 ) -> NativeClientBridge:
     """Attach only to a newly created trusted /app-v2 window, never legacy API.
@@ -624,6 +650,7 @@ def attach_native_client(
                                 cancel_selection=cancel_selection,
                                 revoke_document=revoke_document,
                                 open_terminal=open_terminal,
+                                open_external_terminal=open_external_terminal,
                                 shell_path=shell_path)
 
     def loaded(*_args: Any) -> None:

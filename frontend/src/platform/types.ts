@@ -100,6 +100,13 @@ export interface ClientPlatform {
   openTerminal(
     conversationId: string | null,
   ): Promise<CapabilityResult<{ terminalId: string }>>;
+  /**
+   * Desktop app only: open the person's own terminal app at the
+   * conversation's code folder (else home). The host picks the folder.
+   */
+  openExternalTerminal(
+    conversationId: string | null,
+  ): Promise<CapabilityResult<null>>;
   save(
     reference: string,
     name: string,

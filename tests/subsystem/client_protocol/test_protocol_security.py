@@ -451,6 +451,71 @@ def test_native_terminal_lease_is_session_bound_revocable_and_bounded(monkeypatc
         ).status_code == 403
 
 
+def _record_external_terminal(monkeypatch, outcome=None):
+    from row_bot.application import external_terminal
+
+    opened = []
+
+    def open_external_terminal(conversation_id, *, validate):
+        validate()
+        opened.append(conversation_id)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(external_terminal, "open_external_terminal", open_external_terminal)
+    return opened
+
+
+def test_native_external_terminal_needs_the_documents_live_grant(monkeypatch):
+    opened = _record_external_terminal(monkeypatch)
+    client, _, _ = client_app()
+    with client:
+        proof, headers = _native_proof(client)
+        route = "/api/v1/native/terminal/external"
+        local = {"Origin": "http://localhost"}
+        assert client.post(route, headers=local, json={**proof, "conversation_id": "conversation-1"}).json() == {
+            "ok": True}
+        assert client.post(route, headers=local, json={**proof, "conversation_id": None}).status_code == 200
+        assert opened == ["conversation-1", None]
+        # A page's session is not the document's grant, and paths are refused.
+        assert client.post(route, headers=headers, json={"conversation_id": None}).status_code == 422
+        assert client.post(route, headers=local, json={**proof, "conversation_id": "../x"}).status_code == 422
+        assert client.post(route, headers=local, json={**proof, "path": "C:\\Users"}).status_code == 422
+        assert client.post(route, headers=local, json={**proof, "window_id": "window-b"}).status_code == 403
+        assert client.post(route, headers={"Origin": "http://foreign.invalid"},
+                           json={**proof, "conversation_id": None}).status_code == 403
+        assert client.post("/api/v1/native/revoke", headers=local, json=proof).status_code == 200
+        revoked = client.post(route, headers=local, json={**proof, "conversation_id": None})
+        assert revoked.status_code == 403 and revoked.json()["code"] == "action_denied"
+    assert opened == ["conversation-1", None]
+
+
+def test_native_external_terminal_is_local_owner_only(monkeypatch):
+    opened = _record_external_terminal(monkeypatch)
+    client, _, _ = client_app(remote=True)
+    with client:
+        response = client.post("/api/v1/native/terminal/external", headers={"Origin": "http://localhost"}, json={
+            "session_id": str(uuid4()), "policy_revision": "a" * 64, "authority_grant": "g" * 43,
+            "instance_id": "fixture-instance", "window_id": "window-a", "window_epoch": 1,
+            "conversation_id": None})
+    assert response.status_code == 403
+    assert opened == []
+
+
+def test_native_external_terminal_reports_why_it_could_not_open(monkeypatch):
+    from row_bot.application.client_platform import ClientPlatformError
+
+    opened = _record_external_terminal(monkeypatch, ClientPlatformError("capability_unavailable"))
+    client, _, _ = client_app()
+    with client:
+        proof, _ = _native_proof(client)
+        response = client.post("/api/v1/native/terminal/external", headers={"Origin": "http://localhost"},
+                               json={**proof, "conversation_id": None})
+    assert response.status_code == 403
+    assert response.json()["code"] == "capability_unavailable"
+    assert opened == [None]
+
+
 def test_no_csrf_no_command_and_no_validation_input_leak():
     client, service, _ = client_app()
     with client:

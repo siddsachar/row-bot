@@ -117,6 +117,79 @@ it('clears the shown output without reading old output again', async () => {
   expect(mock.controller.terminalInput).not.toHaveBeenCalled();
 });
 
+const desktop = (capabilities: string[]) => ({
+  status: 'ok' as const,
+  value: {
+    kind: 'pywebview' as const,
+    platform: 'windows' as const,
+    capabilities,
+    instanceId: 'instance',
+    windowId: 'window',
+    epoch: 1,
+  },
+});
+
+it('opens the person’s own terminal at this conversation', async () => {
+  mock.platform = createFakePlatform({
+    openTerminal: opened,
+    discover: desktop(['terminal_open', 'terminal_external']),
+    openExternalTerminal: { status: 'ok', value: null },
+  });
+  const openExternal = vi.spyOn(mock.platform, 'openExternalTerminal');
+  await view();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open in your terminal' }),
+    ),
+  );
+  expect(openExternal).toHaveBeenCalledWith('conversation-a');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('says so when the terminal app could not be opened', async () => {
+  mock.platform = createFakePlatform({
+    openTerminal: opened,
+    discover: desktop(['terminal_open', 'terminal_external']),
+    openExternalTerminal: { status: 'unavailable', reason: 'unsupported' },
+  });
+  await view();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open in your terminal' }),
+    ),
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Row-Bot couldn’t open your terminal app.',
+  );
+});
+
+it.each([
+  ['a desktop window without it', desktop(['terminal_open'])],
+  [
+    'a browser',
+    {
+      status: 'ok' as const,
+      value: {
+        kind: 'browser' as const,
+        platform: 'browser' as const,
+        capabilities: ['terminal_external'],
+      },
+    },
+  ],
+])('hides Open in your terminal in %s', async (_where, discovered) => {
+  mock.platform = createFakePlatform({
+    openTerminal: opened,
+    discover: discovered,
+  });
+  await view();
+  expect(
+    screen.queryByRole('button', { name: 'Open in your terminal' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Stop the running command' }),
+  ).toBeEnabled();
+});
+
 it('says where the terminal runs in plain words', async () => {
   await view();
   expect(screen.getByText('Terminal on this computer')).toBeVisible();

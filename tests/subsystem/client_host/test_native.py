@@ -486,6 +486,85 @@ def test_terminal_open_rejects_unscoped_or_malformed_payload(payload) -> None:
     assert opened == []
 
 
+def _external_terminal_bridge(open_external_terminal=None, state=None):
+    state = state if state is not None else {"url": "http://localhost:8080/app-v2/"}
+    bridge = NativeClientBridge(
+        instance_id="instance",
+        window_id="window",
+        origin="http://localhost:8080",
+        current_url=lambda: state["url"],
+        driver=Driver(),
+        authenticate_document=lambda _token, _context: NativeDocumentAuthority(
+            "session", "policy", "grant"
+        ),
+        authorize_document=lambda _authority, _context: True,
+        open_external_terminal=open_external_terminal,
+    )
+    proof = bridge._bind_loaded_document()
+    assert proof
+    discovery = bridge.native_client_dispatch(
+        proof, "discover", {"attestation": "server_attestation"}
+    )
+    assert discovery["status"] == "ok"
+    return bridge, proof, discovery["value"]["capabilities"]
+
+
+def test_terminal_external_passes_exact_authority_and_only_a_conversation_id() -> None:
+    opened = []
+    bridge, proof, capabilities = _external_terminal_bridge(
+        lambda authority, conversation: opened.append((authority, conversation)) or True
+    )
+    assert "terminal_external" in capabilities
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": "conversation_1"}
+    ) == {"status": "ok", "value": None}
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None}
+    ) == {"status": "ok", "value": None}
+    assert opened == [
+        (NativeSelectionAuthority("instance", "session", "window", proof["epoch"], "policy", "grant"),
+         "conversation_1"),
+        (NativeSelectionAuthority("instance", "session", "window", proof["epoch"], "policy", "grant"), None),
+    ]
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"conversationId": "bad/path"}, {"conversationId": 7},
+    {"conversationId": None, "path": "C:\\Users"}, {"folder": "/home/person"},
+])
+def test_terminal_external_never_takes_a_path_or_extra_fields(payload) -> None:
+    opened = []
+    bridge, proof, _ = _external_terminal_bridge(
+        lambda authority, conversation: opened.append(conversation) or True
+    )
+    assert bridge.native_client_dispatch(proof, "terminal_external", payload) == {
+        "status": "unavailable", "reason": "invalid_request"}
+    assert opened == []
+
+
+def test_terminal_external_is_absent_without_its_host_callback_and_reports_failure() -> None:
+    bridge, proof, capabilities = _external_terminal_bridge()
+    assert "terminal_external" not in capabilities
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None})["status"] == "unavailable"
+    bridge, proof, _ = _external_terminal_bridge(lambda _authority, _conversation: False)
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None}) == {"status": "unavailable", "reason": "unsupported"}
+
+
+def test_terminal_external_after_navigation_returns_no_success() -> None:
+    state = {"url": "http://localhost:8080/app-v2/"}
+
+    def navigate_away(_authority, _conversation):
+        state["url"] = "https://elsewhere.invalid/"
+        return True
+
+    bridge, proof, _ = _external_terminal_bridge(navigate_away, state)
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None}
+    ) == {"status": "unavailable", "reason": "native_proof_required"}
+
+
 def _buddy_bridge(url: str, driver: PyWebViewDriver) -> tuple[NativeClientBridge, dict]:
     state = {"url": url}
     bridge = NativeClientBridge(

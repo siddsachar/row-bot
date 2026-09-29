@@ -204,6 +204,22 @@ def apply_keys():
             os.environ[env_var] = value
 
 
+def saved_key_names() -> set[str]:
+    """Names of every key Row-Bot can hold in its environment; never values.
+
+    Used to keep saved keys out of programs started for the person, such as
+    their own terminal app. Reads metadata only, never the keyring.
+    """
+    names = {str(name) for name in _metadata_keys(_read_key_file())}
+    names.update(_legacy_plaintext_keys())
+    names.update(_session_keys)
+    for definitions in (API_KEY_DEFINITIONS, TELEGRAM_KEY_DEFINITIONS, OPENROUTER_KEY_DEFINITIONS,
+                        OPENAI_KEY_DEFINITIONS, ANTHROPIC_KEY_DEFINITIONS, GOOGLE_KEY_DEFINITIONS,
+                        XAI_KEY_DEFINITIONS, MINIMAX_KEY_DEFINITIONS, ATLASCLOUD_KEY_DEFINITIONS):
+        names.update(definitions.values())
+    return names
+
+
 def key_status(env_var: str) -> dict[str, Any]:
     """Return display-safe storage status for a key."""
     env_var = str(env_var)

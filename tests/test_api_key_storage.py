@@ -98,6 +98,19 @@ class ApiKeyStorageTests(unittest.TestCase):
         self.assertFalse(Path(self.api_keys.KEYS_PATH).exists())
         self.assertIn("session only", self.api_keys.get_storage_warning())
 
+    def test_saved_key_names_lists_saved_session_and_known_names_never_values(self) -> None:
+        self.api_keys.set_key("FIXTURE_SAVED_NAME", "fixture-saved-secret")
+        self.secret_store._set_backend_for_tests(FakeKeyring(fail=True))
+        self.api_keys.set_key("FIXTURE_SESSION_NAME", "fixture-session-secret")
+        try:
+            names = self.api_keys.saved_key_names()
+            self.assertTrue({"FIXTURE_SAVED_NAME", "FIXTURE_SESSION_NAME", "OPENAI_API_KEY",
+                             "TELEGRAM_BOT_TOKEN"} <= names)
+            self.assertFalse({"fixture-saved-secret", "fixture-session-secret"} & names)
+        finally:
+            for name in ("FIXTURE_SAVED_NAME", "FIXTURE_SESSION_NAME"):
+                os.environ.pop(name, None)
+
     def test_missing_keyring_backend_does_not_log_traceback_on_read(self) -> None:
         self.secret_store._set_backend_for_tests(FakeKeyring(fail=True))
 

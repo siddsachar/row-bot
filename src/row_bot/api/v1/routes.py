@@ -1625,6 +1625,39 @@ def create_router(
             {"terminal_id": identifier},
         )
 
+    @router.post("/native/terminal/external")
+    async def native_terminal_external(request: Request) -> JSONResponse:
+        """Open the person's own terminal app at the conversation's folder.
+
+        Only the trusted desktop host calls this, with the document's grant.
+        The folder is resolved here from the conversation's bound code
+        folder (else home); no path ever comes from a page.
+        """
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeTerminalExternalRequest, 4096)
+
+        def authorize() -> None:
+            if not security.authorize_native_grant(
+                body.authority_grant,
+                session_id=body.session_id,
+                policy_revision=body.policy_revision,
+                instance_id=body.instance_id,
+                window_id=body.window_id,
+                window_epoch=body.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        authorize()
+        from row_bot.application import external_terminal
+
+        await call(
+            external_terminal.open_external_terminal,
+            body.conversation_id,
+            validate=authorize,
+        )
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
     @router.post("/native/attachments/{reference}")
     async def native_attachment_download(reference: str, request: Request) -> Response:
         context = await _context(request)

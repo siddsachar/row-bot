@@ -31,6 +31,7 @@ class _NativeApi(BaseHTTPRequestHandler):
     """Answers only the native routes the window script calls."""
 
     calls: list[str] = []
+    external: list[dict] = []
 
     def log_message(self, *_args):
         pass
@@ -62,6 +63,9 @@ class _NativeApi(BaseHTTPRequestHandler):
             self._json({"ok": body.get("authority_grant") == "grant-" + body.get("window_id", "")})
         elif self.path == "/api/v1/native/revoke":
             self._json({"revoked": True})
+        elif self.path == "/api/v1/native/terminal/external":
+            self.external.append(body)
+            self._json({"ok": True})
         else:
             self.send_response(404)
             self.end_headers()
@@ -70,6 +74,7 @@ class _NativeApi(BaseHTTPRequestHandler):
 @pytest.fixture
 def api():
     _NativeApi.calls = []
+    _NativeApi.external = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _NativeApi)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -134,7 +139,17 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     # The main window keeps its attested bridge (no legacy js_api).
     assert "js_api" not in report["main_options"]
     assert set(report["main_discover"]["value"]["capabilities"]) >= {
-        "buddy_placement", "buddy_follow", "managed_window", "clipboard_read"}
+        "buddy_placement", "buddy_follow", "managed_window", "clipboard_read",
+        "terminal_open", "terminal_external"}
+    # Open in your terminal: the host posts the document's grant and only the
+    # conversation id; the server picks the folder. Paths are refused.
+    assert report["main_terminal_external"] == {"status": "ok", "value": None}
+    assert report["main_terminal_external_path"] == {"status": "unavailable", "reason": "invalid_request"}
+    [external] = api.RequestHandlerClass.external
+    assert external == {"session_id": "session-1", "policy_revision": "policy-1",
+                        "authority_grant": "grant-" + external["window_id"],
+                        "instance_id": "instance-1", "window_id": external["window_id"],
+                        "window_epoch": external["window_epoch"], "conversation_id": "conversation-1"}
     # Main windows publish what they show; only Buddy reads it or hides itself.
     assert report["main_read"]["status"] == "unavailable"
     assert report["main_publish"] == {"status": "ok", "value": {"conversationId": "conversation-1", "revision": 1}}
@@ -197,7 +212,7 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     # Every document exchanged its own attestation; nothing else was called.
     assert {call.split(" ")[1] for call in api.RequestHandlerClass.calls} <= {
         "/api/v1/native/bootstrap", "/api/v1/native/attest", "/api/v1/native/authorize",
-        "/api/v1/native/revoke"}
+        "/api/v1/native/revoke", "/api/v1/native/terminal/external"}
 
 
 def test_window_script_points_the_overlay_at_the_react_route() -> None:

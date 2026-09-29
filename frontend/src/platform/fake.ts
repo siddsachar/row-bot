@@ -45,6 +45,7 @@ export function createFakePlatform(
       return script.moveWindow ?? false;
     },
     openTerminal: () => result('openTerminal', unavailable()),
+    openExternalTerminal: () => result('openExternalTerminal', unavailable()),
     save: () => result('save', unavailable()),
   };
 }

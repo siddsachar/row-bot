@@ -6621,6 +6621,12 @@ class NativeTerminalOpenRequest(NativeGrantRequest):
     conversation_id: OpaqueId | None = None
 
 
+class NativeTerminalExternalRequest(NativeGrantRequest):
+    """Open the person's own terminal app; the server picks the folder."""
+
+    conversation_id: OpaqueId | None = None
+
+
 class NativeTerminalView(WireModel):
     terminal_id: OpaqueId
 

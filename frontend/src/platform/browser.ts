@@ -155,6 +155,7 @@ export function createBrowserPlatform(
     showMainWindow: async () => unavailable('main_window_requires_native'),
     moveWindow: () => false,
     openTerminal: async () => unavailable('terminal_requires_native'),
+    openExternalTerminal: async () => unavailable('terminal_requires_native'),
     save: (reference, name, signal) => {
       if (!safeDownloadName(name))
         return Promise.resolve(unavailable('invalid_name'));

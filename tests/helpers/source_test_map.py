@@ -751,9 +751,12 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "src/row_bot/tools/video_gen_tool.py",
             "src/row_bot/vision.py",
             "src/row_bot/application/model_choice_migration.py",
+            "src/row_bot/api_keys.py",
         ),
         (
             "tests/contracts/test_provider_contract.py",
+            "tests/test_api_key_storage.py",
+            "tests/subsystem/client_host/test_external_terminal.py",
             "tests/subsystem/providers",
             "tests/subsystem/regression/test_no_model_consumers.py",
             "tests/test_vision_provider_refs.py",

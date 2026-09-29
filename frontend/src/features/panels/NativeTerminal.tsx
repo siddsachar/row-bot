@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Eraser, Square } from 'lucide-react';
+import { Eraser, SquareArrowOutUpRight, Square } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import { useClientSelector, useRuntime } from '../../runtime';
 import {
@@ -25,8 +25,30 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [truncated, setTruncated] = useState(false);
+  // Only the desktop app can open the person's own terminal app.
+  const [external, setExternal] = useState(false);
+  const [externalError, setExternalError] = useState('');
   const cursor = useRef(0);
   const outputRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setExternal(false);
+    void platform
+      .discover()
+      .then((result) => {
+        if (alive)
+          setExternal(
+            result.status === 'ok' &&
+              result.value.kind === 'pywebview' &&
+              result.value.capabilities.includes('terminal_external'),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [platform]);
 
   useEffect(() => {
     let alive = true;
@@ -114,6 +136,13 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
     setTruncated(false);
   }
 
+  async function openExternal() {
+    setExternalError('');
+    const result = await platform.openExternalTerminal(conversationId);
+    if (result.status === 'unavailable')
+      setExternalError('Row-Bot couldn’t open your terminal app.');
+  }
+
   if (!visible) return null;
   if (error && !terminalId)
     return <EmptyState title="Terminal unavailable">{error}</EmptyState>;
@@ -151,6 +180,15 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
           >
             <Eraser size={14} aria-hidden />
           </IconButton>
+          {external && (
+            <IconButton
+              size="sm"
+              label="Open in your terminal"
+              onClick={() => void openExternal()}
+            >
+              <SquareArrowOutUpRight size={14} aria-hidden />
+            </IconButton>
+          )}
         </Toolbar>
       </div>
       {truncated && (
@@ -193,7 +231,7 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
           Send
         </Button>
       </form>
-      {error && <p role="alert">{error}</p>}
+      {(error || externalError) && <p role="alert">{error || externalError}</p>}
     </section>
   );
 }
