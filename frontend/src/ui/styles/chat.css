@@ -942,6 +942,80 @@
   }
 }
 
+/* Computer use while a turn holds the computer: the latest picture, then
+   Pause/Resume and Stop. As quiet as the cards above; status is a dot, then
+   a word. The picture fits the card and keeps its shape. */
+.computer-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+.computer-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.computer-card-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--accent-solid);
+}
+.computer-card[data-state='stopped'] .computer-card-icon {
+  color: var(--text-muted);
+}
+.computer-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.computer-card-app {
+  color: var(--text-secondary);
+  font-weight: var(--weight-regular);
+}
+.computer-card-picture {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(360px, 50vh);
+  object-fit: contain;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+.computer-card-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.computer-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.computer-card-actions svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.computer-card-error {
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+}
+
 /* A server-started step: a goal's next turn, work continuing in a design or
    code folder the assistant just created. A quiet divider, not a bubble. */
 .transcript-note {
@@ -2778,6 +2852,7 @@
   .message-user .message-text,
   .activity-summary,
   .approval-card,
+  .computer-card,
   .turn-notice {
     border: 1px solid CanvasText;
     background: Canvas;

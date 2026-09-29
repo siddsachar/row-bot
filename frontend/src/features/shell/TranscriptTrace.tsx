@@ -345,6 +345,8 @@ export type LiveActivity = {
   thinking?: boolean;
   /** An approval is holding the run. */
   waiting?: boolean;
+  /** The run is paused while the person uses the computer. */
+  paused?: boolean;
   /** Stop was requested and the worker is finishing. */
   stopping?: boolean;
   /** When this client saw the run start (Date.now()). */
@@ -419,20 +421,22 @@ export default function TranscriptTrace({
   const current = summary.current;
   const text = live?.stopping
     ? 'Stopping…'
-    : live?.waiting
-      ? 'Waiting for your approval'
-      : current
-        ? [
-            stepVerb(current.canonical_name, 'pending'),
-            keyArgument(current.safe_input),
-          ]
-            .filter(Boolean)
-            .join(' ')
-        : running && (live?.thinking || !steps.length)
-          ? 'Thinking…'
-          : running
-            ? `Working · ${summary.total} ${summary.total === 1 ? 'tool' : 'tools'} so far`
-            : activityLabel(summary);
+    : live?.paused
+      ? 'Paused while you use the computer'
+      : live?.waiting
+        ? 'Waiting for your approval'
+        : current
+          ? [
+              stepVerb(current.canonical_name, 'pending'),
+              keyArgument(current.safe_input),
+            ]
+              .filter(Boolean)
+              .join(' ')
+          : running && (live?.thinking || !steps.length)
+            ? 'Thinking…'
+            : running
+              ? `Working · ${summary.total} ${summary.total === 1 ? 'tool' : 'tools'} so far`
+              : activityLabel(summary);
   if (!steps.length && !running && !children) return null;
   return (
     <div

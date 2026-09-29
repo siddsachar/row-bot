@@ -143,6 +143,17 @@ it('shows live shimmer text for the running step and an approval hold', () => {
       name: 'Approval required for fixture',
     }),
   ).toBeInTheDocument();
+  // A computer-use pause is you using the computer, not an approval.
+  rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={{ running: true, paused: true }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Paused while you use the computer',
+  );
 });
 
 it('loads the first public page on step expansion and copies the visible result', async () => {

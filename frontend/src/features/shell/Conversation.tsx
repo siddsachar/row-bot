@@ -94,6 +94,7 @@ import {
 } from './attachment-limits';
 import ApprovalCard from './ApprovalCard';
 import ChatEmpty from './ChatEmpty';
+import { ComputerUseCard, useComputerUse } from './ComputerUseCard';
 import { registerPromptSender } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import ErrorFix from './ErrorFix';
@@ -690,6 +691,27 @@ export default function Conversation({
         record.event.type === 'approval.required' &&
         record.event.payload.approval_id === generation?.approval_id,
     );
+  // Computer use shows as a card while this conversation's turn holds the
+  // computer; only this computer's owner sees it (other devices keep the
+  // trace). The turn using the computer, or asking to, is what to follow.
+  const computerLocal = Boolean(
+    state.handshake?.application_capabilities?.includes('computer:interactive'),
+  );
+  const computer = useComputerUse({
+    conversationId: id && computerLocal && !state.history ? id : '',
+    watch:
+      liveTraceGroups.some((group) => group.kind === 'computer') ||
+      (approvalEvent?.event.type === 'approval.required' &&
+        approvalEvent.event.payload.action_label === 'Computer activity'),
+    generationId: generation?.generation_id ?? '',
+    turnKey: `${generation?.generation_id ?? ''}:${generation?.status ?? ''}`,
+    load: controller.computerUse,
+  });
+  // A paused computer waits on an approval; the card's Resume answers it,
+  // so the approval card stays away (never both).
+  const computerPause =
+    Boolean(computer.snapshot?.approval_id) &&
+    computer.snapshot?.approval_id === generation?.approval_id;
   const thinkingActive =
     Boolean(running) &&
     state.activity.at(-1)?.event.type === 'generation.activity';
@@ -2788,6 +2810,7 @@ export default function Conversation({
                   liveTraceGroups.length > 0 ||
                   pendingMedia.length > 0 ||
                   pendingCards.length > 0 ||
+                  computer.visible ||
                   (generation?.approval_id &&
                     generation.status === 'waiting_approval')) && (
                   <div className="message message-assistant message-live">
@@ -2798,13 +2821,29 @@ export default function Conversation({
                         live={{
                           running: isRunning,
                           thinking: thinkingActive,
-                          waiting: generation?.status === 'waiting_approval',
+                          waiting:
+                            generation?.status === 'waiting_approval' &&
+                            !computerPause,
+                          paused: computerPause,
                           stopping: generation?.status === 'stopping',
                           startedAt: runStartedAt,
                         }}
                       >
+                        {computer.visible && (
+                          <ComputerUseCard
+                            conversationId={id}
+                            snapshot={computer.snapshot}
+                            stopped={computer.stopped}
+                            loadPreview={controller.computerUsePreview}
+                            send={controller.computerUseCommand}
+                            onChange={computer.apply}
+                            onStopped={computer.markStopped}
+                          />
+                        )}
                         {generation?.approval_id &&
-                          generation.status === 'waiting_approval' && (
+                          generation.status === 'waiting_approval' &&
+                          !computerPause &&
+                          computer.checked && (
                             <ApprovalCard
                               id={generation.approval_id}
                               hint={

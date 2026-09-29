@@ -86,6 +86,9 @@ const mock = vi.hoisted(() => ({
   goals: vi.fn(),
   reviewGoal: vi.fn(),
   executeGoal: vi.fn(),
+  computerUse: vi.fn(),
+  computerUsePreview: vi.fn(),
+  computerUseCommand: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -111,6 +114,9 @@ vi.mock('../../runtime', () => {
       goals: mock.goals,
       reviewGoal: mock.reviewGoal,
       executeGoal: mock.executeGoal,
+      computerUse: mock.computerUse,
+      computerUsePreview: mock.computerUsePreview,
+      computerUseCommand: mock.computerUseCommand,
       intent: mock.intent,
       controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
@@ -444,6 +450,115 @@ it('anchors bounded approval context inline with canonical resolve controls', as
   expect(within(bar).getByRole('status')).toHaveTextContent(
     'Approval submitted.',
   );
+});
+
+function computerPaused() {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: false,
+      status: 'waiting_approval',
+      approval_id: 'approval-a',
+    },
+  } as unknown as Snapshot;
+  mock.state.activity = [
+    {
+      cursor: '4',
+      event: {
+        event_id: 'event-pause',
+        type: 'approval.required',
+        conversation_id: 'conversation-a',
+        projection_revision: '4',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '4',
+        source_sequence_end: '4',
+        payload: {
+          status: 'waiting_approval',
+          approval_id: 'approval-a',
+          action_label: 'Computer activity',
+          reason:
+            'Computer control is paused. Use Resume or Stop in the live panel.',
+        },
+      },
+    },
+  ] as never[];
+  mock.computerUse.mockResolvedValue({
+    schema_version: 1,
+    conversation_id: 'conversation-a',
+    revision: 'c'.repeat(64),
+    active: true,
+    state: 'paused',
+    app: 'Calculator',
+    has_picture: false,
+    approval_id: 'approval-a',
+    can_pause: false,
+    can_resume: true,
+    can_stop: true,
+  });
+}
+
+it('shows a paused computer as the computer card in place of the approval card', async () => {
+  computerPaused();
+  mock.state.handshake.application_capabilities = ['computer:interactive'];
+  mock.computerUseCommand.mockResolvedValue({
+    schema_version: 1,
+    command_id: crypto.randomUUID(),
+    action: 'computer_use.resume',
+    conversation_id: 'conversation-a',
+    status: 'completed',
+    code: null,
+    computer_use: null,
+  });
+
+  await act(async () => conversation());
+  const card = await screen.findByRole('region', { name: 'Computer use' });
+  expect(card).toHaveTextContent('Using your computer · Calculator');
+  expect(within(card).getByRole('button', { name: 'Stop' })).toBeVisible();
+  // Never both: Resume answers the pause, so no approval card asks again.
+  expect(
+    screen.queryByRole('complementary', { name: /Approval required/ }),
+  ).toBeNull();
+  expect(mock.approval).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(within(card).getByRole('button', { name: 'Resume' })),
+  );
+  expect(mock.computerUseCommand).toHaveBeenCalledWith(
+    'conversation-a',
+    'computer_use.resume',
+  );
+});
+
+it('keeps the approval card on another device and never asks about the computer', async () => {
+  computerPaused();
+  mock.approval.mockResolvedValue({
+    id: 'approval-a',
+    status: 'pending',
+    revision: '0',
+    expires_at: '2030-01-01T00:00:00Z',
+    summary: 'Computer control is paused.',
+    action_label: 'Computer activity',
+    reason: 'Computer control is paused. Use Resume or Stop in the live panel.',
+    risk_class: 'unknown',
+    scope: 'Only this requested action will be resolved.',
+    safe_argument_summary: '',
+    requesting_trace_id: '',
+    policy_revision: '1',
+    nonce: 'n'.repeat(32),
+  } satisfies ApprovalView);
+
+  await act(async () => conversation());
+  expect(
+    await screen.findByRole('complementary', { name: /Approval required/ }),
+  ).toBeVisible();
+  expect(mock.computerUse).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Computer use' })).toBeNull();
 });
 
 it('renders assistant Markdown safely and copies only the visible canonical text', async () => {
