@@ -515,9 +515,11 @@ test('real transcript stream and responsive resize retain literal frame-cadence 
         index,
       );
       if (desktop) {
+        // Since Phase 12 a new design opens with the side region at its widest,
+        // so the drag narrows it (to the right) rather than widening it.
         const distance = (index < 20 ? index : 39 - index) * 3;
         await page.mouse.move(
-          sideBefore!.x + sideBefore!.width / 2 - distance,
+          sideBefore!.x + sideBefore!.width / 2 + distance,
           sideBefore!.y + Math.min(160, sideBefore!.height / 2),
         );
       } else {
