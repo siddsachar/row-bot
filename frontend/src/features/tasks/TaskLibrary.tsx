@@ -954,6 +954,9 @@ export default function TaskLibrary() {
   );
   const [reload, setReload] = useState(0);
   const [delivery, setDelivery] = useState<TaskDeliverySnapshot | null>(null);
+  const [profileOptions, setProfileOptions] = useState<
+    ReadonlyArray<{ id: string; label: string }>
+  >([]);
   const execution = useMemo(() => taskRuns(controller), [controller]);
   const quickEdits = useMemo(() => taskEdits(controller), [controller]);
   const deleteOwner = useRef<TaskCommandOwner<void>>({ pending: null });
@@ -1010,6 +1013,28 @@ export default function TaskLibrary() {
     return () => abort.abort();
   }, [controller, reload, state.handshake]);
   const selected = sessions.selected;
+  const settingsOpen = selected?.session.kind === 'settings';
+  // Workflow settings pick the agent profile from a list (U41).
+  useEffect(() => {
+    if (!settingsOpen || !state.handshake) return;
+    const abort = new AbortController();
+    controller.profiles('', undefined, undefined, abort.signal).then(
+      (page) =>
+        setProfileOptions(
+          page.items
+            .filter((profile) => profile.enabled)
+            .map((profile) => ({
+              id: profile.id,
+              label: profile.display_name,
+            })),
+        ),
+      () => {},
+    );
+    return () => abort.abort();
+  }, [controller, settingsOpen, state.handshake]);
+  const modelOptions = (state.handshake?.models ?? [])
+    .filter((model) => model.available)
+    .map((model) => ({ id: model.model_ref, label: model.label }));
   // The draft in the editor is not waiting to be continued. Its row stays
   // mounted (hidden) so closing the editor returns focus to it.
   const waitingDrafts = sessions.drafts.filter((draft) => !draft.open);
@@ -1107,6 +1132,8 @@ export default function TaskLibrary() {
           download={selected.settings.download}
           onSaved={saved}
           onCancel={close}
+          profileOptions={profileOptions}
+          modelOptions={modelOptions}
         />
       </EditorFrame>
     );

@@ -8,11 +8,13 @@ import type { TaskSettingsFields, TaskSettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   Button,
+  Combobox,
   Input,
   Select,
   SettingRow,
   Skeleton,
   Toggle,
+  type ComboboxOption,
 } from '../../ui/primitives';
 import { DangerAction, SettingsDangerZone } from '../settings/anatomy';
 
@@ -56,6 +58,25 @@ export default function TaskSettingsEditor({
   session: injectedSession,
 }: TaskSettingsEditorProps) {
   const session = useTaskEditSession(injectedSession, 'settings', taskId);
+  // Pick from lists (U41). A saved value that is not offered any more stays
+  // visible, so it is never swapped silently.
+  const profileChoices = (current: string) =>
+    profileOptions.some((option) => option.id === current) || !current
+      ? profileOptions
+      : [
+          ...profileOptions,
+          { id: current, label: `${current} (not available)` },
+        ];
+  const modelChoicesFor = (current: string | null): ComboboxOption[] => [
+    { value: '', label: 'Default model' },
+    ...modelOptions.map((option) => ({
+      value: option.id,
+      label: option.label,
+    })),
+    ...(current && !modelOptions.some((option) => option.id === current)
+      ? [{ value: current, label: `${current} (not available)` }]
+      : []),
+  ];
   const meta = useSyncExternalStore(session.subscribe, session.getMeta);
   const [snapshot, setSnapshot] = useTaskEditValue<TaskSettingsSnapshot | null>(
     session,
@@ -397,25 +418,22 @@ export default function TaskSettingsEditor({
             <SettingRow
               label="Agent profile"
               htmlFor={`${inputId}-profile`}
-              description="An enabled profile's ID. Its tools and limits apply."
+              description="Its tools and limits apply to every run."
             >
-              <Input
+              <Select
                 id={`${inputId}-profile`}
-                aria-label="Agent profile ID"
-                list={`${inputId}-profiles`}
-                maxLength={128}
+                aria-label="Agent profile"
                 value={fields.agent_profile_id}
                 onChange={(event) =>
                   change('agent_profile_id', event.target.value)
                 }
-              />
-              <datalist id={`${inputId}-profiles`}>
-                {profileOptions.slice(0, 200).map((option) => (
+              >
+                {profileChoices(fields.agent_profile_id).map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
                   </option>
                 ))}
-              </datalist>
+              </Select>
             </SettingRow>
             <SettingRow
               label="Approvals"
@@ -446,34 +464,15 @@ export default function TaskSettingsEditor({
             </SettingRow>
             <SettingRow
               label="Model"
-              htmlFor={`${inputId}-model`}
-              description="Empty uses the default model. Readiness is checked when it runs."
+              description="Readiness is checked when it runs."
             >
-              <Input
-                id={`${inputId}-model`}
-                aria-label="Model override"
-                list={`${inputId}-models`}
-                maxLength={1024}
-                placeholder="Default model"
+              <Combobox
+                label="Model"
                 value={fields.model_override ?? ''}
-                onChange={(event) =>
-                  change('model_override', event.target.value || null)
-                }
+                options={modelChoicesFor(fields.model_override)}
+                onChange={(value) => change('model_override', value || null)}
               />
-              <datalist id={`${inputId}-models`}>
-                {modelOptions.slice(0, 200).map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </datalist>
             </SettingRow>
-            {(profileOptions.length > 200 || modelOptions.length > 200) && (
-              <p className="home-caption">
-                Showing the first 200 suggestions in each list. You can enter
-                another existing profile ID or model reference.
-              </p>
-            )}
           </fieldset>
           <fieldset disabled={locked} className="task-settings-group">
             <legend>Runs</legend>

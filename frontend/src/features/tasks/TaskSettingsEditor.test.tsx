@@ -64,10 +64,21 @@ function openDangerZone() {
   expect(zone).toHaveAttribute('open');
 }
 
+const profileField = () =>
+  screen.getByRole('combobox', { name: 'Agent profile' });
+const findProfileField = () =>
+  screen.findByRole('combobox', { name: 'Agent profile' });
+
 function props(
   overrides: Partial<TaskSettingsEditorProps> = {},
 ): TaskSettingsEditorProps {
   return {
+    profileOptions: [
+      { id: 'builtin:worker', label: 'Worker' },
+      { id: 'review', label: 'Review' },
+      { id: 'builtin:review', label: 'Review (built in)' },
+    ],
+    modelOptions: [{ id: 'model:codex:gpt-5.6-sol', label: 'GPT-5.6-Sol' }],
     taskId: 'task-a',
     load: vi.fn().mockResolvedValue(snapshot()),
     review: vi
@@ -141,7 +152,7 @@ it('allows only original receipt recovery while a stale settings rejection is st
     });
   const callbacks = props({ session, save });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
+  await findProfileField();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
@@ -163,7 +174,7 @@ it('allows only original receipt recovery while a stale settings rejection is st
 it('loads settings without effects and validates changed fields while saving', async () => {
   const callbacks = props();
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
+  await findProfileField();
   expect(callbacks.review).not.toHaveBeenCalled();
   expect(callbacks.save).not.toHaveBeenCalled();
   expect(callbacks.rotate).not.toHaveBeenCalled();
@@ -200,8 +211,8 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
     save: vi.fn().mockResolvedValue(canonical),
   });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
-  fireEvent.change(screen.getByLabelText(/Agent profile ID/), {
+  await findProfileField();
+  fireEvent.change(profileField(), {
     target: { value: 'review' },
   });
   fireEvent.change(screen.getByLabelText('Approval policy'), {
@@ -210,9 +221,7 @@ it('uses canonical reviewed profile and shows stricter effective policy', async 
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' })),
   );
-  expect(screen.getByLabelText(/Agent profile ID/)).toHaveValue(
-    'builtin:review',
-  );
+  expect(profileField()).toHaveValue('builtin:review');
   expect(
     screen.getByText(/Reviewed effective approval policy: Block/),
   ).toBeVisible();
@@ -401,7 +410,7 @@ it('blocks duplicate effect submission and late save callbacks after unmount', a
   const pending = deferred<TaskSettingsSnapshot>();
   const callbacks = props({ save: vi.fn().mockReturnValue(pending.promise) });
   const view = render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
+  await findProfileField();
   const save = screen.getByRole('button', { name: 'Save settings' });
   fireEvent.click(save);
   fireEvent.click(save);
@@ -425,10 +434,11 @@ it('allows unavailable profile recovery without silently selecting another profi
   });
   const callbacks = props({ load: vi.fn().mockResolvedValue(missing) });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
-  expect(screen.getByLabelText(/Agent profile ID/)).toHaveValue('missing');
+  await findProfileField();
+  expect(profileField()).toHaveValue('missing');
+  expect(profileField()).toHaveDisplayValue('missing (not available)');
   expect(screen.getByRole('button', { name: 'Save settings' })).toBeEnabled();
-  fireEvent.change(screen.getByLabelText(/Agent profile ID/), {
+  fireEvent.change(profileField(), {
     target: { value: 'builtin:worker' },
   });
   await act(async () =>
@@ -441,7 +451,7 @@ it('fences an old task review while the next task loads', async () => {
   const pending = deferred<TaskSettingsSnapshot>();
   const callbacks = props({ review: vi.fn().mockReturnValue(pending.promise) });
   const view = render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
+  await findProfileField();
   fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
   view.rerender(<TaskSettingsEditor {...callbacks} taskId="task-b" />);
   await screen.findByRole('button', { name: 'Save settings' });
@@ -455,19 +465,28 @@ it('fences an old task review while the next task loads', async () => {
   expect(callbacks.save).not.toHaveBeenCalled();
 });
 
-it('bounds optional suggestions and displays authored labels as plain text', async () => {
-  const options = Array.from({ length: 201 }, (_, index) => ({
-    id: `profile-${index}`,
-    label: '<script>fake</script>',
-  }));
+it('lists profiles and models to pick from, with authored labels as plain text (U41)', async () => {
+  const options = [
+    { id: 'builtin:worker', label: 'Worker' },
+    { id: 'custom', label: '<script>fake</script>' },
+  ];
   const callbacks = props({ profileOptions: options });
   render(<TaskSettingsEditor {...callbacks} />);
-  await screen.findByLabelText(/Agent profile ID/);
-  expect(document.querySelectorAll('datalist option')).toHaveLength(200);
-  expect(document.querySelector('script')).toBeNull();
+  const profile = await findProfileField();
   expect(
-    screen.getByText(/Showing the first 200 suggestions/),
-  ).toBeInTheDocument();
+    within(profile)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['Worker', '<script>fake</script>']);
+  expect(document.querySelector('script')).toBeNull();
+  expect(screen.queryByRole('textbox', { name: /profile|model/i })).toBeNull();
+  const model = screen.getByRole('button', { name: 'Model' });
+  expect(model).toHaveTextContent('Default model');
+  fireEvent.click(model);
+  fireEvent.click(await screen.findByRole('option', { name: 'GPT-5.6-Sol' }));
+  expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent(
+    'GPT-5.6-Sol',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(callbacks.onCancel).toHaveBeenCalledOnce();
   expect(callbacks.save).not.toHaveBeenCalled();
@@ -480,14 +499,14 @@ it('groups controls by purpose and names the workflow in its description', async
     name: 'Model and approvals',
   });
   expect(
-    within(model).getByRole('combobox', { name: 'Agent profile ID' }),
+    within(model).getByRole('combobox', { name: 'Agent profile' }),
   ).toHaveValue('builtin:worker');
   expect(
     within(model).getByRole('combobox', { name: 'Approval policy' }),
   ).toHaveValue('block');
   expect(
-    within(model).getByRole('combobox', { name: 'Model override' }),
-  ).toHaveValue('');
+    within(model).getByRole('button', { name: 'Model' }),
+  ).toHaveTextContent('Default model');
   const runs = screen.getByRole('group', { name: 'Runs' });
   expect(
     within(runs).getByRole('switch', {
