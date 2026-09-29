@@ -40,6 +40,8 @@ export function keepAccessSessionRenewed(
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
+      // Read the small answer so a tab kept open for weeks holds nothing back.
+      await response.text().catch(() => '');
       if (response.status === 401 || response.status === 403) stop();
       else last = response.ok ? now() : now() - ACCESS_RENEW_MS + RETRY_MS;
     } catch {
