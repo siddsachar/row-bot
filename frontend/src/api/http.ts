@@ -1869,6 +1869,28 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  customToolLibrary(signal?: AbortSignal) {
+    return wire.getCustomToolLibrary(this.base, this.session(), signal);
+  }
+  customToolLibraryReceipt(command: string, signal?: AbortSignal) {
+    return wire.getCustomToolLibraryReceipt(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  executeCustomToolLibrary(
+    command: wire.CustomToolLibraryCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendCustomToolLibraryCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
   insights(signal?: AbortSignal) {
     return wire.getInsights(this.base, this.session(), signal);
   }

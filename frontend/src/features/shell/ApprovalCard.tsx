@@ -339,3 +339,54 @@ export default function ApprovalCard({
     </aside>
   );
 }
+
+/**
+ * The same card for an approval the page asks for itself (a custom tool's
+ * test command, parity row 34): what will run, why it needs approval, and
+ * Deny / Approve. Nothing runs until Approve.
+ */
+export function CommandApprovalCard({
+  question,
+  reason,
+  command,
+  busy = false,
+  onApprove,
+  onDeny,
+}: {
+  question: string;
+  reason: string;
+  command: string;
+  busy?: boolean;
+  onApprove: () => void;
+  onDeny: () => void;
+}) {
+  return (
+    <aside
+      className="approval-card"
+      aria-label={`Approval required: ${question}`}
+      data-risk="medium"
+    >
+      <span className="approval-card-icon" aria-hidden>
+        <ShieldAlert />
+      </span>
+      <div className="approval-card-context">
+        <strong>{question}</strong>
+        <span className="approval-card-reason">{reason}</span>
+        <code className="approval-card-argument">{command}</code>
+      </div>
+      <div className="approval-card-actions">
+        <Button disabled={busy} onClick={onDeny}>
+          Deny
+        </Button>
+        <Button
+          variant="primary"
+          aria-label="Approve"
+          disabled={busy}
+          onClick={onApprove}
+        >
+          Approve
+        </Button>
+      </div>
+    </aside>
+  );
+}

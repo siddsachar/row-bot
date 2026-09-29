@@ -240,6 +240,15 @@ export interface ClientTransport {
     binding: string,
     signal?: AbortSignal,
   ): Promise<Wire.CustomToolSnapshot>;
+  customToolLibrary?(signal?: AbortSignal): Promise<Wire.CustomToolLibrary>;
+  customToolLibraryReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolLibraryReceipt>;
+  executeCustomToolLibrary?(
+    command: Wire.CustomToolLibraryCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolLibraryReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,

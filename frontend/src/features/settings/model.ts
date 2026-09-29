@@ -68,7 +68,7 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   knowledge: 'knowledge memories wiki graph vault',
   documents: 'files upload pdf library embedding index',
   tracker: 'habits tracking health',
-  tools: 'utilities built-in search web research compression',
+  tools: 'utilities built-in search web research compression custom tools',
   skills: 'hub install discover',
   plugins: 'extensions install marketplace discover',
   mcp: 'servers model context protocol connectors runtimes',
@@ -321,6 +321,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'built-in-tools',
     label: 'Built-in tools',
     keywords: 'utilities calculator weather charts url reader',
+  },
+  {
+    leaf: 'tools',
+    anchor: 'custom-tools',
+    label: 'Custom tools',
+    keywords: 'own tools scripts repository folder commands builder',
   },
   {
     leaf: 'skills',

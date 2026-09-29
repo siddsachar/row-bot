@@ -2755,3 +2755,52 @@
     min-height: 44px;
   }
 }
+
+/* Settings › Tools › Custom tools: a tool's commands with Test, the
+   approval card and the result. */
+.custom-tool-details {
+  display: grid;
+  gap: 8px;
+}
+.custom-tool-commands {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.custom-tool-commands li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.custom-tool-command-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.custom-tool-command-text span {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.custom-tool-command-text code {
+  overflow-wrap: anywhere;
+  font-size: var(--text-12);
+}
+.custom-tool-result pre {
+  max-height: 200px;
+  margin: 4px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: var(--text-12);
+}
+.custom-tool-warnings {
+  margin: 0;
+  padding-inline-start: 18px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}

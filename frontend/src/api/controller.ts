@@ -4022,6 +4022,33 @@ export class ClientController {
     this.query(() =>
       this.transport.customTools?.(conversation, binding, signal),
     );
+  customToolLibrary = (signal?: AbortSignal) =>
+    this.query(() => this.transport.customToolLibrary?.(signal));
+  customToolLibraryReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.customToolLibraryReceipt?.(command, signal),
+    );
+  executeCustomToolLibrary = async (
+    original: Omit<
+      import('./types').CustomToolLibraryCommand,
+      'client_session_id'
+    >,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').CustomToolLibraryCommand>(
+      'CustomToolLibraryCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeCustomToolLibrary)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeCustomToolLibrary(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   insights = (signal?: AbortSignal) =>
     this.query(() => this.transport.insights?.(signal));
   insightReceipt = (command: string, signal?: AbortSignal) =>

@@ -11,6 +11,7 @@ import Preferences from './Preferences';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
+import CustomToolsSettings from './CustomToolsSettings';
 import KnowledgeCatalog from './KnowledgeCatalog';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
@@ -485,6 +486,7 @@ export default function SettingRoute() {
             ) : (
               snapshotState
             )}
+            <CustomToolsSettings key={session} />
             <ToolCatalog key={session} load={controller.cachedTools} />
           </>
         ) : leaf.id === 'knowledge' ? (
