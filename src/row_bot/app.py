@@ -1250,7 +1250,9 @@ async def _ready_handler(request: Request) -> JSONResponse:  # noqa: ARG001
 async def _webhook_handler(request: Request) -> JSONResponse:
     """Handle POST /api/webhook/{task_id} for webhook-triggered tasks."""
     task_id = request.path_params.get("task_id", "")
-    secret = request.query_params.get("secret")
+    from row_bot.tasks import webhook_request_secret
+    # The secret travels in a header; older addresses carry ?secret= (B132).
+    secret = webhook_request_secret(request.headers, request.query_params)
     try:
         payload = await request.json()
     except Exception:

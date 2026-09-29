@@ -4,7 +4,7 @@ import type {
   SettingsMutationRequest,
   SettingsSnapshot,
 } from '../../api/types';
-import type { WebhookReach } from './WebhookAddress';
+import type { WebhookConfiguration, WebhookReach } from './WebhookAddress';
 
 const reachOf = (snapshot: SettingsSnapshot): WebhookReach => ({
   publicBase: snapshot.system.tunnel.main_app_url,
@@ -13,29 +13,51 @@ const reachOf = (snapshot: SettingsSnapshot): WebhookReach => ({
 
 /**
  * A saved webhook's address and reachability for the workflow page. The
- * address (with its secret) is read from the private configuration only
- * when it is copied; the tunnel starts or stops through the same reviewed
- * settings actions as Settings › Devices & remote access.
+ * address and its secret (sent in a header, B132) are read from the private
+ * configuration only when copied; the tunnel starts or stops through the
+ * same reviewed settings actions as Settings › Devices & remote access.
  */
 export function webhookReach(controller: ClientController) {
   return {
-    readAddress: async (task: string, revision: string) => {
+    readAddress: async (
+      task: string,
+      revision: string,
+    ): Promise<WebhookConfiguration> => {
       const blob = await controller.downloadTaskWebhook(task, revision);
       if (!blob.size || blob.size > 65536)
         throw clientError({ code: 'action_denied' });
-      let path: unknown;
+      let body: {
+        relative_url?: unknown;
+        relative_url_with_secret?: unknown;
+        headers?: unknown;
+      } = {};
       try {
-        path = (JSON.parse(await blob.text()) as { relative_url?: unknown })
-          .relative_url;
+        body = JSON.parse(await blob.text()) as typeof body;
       } catch {
-        path = undefined;
+        body = {};
       }
+      const path = `/api/webhook/${encodeURIComponent(task)}`;
+      const headers =
+        body.headers && typeof body.headers === 'object'
+          ? Object.entries(body.headers as Record<string, unknown>)
+          : [];
+      const [header, secret] = headers[0] ?? [];
       if (
-        typeof path !== 'string' ||
-        !path.startsWith(`/api/webhook/${encodeURIComponent(task)}?`)
+        body.relative_url !== path ||
+        typeof body.relative_url_with_secret !== 'string' ||
+        !body.relative_url_with_secret.startsWith(`${path}?`) ||
+        headers.length !== 1 ||
+        typeof header !== 'string' ||
+        typeof secret !== 'string' ||
+        !secret
       )
         throw clientError({ code: 'action_denied' });
-      return path;
+      return {
+        path,
+        pathWithSecret: body.relative_url_with_secret,
+        header,
+        secret,
+      };
     },
     loadTunnel: async (signal?: AbortSignal) =>
       reachOf(await controller.settingsSnapshot(signal)),

@@ -17,7 +17,10 @@ import {
   type ComboboxOption,
 } from '../../ui/primitives';
 import { DangerAction, SettingsDangerZone } from '../settings/anatomy';
-import WebhookAddress, { type WebhookAddressProps } from './WebhookAddress';
+import WebhookAddress, {
+  type WebhookAddressProps,
+  type WebhookConfiguration,
+} from './WebhookAddress';
 
 export interface TaskSettingsEditorProps {
   session?: TaskEditSession;
@@ -44,7 +47,10 @@ export interface TaskSettingsEditorProps {
   taskName?: string;
   /** The saved webhook's address and reachability (parity rows 20, 52). */
   webhook?: Omit<WebhookAddressProps, 'taskId' | 'readAddress'> & {
-    readAddress: (taskId: string, revision: string) => Promise<string>;
+    readAddress: (
+      taskId: string,
+      revision: string,
+    ) => Promise<WebhookConfiguration>;
   };
 }
 

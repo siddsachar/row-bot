@@ -5633,6 +5633,29 @@ def handle_webhook(task_id: str, secret: str | None = None,
     return {"status": "ok", "message": f"Task '{task['name']}' triggered"}
 
 
+WEBHOOK_SECRET_HEADER = "X-Row-Bot-Webhook-Secret"
+
+
+def webhook_request_secret(headers: Any, query: Any) -> str | None:
+    """The secret a webhook request carries: a header, or the older query form.
+
+    The header keeps the secret out of addresses, which proxies and logs keep
+    (B132). Addresses copied before the header existed still carry
+    ``?secret=`` and keep working. A request carrying two different secrets
+    never runs anything.
+    """
+    lowered = {str(key).lower(): str(value) for key, value in dict(headers or {}).items()}
+    header = lowered.get(WEBHOOK_SECRET_HEADER.lower(), "").strip()
+    if not header:
+        authorization = lowered.get("authorization", "").strip()
+        if authorization[:7].lower() == "bearer ":
+            header = authorization[7:].strip()
+    query_secret = str(dict(query or {}).get("secret") or "")
+    if header and query_secret and header != query_secret:
+        return None
+    return header or query_secret or None
+
+
 def generate_webhook_secret() -> str:
     """Generate a random webhook secret."""
     import secrets

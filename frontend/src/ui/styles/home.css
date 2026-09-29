@@ -2808,3 +2808,21 @@
   margin-top: 3px;
   color: var(--status-warning-text);
 }
+
+/* A workflow's webhook: the address, the header that carries its secret
+   (B132), Copy, and the older address form by choice. */
+.task-webhook-address [role='group'] {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.task-webhook-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.task-webhook-option {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}

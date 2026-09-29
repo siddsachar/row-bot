@@ -39,3 +39,20 @@ def test_a_webhook_without_a_secret_never_runs(tasks):
         result = tasks.handle_webhook(task_id, attempt)
         assert result["status"] == "error"
     assert tasks.started == []
+
+
+def test_the_secret_can_travel_in_a_header_and_older_addresses_keep_working(tasks):
+    """B132: the secret had to travel in the query string, where proxies and
+    logs keep it. A header carries it now; addresses copied before still work."""
+    secret = "s" * 32
+    header = tasks.WEBHOOK_SECRET_HEADER
+    assert tasks.webhook_request_secret({header: secret}, {}) == secret
+    assert tasks.webhook_request_secret({header.lower(): secret}, {}) == secret
+    assert tasks.webhook_request_secret({"Authorization": f"Bearer {secret}"}, {}) == secret
+    # An address copied before the header existed keeps working.
+    assert tasks.webhook_request_secret({}, {"secret": secret}) == secret
+    # Two different secrets in one request never run anything.
+    assert tasks.webhook_request_secret({header: secret}, {"secret": "other"}) is None
+    assert tasks.webhook_request_secret({}, {}) is None
+    task_id = _webhook_task(tasks, secret)
+    assert tasks.handle_webhook(task_id, tasks.webhook_request_secret({header: secret}, {}))["status"] == "ok"

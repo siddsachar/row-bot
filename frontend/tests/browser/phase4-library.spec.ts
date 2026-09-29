@@ -283,13 +283,21 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     method: string;
     note: string;
     relative_url: string;
+    relative_url_with_secret: string;
+    headers: Record<string, string>;
   };
   expect(webhook.method).toBe('POST');
   expect(webhook.note).toContain('Keep this file private.');
-  const webhookUrl = new URL(webhook.relative_url, 'http://row-bot.local');
-  expect(webhookUrl.pathname).toBe('/api/webhook/p4-task-102');
-  const secret = webhookUrl.searchParams.get('secret');
+  // The secret travels in a header, not in the address (B132).
+  expect(webhook.relative_url).toBe('/api/webhook/p4-task-102');
+  const secret = webhook.headers['X-Row-Bot-Webhook-Secret'];
   expect(secret).toBeTruthy();
+  const olderForm = new URL(
+    webhook.relative_url_with_secret,
+    'http://row-bot.local',
+  );
+  expect(olderForm.pathname).toBe('/api/webhook/p4-task-102');
+  expect(olderForm.searchParams.get('secret')).toBe(secret);
   expect(await editor.textContent()).not.toContain(secret!);
   await expect(
     editor.getByText(
@@ -303,7 +311,8 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     name: 'Webhook address',
     exact: true,
   });
-  await expect(address).toContainText('/api/webhook/p4-task-102?secret=••••');
+  await expect(address).toContainText('/api/webhook/p4-task-102');
+  await expect(address).toContainText('X-Row-Bot-Webhook-Secret: ••••');
   await expect(
     address.getByRole('button', { name: 'Copy address', exact: true }),
   ).toBeVisible();

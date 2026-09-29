@@ -10,12 +10,25 @@ export type WebhookReach = {
   canControl: boolean;
 };
 
+/** The webhook's private configuration, read only when something is copied. */
+export type WebhookConfiguration = {
+  /** `/api/webhook/<task>`, without the secret. */
+  path: string;
+  /** The older address form with `?secret=`, for services without headers. */
+  pathWithSecret: string;
+  /** The header that carries the secret (B132). */
+  header: string;
+  secret: string;
+};
+
+export const WEBHOOK_SECRET_HEADER = 'X-Row-Bot-Webhook-Secret';
+
 export interface WebhookAddressProps {
   taskId: string;
   /** This app's own address, e.g. http://127.0.0.1:8080. */
   localBase: string;
-  /** The webhook path with its secret; read only when copying. */
-  readAddress: () => Promise<string>;
+  /** The webhook's address and secret; read only when copying. */
+  readAddress: () => Promise<WebhookConfiguration>;
   writeClipboard: (text: string) => Promise<boolean>;
   loadTunnel: (signal?: AbortSignal) => Promise<WebhookReach>;
   /** Start (true) or stop (false) the app tunnel; explicit actions only. */
@@ -26,9 +39,12 @@ export interface WebhookAddressProps {
 
 /**
  * The saved webhook's address with Copy (parity row 20) and whether it is
- * reachable from the internet (parity row 52). The secret never enters the
- * page: Copy reads it and writes it to the clipboard. Nothing becomes
- * public without "Make reachable from the internet" and its confirmation.
+ * reachable from the internet (parity row 52). The secret travels in a
+ * header, out of the address that proxies and logs keep (B132); a service
+ * that can only take an address gets the older form by choice. The secret
+ * never enters the page: Copy reads it and writes it to the clipboard.
+ * Nothing becomes public without "Make reachable from the internet" and its
+ * confirmation.
  */
 export default function WebhookAddress({
   taskId,
@@ -41,6 +57,7 @@ export default function WebhookAddress({
   const overlay = useOverlay();
   const [reach, setReach] = useState<WebhookReach | null>(null);
   const [copied, setCopied] = useState('');
+  const [inAddress, setInAddress] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -59,13 +76,17 @@ export default function WebhookAddress({
     return () => abort.abort();
   }, [loadTunnel]);
 
-  async function copy(base: string, what: string) {
+  async function copy(base: string | null, what: string) {
     setCopied('');
     setError('');
     try {
-      const path = await readAddress();
+      const configuration = await readAddress();
+      const text =
+        base === null
+          ? configuration.secret
+          : `${base}${inAddress ? configuration.pathWithSecret : configuration.path}`;
       setCopied(
-        (await writeClipboard(`${base}${path}`))
+        (await writeClipboard(text))
           ? 'Copied.'
           : `Row-Bot couldn't copy the ${what}. Try again.`,
       );
@@ -96,20 +117,43 @@ export default function WebhookAddress({
     <div className="task-webhook-address stack">
       <div role="group" aria-label="Webhook address">
         <code className="settings-break-word">
-          {`${localBase}/api/webhook/${taskId}?secret=••••`}
-        </code>{' '}
-        <Button
-          className="small"
-          onClick={() => void copy(localBase, 'address')}
-        >
-          Copy address
-        </Button>
-        {copied && (
-          <span role="status" className="home-caption">
-            {' '}
-            {copied}
-          </span>
+          {`POST ${localBase}/api/webhook/${taskId}${inAddress ? '?secret=••••' : ''}`}
+        </code>
+        {!inAddress && (
+          <code className="settings-break-word">
+            {`${WEBHOOK_SECRET_HEADER}: ••••`}
+          </code>
         )}
+        <span className="task-webhook-actions">
+          <Button
+            className="small"
+            onClick={() => void copy(localBase, 'address')}
+          >
+            Copy address
+          </Button>
+          {!inAddress && (
+            <Button className="small" onClick={() => void copy(null, 'secret')}>
+              Copy secret
+            </Button>
+          )}
+          {copied && (
+            <span role="status" className="home-caption">
+              {copied}
+            </span>
+          )}
+        </span>
+        <label className="task-webhook-option">
+          <input
+            type="checkbox"
+            checked={inAddress}
+            onChange={(event) => {
+              setInAddress(event.target.checked);
+              setCopied('');
+            }}
+          />{' '}
+          Put the secret in the address (for a service that can&apos;t send
+          headers; addresses end up in logs)
+        </label>
       </div>
       {reach &&
         (reach.publicBase ? (
