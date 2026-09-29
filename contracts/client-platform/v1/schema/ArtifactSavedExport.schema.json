@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "description": "A ready export copied into the workspace's Exports folder (local owner).",
+  "properties": {
+    "export_id": {
+      "format": "uuid",
+      "title": "Export Id",
+      "type": "string"
+    },
+    "filename": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Filename",
+      "type": "string"
+    },
+    "folder": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Folder",
+      "type": "string"
+    }
+  },
+  "required": [
+    "export_id",
+    "filename",
+    "folder"
+  ],
+  "title": "ArtifactSavedExport",
+  "type": "object"
+}

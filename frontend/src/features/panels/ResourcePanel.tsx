@@ -564,6 +564,8 @@ function ResourcePanel({
       edit={api.edit}
       createExport={api.exports.create}
       downloadExport={api.exports.download}
+      saveExport={api.exports.save}
+      revealExport={api.exports.reveal}
       sharing={api.sharing}
       presentation={api.presentation}
       lifecycle={api.lifecycle}

@@ -363,6 +363,19 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Export: the formats are the presets; one click exports. */
+.export-formats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+}
+.export-result {
+  display: grid;
+  gap: 8px;
+}
+.export-result p {
+  margin: 0;
+}
 /* Share: the published link with Copy, Open, QR and Unpublish. */
 .share-published {
   display: grid;

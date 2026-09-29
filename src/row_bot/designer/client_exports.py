@@ -7,6 +7,8 @@ import os
 import math
 import re
 import stat
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -289,6 +291,117 @@ def read_export_payload(project_id: str, export_id: str, *, binding_id: str,
             raise ArtifactError('export_expired')
         validate()
         return result, payload
+
+
+@dataclass(frozen=True)
+class SavedExport:
+    export_id: str
+    filename: str
+    folder: str
+
+
+def _exports_folder() -> Path:
+    """<workspace folder>/Exports, created on first use; never a link."""
+    from row_bot.application.conversation_creation import configured_workspace_root
+    try:
+        root = configured_workspace_root()
+        folder = root / 'Exports'
+        if folder.is_symlink() or folder.is_junction():
+            raise ArtifactError('export_storage_unavailable')
+        folder.mkdir(exist_ok=True)
+        if not folder.is_dir() or folder.resolve(strict=True).parent != root:
+            raise ArtifactError('export_storage_unavailable')
+    except (OSError, ValueError):
+        raise ArtifactError('export_storage_unavailable') from None
+    return folder
+
+
+def _saved_record(directory: Path) -> dict | None:
+    record = directory / 'saved.json'
+    if not record.exists():
+        return None
+    try:
+        value = json.loads(_read(record, 4096))
+    except (ValueError, UnicodeError):
+        return None
+    return value if isinstance(value, dict) and isinstance(value.get('name'), str) else None
+
+
+def save_export_copy(project_id: str, export_id: str, *, binding_id: str,
+                     validate: Callable[[], None]) -> SavedExport:
+    """Write one copy of a ready export into the Exports folder (never replacing a file)."""
+    result, payload = read_export_payload(project_id, export_id, binding_id=binding_id, validate=validate)
+    with storage._project_save_lock('__client_exports_v1__'):
+        validate()
+        directory = _directory(export_id)
+        folder = _exports_folder()
+        label = f'{folder.parent.name} › {folder.name}'
+        previous = _saved_record(directory)
+        if previous is not None:
+            existing = folder / previous['name']
+            if existing.is_file() and not existing.is_symlink():
+                return SavedExport(export_id, previous['name'], label)
+        stem, dot, extension = result.filename.rpartition('.')
+        stem = stem or result.filename
+        for attempt in range(1, 1000):
+            name = f'{stem}{"" if attempt == 1 else f" {attempt}"}{dot}{extension}'
+            target = folder / name
+            try:
+                descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_BINARY', 0), 0o644)
+            except FileExistsError:
+                continue
+            except OSError:
+                raise ArtifactError('export_storage_unavailable') from None
+            with os.fdopen(descriptor, 'wb') as output:
+                output.write(payload)
+            break
+        else:
+            raise ArtifactError('export_capacity_reached')
+        storage._write_json_atomic(directory / 'saved.json', {'name': name, 'sha256': result.sha256})
+        validate()
+        return SavedExport(export_id, name, label)
+
+
+def _open_path(action: str, path: Path) -> bool:
+    """Open a file with its app, or show it in the file manager; argv only, never a shell."""
+    if sys.platform == 'win32':
+        if action == 'open':
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(['explorer', f'/select,{path}'], close_fds=True)
+        return True
+    if sys.platform == 'darwin':
+        command = ['open', str(path)] if action == 'open' else ['open', '-R', str(path)]
+    else:
+        command = ['xdg-open', str(path if action == 'open' else path.parent)]
+    subprocess.Popen(command, close_fds=True, start_new_session=True)
+    return True
+
+
+def reveal_export_copy(project_id: str, export_id: str, *, binding_id: str, action: str,
+                       validate: Callable[[], None],
+                       opener: Callable[[str, Path], bool] | None = None) -> dict[str, str]:
+    """Open or show the saved copy of this export; only a file inside the Exports folder."""
+    if action not in {'open', 'show'}:
+        raise ArtifactError('invalid_export')
+    validate()
+    with storage._project_save_lock('__client_exports_v1__'):
+        directory = _directory(export_id)
+        _scope(_manifest(directory), project_id, binding_id)
+        previous = _saved_record(directory)
+        if previous is None:
+            return {'status': 'not_found'}
+        folder = _exports_folder()
+        path = folder / previous['name']
+        if (Path(previous['name']).name != previous['name'] or path.is_symlink()
+                or not path.is_file() or path.resolve(strict=True).parent != folder.resolve(strict=True)):
+            return {'status': 'not_found'}
+    validate()
+    try:
+        # Looked up when it runs, so tests (and the desktop host) can replace it.
+        return {'status': 'opened' if (opener or _open_path)(action, path) else 'unavailable'}
+    except OSError:
+        return {'status': 'unavailable'}
 
 
 def read_export(project_id: str, export_id: str, *, binding_id: str,

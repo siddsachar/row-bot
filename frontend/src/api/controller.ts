@@ -4320,6 +4320,36 @@ export class ClientController {
     this.query(() =>
       this.transport.artifactExport?.(conversation, binding, exportId, signal),
     );
+  saveArtifactExport = (
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.saveArtifactExport?.(
+        conversation,
+        binding,
+        exportId,
+        signal,
+      ),
+    );
+  revealArtifactExport = (
+    conversation: string,
+    binding: string,
+    exportId: string,
+    body: import('./types').ArtifactExportReveal,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.revealArtifactExport?.(
+        conversation,
+        binding,
+        exportId,
+        body,
+        signal,
+      ),
+    );
   artifactDownload = (
     conversation: string,
     binding: string,

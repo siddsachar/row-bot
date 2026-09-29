@@ -105,3 +105,45 @@ def test_detached_binding_cannot_download_old_export(artifact_service):
         current = list_bindings(created["conversation_id"])
         unbind(created["conversation_id"], created["binding_id"], expected_revision=current.bindings_revision)
         assert client.get(url(created, identity) + "/download", headers=headers).status_code in {403, 404}
+
+
+def test_local_owner_saves_an_export_into_the_exports_folder_and_opens_it(artifact_service, monkeypatch, tmp_path):
+    from row_bot.application import conversation_creation
+    from row_bot.designer import client_exports
+
+    root = (tmp_path / "Row-Bot")
+    root.mkdir()
+    monkeypatch.setattr(conversation_creation, "configured_workspace_root", lambda: root.resolve())
+    monkeypatch.setattr(export, "_launch_playwright_browser", lambda *a: pytest.fail("HTML export launched a browser"))
+    opened = []
+    monkeypatch.setattr(client_exports, "_open_path", lambda action, path: opened.append((action, path.name)) or True)
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created, payload = prepare(client, headers, "deck")
+        identity = str(uuid4())
+        made = _command(client, headers, "artifact.export", payload, target=created["conversation_id"],
+                        revision=created["revision"], command_id=identity, key=str(uuid4()))
+        assert made.status_code == 200, made.text
+        saved = client.post(url(created, identity) + "/save", headers=headers, json={})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["folder"] == "Row-Bot › Exports"
+        assert (root / "Exports" / saved.json()["filename"]).is_file()
+        assert str(root) not in saved.text
+        for action in ("open", "show"):
+            response = client.post(url(created, identity) + "/reveal", headers=headers, json={"action": action})
+            assert response.status_code == 200 and response.json() == {"status": "opened"}
+        assert opened == [("open", saved.json()["filename"]), ("show", saved.json()["filename"])]
+        refused = client.post(url(created, identity) + "/reveal", headers=headers, json={"action": "delete"})
+        assert refused.status_code == 422
+
+
+def test_a_remote_session_cannot_save_or_open_files_here():
+    from tests.subsystem.client_protocol.test_protocol_security import client_app
+
+    client, _service, _active = client_app(remote=True)
+    with client:
+        _handshake, headers = bootstrap(client)
+        base = f"/api/v1/conversations/c/artifacts/b/exports/{uuid4()}"
+        for path, body in (("/save", {}), ("/reveal", {"action": "open"})):
+            response = client.post(base + path, headers=headers, json=body)
+            assert response.status_code == 403 and response.json()["code"] == "owner_local_only"

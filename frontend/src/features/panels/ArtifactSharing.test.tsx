@@ -233,7 +233,10 @@ const publication = {
 };
 
 it('shows the saved link with Copy, QR and Unpublish when the panel opens', async () => {
-  const writeClipboard = vi.fn(async () => ({ status: 'ok' as const }));
+  const writeClipboard = vi.fn(async () => ({
+    status: 'ok' as const,
+    value: null,
+  }));
   const current = props({
     loadPublication: vi
       .fn<NonNullable<ArtifactSharingProps['loadPublication']>>()

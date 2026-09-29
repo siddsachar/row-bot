@@ -86,11 +86,10 @@ test('browser resource setup uses server IDs and exports through a bounded downl
     name: 'Design export',
     exact: true,
   });
+  // Another device can't save into this computer's Exports folder: the
+  // export is offered as a download.
   await exporting
-    .getByRole('combobox', { name: 'Export format', exact: true })
-    .selectOption('html');
-  await exporting
-    .getByRole('button', { name: 'Export design', exact: true })
+    .getByRole('button', { name: 'Export as HTML', exact: true })
     .click();
   const download = await captureBrowserDownload(page, () =>
     exporting

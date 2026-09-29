@@ -135,5 +135,15 @@ export function artifactExports(
     );
     if (result.status !== 'ok') throw { code: 'export_unavailable' };
   };
-  return { create, download };
+  // A copy in the workspace's Exports folder, then Open / Show in folder:
+  // this computer's owner only (the server refuses other devices).
+  const save = (exportId: string) =>
+    controller.saveArtifactExport(conversation, bindingId, exportId);
+  const reveal = async (exportId: string, action: 'open' | 'show') =>
+    (
+      await controller.revealArtifactExport(conversation, bindingId, exportId, {
+        action,
+      })
+    ).status === 'opened';
+  return { create, download, save, reveal };
 }

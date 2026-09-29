@@ -8130,6 +8130,63 @@ def create_router(
             conversation_id, binding_id, export_id, request, download=True
         )
 
+    async def local_export(
+        conversation_id: str, binding_id: str, export_id: str, request: Request
+    ):
+        """Saving and opening files on this computer: the local owner only."""
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        if context.authentication_kind != "local_owner" or not context.direct_loopback:
+            raise ProtocolError("owner_local_only", 403)
+        try:
+            if str(UUID(export_id)) != export_id:
+                raise ValueError
+        except ValueError:
+            raise ProtocolError("invalid_export", 422) from None
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        auth = dispatch_validation(request, current)
+
+        def validate() -> None:
+            auth()
+            if bound_resource(conversation_id, binding_id, "artifact") != identity:
+                raise ProtocolError("resource_binding_revoked", 403)
+
+        return identity, validate
+
+    @router.post(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save"
+    )
+    async def artifact_export_save(
+        conversation_id: str, binding_id: str, export_id: str, request: Request
+    ) -> JSONResponse:
+        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
+        from row_bot.designer.client_exports import save_export_copy
+
+        result = await call(
+            save_export_copy, identity, export_id, binding_id=binding_id, validate=validate
+        )
+        return await respond(request, dto.ArtifactSavedExport, asdict(result))
+
+    @router.post(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal"
+    )
+    async def artifact_export_reveal(
+        conversation_id: str, binding_id: str, export_id: str, request: Request
+    ) -> JSONResponse:
+        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
+        body = await _body(request, dto.ArtifactExportReveal)
+        from row_bot.designer.client_exports import reveal_export_copy
+
+        result = await call(
+            reveal_export_copy,
+            identity,
+            export_id,
+            binding_id=binding_id,
+            action=body.action,
+            validate=validate,
+        )
+        return await respond(request, dto.ArtifactExportRevealResult, result)
+
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/inspector")
     async def workspace_inspector(
         conversation_id: str, binding_id: str, request: Request, refresh: bool = False

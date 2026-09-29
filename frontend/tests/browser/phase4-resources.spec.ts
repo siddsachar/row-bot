@@ -16,7 +16,6 @@ import {
   newConversation,
   openConversation,
 } from './unified-helpers';
-import { captureBrowserDownload } from './download-helpers';
 import type { Locator, Page, Request } from '@playwright/test';
 
 function fixtureHeaders() {
@@ -589,25 +588,22 @@ for (const [mode, label] of [
       name: 'Design export',
       exact: true,
     });
+    // One click: this computer's owner gets a copy in the workspace's
+    // Exports folder with Open / Show in folder (never clicked here: they
+    // open the person's own apps).
     await exporting
-      .getByRole('combobox', { name: 'Export format', exact: true })
-      .selectOption('html');
-    await exporting
-      .getByRole('button', { name: 'Export design', exact: true })
+      .getByRole('button', { name: 'Export as HTML', exact: true })
       .click();
-    const downloadButton = exporting.getByRole('button', {
-      name: 'Download HTML',
-      exact: true,
-    });
-    await expect(downloadButton).toBeVisible();
-    const download = await captureBrowserDownload(page, () =>
-      downloadButton.click(),
+    await expect(exporting.getByRole('status')).toContainText(
+      `Saved · ${renamed}.html in `,
     );
-    expect(download.name).toBe(`${renamed}.html`);
-    expect(download.mimeType).toBe('text/html');
-    const html = download.bytes.toString('utf8');
-    expect(html.toLowerCase()).toContain('<html');
-    expect(html).toContain(renamed);
+    await expect(exporting.getByRole('status')).toContainText('› Exports');
+    await expect(
+      exporting.getByRole('button', { name: 'Show in folder', exact: true }),
+    ).toBeVisible();
+    await expect(
+      exporting.getByRole('button', { name: 'Open', exact: true }),
+    ).toBeVisible();
     await screenshot(page, info, `${mode}-html-export`);
     await accessibility(page, info, `${mode}-html-export`, {
       opaquePreview: true,

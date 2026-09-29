@@ -4714,6 +4714,21 @@ class DesignPresentationState(WireModel):
     next_cursor: str | None = Field(max_length=2048)
 
 
+class ArtifactSavedExport(WireModel):
+    """A ready export copied into the workspace's Exports folder (local owner)."""
+    export_id: UUID
+    filename: str = Field(min_length=1, max_length=256)
+    folder: str = Field(min_length=1, max_length=512)
+
+
+class ArtifactExportReveal(WireModel):
+    action: Literal["open", "show"]
+
+
+class ArtifactExportRevealResult(WireModel):
+    status: Literal["opened", "not_found", "unavailable"]
+
+
 class ArtifactExport(WireModel):
     export_id: UUID
     resource_id: OpaqueId

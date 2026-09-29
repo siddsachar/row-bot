@@ -2117,6 +2117,38 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  saveArtifactExport(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveArtifactExport(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      exportId,
+      signal,
+    );
+  }
+  revealArtifactExport(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    body: wire.ArtifactExportReveal,
+    signal?: AbortSignal,
+  ) {
+    return wire.revealArtifactExport(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      exportId,
+      body,
+      signal,
+    );
+  }
   artifactDownload(
     conversation: string,
     binding: string,

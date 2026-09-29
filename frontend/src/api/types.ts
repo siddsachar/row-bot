@@ -163,6 +163,19 @@ export interface ClientTransport {
     exportId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactExport>;
+  saveArtifactExport?(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactSavedExport>;
+  revealArtifactExport?(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    body: Wire.ArtifactExportReveal,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactExportRevealResult>;
   artifactDownload?(
     conversation: string,
     binding: string,

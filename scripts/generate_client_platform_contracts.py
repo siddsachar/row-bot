@@ -77,7 +77,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactShareOptions", "ArtifactShareReview", "ArtifactShareOutcome",
     "ArtifactShareChannels", "ArtifactPublication",
     "TaskRunReview", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskApprovalReview",
-    "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport", "WorkspaceEditableFile", "WorkspaceEditResult",
+    "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport",
+    "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "TaskGraphFields", "TaskGraphStepEdit", "TaskGraphSnapshot",
@@ -334,6 +335,8 @@ OPERATIONS = (
     ("get", "/tasks/{task_id}/runs/{run_id}", None, "TaskRunSummary"),
     ("get", "/tasks/{task_id}/runs/{run_id}/approvals", None, "TaskApprovalPage"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}", None, "ArtifactExport"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save", None, "ArtifactSavedExport"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal", "ArtifactExportReveal", "ArtifactExportRevealResult"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download", None, "bytes"),
     ("post", "/tasks/commands", "Command", "CommandReceipt"),
     ("get", "/knowledge/entities", None, "EntitySummaryPage"),
@@ -1233,6 +1236,10 @@ export const disconnectNativeTerminal = (base: string, proof: SessionProof, term
   jsonRequest(base, `/native/terminals/${id(terminal)}`, 'NativeTerminalClosed', proof, 'DELETE', undefined, undefined, signal);
 export const getArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactExport> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}`, 'ArtifactExport', proof, 'GET', undefined, undefined, signal);
+export const saveArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactSavedExport> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
+export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
 export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, signal?: AbortSignal): Promise<Blob> {
   validateWire<ArtifactExport>('ArtifactExport', descriptor);
   const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(descriptor.export_id)}/download`, {
