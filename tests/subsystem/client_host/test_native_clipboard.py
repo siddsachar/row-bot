@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import textwrap
 import types
 
 import pytest
@@ -31,8 +30,6 @@ def clipboard(monkeypatch):
     namespace: dict = {"sys": types.SimpleNamespace(platform="win32")}
     exec(compile(_script_part("_WINDOWS_CLIPBOARD_READ = [", "\ndef _attach_client_v2"),
                  "<window-script>", "exec"), namespace)
-    method = textwrap.dedent(_script_part("    def get_clipboard(self):", "\ndef _on_loaded"))
-    exec(compile(method, "<window-script>", "exec"), namespace)
     monkeypatch.setattr(sys, "platform", "win32")
     return namespace
 
@@ -65,7 +62,7 @@ def test_windows_paste_reads_utf8_and_keeps_the_text_exactly(clipboard, monkeypa
 
     monkeypatch.setattr(subprocess, "check_output", check_output)
 
-    assert clipboard["get_clipboard"](None) == TEXT + "\r\nsecond line"
+    assert clipboard["_native_clipboard_read"]() == TEXT + "\r\nsecond line"
     assert calls == [clipboard["_WINDOWS_CLIPBOARD_READ"]]
     assert "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false" in calls[0][-1]
     assert "Get-Clipboard -Raw" in calls[0][-1]
@@ -77,7 +74,7 @@ def test_unreadable_clipboard_reads_as_nothing(clipboard, monkeypatch):
 
     monkeypatch.setattr(subprocess, "check_output", fail)
 
-    assert clipboard["get_clipboard"](None) is None
+    assert clipboard["_native_clipboard_read"]() is None
 
 
 def test_window_script_stays_ascii():

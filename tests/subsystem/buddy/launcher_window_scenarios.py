@@ -109,7 +109,7 @@ def overlay_lifecycle(webview: Any, script: Any, report: dict[str, Any]) -> None
     report["hide"] = buddy.dispatch("buddy_placement", {"action": "hide"})
     report["visible_after_hide"] = buddy.visible
     report["config_after_hide"] = _config()
-    report["tray_show"] = script._JS_API.show_buddy_window(True)
+    report["tray_show"] = script._BUDDY.show(True)
     report["visible_after_tray_show"] = buddy.visible
     report["dock"] = buddy.dispatch("buddy_placement", {"action": "dock"})
     report["destroyed_after_dock"] = buddy.destroyed

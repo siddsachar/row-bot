@@ -93,7 +93,7 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def _run(tmp_path: Path, port: int, scenario: str, *, client_v2: bool = True,
+def _run(tmp_path: Path, port: int, scenario: str, *,
          control_port: int = 0, buddy_config: dict | None = None) -> dict:
     data = tmp_path / "data"
     data.mkdir()
@@ -114,7 +114,7 @@ def _run(tmp_path: Path, port: int, scenario: str, *, client_v2: bool = True,
     })
     completed = subprocess.run(
         [sys.executable, "-", f"http://127.0.0.1:{port}/app-v2/", "Row-Bot",
-         "1280", "900", "", str(control_port), "1" if client_v2 else "0"],
+         "1280", "900", "", str(control_port)],
         input=launcher._WINDOW_SCRIPT,
         text=True,
         capture_output=True,
