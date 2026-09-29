@@ -20,6 +20,9 @@ import {
   assertControlTextUnclipped,
 } from './unified-helpers';
 
+// A denial ends the turn without asking the model again (B199).
+const DENIED_REPLY = 'The requested action was denied. No action was taken.';
+
 test.use({ serviceWorkers: 'allow' });
 test.beforeEach(async ({ context }) => blockFixtureServiceWorkers(context));
 
@@ -307,9 +310,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await assertControlTextUnclipped(reject);
   await screenshot(page, testInfo, 'combined-stress-approval-footer');
   await reject.click();
-  await expect(
-    page.getByText('Synthetic approval rejected.', { exact: true }),
-  ).toHaveCount(1);
+  await expect(page.getByText(DENIED_REPLY, { exact: true })).toHaveCount(1);
   expect((await fixtureState(page)).calls).toHaveLength(beforeDecision + 1);
   await composer(page).fill('Accessible unsent draft');
   await expect(
@@ -686,9 +687,9 @@ test('actual state messages and recovery controls remain readable in light and d
         });
         await assertControlTextUnclipped(reject);
         await reject.click();
-        await expect(
-          page.getByText('Synthetic approval rejected.', { exact: true }),
-        ).toHaveCount(1);
+        await expect(page.getByText(DENIED_REPLY, { exact: true })).toHaveCount(
+          1,
+        );
         await screenshot(page, info, `${label}-approval-rejected`);
         const commands = `**/api/v1/conversations/${conversation}/commands`;
         let lost = false;
