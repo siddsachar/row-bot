@@ -73,12 +73,10 @@ def is_app_idle(min_idle_s: float = _IDLE_DELAY_S) -> bool:
     """Return True when heavyweight background memory work may run."""
     if idle_seconds() < min_idle_s:
         return False
-    try:
-        from row_bot.ui.state import _active_generations
-        if _active_generations:
-            return False
-    except Exception:
-        pass
+    from row_bot.runtime import executions
+
+    if executions.generation_registry.active():
+        return False
     try:
         from row_bot.document_extraction import get_extraction_status
         status = get_extraction_status()

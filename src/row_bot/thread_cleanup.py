@@ -63,7 +63,6 @@ class BulkThreadDeletionResult:
 
 _deletion_lock = threading.RLock()
 _deleting_threads: dict[str, str] = {}
-_deleting_generations: dict[str, str] = {}
 _maintenance_lock = threading.Lock()
 
 
@@ -137,7 +136,6 @@ def allow_thread_recreation(thread_id: str | None) -> None:
             raise RuntimeError("Conversation is being deleted.")
         from row_bot.runtime.admissions import reopen_completed_conversation
         reopen_completed_conversation(clean)
-        _deleting_generations.pop(clean, None)
 
 
 def _mark_thread_deleting(thread_id: str) -> str:
@@ -187,28 +185,6 @@ def _request_thread_cancellation(thread_id: str, *, deletion_token: str = "",
         admissions.advance_deletion(thread_id, "stop_requested")
     active = bool(generation_registry.active(thread_id) or admissions.unproven_producer(thread_id))
     generation_registry.stop(thread_id, reason="conversation deleted")
-    try:
-        from row_bot.ui.state import _active_generations
-
-        generation = _active_generations.get(thread_id)
-        active = active or generation is not None
-        if generation is not None:
-            generation.deletion_token = deletion_token
-            with _deletion_lock:
-                _deleting_generations[thread_id] = deletion_token
-        from row_bot.ui.streaming import request_generation_stop
-
-        request_generation_stop(thread_id, reason="conversation deleted")
-    except Exception:
-        try:
-            from row_bot.ui.state import _active_generations
-
-            generation = _active_generations.get(thread_id)
-            if generation is not None:
-                active = True
-                generation.stop_event.set()
-        except Exception:
-            pass
 
     try:
         from row_bot.tasks import get_running_tasks, stop_task
@@ -352,20 +328,13 @@ def finish_thread_deletion(thread_id: str, token: str | None = None) -> None:
         with _deletion_lock:
             if _deleting_threads.get(clean) == current:
                 _deleting_threads.pop(clean, None)
-                _deleting_generations.pop(clean, None)
 
 
 def _thread_has_active_producer(thread_id: str) -> bool:
-    with _deletion_lock:
-        if thread_id in _deleting_generations:
-            return True
-    try:
-        from row_bot.ui.state import _active_generations
+    from row_bot.runtime import executions
 
-        if thread_id in _active_generations:
-            return True
-    except Exception:
-        pass
+    if executions.generation_registry.active(thread_id):
+        return True
     try:
         from row_bot.agent_runner import list_active_agent_run_ids
         from row_bot.agent_runs import get_agent_run_for_thread, list_agent_runs

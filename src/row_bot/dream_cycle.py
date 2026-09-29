@@ -279,17 +279,15 @@ def _should_dream() -> bool:
     # Never run while any agent generation is in flight — a long dream
     # cycle competes with live requests for LLM bandwidth and can
     # starve the UI.
-    try:
-        from row_bot.ui.state import _active_generations
-        if _active_generations:
-            logger.info(
-                "Dream cycle deferred — %d active generation(s) in flight",
-                len(_active_generations),
-            )
-            return False
-    except Exception:
-        # ui.state import failures should not prevent dreaming
-        pass
+    from row_bot.runtime import executions
+
+    active = executions.generation_registry.active()
+    if active:
+        logger.info(
+            "Dream cycle deferred — %d active generation(s) in flight",
+            len(active),
+        )
+        return False
     return True
 
 

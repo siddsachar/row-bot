@@ -114,31 +114,21 @@ def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
 
 
 def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
-    import threading
-    from types import SimpleNamespace
-
+    from row_bot.runtime import executions
     from row_bot.tools.row_bot_status_tool import _query_voice
-    from row_bot.ui.state import _active_generations
 
     monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
-    _active_generations.clear()
-    _active_generations["thread123"] = SimpleNamespace(
-        status="streaming",
-        pending_tools={"call1": {"name": "browser_open"}},
-        interrupt_data=None,
-        stop_event=threading.Event(),
-        voice_control_queue=[{"kind": "steer", "text": "also check logs"}],
-    )
-    try:
-        output = _query_voice()
-    finally:
-        _active_generations.clear()
+    registry = executions.GenerationRuntimeRegistry()
+    monkeypatch.setattr(executions, "generation_registry", registry)
+    handle = registry.register("thread123")
+    handle.approval_id = "approval-1"
+
+    output = _query_voice()
 
     assert "Active Row-Bot runs: 1" in output
-    assert "browser_open" in output
-    assert "cancel=yes" in output
-    assert "follow-up/steer=yes" in output
-    assert "queued_controls=1" in output
+    assert "thread123: running" in output
+    assert "approval=yes" in output
+    assert "cancel=available" in output
 
 
 def test_row_bot_status_media_update_seeds_quick_choices(monkeypatch):

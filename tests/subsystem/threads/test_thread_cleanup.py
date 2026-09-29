@@ -6,7 +6,6 @@ import os
 import sqlite3
 import sys
 import threading
-import queue
 
 import pytest
 
@@ -443,7 +442,6 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     agent_runs = importlib.import_module("row_bot.agent_runs")
-    state_module = importlib.import_module("row_bot.ui.state")
 
     parent_id = threads.create_thread("Parent", thread_id="active-agent-parent")
     child_id = threads.create_thread(
@@ -467,18 +465,11 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
         return original_stop(run_id)
 
     monkeypatch.setattr(agent_runs, "stop_agent_run", _record_stop)
-    generation = state_module.GenerationState(
-        thread_id=child_id,
-        q=queue.Queue(),
-        stop_event=threading.Event(),
-        config={"configurable": {"thread_id": child_id}},
-        enabled_tools=[],
-    )
-    state_module._active_generations[child_id] = generation
+    stop_event = threading.Event()
     from row_bot.runtime import executions
     registry = executions.GenerationRuntimeRegistry()
     monkeypatch.setattr(executions, "generation_registry", registry)
-    handle = registry.register(child_id, stop_event=generation.stop_event, domain="agent", domain_id=child_run["id"])
+    handle = registry.register(child_id, stop_event=stop_event, domain="agent", domain_id=child_run["id"])
     entered, release = threading.Event(), threading.Event()
     def producer():
         entered.set()
@@ -491,7 +482,7 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
 
         assert result.deleted is False
         assert stop_order == [(child_run["id"], True)]
-        assert generation.stop_event.is_set()
+        assert stop_event.is_set()
         assert not handle.producer_done.is_set()
         assert agent_runs.get_agent_run(child_run["id"])["status"] == "stopping"
         assert cleanup.is_thread_deleting(parent_id) is True
@@ -504,7 +495,6 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
     finally:
         release.set()
         worker.join(timeout=3)
-        state_module._active_generations.pop(child_id, None)
 
     assert handle.producer_done.is_set()
     assert cleanup.delete_thread(parent_id).deleted is True

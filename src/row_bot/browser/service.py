@@ -43,7 +43,6 @@ from row_bot.data_paths import get_row_bot_data_dir
 logger = logging.getLogger(__name__)
 PROFILE_DIR = get_row_bot_data_dir() / "browser_profile"
 VIEWPORT = {"width": 1280, "height": 900}
-_TERMINAL_GENERATION_STATES = frozenset({"done", "error", "stopped"})
 
 
 def browser_runs_headless() -> bool:
@@ -72,20 +71,11 @@ def _installed_channel() -> str | None:
 
 
 def _active_generation_thread_ids() -> set[str]:
-    """Return only genuinely running UI generations, not stale terminal rows."""
+    """Return the conversations whose generation is still running."""
 
-    try:
-        from row_bot.ui.state import _active_generations
-    except Exception:
-        return set()
-    active: set[str] = set()
-    for thread_id, generation in list(_active_generations.items()):
-        status = str(getattr(generation, "status", "streaming") or "streaming").casefold()
-        stop_event = getattr(generation, "stop_event", None)
-        stopped = bool(stop_event is not None and stop_event.is_set())
-        if status not in _TERMINAL_GENERATION_STATES and not stopped:
-            active.add(str(thread_id))
-    return active
+    from row_bot.runtime import executions
+
+    return {str(handle.conversation_id) for handle in executions.generation_registry.active()}
 
 
 @dataclass

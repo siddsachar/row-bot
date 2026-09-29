@@ -1612,27 +1612,18 @@ def _query_voice() -> str:
         except Exception:
             lines.append("- OpenAI Realtime: unavailable")
         try:
-            from row_bot.ui.state import _active_generations
+            from row_bot.runtime import executions
 
-            active = list(_active_generations.items())
+            active = executions.generation_registry.active()
             if not active:
                 lines.append("- Active Row-Bot run: none")
             else:
                 lines.append(f"- Active Row-Bot runs: {len(active)}")
-                for thread_id, gen in active[:3]:
-                    pending_tools = getattr(gen, "pending_tools", {}) or {}
-                    tool_names = [
-                        str(tool.get("name") or "")
-                        for tool in pending_tools.values()
-                        if isinstance(tool, dict)
-                    ]
-                    queued = list(getattr(gen, "voice_control_queue", []) or [])
+                for handle in active[:3]:
                     lines.append(
-                        f"  - {thread_id}: {getattr(gen, 'status', 'streaming')}; "
-                        f"tools={', '.join(tool_names) if tool_names else 'none'}; "
-                        f"approval={'yes' if getattr(gen, 'interrupt_data', None) else 'no'}; "
-                        f"cancel={'yes' if getattr(gen, 'stop_event', None) else 'no'}; "
-                        f"follow-up/steer={'yes'}; queued_controls={len(queued)}"
+                        f"  - {handle.conversation_id}: {handle.status}; "
+                        f"approval={'yes' if handle.approval_id else 'no'}; "
+                        f"cancel={'requested' if handle.cancel_scope.is_cancelled() else 'available'}"
                     )
         except Exception:
             lines.append("- Active Row-Bot run: unavailable")

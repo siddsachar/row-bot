@@ -291,11 +291,9 @@ def _checkpoint_cleanup_skip_threads(cutoff_iso: str) -> set[str]:
                     skipped.add(str(tid))
     except Exception:
         logger.debug("Checkpoint cleanup could not read recent thread metadata", exc_info=True)
-    try:
-        from row_bot.ui.state import _active_generations
-        skipped.update(str(tid) for tid in _active_generations.keys())
-    except Exception:
-        pass
+    from row_bot.runtime import executions
+
+    skipped.update(str(handle.conversation_id) for handle in executions.generation_registry.active())
     try:
         from row_bot.tasks import get_running_tasks
         skipped.update(str(tid) for tid in get_running_tasks().keys())
