@@ -69,6 +69,7 @@ import {
   regionBounds,
   resetLayout,
   resizeRegion,
+  widenSide,
   samplePanels,
   toggleRegion,
   type PanelInstance,
@@ -361,7 +362,7 @@ export default function Workspace() {
     (
       panel: (typeof samplePanels)[number],
       resources: readonly ResourceView[],
-    ) => showPanel(panel, undefined, resources),
+    ) => showPanel(panel, undefined, resources, { wide: true }),
   );
   // A panel asked for another resource's panel (a design it duplicated).
   const openRequestedPanel = useEffectEvent((request: ResourcePanelRequest) => {
@@ -392,6 +393,7 @@ export default function Workspace() {
           },
           undefined,
           fresh.resources,
+          { wide: true },
         );
       })
       .catch(() => {
@@ -1011,6 +1013,7 @@ export default function Workspace() {
     panel: (typeof samplePanels)[number],
     opener?: HTMLElement | null,
     resourceSnapshot?: readonly ResourceView[],
+    options: { wide?: boolean } = {},
   ) {
     // Command contents stay mounted while the workspace can change breakpoint.
     // Read the current layout when the action runs, not when it was opened.
@@ -1034,7 +1037,10 @@ export default function Workspace() {
         };
       return;
     }
-    const next = target
+    const wasOpen = currentLayout.current.panels.some(
+      (value) => panelKey(value.descriptor) === panelKey(panel),
+    );
+    let next = target
       ? reconcilePanelPresentation(currentLayout.current, {
           conversationId: target,
           activeConversationId: snapshot.selectedConversationId,
@@ -1043,6 +1049,13 @@ export default function Workspace() {
           descriptor: panel,
         }).layout
       : openPanel(currentLayout.current, panel);
+    const opened = next.panels.find(
+      (value) => value.instance_id === next.activePanelId,
+    );
+    // A design that was just made opens wide, so it isn't a thumbnail at
+    // "Fit · 21%" beside the chat (U36); people can narrow it again.
+    if (options.wide && !wasOpen && opened?.placement === 'side')
+      next = widenSide(next);
     currentLayout.current = next;
     scope.setLayout(next);
     const instance = next.panels.find(

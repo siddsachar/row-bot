@@ -17,6 +17,7 @@ import {
   samplePanels,
   suggestPanel,
   toggleRegion,
+  widenSide,
 } from './model';
 
 describe('typed presentation-only panel registry', () => {
@@ -169,4 +170,14 @@ describe('typed presentation-only panel registry', () => {
       opened.activePanelId,
     );
   });
+});
+
+it('opens a new design with the side region at its widest, desktop only', () => {
+  const layout = openPanel(createPanelLayout(1440, 900), samplePanels[0]);
+  const wide = widenSide(layout);
+  expect(wide.side.size).toBe(regionBounds(wide, 'side').max);
+  expect(wide.side.size).toBeGreaterThan(layout.side.size);
+  expect(widenSide(wide)).toBe(wide);
+  const phone = createPanelLayout(390, 844);
+  expect(widenSide(phone)).toBe(phone);
 });

@@ -385,6 +385,14 @@ export function movePanel(
     ),
   };
 }
+/** A newly made design opens with the side region at its widest (U36). */
+export function widenSide(layout: PanelLayout): PanelLayout {
+  const { max } = regionBounds(layout, 'side');
+  return layout.widthClass === 'desktop' && layout.side.size < max
+    ? resizeRegion(layout, 'side', max)
+    : layout;
+}
+
 export function resizeRegion(
   layout: PanelLayout,
   region: 'navigation' | PanelPlacement,
