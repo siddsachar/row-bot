@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.snapshot]
 def test_html_export_matches_stable_snapshot_summary(monkeypatch) -> None:
     from row_bot.designer import export
     import row_bot.designer.fonts as fonts
-    from tests.helpers.snapshots import assert_or_write_snapshot
+    from tests.helpers.snapshots import assert_matches_snapshot
 
     monkeypatch.setattr(fonts, "get_font_css_embedded", lambda _family: "")
     project = sample_designer_project()
@@ -30,7 +30,7 @@ def test_html_export_matches_stable_snapshot_summary(monkeypatch) -> None:
 
     assert "Page 1: Overview" in html
     assert "Page 2: Details" in html
-    assert_or_write_snapshot(Path("tests/snapshots/designer/html_export_summary.snapshot"), summary)
+    assert_matches_snapshot(Path("tests/snapshots/designer/html_export_summary.snapshot"), summary)
 
 
 def test_export_html_writes_selected_pages_to_requested_directory(monkeypatch, tmp_path) -> None:
