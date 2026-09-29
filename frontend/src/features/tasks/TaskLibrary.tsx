@@ -1464,6 +1464,7 @@ export default function TaskLibrary() {
               setRunsFor(null);
               openConversation(id);
             }}
+            onFinished={() => setReload((value) => value + 1)}
           />
         )}
       </Drawer>

@@ -42,6 +42,8 @@ export interface TaskRunProps {
     signal?: AbortSignal,
   ) => Promise<TaskRunSummary>;
   openConversation: (conversationId: string) => void;
+  /** A followed run ended: the list behind the drawer can re-read (B178). */
+  onFinished?: () => void;
 }
 
 // How often the drawer re-reads a run that is still going.
@@ -65,6 +67,7 @@ export default function TaskRun({
   stop,
   loadRun,
   openConversation,
+  onFinished,
 }: TaskRunProps) {
   const [review, setReview] = useState<TaskRunReview | null>(null);
   const [history, setHistory] = useState<TaskRunPage | null>(null);
@@ -181,6 +184,7 @@ export default function TaskRun({
 
   function finished(done: TaskRunSummary) {
     setNotice(`Run finished · ${runStatus(done.status).label}.`);
+    onFinished?.();
     const ticket = epoch.current;
     loadReview(taskId).then(
       (next) => {

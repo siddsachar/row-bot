@@ -140,11 +140,12 @@ it('starts only one explicit operation and follows the run until it ends (B121)'
     .fn()
     .mockResolvedValueOnce(halfway)
     .mockResolvedValueOnce(runSummary('run-a', 'completed'));
+  const onFinished = vi.fn();
   const callbacks = props({
     run: vi.fn().mockReturnValue(started.promise),
     loadRun,
   });
-  render(<TaskRun {...callbacks} />);
+  render(<TaskRun {...callbacks} onFinished={onFinished} />);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
@@ -174,7 +175,9 @@ it('starts only one explicit operation and follows the run until it ends (B121)'
   expect(screen.getByRole('status')).toHaveTextContent(
     'Run finished · Completed.',
   );
-  // A finished run is followed by a fresh review, so Run now is ready again.
+  // A finished run is followed by a fresh review, so Run now is ready again,
+  // and the list behind the drawer re-reads its row (B178).
+  expect(onFinished).toHaveBeenCalledOnce();
   expect(callbacks.loadReview).toHaveBeenCalledTimes(2);
   expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled();
   await act(async () => {
