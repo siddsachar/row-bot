@@ -276,6 +276,8 @@ export function useSettingsAnchor(root: HTMLElement | null) {
         if (parent instanceof HTMLDetailsElement) parent.open = true;
       const details = target.querySelector(':scope > .disclosure');
       if (details instanceof HTMLDetailsElement) details.open = true;
+      // A connection's own panel is the anchor: it opens its connect sheet.
+      if (target instanceof HTMLDetailsElement) target.open = true;
       if (target.closest('[hidden]')) {
         // Its tab is switching in; look again once it shows.
         clearTimeout(retry);

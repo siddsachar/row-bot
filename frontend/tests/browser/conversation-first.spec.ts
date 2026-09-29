@@ -45,7 +45,7 @@ test('a tool the work needs asks to be turned on, in the chat', async ({
   ).toBeVisible();
 });
 
-test('an account the work needs shows a Connect card that opens its page', async ({
+test('an account the work needs shows a Connect card that opens its connect sheet', async ({
   page,
 }, testInfo) => {
   await newConversation(page);
@@ -56,7 +56,11 @@ test('an account the work needs shows a Connect card that opens its page', async
   await card
     .getByRole('button', { name: 'Connect Google', exact: true })
     .click();
-  await expect(page).toHaveURL(/\/settings\/accounts$/);
+  // The card opens Google's own connect sheet (Phase 15).
+  await expect(page).toHaveURL(/\/settings\/accounts#google$/);
+  await expect(
+    page.getByRole('region', { name: 'Connect Google', exact: true }),
+  ).toBeVisible();
 });
 
 test('a pasted screenshot and two dropped files attach to the message', async ({
