@@ -662,3 +662,159 @@ def test_invalid_invitation_options_fail_without_creating_records(tmp_path) -> N
     assert "choose a layout" in legacy_profile.json()["detail"]
     assert origin.status_code == 400
     assert len(service.list_invitations()) == before
+
+
+def _current_marks(devices: list[dict]) -> tuple[set[str], set[str]]:
+    return (
+        {device["id"] for device in devices if device["current"]},
+        {
+            session["id"]
+            for device in devices
+            for session in device["sessions"]
+            if session["current"]
+        },
+    )
+
+
+def test_devices_mark_the_device_making_the_request_as_this_device(
+    tmp_path,
+) -> None:
+    """B141: "This device" is the device whose session made the request."""
+    client, service, registration = _application(tmp_path)
+    phone_cookie, phone_id, phone_session = _session_cookie(
+        service, registration, name="Phone"
+    )
+    laptop_cookie, laptop_id, laptop_session = _session_cookie(
+        service, registration, name="Laptop"
+    )
+
+    from_phone = client.get("/api/access/devices", headers={"cookie": phone_cookie})
+    from_laptop = client.get(
+        "/api/access/devices", headers={"cookie": laptop_cookie}
+    )
+
+    assert _current_marks(from_phone.json()["devices"]) == (
+        {phone_id},
+        {phone_session},
+    )
+    assert _current_marks(from_laptop.json()["devices"]) == (
+        {laptop_id},
+        {laptop_session},
+    )
+
+
+def test_the_owner_on_this_computer_is_not_a_listed_device(tmp_path) -> None:
+    client, service, registration = _application(tmp_path, mode="desktop")
+    _session_cookie(service, registration, name="Phone")
+
+    devices = client.get("/api/access/devices").json()["devices"]
+
+    assert _current_marks(devices) == (set(), set())
+
+
+def test_devices_report_the_address_they_were_last_seen_from(tmp_path) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_id, _owner_session = _session_cookie(
+        service, registration, name="Owner"
+    )
+    phone_cookie, phone_id, phone_session = _session_cookie(
+        service, registration, name="Phone"
+    )
+
+    def phone_row() -> dict:
+        devices = client.get(
+            "/api/access/devices", headers={"cookie": owner_cookie}
+        ).json()["devices"]
+        return next(device for device in devices if device["id"] == phone_id)
+
+    def from_address(address: str) -> TestClient:
+        return TestClient(
+            client.app,
+            base_url="http://localhost:8080",
+            client=(address, 51000),
+            follow_redirects=False,
+        )
+
+    assert phone_row()["last_address"] is None
+    seen = from_address("192.168.1.23").get(
+        "/api/access/session", headers={"cookie": phone_cookie}
+    )
+    assert seen.json()["authenticated"] is True
+    assert phone_row()["last_address"] == "192.168.1.23"
+    assert phone_row()["last_seen_at"]
+
+    # A revoked session never moves the device's last address again.
+    service.revoke_session(phone_session)
+    refused = from_address("10.0.0.9").get(
+        "/api/access/session", headers={"cookie": phone_cookie}
+    )
+    assert refused.json()["authenticated"] is False
+    assert phone_row()["last_address"] == "192.168.1.23"
+
+
+def test_owner_renames_a_device_with_exact_origin_and_a_bounded_name(
+    tmp_path,
+) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_id, _owner_session = _session_cookie(
+        service, registration, name="Owner"
+    )
+    _phone_cookie, phone_id, _phone_session = _session_cookie(
+        service, registration, name="Connected browser"
+    )
+    headers = {"cookie": owner_cookie, "origin": "http://localhost:8080"}
+
+    def rename(device_id: str, name: object, **extra):
+        return client.post(
+            f"/api/access/devices/{device_id}/rename",
+            json={"display_name": name},
+            headers={**headers, **extra},
+        )
+
+    renamed = rename(phone_id, "  Kitchen tablet  ")
+    assert renamed.status_code == 200
+    assert renamed.json()["device"]["display_name"] == "Kitchen tablet"
+    assert service.store.get_device(phone_id).display_name == "Kitchen tablet"
+
+    assert rename(phone_id, "Evil", origin="https://attacker.example").status_code == (
+        403
+    )
+    for bad in ("", "   ", "x" * 81, "Line" + chr(10) + "break", 42):
+        refused = rename(phone_id, bad)
+        assert refused.status_code == 400
+        assert refused.json()["error"] == "invalid_device_name"
+    assert rename("missing-device", "Nobody").status_code == 404
+    service.revoke_device(phone_id)
+    assert rename(phone_id, "Signed out").status_code == 404
+    assert service.store.get_device(phone_id).display_name == "Kitchen tablet"
+
+
+def test_a_claimed_invitation_names_the_device_it_connected(tmp_path) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_id, _owner_session = _session_cookie(
+        service, registration, name="Owner"
+    )
+    headers = {"cookie": owner_cookie, "origin": "http://localhost:8080"}
+    created = client.post(
+        "/api/access/invitations", json={"layout": "compact"}, headers=headers
+    )
+    token = parse_qs(urlsplit(created.json()["invitation_url"]).query)[
+        "invitation"
+    ][0]
+    waiting = client.get("/api/access/invitations", headers=headers).json()
+    assert waiting["invitations"][0]["claimed_device_id"] is None
+
+    claimed = service.claim_invitation(
+        token,
+        intended_origin="http://localhost:8080",
+        display_name="Phone",
+    )
+    listed = client.get("/api/access/invitations", headers=headers).json()
+    row = next(
+        item
+        for item in listed["invitations"]
+        if item["id"] == created.json()["invitation"]["id"]
+    )
+
+    assert row["claimed_device_id"] == claimed.device.id
+    assert token not in str(listed)

@@ -253,9 +253,9 @@ def _neutral_connect_page() -> str:
         "Connect to Row-Bot",
         """
 <h1>Connect to this Row-Bot</h1>
-<p>This Row-Bot requires approval from its owner.</p>
-<p class="detail">Open a one-time invitation link in this browser.</p>
-<p>Owner of this server? Run <code>row-bot access invite --layout desktop --origin &lt;address&gt;</code>.</p>
+<p>This Row-Bot requires approval from its owner. A device that was signed out, or away for more than 30 days, connects again the same way.</p>
+<p class="detail">On the computer running Row-Bot, open Settings › Devices &amp; remote access and choose Connect a phone or computer. Then scan the code with this device, or open its link here.</p>
+<p>Row-Bot running without a screen? Run <code>row-bot access invite --origin &lt;address&gt;</code> on that computer.</p>
 """,
     )
 
@@ -327,19 +327,39 @@ def _claim_status(reason: str) -> int:
     return 400
 
 
-def _invitation_public(invitation) -> dict[str, Any]:
-    return invitation.to_public_dict()
+def _invitation_public(
+    invitation, *, claimed_device_id: str | None = None
+) -> dict[str, Any]:
+    return {**invitation.to_public_dict(), "claimed_device_id": claimed_device_id}
 
 
-def _device_public(service: AccessService, device) -> dict[str, Any]:
+def _device_public(
+    service: AccessService,
+    device,
+    context: AccessContext | None = None,
+) -> dict[str, Any]:
+    """A device and its sessions; ``current`` marks the ones making this request.
+
+    The owner on this computer signs in without an access session, so on
+    direct loopback no device is current (B141).
+    """
+    current_session = context.session_id if context is not None else None
+    current_device = context.device_id if context is not None else None
     sessions = [
-        session.to_public_dict()
+        {
+            **session.to_public_dict(),
+            "current": bool(current_session) and session.id == current_session,
+        }
         for session in service.list_sessions(
             device_id=device.id,
             include_revoked=True,
         )
     ]
-    return {**device.to_public_dict(), "sessions": sessions}
+    return {
+        **device.to_public_dict(),
+        "current": bool(current_device) and device.id == current_device,
+        "sessions": sessions,
+    }
 
 
 def _route_inventory(request: Request, context: AccessContext):
@@ -399,8 +419,9 @@ class AccessSessionAuthenticator:
             mutable_scope,
             context=provenance,
         )
+        address = provenance.effective_client or None
         if token:
-            session = self.service.validate_session(token)
+            session = self.service.validate_session(token, address=address)
             if session is not None:
                 return session
         legacy = self.cookies.extract_legacy_from_scope(
@@ -408,7 +429,7 @@ class AccessSessionAuthenticator:
             context=provenance,
         )
         if legacy:
-            return self.service.validate_legacy_session(legacy)
+            return self.service.validate_legacy_session(legacy, address=address)
         return None
 
 
@@ -1029,12 +1050,18 @@ def build_access_router(
     async def list_invitations(request: Request) -> JSONResponse:
         if _owner_context(request) is None:
             return _error(403, "forbidden", "Owner access is required.")
+        invitations = service.list_invitations()
+        claimed = service.claimed_device_ids(
+            [invitation.id for invitation in invitations if invitation.claimed_at]
+        )
         return _json(
             {
                 "ok": True,
                 "invitations": [
-                    _invitation_public(invitation)
-                    for invitation in service.list_invitations()
+                    _invitation_public(
+                        invitation, claimed_device_id=claimed.get(invitation.id)
+                    )
+                    for invitation in invitations
                 ],
             }
         )
@@ -1060,17 +1087,48 @@ def build_access_router(
         )
 
     async def list_devices(request: Request) -> JSONResponse:
-        if _owner_context(request) is None:
+        context = _owner_context(request)
+        if context is None:
             return _error(403, "forbidden", "Owner access is required.")
         return _json(
             {
                 "ok": True,
                 "devices": [
-                    _device_public(service, device)
+                    _device_public(service, device, context)
                     for device in service.list_devices(include_revoked=True)
                 ],
             }
         )
+
+    async def rename_device(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        device_id = str(request.path_params.get("device_id") or "")
+        try:
+            device = service.rename_device(device_id, payload.get("display_name"))
+        except ValueError:
+            return _error(
+                400,
+                "invalid_device_name",
+                "Name the device with 1 to 80 characters on one line.",
+            )
+        if device is None:
+            return _error(404, "not_found", "That device is no longer connected.")
+        return _json({"ok": True, "device": _device_public(service, device, context)})
 
     async def revoke_device(request: Request) -> JSONResponse:
         context = _owner_context(request)
@@ -1166,6 +1224,11 @@ def build_access_router(
     router.add_api_route(
         "/api/access/devices/{device_id}/revoke",
         revoke_device,
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/api/access/devices/{device_id}/rename",
+        rename_device,
         methods=["POST"],
     )
     router.add_api_route(
