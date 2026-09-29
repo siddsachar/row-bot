@@ -2,6 +2,8 @@ import base64
 import json
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 import row_bot.providers.config as provider_config
 from row_bot.providers.auth_store import get_provider_secret, set_provider_secret
 from row_bot.providers.claude_subscription import (
@@ -33,6 +35,9 @@ from row_bot.providers.claude_subscription import (
 from row_bot.providers.models import AuthMethod, TransportMode
 from row_bot.providers.selection import add_quick_choice_for_model, list_quick_model_ids
 from row_bot.secret_store import _set_backend_for_tests
+
+
+pytestmark = pytest.mark.platform
 
 
 class _MemoryKeyring:

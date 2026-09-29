@@ -3,10 +3,15 @@ import json
 import threading
 from types import SimpleNamespace
 
+import pytest
+
 import row_bot.providers.config as provider_config
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.claude_subscription import ClaudeSubscriptionTokenSet, save_claude_subscription_oauth_tokens
 from row_bot.secret_store import _set_backend_for_tests
+
+
+pytestmark = pytest.mark.platform
 
 
 class _MemoryKeyring:

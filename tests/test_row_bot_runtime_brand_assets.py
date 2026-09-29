@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PIL import Image
+import pytest
+
+
+pytestmark = pytest.mark.platform
 
 _RUNTIME_FILES = {"app.py", "launcher.py", "brand.py"}
 _RUNTIME_PREFIXES = (

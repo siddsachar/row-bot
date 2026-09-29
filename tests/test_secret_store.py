@@ -8,6 +8,9 @@ import sys
 import pytest
 
 
+pytestmark = pytest.mark.platform
+
+
 class _UnavailableKeyring:
     def get_password(self, service, account):
         raise RuntimeError("No recommended backend was available")

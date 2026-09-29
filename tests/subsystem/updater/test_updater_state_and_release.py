@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def _reload_updater(monkeypatch, tmp_path):

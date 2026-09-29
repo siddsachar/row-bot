@@ -14,7 +14,7 @@ import pytest
 from row_bot import tool_configuration as configuration
 from row_bot.application import native_mcp_controls as controls
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture

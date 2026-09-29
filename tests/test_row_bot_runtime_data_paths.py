@@ -7,6 +7,11 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.platform
+
 LEGACY_DATA_DIR_ENV = "THOTH_DATA_DIR"
 LEGACY_DATA_DIR_NAME = ".thoth"
 

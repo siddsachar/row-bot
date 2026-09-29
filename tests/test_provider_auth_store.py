@@ -1,11 +1,16 @@
 import json
 import os
 
+import pytest
+
 import row_bot.api_keys as api_keys
 import row_bot.providers.config as provider_config
 import row_bot.providers.auth_store as auth_store
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status, set_provider_secret
 from row_bot.secret_store import _set_backend_for_tests
+
+
+pytestmark = pytest.mark.platform
 
 
 class _MemoryKeyring:

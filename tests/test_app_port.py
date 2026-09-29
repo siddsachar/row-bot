@@ -10,6 +10,9 @@ import row_bot.app_port as app_port
 import row_bot.launcher as launcher
 
 
+pytestmark = pytest.mark.platform
+
+
 _LEGACY_PORT_ENV = "THOTH_PORT"
 _LEGACY_HOST_ENV = "THOTH_HOST"
 _LEGACY_DATA_ENV = "THOTH_DATA_DIR"

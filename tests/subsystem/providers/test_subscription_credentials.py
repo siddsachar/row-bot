@@ -9,7 +9,7 @@ from row_bot import secret_store
 from row_bot.providers import auth_store, config, codex, claude_subscription, xai_oauth
 from tests.subsystem.providers.test_provider_settings_controls import store as store
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 CASES = [
     ("codex", codex.CodexTokenSet, codex.save_codex_oauth_tokens, codex.disconnect_codex_metadata, codex.codex_runtime_credentials, codex, "refresh_codex_token"),

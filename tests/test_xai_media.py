@@ -9,6 +9,9 @@ from row_bot.providers.xai_oauth import XAIOAuthTokenSet, save_xai_oauth_tokens
 from row_bot.secret_store import _set_backend_for_tests
 
 
+pytestmark = pytest.mark.platform
+
+
 class _MemoryKeyring:
     def __init__(self):
         self.values = {}

@@ -21,8 +21,12 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+import pytest
 
 from row_bot.agent_budget import new_execution_budget
+
+
+pytestmark = pytest.mark.platform
 
 
 class McpClientFoundationTests(unittest.TestCase):

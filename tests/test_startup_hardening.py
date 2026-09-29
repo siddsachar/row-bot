@@ -12,8 +12,12 @@ import builtins
 from types import ModuleType, SimpleNamespace
 
 from PIL import Image
+import pytest
 import row_bot.launcher as launcher
 import row_bot.startup_diagnostics as startup_diagnostics
+
+
+pytestmark = pytest.mark.platform
 
 
 def test_preflight_reports_broken_torchcodec(monkeypatch, caplog):

@@ -9,7 +9,7 @@ from row_bot.providers import client_status as status, config, model_catalog_cac
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
 from tests.subsystem.providers.test_client_status import saved  # noqa: F401 - shared isolated fixture
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 ENDPOINTS = ("/api/v1/settings/providers", "/api/v1/settings/models")
 
 

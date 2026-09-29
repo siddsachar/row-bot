@@ -18,7 +18,7 @@ from tests.subsystem.client_protocol.test_document_queue_api import isolated_que
 from tests.subsystem.client_protocol.test_protocol_application import _client, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 BASE = "/api/v1/documents/uploads"
 CONTENT_TYPE = "application/vnd.row-bot.document-upload-v1"
 

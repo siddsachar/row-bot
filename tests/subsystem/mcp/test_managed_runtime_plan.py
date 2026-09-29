@@ -13,7 +13,7 @@ import pytest
 
 from row_bot.mcp_client import requirements as runtime
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def archive(members):

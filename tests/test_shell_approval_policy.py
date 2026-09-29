@@ -3,6 +3,11 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
+
+pytestmark = pytest.mark.platform
+
 
 def _fresh_shell_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))

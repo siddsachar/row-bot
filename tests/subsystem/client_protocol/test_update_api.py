@@ -10,7 +10,7 @@ import pytest
 from row_bot.application import client_updates
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def _updater(tmp_path, monkeypatch):

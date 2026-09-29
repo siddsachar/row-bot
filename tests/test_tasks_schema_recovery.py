@@ -5,6 +5,11 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.platform
+
 
 REQUIRED_TABLES = {
     "tasks",

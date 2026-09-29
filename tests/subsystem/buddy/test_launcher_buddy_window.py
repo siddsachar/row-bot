@@ -20,7 +20,7 @@ import pytest
 
 from row_bot import launcher
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 ROOT = Path(__file__).resolve().parents[3]
 FAKE_WEBVIEW = ROOT / "tests" / "fixtures" / "fake_webview"

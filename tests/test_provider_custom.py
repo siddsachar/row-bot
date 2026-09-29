@@ -23,6 +23,9 @@ from row_bot.providers.selection import add_quick_choice_for_model, list_quick_c
 from row_bot.secret_store import _set_backend_for_tests
 
 
+pytestmark = pytest.mark.platform
+
+
 class _FailingKeyring:
     def get_password(self, service, account):
         raise RuntimeError("No recommended backend was available")

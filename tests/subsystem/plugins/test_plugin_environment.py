@@ -12,7 +12,7 @@ import pytest
 
 from tests.subsystem.plugins.conftest import write_plugin
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 OPERATION = str(UUID(int=1))
 

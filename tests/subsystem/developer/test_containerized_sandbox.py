@@ -9,7 +9,7 @@ from row_bot.process_cancellation import ProcessRunResult
 from tests.fixtures.developer import fake_workspace
 
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_official_container_marker_is_strict() -> None:

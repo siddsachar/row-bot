@@ -3,8 +3,13 @@ from __future__ import annotations
 import subprocess
 import threading
 
+import pytest
+
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.process_cancellation import run_cancellable_subprocess
+
+
+pytestmark = pytest.mark.platform
 
 
 class _FakeProcess:

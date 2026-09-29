@@ -8,6 +8,9 @@ import sys
 import pytest
 
 
+pytestmark = pytest.mark.platform
+
+
 @pytest.fixture(autouse=True)
 def restore_existing_module_owners():
     """Reload probes must not leave other consumers bound to orphaned modules."""

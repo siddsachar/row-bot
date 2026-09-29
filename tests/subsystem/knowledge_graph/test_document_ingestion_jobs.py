@@ -10,6 +10,9 @@ import sqlite3
 import pytest
 
 
+pytestmark = pytest.mark.platform
+
+
 def _service(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.document_jobs as document_jobs

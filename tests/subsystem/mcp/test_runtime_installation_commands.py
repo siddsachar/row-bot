@@ -18,7 +18,7 @@ from row_bot.application import mcp_runtime_installation as controls
 from row_bot.mcp_client import requirements
 from row_bot.runtime import admissions
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 _DOWNLOAD = requirements._download
 
 

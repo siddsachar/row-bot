@@ -8,6 +8,9 @@ from row_bot.computer_use.readiness import DISCLOSURE_TEXT, ReadinessCode, ackno
 from row_bot.mcp_client import requirements
 
 
+pytestmark = pytest.mark.platform
+
+
 def test_local_calculator_test_stops_only_its_acquired_session(tmp_path, monkeypatch) -> None:
     from row_bot.computer_use import service as service_module
 

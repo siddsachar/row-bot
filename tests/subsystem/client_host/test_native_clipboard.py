@@ -16,6 +16,9 @@ import pytest
 
 from row_bot import launcher
 
+
+pytestmark = pytest.mark.platform
+
 TEXT = "café ✓ 日本"
 
 

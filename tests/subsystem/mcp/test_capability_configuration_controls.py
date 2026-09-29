@@ -14,7 +14,7 @@ import pytest
 from row_bot.application import capability_configuration_controls as controls
 from row_bot.mcp_client import config
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture

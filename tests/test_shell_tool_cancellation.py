@@ -8,6 +8,9 @@ from row_bot.process_cancellation import ProcessRunResult
 from row_bot.tools import shell_tool
 
 
+pytestmark = pytest.mark.platform
+
+
 def test_shell_session_reports_cancelled_command(monkeypatch, tmp_path) -> None:
     def fake_run(args, **kwargs):
         return ProcessRunResult(args, 130, stdout="partial out", stderr="partial err", cancelled=True)

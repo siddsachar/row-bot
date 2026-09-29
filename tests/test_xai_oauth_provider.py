@@ -8,6 +8,8 @@ import zlib
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 import row_bot.providers.config as provider_config
 from row_bot.providers.auth_store import get_provider_secret
 from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, TransportMode
@@ -43,6 +45,9 @@ from row_bot.providers.xai_oauth import (
     xai_oauth_vision_probe_needed,
 )
 from row_bot.secret_store import _set_backend_for_tests
+
+
+pytestmark = pytest.mark.platform
 
 
 ROOT = Path(__file__).resolve().parents[1]

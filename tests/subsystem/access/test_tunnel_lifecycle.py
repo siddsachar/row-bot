@@ -20,6 +20,9 @@ from row_bot.access.config import AccessConfig
 from row_bot.access.runtime_policy import RuntimeAccessPolicy
 from row_bot.tunnel import NgrokProvider, TunnelError, TunnelManager
 
+
+pytestmark = pytest.mark.platform
+
 OWN_CREATED = 1000.0
 AGENT_PID = 7001
 

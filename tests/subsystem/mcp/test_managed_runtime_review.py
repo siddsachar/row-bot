@@ -3,7 +3,7 @@ import pytest
 
 from row_bot.mcp_client import requirements as runtime
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_manifest_change_between_authority_and_snapshot_is_not_overwritten(tmp_path, monkeypatch):

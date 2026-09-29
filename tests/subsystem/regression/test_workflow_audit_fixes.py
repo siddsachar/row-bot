@@ -8,7 +8,7 @@ import pytest
 from tests.fixtures.tasks import fresh_tasks_module
 
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

@@ -9,6 +9,9 @@ from uuid import uuid4
 import pytest
 
 
+pytestmark = pytest.mark.platform
+
+
 @pytest.fixture
 def client(tmp_path,monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR",str(tmp_path / "data"))

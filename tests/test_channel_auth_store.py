@@ -11,6 +11,9 @@ import pytest
 from tests.test_api_key_storage import FakeKeyring
 
 
+pytestmark = pytest.mark.platform
+
+
 @pytest.fixture
 def data_dir():
     root = Path(".tmp") / "pytest-channel-auth-fixtures"

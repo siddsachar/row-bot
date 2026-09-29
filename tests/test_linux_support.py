@@ -14,6 +14,9 @@ import row_bot.updater as updater
 from scripts import app_payload_manifest
 from scripts import check_linux_native_baseline
 
+
+pytestmark = pytest.mark.platform
+
 REQUIRED_RUNTIME_PACKAGES = (
     "voice",
     "buddy",

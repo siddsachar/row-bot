@@ -13,7 +13,7 @@ from row_bot.application import provider_settings_controls as settings
 from row_bot.providers import auth_store, config, credential_controls as controls
 from row_bot.runtime import admissions
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 class MemorySecrets:

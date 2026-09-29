@@ -9,6 +9,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.platform
+
 
 class FakeKeyring:
     def __init__(self, *, fail: bool = False) -> None:

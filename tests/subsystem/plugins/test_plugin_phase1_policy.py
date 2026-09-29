@@ -12,7 +12,7 @@ import pytest
 from tests.subsystem.plugins.conftest import prepare_worker_environment, write_plugin
 from tests.subsystem.plugins.test_plugin_environment import fake_venv, put_distribution, wheel
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.mark.parametrize("mode", ["conflict", "transitive", "timeout", "failure", "missing", "malformed"])

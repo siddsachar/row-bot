@@ -18,6 +18,9 @@ from row_bot.native_client import (
 )
 
 
+pytestmark = pytest.mark.platform
+
+
 def _picker_payload(**changes):
     payload = {"intentId": "intent_1", "intent": "open_existing",
                "conversationId": "conversation_1", "destination": "workspace"}

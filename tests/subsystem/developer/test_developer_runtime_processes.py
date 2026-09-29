@@ -8,7 +8,7 @@ from row_bot.process_cancellation import ProcessRunResult
 from tests.fixtures.developer import fake_workspace
 
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def _py_command(code: str) -> str:

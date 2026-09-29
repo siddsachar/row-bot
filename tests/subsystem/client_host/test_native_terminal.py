@@ -10,7 +10,7 @@ from row_bot.terminal_bridge import (
     TerminalClientAuthority,
 )
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 class FakePty:

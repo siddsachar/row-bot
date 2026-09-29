@@ -20,7 +20,7 @@ from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
     sys.platform == "darwin",
     reason="Strict document processing requires a descriptor-backed SQLite path bridge",
-)]
+), pytest.mark.platform]
 
 
 @pytest.fixture

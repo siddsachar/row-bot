@@ -11,6 +11,9 @@ from row_bot import knowledge_views as views
 from tests.fixtures.knowledge_graph import fresh_knowledge_graph
 
 
+pytestmark = pytest.mark.platform
+
+
 @pytest.fixture
 def saved(tmp_path, monkeypatch):
     kg = fresh_knowledge_graph(tmp_path, monkeypatch)

@@ -2,11 +2,16 @@ import base64
 import json
 import threading
 
+import pytest
+
 import row_bot.providers.config as provider_config
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.xai_catalog import XAI_COMPOSER_MODEL_ID
 from row_bot.providers.xai_oauth import XAIOAuthTokenSet, save_xai_oauth_tokens
 from row_bot.secret_store import _set_backend_for_tests
+
+
+pytestmark = pytest.mark.platform
 
 
 class _MemoryKeyring:

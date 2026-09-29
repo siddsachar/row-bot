@@ -13,6 +13,9 @@ import pytest
 from row_bot.mcp_client import requirements
 
 
+pytestmark = pytest.mark.platform
+
+
 def _zip(path: Path, members: dict[str, bytes]) -> str:
     with zipfile.ZipFile(path, "w") as archive:
         for name, data in members.items():

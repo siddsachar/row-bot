@@ -20,7 +20,7 @@ from row_bot.runtime import admissions
 from tests.subsystem.client_protocol.test_protocol_application import _client, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 BASE = "/api/v1/settings/mcp/installations"
 
 

@@ -5,7 +5,7 @@ import pytest
 from tests.subsystem.knowledge_graph.test_knowledge_projection_recovery import add, projection_stack as _projection_stack
 
 projection_stack = _projection_stack
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_complete_rebuild_bounds_each_embedding_batch(projection_stack):

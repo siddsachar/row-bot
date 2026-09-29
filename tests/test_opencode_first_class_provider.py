@@ -57,6 +57,9 @@ from row_bot.providers.resolution import resolve_provider_config
 from row_bot.providers.selection import ModelSelectionError, add_quick_choice_for_model, canonicalize_model_selection, list_quick_choices, model_choice_value
 
 
+pytestmark = pytest.mark.platform
+
+
 EXISTING_PROVIDER_IDS = (
     "ollama",
     "ollama_cloud",

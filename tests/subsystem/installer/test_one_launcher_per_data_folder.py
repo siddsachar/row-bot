@@ -18,7 +18,7 @@ import pytest
 from row_bot import launcher
 from row_bot.access.launcher_control import LauncherControlServer
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture

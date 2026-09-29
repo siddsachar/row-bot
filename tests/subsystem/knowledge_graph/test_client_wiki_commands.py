@@ -14,7 +14,7 @@ from row_bot.file_ownership import directory_identity
 from row_bot.runtime import admissions
 from tests.integration.wiki_vault.conftest import wiki_stack  # noqa: F401
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture

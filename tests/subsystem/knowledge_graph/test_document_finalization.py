@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture

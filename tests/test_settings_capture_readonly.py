@@ -7,6 +7,11 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
+import pytest
+
+
+pytestmark = pytest.mark.platform
+
 
 def _enable_real_capture(monkeypatch) -> None:
     monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
