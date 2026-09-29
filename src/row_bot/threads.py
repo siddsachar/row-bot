@@ -124,10 +124,28 @@ def _thread_write_blocked(thread_id: str | None) -> bool:
         return False
 
 
+def _use_wal(conn: sqlite3.Connection) -> None:
+    """Switch threads.db to WAL before any request reads a checkpoint (B175).
+
+    The checkpointer switches lazily on its first read, and SQLite refuses that
+    switch at once (no busy wait) while another connection writes, so the first
+    queue read after a start could fail. Switched here, it is a no-op later.
+    """
+    for attempt in range(20):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
+
+
 def _init_thread_db(*, raise_on_error: bool = False):
     """Create and migrate the thread metadata table."""
     try:
         with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+            _use_wal(conn)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS thread_meta "
                 "(thread_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)"

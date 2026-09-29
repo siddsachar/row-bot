@@ -543,3 +543,27 @@ def test_queue_api_errors_are_typed_and_never_leak_private_exception(client, mon
     assert response.status_code == status
     assert response.json()["code"] == code
     assert "PRIVATE" not in response.text
+
+
+def test_the_first_queue_read_never_races_a_writer_into_database_is_locked(tmp_path, monkeypatch):
+    """B175: the first checkpoint read switched threads.db into WAL lazily, and that switch
+    fails at once (no busy wait) while another connection writes, so a queue read 503'd."""
+    from row_bot import threads
+
+    path = tmp_path / "threads.db"
+    monkeypatch.setattr(threads, "DB_PATH", str(path))
+    threads._init_thread_db(raise_on_error=True)
+    with closing(sqlite3.connect(path)) as probe:
+        assert probe.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    writer = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("INSERT INTO thread_meta(thread_id, name) VALUES ('busy', 'Synthetic')")
+    release = threading.Timer(0.2, lambda: writer.execute("COMMIT"))
+    release.start()
+    saver = threads._DeletionAwareSqliteSaver(threads._ManagedSqliteConnection(str(path)))
+    try:
+        assert saver.get_tuple({"configurable": {"thread_id": "fresh", "checkpoint_ns": "queue"}}) is None
+    finally:
+        release.join()
+        writer.close()
+        saver.conn.close()
