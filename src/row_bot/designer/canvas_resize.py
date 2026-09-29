@@ -41,6 +41,47 @@ def resolve_canvas_target(*, preset: str | None = None, aspect_ratio: str | None
     raise ValueError("provide either preset or aspect_ratio.")
 
 
+def _current_size(project: DesignerProject) -> tuple[int, int]:
+    fallback = ASPECT_RATIOS.get(project.aspect_ratio, (1920, 1080))
+    return int(project.canvas_width or fallback[0]), int(project.canvas_height or fallback[1])
+
+
+def apply_canvas_size(project: DesignerProject, aspect_ratio: str, *, source: str,
+                      label: str | None = None) -> int:
+    """Set the canvas in memory and re-fit every page; the caller snapshots and saves.
+
+    Returns the number of re-fitted pages (0, with nothing changed, for the same size).
+    """
+    if aspect_ratio not in ASPECT_RATIOS:
+        raise ValueError(f"unknown aspect_ratio '{aspect_ratio}'.")
+    previous_ratio = project.aspect_ratio
+    previous_width, previous_height = _current_size(project)
+    target_width, target_height = ASPECT_RATIOS[aspect_ratio]
+    if aspect_ratio == previous_ratio and (previous_width, previous_height) == (target_width, target_height):
+        return 0
+    project.aspect_ratio = aspect_ratio
+    project.canvas_width = target_width
+    project.canvas_height = target_height
+    fitted_pages = 0
+    for page in project.pages:
+        fitted_html = fit_page_html_to_canvas(
+            page.html,
+            previous_width=previous_width,
+            previous_height=previous_height,
+            target_width=target_width,
+            target_height=target_height,
+        )
+        if fitted_html != page.html:
+            page.html = fitted_html
+            page.thumbnail_b64 = None
+            fitted_pages += 1
+    project.manual_edits.append(
+        f"Designer resized the canvas from {previous_ratio} to {label or aspect_ratio} "
+        f"({target_width}×{target_height}) via {source}. Auto-fitted {fitted_pages} page(s)."
+    )
+    return fitted_pages
+
+
 def resize_project_canvas(
     project: DesignerProject,
     *,
@@ -55,8 +96,7 @@ def resize_project_canvas(
 
     resolved_label = label or aspect_ratio
     previous_ratio = project.aspect_ratio
-    previous_width = int(project.canvas_width or ASPECT_RATIOS.get(previous_ratio, (1920, 1080))[0])
-    previous_height = int(project.canvas_height or ASPECT_RATIOS.get(previous_ratio, (1920, 1080))[1])
+    previous_width, previous_height = _current_size(project)
     target_width, target_height = ASPECT_RATIOS[aspect_ratio]
 
     if aspect_ratio == previous_ratio and (previous_width, previous_height) == (target_width, target_height):
@@ -72,28 +112,7 @@ def resize_project_canvas(
         }
 
     prepare_project_mutation(project, f"resize_{previous_ratio}_to_{aspect_ratio}")
-    project.aspect_ratio = aspect_ratio
-    project.canvas_width = target_width
-    project.canvas_height = target_height
-
-    fitted_pages = 0
-    for page in project.pages:
-        fitted_html = fit_page_html_to_canvas(
-            page.html,
-            previous_width=previous_width,
-            previous_height=previous_height,
-            target_width=target_width,
-            target_height=target_height,
-        )
-        if fitted_html != page.html:
-            page.html = fitted_html
-            page.thumbnail_b64 = None
-            fitted_pages += 1
-
-    project.manual_edits.append(
-        f"Designer resized the canvas from {previous_ratio} to {resolved_label} "
-        f"({target_width}×{target_height}) via {source}. Auto-fitted {fitted_pages} page(s)."
-    )
+    fitted_pages = apply_canvas_size(project, aspect_ratio, source=source, label=resolved_label)
     save_project(project)
 
     return {

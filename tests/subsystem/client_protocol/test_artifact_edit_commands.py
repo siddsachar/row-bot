@@ -66,3 +66,30 @@ def test_wrong_binding_never_edits_another_resource(artifact_service):
         assert response.status_code == 403 and response.json()["code"] == "resource_binding_revoked"
         assert {path.name: path.read_bytes() for path in storage.PROJECTS_DIR.glob("*.json")} == before
         assert artifacts.read_artifact(second["resource_id"]).name != "Wrong"
+
+
+def test_page_ops_and_size_change_through_the_command_path(artifact_service):
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        state = editing(client, headers, created)
+        kwargs = {"target": created["conversation_id"], "revision": created["revision"]}
+
+        def edit(**payload):
+            current = editing(client, headers, created)
+            payload["target"] = target(client, headers, created, current["resource_revision"])
+            response = _command(client, headers, "artifact.edit", payload, **kwargs)
+            assert response.status_code == 200, response.text
+            return editing(client, headers, created)
+
+        added = edit(operation="page_add", page_id=state["page_id"])
+        assert added["page_count"] == state["page_count"] + 1
+        assert added["page_title"] == "New slide"
+        resized = edit(operation="canvas_size", aspect_ratio="1:1")
+        assert (resized["canvas_width"], resized["canvas_height"]) == (1080, 1080)
+        removed = edit(operation="page_delete", page_id=added["page_id"])
+        assert removed["page_count"] == state["page_count"]
+        refused = _command(client, headers, "artifact.edit", {
+            "target": target(client, headers, created, removed["resource_revision"]),
+            "operation": "canvas_size", "aspect_ratio": "landing"}, **kwargs)
+        assert refused.status_code == 422

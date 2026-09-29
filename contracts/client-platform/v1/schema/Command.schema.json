@@ -538,6 +538,25 @@
     "ArtifactEditPayload": {
       "additionalProperties": false,
       "properties": {
+        "aspect_ratio": {
+          "anyOf": [
+            {
+              "enum": [
+                "16:9",
+                "4:3",
+                "1:1",
+                "A4",
+                "9:16"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aspect Ratio"
+        },
         "element_id": {
           "anyOf": [
             {
@@ -583,7 +602,10 @@
             "project_properties",
             "page_properties",
             "text",
-            "restore"
+            "restore",
+            "page_add",
+            "page_delete",
+            "canvas_size"
           ],
           "title": "Operation",
           "type": "string"

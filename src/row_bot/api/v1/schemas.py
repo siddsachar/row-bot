@@ -4380,7 +4380,10 @@ class SetupContinuePayload(WireModel):
 
 class ArtifactEditPayload(WireModel):
     target: WriteTarget
-    operation: Literal["project_properties", "page_properties", "text", "restore"]
+    operation: Literal[
+        "project_properties", "page_properties", "text", "restore",
+        "page_add", "page_delete", "canvas_size",
+    ]
     page_id: OpaqueId | None = None
     name: str | None = Field(default=None, max_length=256)
     title: str | None = Field(default=None, max_length=256)
@@ -4393,6 +4396,8 @@ class ArtifactEditPayload(WireModel):
         max_length=40,
         pattern=r"^[0-9]{1,20}(\.[0-9]{1,12})?$",
     )
+    # The Design panel's size menu (re-fits every page); anything else by asking.
+    aspect_ratio: Literal["16:9", "4:3", "1:1", "A4", "9:16"] | None = None
 
     @model_validator(mode="after")
     def artifact_target(self) -> ArtifactEditPayload:

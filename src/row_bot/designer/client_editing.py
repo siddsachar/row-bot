@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import re
 from collections.abc import Callable
@@ -14,12 +15,15 @@ from bs4 import BeautifulSoup, Tag
 
 from row_bot.designer import history, storage
 from row_bot.designer.client_service import ArtifactError, ArtifactPage, _identifier, read_artifact
-from row_bot.designer.state import DESIGNER_MODES, DesignerProject
+from row_bot.designer.state import DESIGNER_MODES, DesignerPage, DesignerProject, default_page_kind_for_mode
 from row_bot.thread_cleanup import resolve_managed_path
 
 _TEXT_TAGS = frozenset("h1 h2 h3 h4 h5 h6 p span a li td th label figcaption blockquote button dt dd strong em b i small code pre caption summary div section".split())
 _SNAPSHOT_ID = re.compile(r"[0-9]{1,20}(?:\.[0-9]{1,12})?")
 _MAX_TEXT = 20000
+# The sizes the panel's size menu offers (parity row 29); anything else by asking.
+PANEL_SIZES = ("16:9", "4:3", "1:1", "A4", "9:16")
+_NEW_PAGE_WORDS = {"slide": "slide", "screen": "screen", "shot": "shot"}
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,46 @@ def _selected(project: DesignerProject, page_id: str | None):
     if type(index) is not int or not 0 <= index < len(project.pages):
         raise ArtifactError("page_unavailable")
     return project.pages[index]
+
+
+def _page_index(project: DesignerProject, page_id: str | None) -> int:
+    index = next((i for i, page in enumerate(project.pages) if page.route_id == page_id), -1)
+    if not isinstance(page_id, str) or index < 0:
+        raise ArtifactError("page_unavailable")
+    return index
+
+
+def _new_page_title(mode: str) -> str:
+    kind = default_page_kind_for_mode(mode)
+    word = "page" if mode == "document" else _NEW_PAGE_WORDS.get(kind, "page")
+    return f"New {word}"
+
+
+def _unique_route_id(project: DesignerProject, title: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:100] or "page"
+    taken = {page.route_id for page in project.pages}
+    candidate, suffix = base, 2
+    while candidate in taken:
+        candidate, suffix = f"{base}-{suffix}", suffix + 1
+    return candidate
+
+
+def _blank_page_html(project: DesignerProject, title: str) -> str:
+    """A brand-aware blank page at the canvas size (the NiceGUI navigator's look), text escaped."""
+    from row_bot.designer.preview import _build_brand_css
+    brand_css = _build_brand_css(project.brand) if project.brand else ""
+    width, height = int(project.canvas_width), int(project.canvas_height)
+    return (
+        f"<!DOCTYPE html><html><head>{brand_css}"
+        f"<style>html,body{{margin:0;width:{width}px;height:{height}px;overflow:hidden;"
+        "background:var(--bg,#0F172A);color:var(--text,#F8FAFC);"
+        "font-family:var(--body-font,sans-serif);}"
+        "h1,h2,h3,h4{font-family:var(--heading-font,sans-serif);}</style>"
+        "</head><body>"
+        '<div style="display:flex;align-items:center;justify-content:center;height:100%;">'
+        f'<h1 style="font-size:2.5rem;opacity:0.3;">{html.escape(title)}</h1>'
+        "</div></body></html>"
+    )
 
 
 def _text_targets(page):
@@ -284,13 +328,15 @@ def _restore_state(project: DesignerProject, snapshot_id: str, *, value: dict | 
 def apply_edit(project_id: str, *, expected_revision: str, operation: str,
                page_id: str | None = None, name: str | None = None, title: str | None = None,
                notes: str | None = None, element_id: str | None = None, text: str | None = None,
-               snapshot_id: str | None = None,
+               snapshot_id: str | None = None, aspect_ratio: str | None = None,
                validate: Callable[[], None] | None = None) -> DesignerProject:
     """Apply an explicit captured edit under the existing document save owner."""
     supplied = {key for key, value in {"page_id": page_id, "name": name, "title": title, "notes": notes,
-                "element_id": element_id, "text": text, "snapshot_id": snapshot_id}.items() if value is not None}
+                "element_id": element_id, "text": text, "snapshot_id": snapshot_id,
+                "aspect_ratio": aspect_ratio}.items() if value is not None}
     allowed = {"project_properties": {"name"}, "page_properties": {"page_id", "title", "notes"},
-               "text": {"page_id", "element_id", "text"}, "restore": {"snapshot_id"}}
+               "text": {"page_id", "element_id", "text"}, "restore": {"snapshot_id"},
+               "page_add": {"page_id"}, "page_delete": {"page_id"}, "canvas_size": {"aspect_ratio"}}
     if operation not in allowed or supplied - allowed[operation] or not supplied:
         raise ArtifactError("invalid_edit")
     with storage._project_save_lock(_identifier(project_id)):
@@ -305,6 +351,26 @@ def apply_edit(project_id: str, *, expected_revision: str, operation: str,
         updated._row_bot_persisted_updated_at = project.updated_at
         if operation == "project_properties":
             updated.name = _plain(name, maximum=200, empty=False)
+        elif operation == "page_add":
+            # A blank page right after the one shown, then shown itself.
+            index = _page_index(updated, page_id) + 1
+            page_title = _new_page_title(updated.mode)
+            updated.pages.insert(index, DesignerPage(
+                html=_blank_page_html(updated, page_title), title=page_title,
+                route_id=_unique_route_id(updated, page_title), kind=default_page_kind_for_mode(updated.mode)))
+            updated.active_page = index
+        elif operation == "page_delete":
+            index = _page_index(updated, page_id)
+            if len(updated.pages) <= 1:
+                raise ArtifactError("invalid_edit")
+            updated.pages.pop(index)
+            if index < updated.active_page or updated.active_page >= len(updated.pages):
+                updated.active_page = max(0, updated.active_page - 1)
+        elif operation == "canvas_size":
+            from row_bot.designer.canvas_resize import apply_canvas_size
+            if aspect_ratio not in PANEL_SIZES:
+                raise ArtifactError("invalid_edit")
+            apply_canvas_size(updated, aspect_ratio, source="the Design panel")
         elif operation == "restore":
             history.apply_project_state(updated, _restore_state(project, snapshot_id))
         else:
