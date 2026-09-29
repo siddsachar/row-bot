@@ -982,6 +982,7 @@ it('offers run history, step, settings and conversation actions in the row menu'
     onGraph: graph,
     onSettings: settings,
     onOpenConversation: conversation,
+    onDuplicate: vi.fn(),
     onDelete: vi.fn(),
   });
   await screen.findByText('Digest');
@@ -997,6 +998,7 @@ it('offers run history, step, settings and conversation actions in the row menu'
     'Edit workflow steps',
     'Workflow settings',
     'Open conversation',
+    'Duplicate workflow',
     'Delete workflow',
   ]);
   for (const [label, callback, args] of [
@@ -1149,4 +1151,23 @@ it('summarises recent runs for idle workflows', async () => {
       name: 'Last 2 runs of Healthy: 1 completed, 1 failed',
     }),
   ).toBeVisible();
+});
+
+it('duplicates a workflow from the row menu and says what it made (parity row 18)', async () => {
+  const user = userEvent.setup();
+  const duplicate = vi.fn(async () => 'Digest (copy)');
+  const load = vi.fn(async () => pageOf([task('Digest', { enabled: true })]));
+  show(load, { onDuplicate: duplicate });
+  await screen.findByText('Digest');
+  await user.click(
+    screen.getByRole('button', { name: 'More actions for Digest' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Duplicate workflow' }),
+  );
+  expect(duplicate).toHaveBeenCalledWith('Digest');
+  expect(
+    await screen.findByText('Duplicated as “Digest (copy)”.'),
+  ).toBeInTheDocument();
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });

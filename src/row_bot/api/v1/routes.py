@@ -3016,6 +3016,7 @@ def create_router(
                 "task.create",
                 "task.update",
                 "task.delete",
+                "task.duplicate",
                 "task.delivery.update",
                 "task.graph.update",
                 "task.settings.update",

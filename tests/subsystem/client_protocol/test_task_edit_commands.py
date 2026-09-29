@@ -111,6 +111,40 @@ def test_revision_bound_delete_preserves_audit_ownership(task_api, fields):
         assert send(client, headers, command).json() == deleted.json()
 
 
+def test_duplicate_is_a_revision_bound_copy_without_schedule_or_webhook(task_api, fields):
+    """Parity row 18: Duplicate workflow makes "<name> (copy)" once, never runs it."""
+    from dataclasses import replace
+
+    service, tasks = task_api
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        source = replace(fields, schedule="daily:09:30", channels=("telegram",))
+        created = send(client, headers, body(headers, source)).json()
+        tasks.update_task(created["task_id"], trigger={"type": "webhook", "secret": "s" * 32})
+        revision = client.get(f"/api/v1/tasks/{created['task_id']}/editing", headers=headers).json()["revision"]
+        command = {
+            "command_id": str(uuid4()),
+            "client_session_id": headers["X-Client-Session"],
+            "type": "task.duplicate",
+            "expected_revision": "0",
+            "payload": {"task_id": created["task_id"], "task_revision": revision},
+        }
+        copied = send(client, headers, command)
+        assert copied.status_code == 200, copied.text
+        receipt = copied.json()
+        assert receipt["task_created"] is True and receipt["task_id"] != created["task_id"]
+        copy = tasks.get_task(receipt["task_id"])
+        assert copy["name"] == f"{fields.name} (copy)"
+        assert copy["prompts"] == list(fields.prompts) and copy["channels"] == ["telegram"]
+        assert copy["schedule"] is None and copy["at"] is None and not copy.get("trigger")
+        assert send(client, headers, command).json() == receipt
+        assert len(tasks.list_tasks()) == 2 and tasks.get_recent_runs() == []
+        stale = {**command, "command_id": str(uuid4()), "payload": {**command["payload"], "task_revision": "0" * 64}}
+        refused = send(client, headers, stale)
+        assert refused.status_code == 409 and refused.json()["code"] == "task_revision_conflict"
+        assert len(tasks.list_tasks()) == 2
+
+
 def test_delivery_defaults_are_passive_revision_bound_and_idempotent(
     task_api, monkeypatch
 ):

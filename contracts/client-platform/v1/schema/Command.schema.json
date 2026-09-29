@@ -8943,6 +8943,66 @@
       "title": "TaskDeliveryUpdatePayload",
       "type": "object"
     },
+    "TaskDuplicateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskDuplicatePayload"
+        },
+        "type": {
+          "const": "task.duplicate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "TaskDuplicateCommand",
+      "type": "object"
+    },
+    "TaskDuplicatePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "task_revision"
+      ],
+      "title": "TaskDuplicatePayload",
+      "type": "object"
+    },
     "TaskEditableFields": {
       "additionalProperties": false,
       "properties": {
@@ -10963,6 +11023,7 @@
       "task.create": "#/$defs/TaskCreateCommand",
       "task.delete": "#/$defs/TaskDeleteCommand",
       "task.delivery.update": "#/$defs/TaskDeliveryUpdateCommand",
+      "task.duplicate": "#/$defs/TaskDuplicateCommand",
       "task.graph.update": "#/$defs/TaskGraphUpdateCommand",
       "task.run": "#/$defs/TaskRunCommand",
       "task.settings.update": "#/$defs/TaskSettingsUpdateCommand",
@@ -11091,6 +11152,9 @@
     },
     {
       "$ref": "#/$defs/TaskDeleteCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskDuplicateCommand"
     },
     {
       "$ref": "#/$defs/TaskDeliveryUpdateCommand"

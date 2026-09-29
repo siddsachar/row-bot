@@ -240,6 +240,7 @@ export function SavedTasks({
   deliveryDefaults = [],
   deliveryOptions = [],
   onToggleEnabled,
+  onDuplicate,
   onDelete,
   onBulkDelete,
   onStop,
@@ -257,6 +258,8 @@ export function SavedTasks({
   deliveryDefaults?: ReadonlyArray<{ id: string; label: string }>;
   deliveryOptions?: ReadonlyArray<{ id: string; label: string }>;
   onToggleEnabled?: (id: string, enabled: boolean) => void | Promise<void>;
+  /** Copy a workflow (no schedule or trigger); resolves to the copy's name. */
+  onDuplicate?: (id: string) => Promise<string>;
   onDelete?: (id: string) => void | Promise<void>;
   onBulkDelete?: (ids: readonly string[]) => void | Promise<void>;
   onStop?: (id: string) => void | Promise<void>;
@@ -376,7 +379,7 @@ export function SavedTasks({
   async function invoke(
     key: string,
     callback: () => void | Promise<void>,
-    success: string,
+    success: string | (() => string),
   ) {
     if (actionRef.current) return false;
     actionRef.current = key;
@@ -384,7 +387,7 @@ export function SavedTasks({
     setActionError('');
     try {
       await callback();
-      overlay.notify(success);
+      overlay.notify(typeof success === 'function' ? success() : success);
       setReload((value) => value + 1);
       return true;
     } catch (cause) {
@@ -685,6 +688,24 @@ export function SavedTasks({
                         },
                       ]
                     : []),
+                  ...(onDuplicate
+                    ? [
+                        {
+                          label: 'Duplicate workflow',
+                          disabled: Boolean(action),
+                          onSelect: () => {
+                            let copy = '';
+                            void invoke(
+                              `duplicate:${task.id}`,
+                              async () => {
+                                copy = await onDuplicate(task.id);
+                              },
+                              () => `Duplicated as “${copy}”.`,
+                            );
+                          },
+                        } satisfies MenuAction,
+                      ]
+                    : []),
                   ...(onDelete
                     ? [
                         {
@@ -936,6 +957,7 @@ export default function TaskLibrary() {
   const execution = useMemo(() => taskRuns(controller), [controller]);
   const quickEdits = useMemo(() => taskEdits(controller), [controller]);
   const deleteOwner = useRef<TaskCommandOwner<void>>({ pending: null });
+  const duplicateOwner = useRef<TaskCommandOwner<string>>({ pending: null });
   const deliveryOwner = useRef<TaskCommandOwner<void>>({ pending: null });
   const editorHeading = useRef<HTMLHeadingElement>(null);
   const createButton = useRef<HTMLButtonElement>(null);
@@ -945,6 +967,10 @@ export default function TaskLibrary() {
   );
   const deliveryMutation = useMemo(
     () => taskMutation(controller, deliveryOwner.current),
+    [controller],
+  );
+  const duplicateMutation = useMemo(
+    () => taskMutation(controller, duplicateOwner.current),
     [controller],
   );
   const sessions = useSyncExternalStore(
@@ -1011,6 +1037,16 @@ export default function TaskLibrary() {
       { task_id: id, task_revision: task.revision },
       id,
       async () => undefined,
+    );
+  };
+  // A copy without schedule or trigger; the receipt names the new workflow.
+  const duplicateTask = async (id: string) => {
+    const task = await controller.taskEditor(id);
+    return duplicateMutation(
+      'task.duplicate',
+      { task_id: id, task_revision: task.revision },
+      undefined,
+      async (copyId) => (await controller.taskEditor(copyId)).fields.name,
     );
   };
   const deleteTasks = async (ids: readonly string[]) => {
@@ -1266,6 +1302,7 @@ export default function TaskLibrary() {
         onRuns={(id, name) => setRunsFor({ id, name })}
         onOpenConversation={openConversation}
         onToggleEnabled={toggleEnabled}
+        onDuplicate={duplicateTask}
         onDelete={deleteTask}
         onBulkDelete={deleteTasks}
         onStop={stopTask}

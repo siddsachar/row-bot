@@ -865,9 +865,11 @@ it.each([
 
 it('refuses to switch on a one-off whose time has passed, before saving (B133)', async () => {
   const callbacks = props({
-    load: vi.fn().mockResolvedValue(
-      snapshot({ fields: { ...fields, at: '2020-01-01T09:00' } }),
-    ),
+    load: vi
+      .fn()
+      .mockResolvedValue(
+        snapshot({ fields: { ...fields, at: '2020-01-01T09:00' } }),
+      ),
   });
   render(<TaskEditor {...callbacks} taskId="task-a" />);
   const enabled = await screen.findByRole('switch', { name: 'Enabled' });

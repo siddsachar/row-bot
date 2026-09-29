@@ -5339,6 +5339,11 @@ class TaskDeletePayload(WireModel):
     task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class TaskDuplicatePayload(WireModel):
+    task_id: OpaqueId
+    task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class TaskDeliveryUpdatePayload(WireModel):
     delivery_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     channels: list[OpaqueId] = Field(max_length=32)
@@ -5562,6 +5567,7 @@ class Command(WireModel):
         "task.create",
         "task.update",
         "task.delete",
+        "task.duplicate",
         "task.delivery.update",
         "task.graph.update",
         "task.settings.update",
@@ -5741,6 +5747,7 @@ COMMAND_PAYLOADS = {
     "task.create": TaskCreatePayload,
     "task.update": TaskUpdatePayload,
     "task.delete": TaskDeletePayload,
+    "task.duplicate": TaskDuplicatePayload,
     "task.delivery.update": TaskDeliveryUpdatePayload,
     "task.settings.update": TaskSettingsUpdatePayload,
     "task.webhook.rotate": TaskWebhookRotatePayload,

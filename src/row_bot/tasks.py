@@ -2325,8 +2325,14 @@ def delete_tasks(task_ids: list[str]) -> tuple[int, list[tuple[str, str]]]:
     return deleted, failures
 
 
-def duplicate_task(task_id: str) -> str | None:
-    """Clone a task and return the new ID."""
+def duplicate_task(task_id: str, *, new_task_id: str | None = None,
+                   validate: Callable[[], None] | None = None,
+                   record_commit: Callable[[sqlite3.Connection, str], None] | None = None) -> str | None:
+    """Clone a task and return the new ID.
+
+    The copy has no schedule, one-off time or trigger (a webhook secret is
+    never copied), so it never runs by itself.
+    """
     task = get_task(task_id)
     if not task:
         return None
@@ -2350,6 +2356,9 @@ def duplicate_task(task_id: str) -> str | None:
         advanced_mode=bool(task.get("advanced_mode")),
         agent_profile_id=task.get("agent_profile_id"),
         apply_default_skills=False,
+        **({"task_id": new_task_id} if new_task_id is not None else {}),
+        **({"validate": validate} if validate is not None else {}),
+        **({"record_commit": record_commit} if record_commit is not None else {}),
     )
 
 
