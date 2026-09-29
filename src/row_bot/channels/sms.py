@@ -926,6 +926,12 @@ class SMSChannel(Channel):
     def reachability_problem(self) -> str | None:
         return reachability_problem()
 
+    def public_address(self) -> str | None:
+        """Twilio's webhook address while SMS runs behind the tunnel."""
+        if not _running or not _webhook_public_url:
+            return None
+        return _webhook_public_url.rstrip("/") + "/sms"
+
     def get_default_target(self) -> str:
         phone = _get_user_phone()
         if phone:

@@ -54,6 +54,8 @@ import ConnectedMigrationControls from './MigrationControls';
 import ConnectedDataBackup from './DataBackup';
 import ConnectedGitHubAccessControls from './GitHubAccessControls';
 import ConnectedAccountAuthControls from './AccountAuthControls';
+import { ConnectSheet } from './ConnectSheet';
+import { ACCOUNT_LINKS } from './connect-guides';
 import type {
   SettingsMutationReceipt,
   SettingsMutationRequest,
@@ -2710,6 +2712,104 @@ function AccountPanel({
         />
       </summary>
       <div className="stack settings-account-content">
+        {prefix === 'github' ? (
+          // GitHub's connect sheet (parity row 45).
+          <ConnectSheet
+            title="Connect GitHub"
+            steps={[
+              {
+                id: 'token',
+                text: 'Sign in with the GitHub CLI (gh auth login) on this computer, or create a fine-grained token for the repositories Row-Bot should use.',
+                link: {
+                  href: ACCOUNT_LINKS.githubToken,
+                  label: 'Create a token',
+                },
+              },
+              {
+                id: 'paste',
+                text: 'If you made a token, paste it here. It stays in your keychain.',
+                done: account.credential?.configured === true,
+                children: (
+                  <SecretSetting
+                    mutation={mutation}
+                    field="github.credential"
+                    label="GitHub token"
+                    configured={account.credential?.configured ?? false}
+                    source={account.credential?.source}
+                    fingerprint={account.credential?.fingerprint}
+                  />
+                ),
+              },
+              {
+                id: 'check',
+                text: 'Check that Row-Bot can reach GitHub with it.',
+                done: account.authentication_state === 'connected',
+                children: showActions ? (
+                  <ConnectedGitHubAccessControls />
+                ) : null,
+              },
+            ]}
+          />
+        ) : (
+          // X's connect sheet, with the callback address to register.
+          <ConnectSheet
+            title="Connect X"
+            steps={[
+              {
+                id: 'app',
+                text: 'In the X developer portal, create a project and an app, and turn on OAuth 2.0 with read and write access.',
+                link: {
+                  href: ACCOUNT_LINKS.xPortal,
+                  label: 'Open the developer portal',
+                },
+              },
+              ...(account.callback_url
+                ? [
+                    {
+                      id: 'callback',
+                      text: 'Add this callback address to the app’s OAuth settings:',
+                      copy: {
+                        value: account.callback_url,
+                        label: 'X callback address',
+                      },
+                    },
+                  ]
+                : []),
+              {
+                id: 'keys',
+                text: 'Paste its client ID and client secret.',
+                done: account.configured,
+                children: (
+                  <>
+                    <SecretSetting
+                      mutation={mutation}
+                      field="x.client_id"
+                      label="X client ID"
+                      configured={account.configured}
+                      source={account.credential?.source}
+                    />
+                    <SecretSetting
+                      mutation={mutation}
+                      field="x.client_secret"
+                      label="X client secret"
+                      configured={account.credential?.configured ?? false}
+                      source={account.credential?.source}
+                      fingerprint={account.credential?.fingerprint}
+                    />
+                  </>
+                ),
+              },
+              {
+                id: 'authenticate',
+                text: 'Authenticate X in your browser.',
+                done: account.authentication_state === 'saved_unchecked',
+                children: showActions ? (
+                  <ConnectedAccountAuthControls account="x" />
+                ) : null,
+              },
+            ]}
+          />
+        )}
         <Facts>
           <Fact
             label="Configuration"
@@ -2732,39 +2832,8 @@ function AccountPanel({
             value={account.enabled}
           />
         )}
-        {prefix === 'github' && (
-          <SecretSetting
-            mutation={mutation}
-            field="github.credential"
-            label="GitHub token"
-            configured={account.credential?.configured ?? false}
-            source={account.credential?.source}
-            fingerprint={account.credential?.fingerprint}
-          />
-        )}
-        {prefix === 'github' && showActions && (
-          <ConnectedGitHubAccessControls />
-        )}
-        {prefix === 'x' && showActions && (
-          <ConnectedAccountAuthControls account="x" />
-        )}
         {prefix === 'x' && (
           <>
-            <SecretSetting
-              mutation={mutation}
-              field="x.client_id"
-              label="X client ID"
-              configured={account.configured}
-              source={account.credential?.source}
-            />
-            <SecretSetting
-              mutation={mutation}
-              field="x.client_secret"
-              label="X client secret"
-              configured={account.credential?.configured ?? false}
-              source={account.credential?.source}
-              fingerprint={account.credential?.fingerprint}
-            />
             <ChoiceListSetting
               mutation={mutation}
               field="x.read_operations"
@@ -2840,6 +2909,46 @@ function GoogleAccountPanel({
         />
       </summary>
       <div className="stack settings-account-content">
+        <ConnectSheet
+          title="Connect Google"
+          steps={[
+            {
+              id: 'apis',
+              text: 'In Google Cloud, create a project and turn on the Gmail API and the Google Calendar API.',
+              link: {
+                href: ACCOUNT_LINKS.googleLibrary,
+                label: 'Open the API library',
+              },
+            },
+            {
+              id: 'consent',
+              text: 'Set up the OAuth consent screen and add yourself as a test user.',
+              link: {
+                href: ACCOUNT_LINKS.googleConsent,
+                label: 'Open the consent screen',
+              },
+            },
+            {
+              id: 'client',
+              text: 'Create an OAuth client ID of type Desktop app and download its JSON file.',
+              link: {
+                href: ACCOUNT_LINKS.googleCredentials,
+                label: 'Open credentials',
+              },
+              done: gmail.configured || calendar.configured,
+            },
+            {
+              id: 'authenticate',
+              text: 'Choose that file here, then authenticate Google in your browser.',
+              done:
+                gmail.authentication_state === 'saved_unchecked' ||
+                calendar.authentication_state === 'saved_unchecked',
+              children: showActions ? (
+                <ConnectedAccountAuthControls account="google" />
+              ) : null,
+            },
+          ]}
+        />
         <div className="settings-control-grid">
           {gmail.enabled != null && (
             <SwitchSetting
@@ -2909,7 +3018,6 @@ function GoogleAccountPanel({
           Choose a client file or start authentication on the local owner
           device.
         </p>
-        {showActions && <ConnectedAccountAuthControls account="google" />}
       </div>
     </details>
   );

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from row_bot.api.v1.routes import create_client_platform_app
 from row_bot.api.v1.security import ClientSecurity
-from tests.subsystem.client_protocol.test_protocol_security import bootstrap
+from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
 from tests.subsystem.client_protocol.test_protocol_application import _isolated_service
 
 pytestmark = pytest.mark.subsystem
@@ -315,3 +315,26 @@ def test_plugin_command_rejects_route_identity_mismatch(api):
     )
     assert response.status_code == 422
     assert response.json()["code"] == "invalid_plugin_command"
+
+
+def test_a_channel_link_code_is_read_only_by_the_owner_on_this_computer(tmp_path, monkeypatch):
+    """B139: WhatsApp's QR links a phone to Row-Bot; a remote device never
+    reads it, and the local owner's read never starts anything."""
+    from row_bot.application import channel_controls
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    reads = []
+    monkeypatch.setattr(channel_controls, "read_channel_link", lambda channel_id, **_kwargs: (
+        reads.append(channel_id) or {"state": "scan", "code": "synthetic-link-code"}))
+    remote, _, _ = client_app(remote=True)
+    with remote:
+        _, headers = bootstrap(remote)
+        assert remote.get("/api/v1/settings/channels/whatsapp/link", headers=headers).status_code == 403
+    assert reads == []
+    local, _, _ = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        response = local.get("/api/v1/settings/channels/whatsapp/link", headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json() == {"state": "scan", "code": "synthetic-link-code"}
+    assert reads == ["whatsapp"]

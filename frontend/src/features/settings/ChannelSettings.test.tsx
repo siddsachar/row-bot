@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ChannelSettings, {
@@ -217,13 +218,13 @@ it('reports unavailable pairing without inventing an account flow', async () => 
   render(<ChannelSettings {...props} />);
   await openSyntheticChannel();
   expect(
-    await screen.findByText(/Pairing controls are unavailable/),
+    await screen.findByText(/Pairing is not available for this channel/),
   ).toBeVisible();
   expect(
-    screen.getByRole('button', {
+    screen.queryByRole('button', {
       name: 'Get pairing code for Synthetic Slack',
     }),
-  ).toBeDisabled();
+  ).toBeNull();
 });
 
 it('tombstones private drafts and ignores a late execution after auth loss', async () => {
@@ -264,4 +265,51 @@ it('rejects malformed oversized pages without retaining rows', async () => {
   expect(
     screen.queryByLabelText('Synthetic Slack channel'),
   ).not.toBeInTheDocument();
+});
+
+it('shows WhatsApp’s live link code while it waits for a scan and resets only after asking (B139)', async () => {
+  const props = options();
+  const whatsapp = {
+    ...page.items[0],
+    channel_id: 'whatsapp',
+    display_name: 'WhatsApp',
+    running: false,
+    link_state: 'scan' as const,
+    paired_identities: [],
+    availability: {
+      ...page.items[0].availability,
+      pairing: 'unsupported' as const,
+    },
+  };
+  props.load.mockResolvedValue({ ...page, items: [whatsapp] });
+  const loadLink = vi.fn(async () => ({
+    state: 'scan' as const,
+    code: 'synthetic-link-code',
+  }));
+  render(<ChannelSettings {...props} loadLink={loadLink} />);
+  const panel = await screen.findByLabelText('WhatsApp channel');
+  fireEvent.click(panel.querySelector('summary')!);
+  // Not "Stopped" with Start enabled: it waits for the scan.
+  expect(panel.querySelector('summary')).toHaveTextContent(
+    'Waiting for a scan',
+  );
+  expect(screen.getByRole('button', { name: 'Start WhatsApp' })).toBeDisabled();
+  expect(
+    await screen.findByRole('img', { name: 'WhatsApp link code' }),
+  ).toBeVisible();
+  expect(loadLink).toHaveBeenCalledWith('whatsapp', expect.any(AbortSignal));
+  fireEvent.click(screen.getByRole('button', { name: 'Reset session' }));
+  const confirm = await screen.findByRole('dialog', {
+    name: /Reset the WhatsApp session/,
+  });
+  expect(props.review).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(
+      within(confirm).getByRole('button', { name: 'Reset session' }),
+    ),
+  );
+  expect(props.review).toHaveBeenCalledWith(
+    expect.objectContaining({ channel_id: 'whatsapp', operation: 'reset' }),
+    expect.any(AbortSignal),
+  );
 });

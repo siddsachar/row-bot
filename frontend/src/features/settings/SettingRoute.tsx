@@ -599,6 +599,7 @@ export default function SettingRoute() {
                 payload: { ...command.payload, review_id: review.review_id },
               })
             }
+            loadLink={controller.channelLink}
           />
         ) : leaf.id === 'plugins' && pluginOwner?.get() ? (
           <PluginSettings

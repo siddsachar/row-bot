@@ -1669,6 +1669,24 @@ class WhatsAppChannel(Channel):
     def is_running(self) -> bool:
         return is_running()
 
+    def link_status(self) -> dict | None:
+        """The bridge's link state and live QR for the React connect sheet
+        (B139): starting, scan (with the code) or linked."""
+        if not _running:
+            return None
+        if _authenticated:
+            return {"state": "linked", "code": None}
+        if _qr_code:
+            return {"state": "scan", "code": _qr_code}
+        return {"state": "starting", "code": None}
+
+    async def reset_link(self) -> None:
+        """Reset session: unlink this computer, then start again for a new
+        QR code. The phone's WhatsApp lists the old link until removed."""
+        await stop_bot()
+        clear_session()
+        await start_bot()
+
     def get_default_target(self) -> str:
         phone = _get_user_phone()
         if phone:

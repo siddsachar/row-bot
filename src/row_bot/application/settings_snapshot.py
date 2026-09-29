@@ -1308,6 +1308,7 @@ def _account(
     read_operations: list[str] | None = None,
     post_operations: list[str] | None = None,
     engage_operations: list[str] | None = None,
+    callback_url: str | None = None,
 ) -> dict[str, Any]:
     return {
         "account_id": account_id,
@@ -1319,6 +1320,7 @@ def _account(
         "read_operations": read_operations or [],
         "post_operations": post_operations or [],
         "engage_operations": engage_operations or [],
+        "callback_url": callback_url,
     }
 
 
@@ -1333,6 +1335,11 @@ _GITHUB_STATES = {
     "anonymous": "not_configured",
     "not_configured": "not_configured",
 }
+
+
+# X's fixed OAuth callback (``tools/x_tool.py``), registered in the X
+# developer portal; read here without loading the tool.
+X_OAUTH_CALLBACK_URL = "http://127.0.0.1:17638/callback"
 
 
 def _github_state() -> str:
@@ -1420,6 +1427,7 @@ def _accounts(
             read_operations=read_ops,
             post_operations=post_ops,
             engage_operations=engage_ops,
+            callback_url=X_OAUTH_CALLBACK_URL,
         ),
     }
 

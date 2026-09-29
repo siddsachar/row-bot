@@ -649,6 +649,9 @@ _STATUS.update(
 _STATUS["channel_status_unavailable"] = 503
 # A worker plugin that was prepared meanwhile (B129).
 _STATUS["plugin_environment_ready"] = 409
+# "Send a test message to me" needs a running channel that knows the person.
+_STATUS["channel_not_running"] = 409
+_STATUS["channel_test_target_missing"] = 409
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(
@@ -4206,6 +4209,21 @@ def create_router(
         if result is None:
             raise ProtocolError("not_found", 404)
         return await respond(request, dto.ChannelReceipt, result)
+
+    @router.get("/settings/channels/{channel_id}/link")
+    async def channel_link(channel_id: str, request: Request) -> JSONResponse:
+        # The code links a phone to Row-Bot (WhatsApp's QR, B139): only the
+        # owner on this computer reads it.
+        current = await session(request)
+        require_native_local(request, await _context(request))
+        from row_bot.application.channel_controls import read_channel_link
+
+        result = await call(
+            read_channel_link,
+            channel_id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.ChannelLink, result)
 
     @router.post("/settings/channels/commands")
     async def channel_command(request: Request) -> JSONResponse:

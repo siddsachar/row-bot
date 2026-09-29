@@ -1740,6 +1740,16 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  channel_not_running: [
+    'Start the channel first, then send the test message.',
+    'review',
+    CHANNELS,
+  ],
+  channel_test_target_missing: [
+    "Row-Bot doesn't know your account on this channel yet. Add your user ID or pair your account, then try again.",
+    'review',
+    CHANNELS,
+  ],
 
   // Plugins, MCP and skills
   disable_plugin_to_configure: [

@@ -50,7 +50,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DocumentUploadReviewRequest", "DocumentUploadReview", "DocumentUploadReceipt",
     "DocumentProcessingReviewRequest", "DocumentProcessingReview", "DocumentProcessingReceipt",
     "WikiStatus", "WikiArticlePage", "WikiArticle", "WikiReviewRequest", "WikiReview", "WikiReceipt", "WikiOpenFolderResult",
-    "ChannelPage", "ChannelActionRequest", "ChannelActionReview", "ChannelReceipt",
+    "ChannelPage", "ChannelActionRequest", "ChannelActionReview", "ChannelReceipt", "ChannelLink",
     "PluginCatalogPage", "PluginDetail", "PluginReviewRequest", "PluginReview", "PluginReceipt",
     "SkillPage", "SkillDetail", "SkillProposalPage", "SkillReviewRequest", "SkillReview", "SkillReceipt",
     "GoalPage", "GoalDetail", "GoalCommandPayload", "GoalReview", "GoalReceipt",
@@ -229,6 +229,7 @@ OPERATIONS = (
     ("get", "/settings/channels", None, "ChannelPage"),
     ("post", "/settings/channels/review", "ChannelActionRequest", "ChannelActionReview"),
     ("get", "/settings/channels/{channel_id}/commands/{command_id}", None, "ChannelReceipt"),
+    ("get", "/settings/channels/{channel_id}/link", None, "ChannelLink"),
     ("post", "/settings/channels/commands", "Command", "ChannelReceipt"),
     ("get", "/settings/plugins", None, "PluginCatalogPage"),
     ("get", "/settings/plugins/{plugin_id}", None, "PluginDetail"),
@@ -867,6 +868,8 @@ export const getChannelReceipt = (base: string, proof: SessionProof, channel: st
   jsonRequest(base, `/settings/channels/${id(channel)}/commands/${id(command)}`, 'ChannelReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendChannel = (base: string, proof: SessionProof, command: Command, signal?: AbortSignal): Promise<ChannelReceipt> =>
   jsonRequest(base, '/settings/channels/commands', 'ChannelReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
+export const getChannelLink = (base: string, proof: SessionProof, channel: string, signal?: AbortSignal): Promise<ChannelLink> =>
+  jsonRequest(base, `/settings/channels/${id(channel)}/link`, 'ChannelLink', proof, 'GET', undefined, undefined, signal);
 export const getPlugins = (base: string, proof: SessionProof, search = '', source = 'all', cursor?: string, signal?: AbortSignal): Promise<PluginCatalogPage> =>
   jsonRequest(base, '/settings/plugins' + query({query:search,source,cursor}), 'PluginCatalogPage', proof, 'GET', undefined, undefined, signal);
 export const getPlugin = (base: string, proof: SessionProof, plugin: string, signal?: AbortSignal): Promise<PluginDetail> =>

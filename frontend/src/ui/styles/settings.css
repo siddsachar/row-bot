@@ -3278,3 +3278,12 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+.connect-reachable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.connect-link-code {
+  justify-items: start;
+}

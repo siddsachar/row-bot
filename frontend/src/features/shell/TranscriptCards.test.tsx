@@ -147,7 +147,7 @@ it('offers Connect for an account the work needs', () => {
     { kind: 'connect', target: 'google', label: 'Google', page: 'accounts' },
   ]);
   fireEvent.click(screen.getByRole('button', { name: 'Connect Google' }));
-  expect(value.connect).toHaveBeenCalledWith('accounts');
+  expect(value.connect).toHaveBeenCalledWith('accounts', 'google');
 });
 
 const specialization = {

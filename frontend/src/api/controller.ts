@@ -2571,6 +2571,9 @@ export class ClientController {
   ) => this.query(() => this.transport.reviewChannel?.(body, signal));
   channelReceipt = (channel: string, command: string, signal?: AbortSignal) =>
     this.query(() => this.transport.channelReceipt?.(channel, command, signal));
+  /** WhatsApp's link code: the owner on this computer only (B139). */
+  channelLink = (channel: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.channelLink?.(channel, signal));
   executeChannel = async (original: {
     command_id: string;
     type: string;

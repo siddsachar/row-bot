@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   ChevronDown,
   Hash,
@@ -9,9 +9,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button, Field, Input } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
+import { QrCode } from '../../ui/QrCode';
 import { AppLink } from '../../ui/app-link';
 import { humanizeToken } from '../../ui/format';
 import { SettingsSummary, SummaryChip } from './anatomy';
+import { ConnectSheet, CopyValue, type ConnectStep } from './ConnectSheet';
+import { CHANNEL_GUIDES, START_NOTES } from './connect-guides';
 
 export type ChannelFieldStatus = {
   key: string;
@@ -47,6 +51,13 @@ export type ChannelStatus = {
   fields: ChannelFieldStatus[];
   paired_identities: PairedChannelIdentity[];
   capabilities: string[];
+  /** A channel linked by scanning a code (WhatsApp), while it runs. */
+  link_state?: 'starting' | 'scan' | 'linked' | null;
+  /** Where a service reaches a channel that needs a public address (SMS). */
+  public_address?: string | null;
+  reachability_problem?: string | null;
+  /** A test message to the person's own account is possible. */
+  can_test?: boolean;
   availability: {
     configuration: 'available' | 'limited';
     lifecycle: 'available' | 'configuration_required';
@@ -61,7 +72,11 @@ export type ChannelPage = {
   truncated: boolean;
 };
 export type ChannelOperation =
-  'configure' | 'start' | 'stop' | 'pair' | 'revoke';
+  'configure' | 'start' | 'stop' | 'pair' | 'revoke' | 'test' | 'reset';
+export type ChannelLink = {
+  state: 'starting' | 'scan' | 'linked' | null;
+  code?: string | null;
+};
 export type ChannelCommandPayload = {
   channel_id: string;
   revision: string;
@@ -178,6 +193,8 @@ export type ChannelSettingsProps = {
     command: ChannelCommand,
     review: ChannelReview,
   ) => Promise<ChannelReceipt>;
+  /** The link code of a channel linked by scanning (owner on this computer). */
+  loadLink?: (channelId: string, signal: AbortSignal) => Promise<ChannelLink>;
 };
 
 const activityLabels: Record<ChannelStatus['activity'], string> = {
@@ -250,13 +267,96 @@ function configuredLabel(channel: ChannelStatus): string {
   return 'Saved state unavailable';
 }
 
+/** "Saved via …" in words; an environment value says so (parity row 44). */
+function savedLine(field: ChannelFieldStatus): string {
+  if (field.configured !== true)
+    return field.configured === false
+      ? 'Not saved.'
+      : 'Saved state unavailable.';
+  if (field.source === 'environment')
+    return 'Supplied by the environment. Saving a value here overrides it.';
+  if (field.source === 'legacy api_keys')
+    return 'Saved in the older key store; Row-Bot moves it to the channel keyring at start.';
+  return `Saved via ${field.source || 'channel storage'}${field.fingerprint ? ` (${field.fingerprint})` : ''}.`;
+}
+
+/**
+ * WhatsApp's live link code (B139): the QR the bridge shows, read by the
+ * owner on this computer only and refreshed while it waits for a scan.
+ */
+function ChannelLinkCode({
+  channel,
+  loadLink,
+}: {
+  channel: ChannelStatus;
+  loadLink?: ChannelSettingsProps['loadLink'];
+}) {
+  const [code, setCode] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const waiting =
+    channel.link_state === 'starting' || channel.link_state === 'scan';
+  useEffect(() => {
+    if (!waiting || !loadLink) return;
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async () => {
+      try {
+        const link = await loadLink(channel.channel_id, abort.signal);
+        if (abort.signal.aborted) return;
+        setCode(link.state === 'scan' ? (link.code ?? null) : null);
+        setUnavailable(false);
+      } catch {
+        if (!abort.signal.aborted) setUnavailable(true);
+        return;
+      }
+      if (!abort.signal.aborted) timer = setTimeout(() => void read(), 2000);
+    };
+    void read();
+    return () => {
+      abort.abort();
+      clearTimeout(timer);
+    };
+  }, [channel.channel_id, loadLink, waiting]);
+  if (channel.link_state === 'linked')
+    return <p role="status">Linked to your phone.</p>;
+  if (!waiting) return null;
+  if (!loadLink || unavailable)
+    return (
+      <p className="settings-help">
+        Open Settings on the computer running Row-Bot to see the code.
+      </p>
+    );
+  return code ? (
+    <div className="stack connect-link-code">
+      <QrCode
+        value={code}
+        label={`${channel.display_name} link code`}
+        size={200}
+      />
+      <small>
+        On your phone: WhatsApp › Settings › Linked devices › Link a device,
+        then scan this code. It refreshes by itself.
+      </small>
+    </div>
+  ) : (
+    <p role="status">Waiting for the code…</p>
+  );
+}
+
 export default function ChannelSettings({
   session,
   load,
   review,
   execute,
+  loadLink,
 }: ChannelSettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  // Outward or unlinking actions ask first: a test message to the person's
+  // own account, and WhatsApp's Reset session.
+  const [confirm, setConfirm] = useState<{
+    channel: ChannelStatus;
+    operation: 'test' | 'reset';
+  } | null>(null);
 
   useEffect(() => {
     if (!session.getSnapshot().active) return;
@@ -410,7 +510,9 @@ export default function ChannelSettings({
           message:
             receipt.code === 'channel_start_failed'
               ? 'The adapter reported that it did not start. Review its configuration.'
-              : 'Channel action completed.',
+              : attempt.command.payload.operation === 'test'
+                ? 'Test message sent. Check the channel on your phone.'
+                : 'Channel action completed.',
         });
       } else if (receipt.status === 'rejected') {
         session.update({
@@ -438,6 +540,194 @@ export default function ChannelSettings({
   };
 
   const locked = !state.active || Boolean(state.busy) || Boolean(state.pending);
+
+  /** One saved field: a write-only input with Save and Clear. */
+  const fieldEditor = (channel: ChannelStatus, field: ChannelFieldStatus) => {
+    const draftKey = `${channel.channel_id}:${field.key}`;
+    return (
+      <div className="stack" key={field.key}>
+        <Field label={`New ${field.label}`} hint={field.help_text || undefined}>
+          <Input
+            type={
+              field.field_type === 'password'
+                ? 'password'
+                : field.field_type === 'number' || field.field_type === 'slider'
+                  ? 'number'
+                  : 'text'
+            }
+            autoComplete="off"
+            value={state.drafts[draftKey] ?? ''}
+            maxLength={16384}
+            disabled={locked || !field.writable}
+            onChange={(event) => session.setDraft(draftKey, event.target.value)}
+          />
+        </Field>
+        <p>
+          {savedLine(field)}
+          {field.externally_managed ? ' Managed by the server operator.' : ''}
+        </p>
+        <div className="actions">
+          <Button
+            disabled={
+              locked || !field.writable || !(state.drafts[draftKey] ?? '')
+            }
+            onClick={() => void requestReview(channel, 'configure', field)}
+          >
+            Save {field.label}
+          </Button>
+          {field.source !== 'environment' && (
+            // An environment value can't be cleared from here.
+            <Button
+              disabled={
+                locked ||
+                !field.writable ||
+                field.configured !== true ||
+                Boolean(state.drafts[draftKey])
+              }
+              onClick={() => void requestReview(channel, 'configure', field)}
+            >
+              Clear {field.label}
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /** Fields no guide step fills (a channel without a guide has none). */
+  const extraFields = (channel: ChannelStatus) => {
+    const guide = CHANNEL_GUIDES[channel.channel_id];
+    if (!guide) return [];
+    const guided = new Set(guide.map((step) => step.field));
+    return channel.fields.filter((field) => !guided.has(field.key));
+  };
+
+  /**
+   * The channel's connect sheet (parity rows 42–44, B139): its own steps
+   * with links and fields in place, Start, a way to pair, WhatsApp's code
+   * and Reset session, and "Send a test message to me".
+   */
+  const channelSteps = (channel: ChannelStatus): ConnectStep[] => {
+    const fields = new Map(channel.fields.map((field) => [field.key, field]));
+    const linking =
+      channel.link_state === 'starting' || channel.link_state === 'scan';
+    const guide = CHANNEL_GUIDES[channel.channel_id];
+    const steps: ConnectStep[] = (guide ?? []).map((step, index) => {
+      const field = step.field ? fields.get(step.field) : undefined;
+      return {
+        id: `guide-${index}`,
+        text: step.text,
+        link: step.link,
+        done: field ? field.configured === true : undefined,
+        children: field ? fieldEditor(channel, field) : undefined,
+      };
+    });
+    if (!guide && channel.fields.length)
+      // A plugin channel: its settings in one step.
+      steps.push({
+        id: 'settings',
+        text: 'Fill in its settings.',
+        done: channel.fields.every((field) => field.configured === true),
+        children: (
+          <div className="stack">
+            {channel.fields.map((field) => fieldEditor(channel, field))}
+          </div>
+        ),
+      });
+    steps.push({
+      id: 'start',
+      text:
+        START_NOTES[channel.channel_id] ??
+        `Start ${channel.display_name}. It starts again with Row-Bot until you stop it.`,
+      done: channel.running === true,
+      children: (
+        <div
+          className="actions"
+          role="group"
+          aria-label={`${channel.display_name} lifecycle`}
+        >
+          <Button
+            variant={
+              channel.running === true || linking ? 'secondary' : 'primary'
+            }
+            disabled={
+              locked ||
+              channel.availability.lifecycle !== 'available' ||
+              channel.running === true ||
+              linking
+            }
+            onClick={() => void requestReview(channel, 'start')}
+          >
+            Start {channel.display_name}
+          </Button>
+          <Button
+            disabled={locked || (channel.running !== true && !linking)}
+            onClick={() => void requestReview(channel, 'stop')}
+          >
+            Stop {channel.display_name}
+          </Button>
+        </div>
+      ),
+    });
+    if (channel.link_state !== undefined && channel.link_state !== null)
+      steps.push({
+        id: 'link',
+        text: 'Scan the code with your phone to link it.',
+        done: channel.link_state === 'linked',
+        children: (
+          <div className="stack">
+            <ChannelLinkCode channel={channel} loadLink={loadLink} />
+            <div className="actions">
+              <Button
+                disabled={locked}
+                onClick={() => setConfirm({ channel, operation: 'reset' })}
+              >
+                Reset session
+              </Button>
+            </div>
+          </div>
+        ),
+      });
+    if (channel.availability.pairing === 'available')
+      steps.push({
+        id: 'pair',
+        text: 'Or approve your account from the chat app: get a code and send it to the bot.',
+        children: (
+          <div className="actions">
+            <Button
+              disabled={locked}
+              onClick={() => void requestReview(channel, 'pair')}
+            >
+              Get pairing code for {channel.display_name}
+            </Button>
+          </div>
+        ),
+      });
+    else if (channel.availability.pairing === 'unavailable')
+      steps.push({
+        id: 'pair',
+        text: 'Pairing is not available for this channel; it approves people its own way.',
+      });
+    steps.push({
+      id: 'test',
+      text: channel.can_test
+        ? 'Send yourself a test message to check it works.'
+        : channel.running === true
+          ? 'Add your user ID or pair your account, then send yourself a test message.'
+          : 'Once it runs, send yourself a test message to check it works.',
+      children: (
+        <div className="actions">
+          <Button
+            disabled={locked || !channel.can_test}
+            onClick={() => setConfirm({ channel, operation: 'test' })}
+          >
+            Send a test message to me
+          </Button>
+        </div>
+      ),
+    });
+    return steps;
+  };
   const channels = ownerOrderedChannels(state.page?.items ?? []);
   const passiveChannels = channels.filter(isPassiveCatalogChannel);
   const managedChannels = channels.filter(
@@ -476,12 +766,13 @@ export default function ChannelSettings({
             </span>
           </SettingsSummary>
           <p className="settings-help">
-            Messages only go out through channels you configure and start.{' '}
+            Messages only go out through channels you start. A channel that
+            needs a public address opens your tunnel by itself;{' '}
             <AppLink
               className="settings-inline-action"
               to="/settings/access#tunnel"
             >
-              Tunnel credentials are in Access
+              its setup is in Devices &amp; remote access
             </AppLink>
             .
           </p>
@@ -558,6 +849,7 @@ export default function ChannelSettings({
         <details
           className="settings-account-panel"
           aria-label={`${channel.display_name} channel`}
+          data-setting-anchor={channel.channel_id}
           key={channel.channel_id}
         >
           <summary>
@@ -569,16 +861,23 @@ export default function ChannelSettings({
             <strong>{channel.display_name}</strong>
             <span
               className={`status-chip ${
-                channel.configured === false ? 'warning' : ''
+                channel.configured === false || channel.reachability_problem
+                  ? 'warning'
+                  : ''
               }`}
             >
               {channel.running === true
-                ? 'Running'
-                : channel.configured === true
-                  ? 'Stopped'
-                  : channel.configured === false
-                    ? 'Not configured'
-                    : 'Status unavailable'}
+                ? channel.reachability_problem
+                  ? 'Running · not reachable'
+                  : 'Running'
+                : channel.link_state === 'starting' ||
+                    channel.link_state === 'scan'
+                  ? 'Waiting for a scan'
+                  : channel.configured === true
+                    ? 'Stopped'
+                    : channel.configured === false
+                      ? 'Not configured'
+                      : 'Status unavailable'}
             </span>
             <ChevronDown
               className="settings-disclosure-chevron"
@@ -594,108 +893,36 @@ export default function ChannelSettings({
             {channel.capabilities.length > 0 && (
               <p>{capabilityWords(channel.capabilities)}</p>
             )}
-            <div
-              className="actions"
-              role="group"
-              aria-label={`${channel.display_name} lifecycle`}
-            >
-              <Button
-                disabled={
-                  locked ||
-                  channel.availability.lifecycle !== 'available' ||
-                  channel.running === true
-                }
-                onClick={() => void requestReview(channel, 'start')}
-              >
-                Start {channel.display_name}
-              </Button>
-              <Button
-                disabled={locked || channel.running !== true}
-                onClick={() => void requestReview(channel, 'stop')}
-              >
-                Stop {channel.display_name}
-              </Button>
-              <Button
-                disabled={
-                  locked || channel.availability.pairing !== 'available'
-                }
-                onClick={() => void requestReview(channel, 'pair')}
-              >
-                Get pairing code for {channel.display_name}
-              </Button>
-            </div>
-            {channel.availability.pairing !== 'available' && (
-              <p>
-                Pairing controls are {channel.availability.pairing}; use the
-                account method provided by this adapter.
+            {channel.public_address && (
+              // A channel that needs a public address opened the tunnel
+              // itself (parity row 41); no per-channel switch.
+              <p className="connect-reachable">
+                Reachable at{' '}
+                <CopyValue
+                  value={channel.public_address}
+                  label={`${channel.display_name} address`}
+                />
               </p>
             )}
-            {channel.fields.map((field) => {
-              const draftKey = `${channel.channel_id}:${field.key}`;
-              return (
-                <div className="stack" key={field.key}>
-                  <Field
-                    label={`New ${field.label}`}
-                    hint={field.help_text || undefined}
-                  >
-                    <Input
-                      type={
-                        field.field_type === 'password'
-                          ? 'password'
-                          : field.field_type === 'number' ||
-                              field.field_type === 'slider'
-                            ? 'number'
-                            : 'text'
-                      }
-                      autoComplete="off"
-                      value={state.drafts[draftKey] ?? ''}
-                      maxLength={16384}
-                      disabled={locked || !field.writable}
-                      onChange={(event) =>
-                        session.setDraft(draftKey, event.target.value)
-                      }
-                    />
-                  </Field>
-                  <p>
-                    {field.configured === true
-                      ? `Saved via ${field.source || 'channel storage'}${field.fingerprint ? ` (${field.fingerprint})` : ''}.`
-                      : field.configured === false
-                        ? 'Not saved.'
-                        : 'Saved state unavailable.'}
-                    {field.externally_managed
-                      ? ' Managed by the server operator.'
-                      : ''}
-                  </p>
-                  <div className="actions">
-                    <Button
-                      disabled={
-                        locked ||
-                        !field.writable ||
-                        !(state.drafts[draftKey] ?? '')
-                      }
-                      onClick={() =>
-                        void requestReview(channel, 'configure', field)
-                      }
-                    >
-                      Save {field.label}
-                    </Button>
-                    <Button
-                      disabled={
-                        locked ||
-                        !field.writable ||
-                        field.configured !== true ||
-                        Boolean(state.drafts[draftKey])
-                      }
-                      onClick={() =>
-                        void requestReview(channel, 'configure', field)
-                      }
-                    >
-                      Clear {field.label}
-                    </Button>
-                  </div>
+            {channel.reachability_problem && (
+              <p role="status" className="settings-help">
+                {channel.reachability_problem}
+              </p>
+            )}
+            <ConnectSheet
+              title={`Connect ${channel.display_name}`}
+              steps={channelSteps(channel)}
+            />
+            {extraFields(channel).length > 0 && (
+              <details className="settings-plugin-details">
+                <summary>More settings</summary>
+                <div className="stack">
+                  {extraFields(channel).map((field) =>
+                    fieldEditor(channel, field),
+                  )}
                 </div>
-              );
-            })}
+              </details>
+            )}
             {channel.paired_identities.length > 0 && (
               <div className="stack">
                 <h4>Paired accounts</h4>
@@ -725,6 +952,45 @@ export default function ChannelSettings({
           </div>
         </details>
       ))}
+      {confirm && (
+        <ModalTask
+          open
+          onOpenChange={(open) => {
+            if (!open) setConfirm(null);
+          }}
+          title={
+            confirm.operation === 'test'
+              ? `Send a test message to you on ${confirm.channel.display_name}?`
+              : `Reset the ${confirm.channel.display_name} session?`
+          }
+          description={
+            confirm.operation === 'test'
+              ? 'Row-Bot sends one short message to your own account on this channel, to check it works.'
+              : 'This unlinks Row-Bot from your phone and shows a new code to scan. Your phone lists the old link until you remove it there.'
+          }
+          ariaLabel={
+            confirm.operation === 'test'
+              ? `Send a test message on ${confirm.channel.display_name}`
+              : `Reset ${confirm.channel.display_name} session`
+          }
+        >
+          <div className="button-row">
+            <Button onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button
+              variant={confirm.operation === 'reset' ? 'danger' : 'primary'}
+              onClick={() => {
+                const current = confirm;
+                setConfirm(null);
+                void requestReview(current.channel, current.operation);
+              }}
+            >
+              {confirm.operation === 'test'
+                ? 'Send test message'
+                : 'Reset session'}
+            </Button>
+          </div>
+        </ModalTask>
+      )}
       {state.pending && (
         <Button
           disabled={Boolean(state.busy) || !state.active}

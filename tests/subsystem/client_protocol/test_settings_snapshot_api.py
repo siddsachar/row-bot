@@ -1476,3 +1476,12 @@ def test_documents_pick_their_own_model_and_can_go_back_to_the_conversations(api
         refused = client.post(BASE + "/review", headers=headers, json={
             "settings_revision": latest, "page": "documents", "field": "processing_model", "value": bad})
         assert refused.status_code == 422, bad
+
+
+def test_the_x_callback_shown_in_settings_is_the_one_x_calls():
+    """Parity row 45: the X connect sheet shows the callback address to
+    register in the developer portal, with Copy; it must be the tool's own."""
+    from row_bot.application import settings_snapshot
+    from row_bot.tools import x_tool
+
+    assert settings_snapshot.X_OAUTH_CALLBACK_URL == x_tool._OAUTH_REDIRECT_URI

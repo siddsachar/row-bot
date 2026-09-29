@@ -517,6 +517,9 @@ export class HttpTransport implements ClientTransport {
   executeChannel(command: wire.Command, signal?: AbortSignal) {
     return wire.sendChannel(this.base, this.session(), command, signal);
   }
+  channelLink(channel: string, signal?: AbortSignal) {
+    return wire.getChannelLink(this.base, this.session(), channel, signal);
+  }
   plugins(
     query: string,
     source: string,

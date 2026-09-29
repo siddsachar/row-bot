@@ -103,7 +103,8 @@ export type CardActions = {
   open: (resource: ResourceView) => void;
   rename: (bindingId: string, name: string) => Promise<void>;
   undo: (bindingId: string) => Promise<void>;
-  connect: (page: 'accounts' | 'channels') => void;
+  /** Opens that connection's connect sheet (its page, at its anchor). */
+  connect: (page: 'accounts' | 'channels', target: string) => void;
 };
 
 export const CardActionsContext = createContext<CardActions | null>(null);
@@ -264,7 +265,10 @@ function ConnectCard({
         </span>
       </div>
       <div className="transcript-card-actions">
-        <Button variant="primary" onClick={() => actions?.connect(card.page)}>
+        <Button
+          variant="primary"
+          onClick={() => actions?.connect(card.page, card.target)}
+        >
           Connect {card.label}
         </Button>
       </div>

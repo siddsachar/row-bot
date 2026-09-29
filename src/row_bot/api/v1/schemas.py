@@ -962,6 +962,9 @@ class AccountSettingsItem(WireModel):
     engage_operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=128
     )
+    # The address to register with the provider (X's fixed OAuth callback),
+    # shown with Copy in the account's connect sheet (parity row 45).
+    callback_url: str | None = Field(default=None, max_length=512)
 
 
 class AccountSettingsSnapshot(WireModel):
@@ -2860,7 +2863,7 @@ class WikiOpenFolderResult(WireModel):
     status: Literal["opened", "unavailable", "not_found", "denied"]
 
 
-ChannelOperation = Literal["configure", "start", "stop", "pair", "revoke"]
+ChannelOperation = Literal["configure", "start", "stop", "pair", "revoke", "test", "reset"]
 
 
 class ChannelSource(WireModel):
@@ -2912,7 +2915,20 @@ class ChannelStatus(WireModel):
     fields: list[ChannelFieldStatus] = Field(max_length=64)
     paired_identities: list[PairedChannelIdentity] = Field(max_length=128)
     capabilities: list[str] = Field(max_length=16)
+    # The connect sheet (Phase 15): a code-linked channel's state (WhatsApp;
+    # the code only through the owner's own read), where a service reaches a
+    # channel that needs a public address, why it can't, and whether a test
+    # message to the person's own account is possible.
+    link_state: Literal["starting", "scan", "linked"] | None = None
+    public_address: str | None = Field(default=None, max_length=2048)
+    reachability_problem: str | None = Field(default=None, max_length=512)
+    can_test: bool = False
     availability: ChannelAvailability
+
+
+class ChannelLink(WireModel):
+    state: Literal["starting", "scan", "linked"] | None
+    code: str | None = Field(default=None, max_length=4096)
 
 
 class ChannelPage(WireModel):

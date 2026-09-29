@@ -2116,7 +2116,11 @@ export default function Conversation({
         state.conversation.revision,
       );
     },
-    connect: (page) => navigate(`/settings/${page}`),
+    // The connection's own connect sheet opens (Phase 15); email is Gmail.
+    connect: (page, target) =>
+      navigate(
+        `/settings/${page}#${encodeURIComponent(target === 'email' ? 'google' : target)}`,
+      ),
   };
   // Retry and Send again resend the last message as it was: its words and
   // its files, never the files' names as text (B136). A follow-up note is
