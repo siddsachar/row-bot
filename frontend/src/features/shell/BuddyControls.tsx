@@ -99,6 +99,12 @@ const personalities = {
   curious_scholar: 'Curious scholar',
 };
 
+// Text saves when the field is left (or on Enter); everything else at once.
+const TEXT_KEYS = new Set<keyof BuddyPreferences>([
+  'display_name',
+  'personality_description',
+]);
+
 function videoCount(pack: BuddyPack) {
   return pack.assets.filter((asset) => asset.content_type.startsWith('video/'))
     .length;
@@ -135,6 +141,15 @@ export default function BuddyControls(props: BuddyControlsProps) {
     'page',
     null,
   );
+  const [undo, setUndo] =
+    useProviderSettingsValue<Partial<BuddyPreferences> | null>(
+      editor,
+      'undo',
+      null,
+    );
+  const [saving, setSaving] = useProviderSettingsValue(editor, 'saving', false);
+  // One change saves after another, so quick edits never overlap.
+  const chain = useRef<Promise<void>>(Promise.resolve());
   const operation = useRef<symbol | null>(null);
   const current = useRef(props);
   useEffect(() => {
@@ -176,11 +191,81 @@ export default function BuddyControls(props: BuddyControlsProps) {
     setDraft((previous) =>
       previous ? { ...previous, [key]: value } : previous,
     );
-    setDirty(true);
-    dirtyRef.current = true;
     setNotice('');
+    if (TEXT_KEYS.has(key)) {
+      setDirty(true);
+      dirtyRef.current = true;
+      return;
+    }
+    void commit({ [key]: value } as Partial<BuddyPreferences>);
   }
-  async function run(action: 'save' | 'next' | 'stop' | 'reload') {
+  function commitText(key: keyof BuddyPreferences) {
+    const value = editor.get<BuddyPreferences | null>('draft', null)?.[key];
+    const saved = current.current.snapshot?.preferences;
+    if (value === undefined || !saved) return;
+    if (value === saved[key]) {
+      const draft = editor.get<BuddyPreferences | null>('draft', null);
+      const pending =
+        draft && [...TEXT_KEYS].some((name) => draft[name] !== saved[name]);
+      setDirty(Boolean(pending));
+      dirtyRef.current = Boolean(pending);
+      return;
+    }
+    void commit({ [key]: value } as Partial<BuddyPreferences>);
+  }
+  function commit(changes: Partial<BuddyPreferences>, undoing = false) {
+    const scope = current.current.scopeKey;
+    const task = async () => {
+      const before = current.current.snapshot;
+      if (current.current.scopeKey !== scope || !before || !editor.active)
+        return;
+      const previous = Object.fromEntries(
+        Object.keys(changes).map((key) => [
+          key,
+          before.preferences[key as keyof BuddyPreferences],
+        ]),
+      ) as Partial<BuddyPreferences>;
+      setSaving(true);
+      setError('');
+      try {
+        const saved = await current.current.save(
+          changes,
+          editor.get('baseRevision', ''),
+        );
+        if (current.current.scopeKey !== scope || !current.current.snapshot)
+          return;
+        setBaseRevision(saved.revision);
+        // Keep text still being typed in another field.
+        const typed = editor.get<BuddyPreferences | null>('draft', null);
+        const next = { ...saved.preferences };
+        let pending = false;
+        for (const key of TEXT_KEYS)
+          if (
+            typed &&
+            !(key in changes) &&
+            typed[key] !== before.preferences[key]
+          ) {
+            Object.assign(next, { [key]: typed[key] });
+            pending = true;
+          }
+        setDraft(next);
+        setDirty(pending);
+        dirtyRef.current = pending;
+        setUndo(undoing ? null : previous);
+        setNotice(undoing ? 'Undone.' : 'Saved');
+      } catch {
+        if (current.current.scopeKey === scope && current.current.snapshot)
+          setError(
+            "Buddy couldn't save that change. Reload the saved preferences, then try again.",
+          );
+      } finally {
+        if (current.current.scopeKey === scope) setSaving(false);
+      }
+    };
+    chain.current = chain.current.then(task, task);
+    return chain.current;
+  }
+  async function run(action: 'next' | 'stop' | 'reload') {
     if (
       operation.current ||
       editor.get('busy', false) ||
@@ -195,26 +280,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
     setNotice('');
     const scope = props.scopeKey;
     try {
-      if (action === 'save' && draft) {
-        const changes: Partial<BuddyPreferences> = {};
-        for (const key of Object.keys(draft) as (keyof BuddyPreferences)[]) {
-          if (draft[key] !== props.snapshot.preferences[key])
-            Object.assign(changes, { [key]: draft[key] });
-        }
-        if (!Object.keys(changes).length) {
-          setDirty(false);
-          dirtyRef.current = false;
-          return;
-        }
-        const saved = await props.save(changes, baseRevision);
-        if (current.current.scopeKey !== scope || !current.current.snapshot)
-          return;
-        setDraft(saved.preferences);
-        setBaseRevision(saved.revision);
-        setDirty(false);
-        dirtyRef.current = false;
-        setNotice('Buddy preferences saved.');
-      } else if (action === 'next' && page?.next_cursor) {
+      if (action === 'next' && page?.next_cursor) {
         const next = await props.loadPacks(page.next_cursor);
         if (current.current.scopeKey !== scope || !current.current.snapshot)
           return;
@@ -432,6 +498,10 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   maxLength={128}
                   disabled={busy}
                   onChange={(event) => edit('display_name', event.target.value)}
+                  onBlur={() => commitText('display_name')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
                 />
               </Field>
               <Field label="Animation intensity" layout="row">
@@ -461,6 +531,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   onChange={(event) =>
                     edit('personality_description', event.target.value)
                   }
+                  onBlur={() => commitText('personality_description')}
                 />
               </Field>
             </div>
@@ -542,38 +613,52 @@ export default function BuddyControls(props: BuddyControlsProps) {
               </Button>
             )}
           </section>
-          {conflict && (
-            <p role="status">
-              Saved preferences changed. Your draft is retained; reload before
-              saving.
+          {(notice === 'Saved' || notice === 'Undone.') && (
+            <p className="settings-saved-note" role="status">
+              {notice}
+              {notice === 'Saved' && undo && (
+                <>
+                  {' · '}
+                  <Button
+                    variant="ghost"
+                    className="small"
+                    aria-label="Undo Buddy change"
+                    disabled={saving}
+                    onClick={() => void commit(undo, true)}
+                  >
+                    Undo
+                  </Button>
+                </>
+              )}
             </p>
           )}
-          <div className="button-row buddy-preference-actions">
-            <Button
-              disabled={busy || !dirty || conflict}
-              onClick={() => void run('save')}
-            >
-              Save Buddy preferences
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() => {
-                setDraft(snapshot.preferences);
-                setBaseRevision(snapshot.revision);
-                setDirty(false);
-                dirtyRef.current = false;
-                setError('');
-              }}
-            >
-              Reload saved preferences
-            </Button>
-          </div>
+          {(conflict || error) && (
+            <div className="button-row buddy-preference-actions">
+              {conflict && (
+                <p role="status">
+                  Buddy's saved preferences changed elsewhere. What you typed is
+                  kept until you reload them.
+                </p>
+              )}
+              <Button
+                disabled={busy || saving}
+                onClick={() => {
+                  setDraft(snapshot.preferences);
+                  setBaseRevision(snapshot.revision);
+                  setDirty(false);
+                  dirtyRef.current = false;
+                  setError('');
+                }}
+              >
+                Reload saved preferences
+              </Button>
+            </div>
+          )}
         </section>
       )}
-      {notice &&
-        (props.settingsOpen || notice !== 'Buddy preferences saved.') && (
-          <p role="status">{notice}</p>
-        )}
+      {notice && notice !== 'Saved' && notice !== 'Undone.' && (
+        <p role="status">{notice}</p>
+      )}
       {error && <ErrorState title="Buddy needs attention">{error}</ErrorState>}
     </>
   );

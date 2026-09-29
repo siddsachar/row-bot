@@ -1273,6 +1273,10 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   await preferences
     .getByLabel('Bubble style', { exact: true })
     .selectOption('chatty');
+  // Phase 13 (decision 19): each change saves when it is made.
+  await expect(
+    preferences.getByRole('button', { name: 'Undo Buddy change', exact: true }),
+  ).toBeVisible();
   const describe = page.getByLabel('Describe your Buddy', { exact: true });
   // The pack's description seeds the empty field once it loads; replace it
   // after that, or typing races the seed.
@@ -1292,14 +1296,15 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   await expect(
     page.getByLabel('Describe your Buddy', { exact: true }),
   ).toHaveValue('Retained synthetic description');
-  await preferences
-    .getByRole('button', { name: 'Save Buddy preferences', exact: true })
-    .click();
   await expect(
-    page
-      .getByRole('region', { name: 'Buddy', exact: true })
-      .getByText('Buddy preferences saved.', { exact: true }),
-  ).toBeVisible();
+    preferences.getByRole('button', {
+      name: 'Save Buddy preferences',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    preferences.getByLabel('Bubble style', { exact: true }),
+  ).toHaveValue('chatty');
   await expect(
     page.locator('.buddy-avatar[src^="blob:"]').first(),
   ).toBeVisible();

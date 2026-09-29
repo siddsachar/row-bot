@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import BuddyControls, {
   type BuddyControlsProps,
@@ -145,33 +151,65 @@ describe('Buddy shared companion and preferences', () => {
     expect(input.reload).toHaveBeenCalledOnce();
   });
 
-  it('saves only explicit changes with the captured revision', async () => {
+  it('saves a change at once with the captured revision, and Undo puts it back (decision 19)', async () => {
     const input = props();
-    input.save = vi.fn(async (): Promise<BuddySnapshot> => ({
-      ...snapshot,
-      revision: 'revision-two',
-      preferences: { ...snapshot.preferences, bubble_verbosity: 'quiet' },
-    }));
+    input.save = vi.fn(
+      async (changes: Partial<BuddySnapshot['preferences']>) => ({
+        ...snapshot,
+        revision: 'revision-two',
+        preferences: { ...snapshot.preferences, ...changes },
+      }),
+    );
     render(<BuddyControls {...input} />);
+    expect(
+      screen.queryByRole('button', { name: 'Save Buddy preferences' }),
+    ).toBeNull();
     fireEvent.change(screen.getByLabelText('Bubble style'), {
       target: { value: 'quiet' },
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save Buddy preferences' }),
-    );
-    await screen.findByText('Buddy preferences saved.');
+    await screen.findByRole('button', { name: 'Undo Buddy change' });
     expect(input.save).toHaveBeenCalledWith(
       { bubble_verbosity: 'quiet' },
       'revision-one',
     );
     expect(screen.getByLabelText('Bubble style')).toHaveValue('quiet');
+    fireEvent.click(screen.getByRole('button', { name: 'Undo Buddy change' }));
+    await screen.findByText('Undone.');
+    expect(input.save).toHaveBeenLastCalledWith(
+      { bubble_verbosity: 'normal' },
+      'revision-two',
+    );
   });
 
-  it('preserves a dirty draft across a saved revision change and requires reload', () => {
+  it('saves a name when the field is left, not on every key', async () => {
+    const input = props();
+    input.save = vi.fn(
+      async (changes: Partial<BuddySnapshot['preferences']>) => ({
+        ...snapshot,
+        revision: 'revision-two',
+        preferences: { ...snapshot.preferences, ...changes },
+      }),
+    );
+    render(<BuddyControls {...input} />);
+    fireEvent.click(screen.getByText('Advanced companion'));
+    const name = screen.getByLabelText('Buddy name');
+    fireEvent.change(name, { target: { value: 'Nova' } });
+    expect(input.save).not.toHaveBeenCalled();
+    fireEvent.keyDown(name, { key: 'Enter' });
+    fireEvent.blur(name);
+    await screen.findByRole('button', { name: 'Undo Buddy change' });
+    expect(input.save).toHaveBeenCalledExactlyOnceWith(
+      { display_name: 'Nova' },
+      'revision-one',
+    );
+  });
+
+  it('keeps typing across a saved revision change and offers a reload', () => {
     const input = props();
     const view = render(<BuddyControls {...input} />);
-    fireEvent.change(screen.getByLabelText('Companion personality'), {
-      target: { value: 'calm_focus' },
+    fireEvent.click(screen.getByText('Advanced companion'));
+    fireEvent.change(screen.getByLabelText('Buddy name'), {
+      target: { value: 'Typed name' },
     });
     view.rerender(
       <BuddyControls
@@ -179,18 +217,12 @@ describe('Buddy shared companion and preferences', () => {
         snapshot={{ ...snapshot, revision: 'revision-two' }}
       />,
     );
-    expect(screen.getByLabelText('Companion personality')).toHaveValue(
-      'calm_focus',
-    );
-    expect(
-      screen.getByRole('button', { name: 'Save Buddy preferences' }),
-    ).toBeDisabled();
+    expect(screen.getByLabelText('Buddy name')).toHaveValue('Typed name');
     fireEvent.click(
       screen.getByRole('button', { name: 'Reload saved preferences' }),
     );
-    expect(screen.getByLabelText('Companion personality')).toHaveValue(
-      'warm_mystical',
-    );
+    expect(screen.getByLabelText('Buddy name')).toHaveValue('Buddy');
+    expect(input.save).not.toHaveBeenCalled();
   });
 
   it('retains pending save ownership through scope changes and ignores its late result', async () => {
@@ -201,9 +233,7 @@ describe('Buddy shared companion and preferences', () => {
     fireEvent.change(screen.getByLabelText('Companion personality'), {
       target: { value: 'calm_focus' },
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save Buddy preferences' }),
-    );
+    await waitFor(() => expect(input.save).toHaveBeenCalledOnce());
     view.rerender(
       <BuddyControls
         {...input}
@@ -211,9 +241,6 @@ describe('Buddy shared companion and preferences', () => {
         snapshot={{ ...snapshot, revision: 'B' }}
       />,
     );
-    expect(
-      screen.getByRole('button', { name: 'Save Buddy preferences' }),
-    ).toBeDisabled();
     await act(async () =>
       pending.resolve({
         ...snapshot,
@@ -224,8 +251,8 @@ describe('Buddy shared companion and preferences', () => {
       'warm_mystical',
     );
     expect(
-      screen.queryByText('Buddy preferences saved.'),
-    ).not.toBeInTheDocument();
+      screen.queryByRole('button', { name: 'Undo Buddy change' }),
+    ).toBeNull();
     expect(input.save).toHaveBeenCalledOnce();
   });
 
@@ -235,15 +262,13 @@ describe('Buddy shared companion and preferences', () => {
     input.save = vi.fn(() => pending.promise);
     const view = render(<BuddyControls {...input} />);
     fireEvent.click(screen.getByLabelText('Show Buddy'));
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save Buddy preferences' }),
-    );
+    await waitFor(() => expect(input.save).toHaveBeenCalledOnce());
     view.rerender(<BuddyControls {...input} snapshot={null} />);
     await act(async () => pending.resolve(snapshot));
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
     expect(
-      screen.queryByText('Buddy preferences saved.'),
-    ).not.toBeInTheDocument();
+      screen.queryByRole('button', { name: 'Undo Buddy change' }),
+    ).toBeNull();
   });
 
   it('uses real next cursor and keeps unavailable looks disabled', async () => {

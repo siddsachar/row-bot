@@ -209,10 +209,10 @@ test('xAI OAuth client options save and reset from the provider row', async ({
     .getByRole('menuitem', { name: 'Configure xAI OAuth client ID' })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Account options' });
-  await dialog
-    .getByLabel('OAuth client ID override')
-    .fill('synthetic-browser-client');
-  await dialog.getByRole('button', { name: 'Save override' }).click();
+  const override = dialog.getByLabel('OAuth client ID override');
+  await override.fill('synthetic-browser-client');
+  // Saves on Enter or when the field is left (decision 19).
+  await override.press('Enter');
   await expect(dialog.getByText('OAuth client ID saved.')).toBeVisible();
   await dialog.getByRole('button', { name: 'Reset to default' }).click();
   await expect(

@@ -23,9 +23,9 @@ it('retains unsent preference and Hatch drafts across panel remount and purges t
     onSettings: vi.fn(),
   };
   const first = render(<BuddyPanel {...props} />);
-  await screen.findByRole('button', { name: 'Save Buddy preferences' });
-  fireEvent.change(screen.getByLabelText('Bubble style'), {
-    target: { value: 'chatty' },
+  // Typing is retained until the field is left (then it saves at once).
+  fireEvent.change(await screen.findByLabelText('Buddy name'), {
+    target: { value: 'Retained typed name' },
   });
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
     target: { value: 'Retained private look' },
@@ -33,7 +33,9 @@ it('retains unsent preference and Hatch drafts across panel remount and purges t
   expect(session.hasRetained()).toBe(true);
   first.unmount();
   render(<BuddyPanel {...props} />);
-  expect(screen.getByLabelText('Bubble style')).toHaveValue('chatty');
+  expect(screen.getByLabelText('Buddy name')).toHaveValue(
+    'Retained typed name',
+  );
   expect(screen.getByLabelText('Describe your Buddy')).toHaveValue(
     'Retained private look',
   );

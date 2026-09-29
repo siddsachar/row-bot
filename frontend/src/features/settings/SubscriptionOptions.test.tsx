@@ -50,7 +50,7 @@ function props(
 }
 async function saveReference(p: SubscriptionOptionsProps) {
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Save Codex CLI reference' }),
+    await screen.findByRole('button', { name: 'Reference Codex CLI login' }),
   );
   await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
 }
@@ -96,12 +96,10 @@ it('retains an unsent client option across remount and allows editing', async ()
   expect(screen.getByLabelText('xAI OAuth client ID override')).toHaveValue(
     'synthetic-client',
   );
-  expect(
-    screen.getByRole('button', { name: 'Save client ID override' }),
-  ).toBeEnabled();
   fireEvent.change(screen.getByLabelText('xAI OAuth client ID override'), {
     target: { value: 'changed-client' },
   });
+  // Typing alone sends nothing; leaving the field saves (decision 19).
   expect(p.apply).not.toHaveBeenCalled();
   expect(p.load).toHaveBeenCalledTimes(1);
 });
@@ -193,10 +191,31 @@ it('rejects a mismatched review and renders client IDs as plain text', async () 
   fireEvent.change(screen.getByLabelText('xAI OAuth client ID override'), {
     target: { value: '<script>synthetic</script>' },
   });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Save client ID override' }),
-  );
+  fireEvent.blur(screen.getByLabelText('xAI OAuth client ID override'));
   await screen.findByRole('alert');
   expect(document.querySelector('script')).toBeNull();
   expect(p.apply).not.toHaveBeenCalled();
+});
+
+it('saves the client ID override when the field is left, once (decision 19)', async () => {
+  const p = props();
+  render(<SubscriptionOptions {...p} />);
+  await screen.findByText(/xAI OAuth client source:/);
+  const field = screen.getByLabelText('xAI OAuth client ID override');
+  fireEvent.blur(field);
+  expect(p.review).not.toHaveBeenCalled();
+  fireEvent.change(field, { target: { value: 'synthetic-client' } });
+  fireEvent.blur(field);
+  await waitFor(() =>
+    expect(p.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'client_id_save',
+        value: 'synthetic-client',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Save client ID override' }),
+  ).toBeNull();
 });
