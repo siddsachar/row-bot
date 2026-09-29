@@ -140,9 +140,17 @@ gutter; splitters are hairlines with a widened hit target. Its header holds the
 logo and icon actions (New chat, Workspace commands, collapse); Home and Agents
 are the only destination rows; the footer holds Buddy (a 44px avatar in an
 activity ring, name and status, whose button opens Buddy settings) and the
-Settings gear. The collapsed
+Settings gear. Above them, one attention indicator appears only when
+something needs the person and is quiet when everything is healthy (no
+permanent health dot): "N things need attention" opens Monitor, "Update to X
+available" opens Updates (local owner only; "Remind me later" leaves that
+version out for a day on the device). It reads `GET /monitor/attention` every
+minute while visible; the server counts Python state only (channels set to
+start but stopped or unreachable or waiting for a scan, a tunnel that isn't
+running, enabled plugins that didn't load, turned-on MCP servers that aren't
+connected) and never probes. The collapsed
 48px rail keeps expand, commands, New chat, Home, Agents, Settings and Buddy as
-labelled icons. A compact icon `Segmented` filters conversations by the server
+labelled icons, plus the indicator as an icon. A compact icon `Segmented` filters conversations by the server
 `category` (All, Chats, Designs, Code, Workflows) and persists per device.
 Rows keep server order; Pinned comes first, and a Today / Yesterday / This week
 / Older label starts each recency run inside the `Recent conversations` list, so
@@ -432,6 +440,26 @@ signed in by invitation renews its 30-day session by itself (at start and
 every 12 hours); a signed-out or expired device is told how to connect
 again.
 
+**Connect sheets** (`ConnectSheet`): every channel, account and plugin opens
+to one "Connect <name>" sheet of numbered steps, each with the link where it
+happens, a value to copy (X's callback address) and the step's control in
+place (a token field, Start, Authenticate, Prepare); done steps show a check.
+Channels: the built-in steps are React's own words (`connect-guides.ts`), a
+plugin channel gets its settings as one step, Start says it starts again with
+Row-Bot, and "Send a test message to me" sends one message to the person's
+own account only after a confirmation. A channel that needs a public address
+opens the tunnel itself and shows "Reachable at <address>" with Copy.
+WhatsApp shows "Waiting for a scan" and the live QR (read by the owner on
+this computer only) and Reset session asks first. A field supplied by the
+environment says so and has no Clear. Accounts: GitHub (CLI or token, Check),
+Google (Cloud project, consent screen, Desktop client, file, Authenticate), X
+(portal, callback address, keys, Authenticate). Plugins: the README as setup
+notes, declared sign-ins, settings, local test, turning it on, the changelog
+link; a worker plugin that can't load offers Prepare (its private
+environment). Install, update, prepare and uninstall show the server's review
+first and run only after it is confirmed. The chat's Connect card opens the
+connection's sheet (`/settings/<page>#<id>`).
+
 Values speak human: enums are translated (`humanizeToken`: "Router",
 "Private · on device", "HTTP", "Local process"), times are relative with the
 full date on hover, and secrets read "Key saved · ····c99 · in keychain ·
@@ -526,7 +554,9 @@ tabs, and nothing is read before the workspace is connected.
   stage: summary, facts, tags, the source conversation and connections grouped
   by relation, with Edit, Merge or replace, and Delete (reviewed, then
   confirmed).
-- **Monitor** opens with a health strip of tiles grouped from the diagnosis
+- **Monitor** lists what the sidebar indicator counts first ("Needs
+  attention", each with the place to fix it), then a health strip of tiles
+  grouped from the diagnosis
   checks (Model runtime, Channels, MCP and tools, Scheduler, Knowledge,
   System); a tile opens a detail drawer with Run diagnosis. Below: a 24 h /
   7 d swimlane (Extraction, Dream Cycle, Workflow runs, Channel events),

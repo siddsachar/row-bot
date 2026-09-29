@@ -14,8 +14,8 @@ NiceGUI's screens. Each NiceGUI-only or partial capability below is **kept**
 simpler controls) or **dropped** (covered elsewhere or not worth a control),
 always with a reason. NiceGUI is hidden (nothing in the app routes to it; only
 `--legacy-ui` opens it) once every keep and simplify row has shipped, which is
-planned for Phase 16 of the polish program (the remaining rows ship in Phase
-15). Its code is removed in the next release.
+planned for Phase 16 of the polish program; since Phase 15 no keep or simplify
+row is open. Its code is removed in the next release.
 
 53 rows: 19 keep, 28 simplify, 6 drop. Capabilities already at full parity
 (attachments by picker, slash palette, approvals, pickers, workflows, settings
@@ -38,8 +38,8 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Shipped (Phase 11) |
 | 10 | Shell | Background notices (API errors, account health, Hatch, document jobs, memory policy, workflows) | Keep | Notices over the event stream through the app's notice primitive, coalesced; warnings and errors always, information only for jobs the person started | 9 | Shipped (Phase 9) |
 | 11 | Shell | Start-up warnings shown once (plugin load failures, tunnel start failures, token warnings) | Keep | Merged with 10: shown once, and listed in Monitor | 9 | Shipped (Phase 9) |
-| 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention (a problem, an update) | 15 | Open |
-| 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 15 | Open |
+| 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention (a problem, an update) | 15 | Shipped (Phase 15): "Update to X available" opens Updates; "Remind me later" leaves it out for a day on that device |
+| 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 15 | Shipped (Phase 15): "N things need attention" opens Monitor, which lists them first with the place to fix each |
 | 14 | Native | Right-click Cut, Copy, Paste, Select All in the desktop window | Keep | Cut, Copy, Paste and Select All in the desktop window | 9 | Shipped (Phase 9) |
 | 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Shipped (Phase 10) |
 | 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Shipped (Phase 10) |
@@ -65,13 +65,13 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 36 | Developer | GitHub CLI install hint in the Developer panel | Simplify | The Connect GitHub card in the pull request section when gh is missing or signed out | 12 | Shipped (Phase 12) |
 | 37 | Computer use | Active session card and live-control dock | Simplify | A computer-use card in the conversation: latest picture, Pause (you take over), Resume, Stop | 12 | Shipped (Phase 12) |
 | 38 | Terminal | Interactive terminal (raw keys, Ctrl-C, Clear) | Simplify | The line terminal gains Stop (Ctrl+C), Clear and "Open in your terminal" | 12 | Shipped (Phase 12) |
-| 39 | Plugins | Setup guide, changelog link, load log, declared sign-in | Simplify | A plugin connect sheet with setup steps, sign-in and the changelog link; load failures arrive as notices | 15 | Open |
-| 40 | Skills | Import a pasted SKILL.md | Keep | Skills "Import a skill" accepts pasted SKILL.md (to verify) | 15 | Open |
-| 41 | Channels | Per-channel "Expose via tunnel" switch and tunnel URL | Simplify | A channel that needs a public address opens the tunnel itself and shows "Reachable at …" with Copy | 15 | Open |
-| 42 | Channels | Per-channel setup guide | Keep | Per-channel steps in the connect sheet | 15 | Open |
-| 43 | Channels | WhatsApp live QR, "Waiting for QR code…", Reset session | Keep | WhatsApp live QR and Reset session | 15 | Open |
-| 44 | Channels | "Save current" (import a secret from the environment) | Simplify | A field supplied by the environment says so; stored secrets migrate at start | 15 | Open |
-| 45 | Accounts | Google and X guided steps; GitHub setup guide | Keep | Google, X and GitHub steps in the connect sheet | 15 | Open |
+| 39 | Plugins | Setup guide, changelog link, load log, declared sign-in | Simplify | A plugin connect sheet with setup steps, sign-in and the changelog link; load failures arrive as notices | 15 | Shipped (Phase 15): the plugin's README as setup notes, its declared sign-ins, settings, local test and turning it on, the changelog link; worker plugins get Prepare |
+| 40 | Skills | Import a pasted SKILL.md | Keep | Skills "Import a skill" accepts pasted SKILL.md | 15 | Shipped (verified in Phase 15): a pasted SKILL.md with its frontmatter imports as a skill |
+| 41 | Channels | Per-channel "Expose via tunnel" switch and tunnel URL | Simplify | A channel that needs a public address opens the tunnel itself and shows "Reachable at …" with Copy | 15 | Shipped (Phase 15) |
+| 42 | Channels | Per-channel setup guide | Keep | Per-channel steps in the connect sheet | 15 | Shipped (Phase 15), with "Send a test message to me" |
+| 43 | Channels | WhatsApp live QR, "Waiting for QR code…", Reset session | Keep | WhatsApp live QR and Reset session | 15 | Shipped (Phase 15): the owner on this computer sees the live code; Reset session asks first |
+| 44 | Channels | "Save current" (import a secret from the environment) | Simplify | A field supplied by the environment says so; stored secrets migrate at start | 15 | Shipped (Phase 15): "Supplied by the environment"; older stored keys move to the channel keyring at start |
+| 45 | Accounts | Google and X guided steps; GitHub setup guide | Keep | Google, X and GitHub steps in the connect sheet | 15 | Shipped (Phase 15), with X's callback address and Copy |
 | 46 | Remote | Pairing QR, Refresh QR, custom pairing QR | Simplify | One QR that renews itself before its invitation expires, with Copy link; custom addresses in Advanced | 14 | Shipped (Phase 14) |
 | 47 | Remote | Same-network setup instructions | Keep | Two short lines in the "Same Wi-Fi" option; "Allow on my network…" when Row-Bot listens on this computer only | 14 | Shipped (Phase 14) |
 | 48 | Remote | Recent access activity log | Simplify | Folded into Your devices (last seen, where from in words) | 14 | Shipped (Phase 14) |
