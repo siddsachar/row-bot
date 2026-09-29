@@ -100,25 +100,6 @@ def _clean_name(value: str, fallback: str) -> str:
     return text[:120] or fallback
 
 
-def _folder_name(name: str) -> str:
-    """A portable folder name from the person's words ("Tiny date app")."""
-    text = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]+', " ", name)
-    text = re.sub(r"\s+", " ", text).strip(" .")
-    if not text or text.split(".", 1)[0].casefold() in {
-        "con", "prn", "aux", "nul", *(f"com{n}" for n in range(1, 10)), *(f"lpt{n}" for n in range(1, 10)),
-    }:
-        text = "Code folder"
-    return text[:60].rstrip(" .") or "Code folder"
-
-
-def _free_folder(parent: Any, name: str) -> str:
-    candidate, index = name, 2
-    while (parent / candidate).exists():
-        candidate = f"{name} {index}"
-        index += 1
-    return candidate
-
-
 def _turn_on(group: str, label: str, why: str) -> bool:
     """Ask to turn on a tool group through the standard approval (a setup card)."""
     if registry.is_enabled(group):
@@ -259,14 +240,14 @@ def create_code_folder(name: str = "") -> str:
         return _json({"ok": False, "kind": "setup_declined",
                       "error": declined("Developer tools") + " Answer in the chat (explain or show short "
                                "code) and do not write files into the workspace."})
-    from row_bot.application.conversation_creation import _draft_parent
+    from row_bot.application.conversation_creation import _draft_parent, code_folder_name, free_folder_name
 
     try:
         parent = _draft_parent()
     except Exception:
         return _json({"ok": False, "error": "The workspace folder isn't available. Ask the person to "
                       "check Settings › System › Workspace folder."})
-    title = _free_folder(parent.path, _folder_name(_clean_name(name, "Code folder")))
+    title = free_folder_name(parent.path, code_folder_name(name))
     command_id = _command_id(conversation_id, "code", title)
     payload = {"kind": "workspace", "intent": "create", "empty_workspace": {"folder_name": title}}
     try:

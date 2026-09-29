@@ -522,6 +522,33 @@ it('creates a configured draft through one receipt-backed setup command', async 
   );
 });
 
+it('names a new draft from the request, or leaves the name to Row-Bot', async () => {
+  await act(async () =>
+    view('conversation-a', { kind: 'workspace', mode: 'create' }),
+  );
+  const field = screen.getByRole('textbox', { name: 'Name (optional)' });
+  expect(field).toHaveAttribute('placeholder', 'Tiny date app');
+  expect(field).toHaveAttribute('maxlength', '120');
+  fireEvent.change(field, { target: { value: '  Tiny date app  ' } });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create draft code folder' }),
+    ),
+  );
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'resource.setup',
+    {
+      kind: 'workspace',
+      intent: 'create',
+      draft_workspace: true,
+      draft_name: 'Tiny date app',
+    },
+    expect.any(String),
+    expect.any(String),
+  );
+});
+
 it('protects an unresolved setup receipt from a new Home starter', async () => {
   const scope = setupSessions.scope(mock.handshake.instance_id, null);
   setupSessions.reserve(scope, 'pending-before-home');

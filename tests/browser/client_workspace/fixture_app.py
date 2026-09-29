@@ -874,9 +874,11 @@ def _p4_registered_folder(resource_id: str, workspace) -> Path:
     from row_bot.developer.review import scoped_workspace_path
     folder = Path(workspace.path).absolute()
     name = folder.name
-    if name.startswith("Draft-") and name[6:].replace("-", "").isalnum():
-        drafts = scoped_workspace_path(predecessor.DATA / "attachment-workspace" / "Drafts")
-        expected = scoped_workspace_path(drafts, name)
+    drafts = predecessor.DATA / "attachment-workspace" / "Drafts"
+    # Drafts are named from the request ("Code folder", "Tiny date app 2"),
+    # so a local draft is known by where it lives, not by its name.
+    if folder.parent == drafts.absolute():
+        expected = scoped_workspace_path(scoped_workspace_path(drafts), name)
     else:
         expected = _p4_workspace_folder(name)
     if (folder != expected.absolute()

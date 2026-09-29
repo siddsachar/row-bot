@@ -7493,6 +7493,20 @@
           ],
           "default": null
         },
+        "draft_name": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Draft Name"
+        },
         "draft_workspace": {
           "anyOf": [
             {

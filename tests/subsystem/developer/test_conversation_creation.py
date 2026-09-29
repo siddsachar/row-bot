@@ -100,6 +100,146 @@ def test_context_fallback_creates_default_draft_without_native_folder_grant(crea
     assert workspace is not None and Path(workspace.path).parent == root / "Drafts"
 
 
+def _named_draft(service, conversation, name=None, *, identity=None):
+    identity = identity or str(uuid4())
+    payload = {"kind": "workspace", "intent": "create", "draft_workspace": True}
+    if name is not None:
+        payload["draft_name"] = name
+    return service.execute(owner_id="fixture", idempotency_key=identity, command={
+        "type": "resource.setup", "command_id": identity,
+        "expected_revision": str(service._metadata(conversation)["client_revision"]),
+        "payload": payload,
+    }, target=conversation)
+
+
+def _bound_workspace(conversation):
+    from row_bot.conversation_resources import list_bindings
+    from row_bot.developer.storage import get_workspace
+
+    return get_workspace(list_bindings(conversation).bindings[0].resource_id)
+
+
+def test_a_draft_is_named_from_the_request_and_a_taken_name_gets_a_number(creation):
+    from row_bot import threads
+
+    service, conversation, root = creation
+    assert _named_draft(service, conversation, "Tiny date app")["status"] == "completed"
+    workspace = _bound_workspace(conversation)
+    assert Path(workspace.path) == root / "Drafts" / "Tiny date app"
+    assert workspace.name == "Tiny date app"
+    other = threads.create_thread("Other conversation")
+    assert _named_draft(service, other, "Tiny date app")["status"] == "completed"
+    assert _bound_workspace(other).name == "Tiny date app 2"
+    assert sorted(path.name for path in (root / "Drafts").iterdir()) == ["Tiny date app", "Tiny date app 2"]
+
+
+def test_a_draft_without_a_name_is_a_readable_code_folder(creation):
+    from row_bot import threads
+
+    service, conversation, root = creation
+    _named_draft(service, conversation)
+    _named_draft(service, threads.create_thread("Second"))
+    _named_draft(service, threads.create_thread("Third"), "  CON  ")
+    assert sorted(path.name for path in (root / "Drafts").iterdir()) == [
+        "Code folder", "Code folder 2", "Code folder 3"]
+
+
+def test_a_draft_name_becomes_a_portable_folder_name(creation):
+    service, conversation, root = creation
+    _named_draft(service, conversation, '  Tiny/date:\tapp?  ')
+    assert [path.name for path in (root / "Drafts").iterdir()] == ["Tiny date app"]
+
+
+def test_a_saved_but_missing_folder_name_is_not_reused(creation):
+    from row_bot import threads
+    import shutil
+
+    service, conversation, root = creation
+    _named_draft(service, conversation, "Tiny date app")
+    # The folder was removed by hand but is still saved: a new draft must not
+    # collide with that saved identity.
+    shutil.rmtree(root / "Drafts" / "Tiny date app")
+    other = threads.create_thread("Other conversation")
+    assert _named_draft(service, other, "Tiny date app")["status"] == "completed"
+    assert _bound_workspace(other).name == "Tiny date app 2"
+
+
+def test_a_draft_retry_keeps_the_first_name(creation, monkeypatch):
+    from row_bot import conversation_resources
+    from row_bot.application import workspace_setup  # noqa: F401
+
+    service, conversation, root = creation
+    identity = str(uuid4())
+    command = {"type": "resource.setup", "command_id": identity,
+               "expected_revision": str(service._metadata(conversation)["client_revision"]),
+               "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True,
+                           "draft_name": "Tiny date app"}}
+    first = service.execute(owner_id="fixture", idempotency_key=identity, command=command, target=conversation)
+    assert first["status"] == "completed"
+    # The same request again replays its receipt: no second folder.
+    assert service.execute(owner_id="fixture", idempotency_key=identity, command=command,
+                           target=conversation) == first
+    assert [path.name for path in (root / "Drafts").iterdir()] == ["Tiny date app"]
+
+    from row_bot import threads
+    other = threads.create_thread("Other conversation")
+    real_bind = conversation_resources.bind
+    calls = []
+
+    def fail_once(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            raise conversation_resources.ResourceError("resource_limit")
+        return real_bind(*args, **kwargs)
+
+    monkeypatch.setattr(conversation_resources, "bind", fail_once)
+    partial = _named_draft(service, other, "Tiny date app", identity=str(uuid4()))
+    assert partial["status"] == "partial" and partial["resource_id"]
+    assert (root / "Drafts" / "Tiny date app 2").is_dir()
+    # Continuing names nothing again, even though "Tiny date app 2" is now
+    # taken on disk by this very request.
+    continuation = str(uuid4())
+    result = service.execute(owner_id="fixture", idempotency_key=continuation, command={
+        "type": "resource.continue", "command_id": continuation,
+        "expected_revision": str(service._metadata(other)["client_revision"]),
+        "payload": {"setup_command_id": partial["setup_command_id"],
+                    "expected_resource_revision": partial["resource_revision"]},
+    }, target=other)
+    assert result["status"] == "completed"
+    assert _bound_workspace(other).name == "Tiny date app 2"
+    assert sorted(path.name for path in (root / "Drafts").iterdir()) == ["Tiny date app", "Tiny date app 2"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"kind": "workspace", "intent": "create", "draft_name": "Tiny date app"},
+    {"kind": "workspace", "intent": "create", "draft_workspace": True, "draft_name": "x" * 121},
+    {"kind": "workspace", "intent": "create", "draft_workspace": True, "draft_name": ""},
+    {"kind": "workspace", "intent": "create", "folder_grant": "grant", "draft_name": "Tiny date app",
+     "empty_workspace": {"folder_name": "Tiny date app"}},
+])
+def test_a_draft_name_is_only_for_a_new_draft(payload):
+    from pydantic import ValidationError
+    from row_bot.api.v1.schemas import Command
+
+    with pytest.raises(ValidationError):
+        Command.model_validate({"command_id": uuid4(), "client_session_id": uuid4(),
+                                "type": "resource.setup", "expected_revision": "0", "payload": payload})
+
+
+def test_a_command_without_a_draft_name_keeps_its_stored_shape():
+    from row_bot.api.v1.schemas import Command
+
+    command = Command.model_validate({
+        "command_id": uuid4(), "client_session_id": uuid4(), "type": "resource.setup",
+        "expected_revision": "0", "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True}})
+    assert "draft_name" not in command.payload
+    named = Command.model_validate({
+        "command_id": uuid4(), "client_session_id": uuid4(), "type": "resource.setup",
+        "expected_revision": "0", "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True,
+                                              "draft_name": "Tiny date app"}})
+    assert named.payload["draft_name"] == "Tiny date app"
+
+
 def test_two_chat_writers_queue_and_cancel_without_releasing_owner(creation):
     from row_bot.application.conversation_writer import writer_run
     from row_bot.agent_runs import get_agent_write_lock

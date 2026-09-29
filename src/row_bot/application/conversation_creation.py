@@ -7,6 +7,7 @@ creates or binds anything by itself (B113).
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -54,3 +55,37 @@ def _draft_parent() -> Any:
     if not drafts.is_dir() or drafts.resolve(strict=True).parent != root:
         raise ValueError("workspace_root_unavailable")
     return AuthorizedWorkspaceFolder(drafts, root, "configured-drafts")
+
+
+_RESERVED_NAMES = frozenset({"con", "prn", "aux", "nul", *(f"com{n}" for n in range(1, 10)),
+                             *(f"lpt{n}" for n in range(1, 10))})
+
+
+def code_folder_name(value: str) -> str:
+    """A portable folder name from the person's words ("Tiny date app").
+
+    Shared by Add resource › New draft and the create_code_folder tool; an
+    empty or unusable name becomes "Code folder".
+    """
+    text = re.sub(r"\s+", " ", str(value or "")).strip()[:120]
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]+', " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    if not text or text.split(".", 1)[0].casefold() in _RESERVED_NAMES:
+        text = "Code folder"
+    return text[:60].rstrip(" .") or "Code folder"
+
+
+def free_folder_name(parent: Path, name: str) -> str:
+    """name, else "name 2", "name 3"…: the first neither on disk nor saved.
+
+    A saved code folder whose files were removed keeps its identity, so its
+    name is not handed out again.
+    """
+    from row_bot.developer import storage
+
+    candidate, index = name, 2
+    while os.path.lexists(parent / candidate) or storage.get_workspace(
+            storage._workspace_id_for_path(parent / candidate)) is not None:
+        candidate = f"{name} {index}"
+        index += 1
+    return candidate

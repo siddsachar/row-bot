@@ -4410,6 +4410,9 @@ class ResourceSetupPayload(WireModel):
     artifact: ArtifactSetupPayload | None = None
     empty_workspace: EmptyWorkspaceSetupPayload | None = None
     draft_workspace: bool | None = None
+    # A new draft's name from the request ("Tiny date app"); the server makes
+    # it a free folder name under Drafts.
+    draft_name: str | None = Field(default=None, min_length=1, max_length=120)
     clone_workspace: CloneWorkspaceSetupPayload | None = None
     folder_grant: OpaqueId | None = None
     # Create a copy of this design (with its revision in expected_resource_revision).
@@ -4426,6 +4429,8 @@ class ResourceSetupPayload(WireModel):
             ))
         ):
             raise ValueError("A duplicate names one design and its current revision.")
+        if self.draft_name is not None and self.draft_workspace is not True:
+            raise ValueError("Only a new draft workspace takes a draft name.")
         if self.artifact is not None and (
             self.kind != "artifact"
             or self.intent != "create"
@@ -5674,7 +5679,7 @@ class Command(WireModel):
         if self.type == "conversation.controls" and "reasoning" not in supplied:
             self.payload.pop("reasoning", None)
         if self.type == "resource.setup":
-            for field in ("artifact", "empty_workspace", "draft_workspace", "clone_workspace"):
+            for field in ("artifact", "empty_workspace", "draft_workspace", "draft_name", "clone_workspace"):
                 if field not in supplied:
                     self.payload.pop(field, None)
         if self.type == "resource.continue" and "folder_grant" not in supplied:

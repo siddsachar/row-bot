@@ -252,10 +252,16 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                     return empty_result
                 identity, created = registration.workspace.resource_id, registration.created
             elif payload.get("draft_workspace") is True:
-                from row_bot.application.conversation_creation import _draft_parent
+                from row_bot.application.conversation_creation import (
+                    _draft_parent, code_folder_name, free_folder_name,
+                )
                 authorized_folder = _draft_parent()
+                # Named once, from the request ("Tiny date app", then "Tiny
+                # date app 2"); a replay returns this receipt and continuing
+                # uses the name saved with the created folder.
                 command = {**command, "payload": {**payload, "empty_workspace": {
-                    "folder_name": f"Draft-{str(command['command_id'])[:12]}",
+                    "folder_name": free_folder_name(
+                        authorized_folder.path, code_folder_name(payload.get("draft_name") or "")),
                 }}}
                 empty_result, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
                                                                authorized_folder=authorized_folder, validate=validate)

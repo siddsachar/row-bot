@@ -592,7 +592,12 @@ export default function ResourceSetup({
                   }
                 : {
                     ...(workspaceMode === 'draft_folder'
-                      ? { draft_workspace: true }
+                      ? {
+                          draft_workspace: true,
+                          // Row-Bot names the folder from this, else
+                          // "Code folder".
+                          ...(name.trim() ? { draft_name: name.trim() } : {}),
+                        }
                       : { folder_grant: folder?.grant }),
                     ...(workspaceMode === 'empty_folder'
                       ? { empty_workspace: { folder_name: name.trim() } }
@@ -1069,6 +1074,17 @@ export default function ResourceSetup({
                   <option value="clone_repository">Clone a repository</option>
                 </Select>
               </Field>
+              {workspaceMode === 'draft_folder' && (
+                <Field label="Name (optional)">
+                  <Input
+                    value={name}
+                    maxLength={120}
+                    disabled={busy}
+                    placeholder="Tiny date app"
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+              )}
               {workspaceMode === 'empty_folder' && (
                 <Field label="New folder name">
                   <Input
@@ -1092,7 +1108,7 @@ export default function ResourceSetup({
               )}
               <p>
                 {workspaceMode === 'draft_folder'
-                  ? 'Create an empty local folder under Drafts in the configured workspace. It stays on disk if this conversation is deleted.'
+                  ? 'Create an empty folder under Drafts in your workspace folder, named as above or “Code folder”. It stays on disk if this conversation is deleted.'
                   : workspaceMode === 'empty_folder'
                     ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
                     : workspaceMode === 'clone_repository'
