@@ -885,20 +885,10 @@ def test_forced_agent_surfaces_are_wired_in_callers():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    ui_streaming = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
     tasks = (root / "src" / "row_bot" / "tasks.py").read_text(encoding="utf-8")
     approval = (root / "src" / "row_bot" / "channels" / "approval.py").read_text(encoding="utf-8")
-    task_dialog = (root / "src" / "row_bot" / "ui" / "task_dialog.py").read_text(encoding="utf-8")
 
-    assert '"runtime_surface": runtime_surface' in ui_streaming
-    assert '"runtime_mode": "agent"' in ui_streaming
-    assert "_agent_ready_forced_surface" in ui_streaming
-    assert 'append_checkpoint_messages(gen.thread_id' in ui_streaming
-    assert 'model_override=configurable.get("model_override")' in ui_streaming
-    assert "get_agent_graph()" not in ui_streaming
     assert '"runtime_surface": "workflow"' in tasks
     assert '"runtime_mode": "agent"' in tasks
     assert '"runtime_surface": "approval"' in approval
     assert '"runtime_mode": "agent"' in approval
-    assert "evaluate_agent_readiness(cur_model_ov)" in task_dialog
-    assert "Workflows require Agent Mode" in task_dialog

@@ -1273,9 +1273,8 @@ def test_xai_oauth_quick_choice_seed_requires_runtime_enabled(tmp_path, monkeypa
     assert quick[0]["provider_id"] == "xai_oauth"
 
 
-def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkeypatch):
+def test_xai_oauth_status_cards_expose_client_id_and_probe_state(tmp_path, monkeypatch):
     from row_bot.providers.status import provider_status_cards
-    from row_bot.ui.provider_settings import _xai_oauth_action_state
     import row_bot.providers.xai_oauth as xai_oauth_module
 
     monkeypatch.delenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", raising=False)
@@ -1297,8 +1296,6 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     cards = provider_status_cards()
     xai_oauth_card = next(card for card in cards if card["provider_id"] == "xai_oauth")
     xai_api_card = next(card for card in cards if card["provider_id"] == "xai")
-    provider_settings = (ROOT / "src" / "row_bot" / "ui" / "provider_settings.py").read_text(encoding="utf-8")
-    setup_wizard = (ROOT / "src" / "row_bot" / "ui" / "setup_wizard.py").read_text(encoding="utf-8")
     x_tool = (ROOT / "src" / "row_bot" / "tools" / "x_tool.py").read_text(encoding="utf-8")
 
     assert xai_oauth_card["display_name"] == "xAI Grok"
@@ -1310,66 +1307,7 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     assert "Row-Bot default" in xai_oauth_card["oauth_client_id_detail"]
     assert xai_oauth_card["last_vision_probe"]["model_id"] == "grok-probe"
     assert xai_oauth_card["last_vision_probe"]["ok"] is True
-    assert "_configure_xai_oauth_client_id_dialog" in provider_settings
-    assert "save_xai_oauth_client_id" in provider_settings
-    assert "clear_xai_oauth_client_id_override" in provider_settings
-    assert "Using Row-Bot default OAuth client ID" in provider_settings
-    assert "Using saved OAuth client ID override" in provider_settings
-    assert "Configure xAI OAuth client ID before connecting" not in provider_settings
-    assert "OAuth client ID override" in provider_settings
-    assert "Reset to default" in provider_settings
-    assert "_connect_xai_oauth_login" in provider_settings
-    assert "wait_for_xai_oauth_loopback_authorization" in provider_settings
-    assert "open_browser=False" in provider_settings
-    assert "cancel_event=listener_cancel" in provider_settings
-    assert "window.open" in provider_settings
-    assert "Open xAI Login" in provider_settings
-    assert "If the page did not open automatically" in provider_settings
-    assert "Callback URL or authorization code" in provider_settings
-    assert "Paste the xAI callback URL or authorization code" in provider_settings
-    assert "Connect with pasted code" in provider_settings
-    assert "run_xai_oauth_runtime_probe" in provider_settings
-    assert "run_xai_oauth_vision_probe" in provider_settings
-    assert "_queue_xai_oauth_vision_probe_if_needed" in provider_settings
-    assert "image_search" not in provider_settings
-    assert "Test xAI Grok vision" not in provider_settings
-    assert "vision ok" not in provider_settings
-    assert "vision failed" not in provider_settings
-    assert "disconnect_xai_oauth_metadata" in provider_settings
-    assert "xAI account fingerprint" in provider_settings
-    assert "Use xAI Grok" in setup_wizard
-    assert "setup_xai_oauth_client_id" in setup_wizard
-    assert "ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV" not in setup_wizard
-    assert "xAI OAuth Client ID override (optional)" in setup_wizard
-    assert "setup_xai_key" in setup_wizard
-    assert "validate_xai_key" in setup_wizard
-    assert "wait_for_xai_oauth_loopback_authorization" in setup_wizard
-    assert "open_browser=False" in setup_wizard
-    assert "cancel_event=listener_cancel" in setup_wizard
-    assert "window.open" in setup_wizard
-    assert "Open xAI Login" in setup_wizard
-    assert "If the page did not open automatically" in setup_wizard
-    assert "Callback URL or authorization code" in setup_wizard
-    assert "Paste the xAI callback URL or authorization code" in setup_wizard
-    assert "Connect with pasted code" in setup_wizard
-    assert "xai_oauth_runtime_available" in setup_wizard
-    assert "seed_recommended_xai_oauth_quick_choices" in setup_wizard
     assert "xai_oauth" not in x_tool
-    assert _xai_oauth_action_state({
-        "provider_id": "xai_oauth",
-        "configured": False,
-        "runtime_enabled": False,
-        "oauth_client_id_configured": True,
-        "token_health": "missing",
-    })["can_connect"] is True
-    assert _xai_oauth_action_state({
-        "provider_id": "xai_oauth",
-        "configured": True,
-        "runtime_enabled": False,
-        "oauth_client_id_configured": True,
-        "source": AuthMethod.OAUTH_PKCE.value,
-        "token_health": "expired",
-    })["can_connect"] is True
 
 
 def test_xai_oauth_disconnect_removes_oauth_metadata_only(tmp_path, monkeypatch):

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 
 def test_atlascloud_live_fetch_uses_provider_qualified_keys_and_preserves_openrouter(monkeypatch):
     import httpx
@@ -728,22 +726,3 @@ def test_atlascloud_runtime_probe_persists_to_provider_status(tmp_path, monkeypa
     assert status["last_runtime_probe"]["tool_round_trip"] is True
     assert status["runtime_probes"]["deepseek-v3"]["ok"] is True
     assert status["last_error"] == ""
-
-
-def test_atlascloud_model_catalog_has_no_provider_specific_probe_action():
-    source = Path("src/row_bot/ui/model_catalog.py").read_text(encoding="utf-8")
-    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-
-    assert "on_probe_agent" not in source
-    assert "Verify Atlas tool support" not in source
-    assert "fact_check" not in source
-    assert "run_atlascloud_runtime_probe" not in settings_source
-
-
-def test_atlascloud_setup_wizard_is_wired_as_cloud_provider():
-    source = Path("src/row_bot/ui/setup_wizard.py").read_text(encoding="utf-8")
-
-    assert "validate_atlascloud_key" in source
-    assert "setup_atlascloud_key" in source
-    assert '("atlascloud", atlascloud_val)' in source
-    assert 'set_key("ATLASCLOUD_API_KEY", atlascloud_val)' in source

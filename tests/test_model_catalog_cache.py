@@ -136,18 +136,6 @@ def test_background_model_catalog_refresh_coalesces(monkeypatch):
     assert cache.is_model_catalog_refresh_running() is False
 
 
-def test_settings_models_tab_is_cache_first():
-    src = open("src/row_bot/ui/settings.py", encoding="utf-8").read()
-
-    assert "Load model settings" not in src
-    assert "load_ollama_catalog_rows" not in src
-    assert "build_cached_model_catalog_rows" in src
-    assert "build_lazy_model_catalog_section" in src
-    assert "Open only when you need to browse or pin models" in src
-    assert "Model catalog refreshed: {rows} models" in src
-    assert "start_model_catalog_refresh_background" in src
-
-
 def test_model_catalog_keeps_saved_minimax_default_visible():
     from row_bot.providers.model_catalog import build_model_catalog_rows
 

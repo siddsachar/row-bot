@@ -2,7 +2,7 @@ from pathlib import Path
 
 from row_bot.providers.capabilities import model_supports_surface
 from row_bot.providers.catalog import classify_model_capabilities, get_provider_definition, infer_provider_id, legacy_cache_to_model_infos, model_info_to_cache_entry
-from row_bot.providers.model_catalog import CatalogModelRow, build_model_catalog_rows, rows_for_surface
+from row_bot.providers.model_catalog import build_model_catalog_rows, rows_for_surface
 from row_bot.providers.models import ModelInfo, TransportMode
 from row_bot.providers.ollama import (
     is_ollama_cloud_offload_model,
@@ -60,41 +60,6 @@ def test_atlascloud_provider_definition_and_capabilities():
     assert resolved.execution_location == "remote"
 
 
-def test_settings_models_tab_does_not_auto_load_heavy_work():
-    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-
-    assert "Load model settings" not in source
-    assert "Preparing model settings" not in source
-    assert "\n        defer_ui(_load)" not in source
-    assert "start_model_catalog_refresh_background" in source
-
-
-def test_settings_models_uses_cached_catalog_and_defers_camera_probe():
-    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-    render_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
-    collect_section = source.split("def _collect_models_tab_data", 1)[1].split("def _build_models_tab", 1)[0]
-
-    assert "build_cached_model_catalog_rows" in render_section
-    assert "load_ollama_catalog_rows" not in render_section
-    assert "build_model_catalog_rows" not in collect_section
-    assert "fetch_trending_ollama_models" not in collect_section
-    assert "pull_model" not in source
-    assert "on_download" not in (ROOT / "src" / "row_bot" / "ui" / "model_catalog.py").read_text(encoding="utf-8")
-    assert "cameras = list_cameras()" not in render_section
-    assert "await run.io_bound(list_cameras)" in render_section
-
-
-def test_setup_wizard_does_not_manage_ollama_downloads():
-    source = (ROOT / "src" / "row_bot" / "ui" / "setup_wizard.py").read_text(encoding="utf-8")
-
-    assert "pull_model" not in source
-    assert "list_all_models" not in source
-    assert "POPULAR_MODELS" not in source
-    assert "POPULAR_VISION_MODELS" not in source
-    assert "setup_brain_dl" not in source
-    assert "setup_vision_dl" not in source
-
-
 def test_ollama_provider_public_catalog_discovery_removed():
     source = (ROOT / "src" / "row_bot" / "providers" / "ollama.py").read_text(encoding="utf-8")
 
@@ -102,34 +67,6 @@ def test_ollama_provider_public_catalog_discovery_removed():
     assert "ollama_provider_catalog_model_ids" not in source
     assert "preferred_ollama_tag_models" not in source
     assert "OLLAMA_LIBRARY_URL" not in source
-
-
-def test_settings_models_initial_render_is_snapshot_only():
-    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-    render_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
-    initial_build = render_section.split('ui.label("Models")', 1)[0]
-
-    assert "_ollama_reachable()" not in initial_build
-    assert "list_local_models()" not in initial_build
-    assert "get_context_policy(" not in initial_build
-    assert "get_model_max_context(" not in initial_build
-    assert "get_available_image_models()" not in initial_build
-    assert "get_available_video_models()" not in initial_build
-    assert 'snapshot.get("context_policy")' in initial_build
-    assert 'snapshot.get("image_options")' in initial_build
-    assert 'snapshot.get("video_options")' in initial_build
-
-
-def test_model_catalog_pin_refresh_is_async_safe():
-    catalog_source = (ROOT / "src" / "row_bot" / "ui" / "model_catalog.py").read_text(encoding="utf-8")
-    settings_source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-
-    assert "async def _run_catalog_callback" in catalog_source
-    assert "await _run_catalog_callback(on_change)" in catalog_source
-    assert "await _run_catalog_callback(on_set_default, surface, row)" in catalog_source
-    assert "async def _refresh_top_picker_options" in settings_source
-    assert "await run.io_bound(_collect_top_picker_options)" in settings_source
-    assert "if inspect.isawaitable(result):" in settings_source
 
 
 def test_minimax_model_ids_infer_to_minimax_provider():
@@ -854,38 +791,6 @@ def test_openrouter_cached_no_tool_metadata_is_chat_only(monkeypatch):
     assert rows[0].runtime_ready is True
     assert rows[0].runtime_mode == "chat_only"
     assert "Chat Only" in rows[0].status_reason
-
-
-def test_model_catalog_ui_filters_and_bounds_large_provider_groups():
-    from row_bot.ui.model_catalog import CATALOG_PROVIDER_ROW_LIMIT, _filter_catalog_rows, _visible_provider_rows
-
-    rows = [
-        CatalogModelRow(
-            provider_id="openai",
-            provider_display_name="OpenAI API",
-            model_id=f"gpt-large-{idx}",
-            display_name=f"GPT Large {idx}",
-            categories=("chat",),
-        )
-        for idx in range(CATALOG_PROVIDER_ROW_LIMIT + 5)
-    ]
-    rows.append(
-        CatalogModelRow(
-            provider_id="google",
-            provider_display_name="Google AI",
-            model_id="gemini-vision-special",
-            display_name="Gemini Vision Special",
-            categories=("vision",),
-        )
-    )
-
-    openai_chat_rows = _filter_catalog_rows(rows, surface="chat", provider="openai")
-    special_vision_rows = _filter_catalog_rows(rows, surface="vision", query="special")
-
-    assert len(openai_chat_rows) == CATALOG_PROVIDER_ROW_LIMIT + 5
-    assert len(_visible_provider_rows(openai_chat_rows, CATALOG_PROVIDER_ROW_LIMIT)) == CATALOG_PROVIDER_ROW_LIMIT
-    assert _visible_provider_rows(openai_chat_rows, -1) == []
-    assert [row.model_id for row in special_vision_rows] == ["gemini-vision-special"]
 
 
 def test_model_catalog_excludes_non_daemon_ollama_rows(monkeypatch):

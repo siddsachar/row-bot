@@ -276,52 +276,6 @@ def test_codex_provider_status_counts_safe_catalog_without_live_fetch(tmp_path, 
     assert card["chat_count"] == card["model_count"]
 
 
-def test_codex_provider_ui_action_state_for_detected_and_configured_login():
-    from row_bot.ui.provider_settings import _codex_action_state, _source_label
-
-    detected = {
-        "provider_id": "codex",
-        "configured": False,
-        "source": "external_cli_detected",
-        "external_reference_exists": True,
-        "runtime_enabled": False,
-    }
-    configured = {
-        "provider_id": "codex",
-        "configured": True,
-        "source": "external_cli",
-        "external_reference_exists": True,
-        "runtime_enabled": False,
-    }
-    oauth = {
-        "provider_id": "codex",
-        "configured": True,
-        "source": "oauth_device",
-        "external_reference_exists": False,
-        "runtime_enabled": False,
-    }
-
-    assert _codex_action_state(detected) == {
-        "can_connect": True,
-        "can_reference": True,
-        "can_disconnect": False,
-        "runtime_enabled": False,
-    }
-    assert _codex_action_state(configured) == {
-        "can_connect": True,
-        "can_reference": False,
-        "can_disconnect": True,
-        "runtime_enabled": False,
-    }
-    assert _codex_action_state(oauth) == {
-        "can_connect": False,
-        "can_reference": False,
-        "can_disconnect": True,
-        "runtime_enabled": False,
-    }
-    assert _source_label("oauth_device") == "Signed in with ChatGPT"
-
-
 def test_codex_auth_file_detection_is_not_implicit_configuration(tmp_path, monkeypatch):
     import row_bot.providers.runtime as runtime
 

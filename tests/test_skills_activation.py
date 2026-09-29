@@ -312,44 +312,6 @@ def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
     assert choices[0].name == "meeting_notes"
 
 
-def test_chat_skill_picker_uses_shared_ranked_choices():
-    src = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
-
-    assert "list_skill_choices" in src
-    assert "def _matches(skill)" not in src
-
-
-def test_chat_suppresses_draft_suggestions_after_use_or_dismiss():
-    src = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
-
-    assert "suggestions_suppressed_text" in src
-    assert "def _suppress_skill_suggestions_for_current_draft" in src
-    assert "_cancel_skill_chip_refresh_task()" in src
-    assert "source.startswith(\"ui\")" in src
-
-
-def test_studio_composers_wire_shared_slash_and_skill_extras():
-    components_src = Path("src/row_bot/ui/chat_components.py").read_text(encoding="utf-8")
-    extras_src = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
-    designer_src = Path("src/row_bot/designer/editor.py").read_text(encoding="utf-8")
-    developer_src = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
-    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
-
-    assert "composer_extras: Any | None = None" in components_src
-    assert "composer_extras.render_before_input()" in components_src
-    assert "composer_extras.attach_input(p.chat_input)" in components_src
-    assert "window._rowBotSlashPaletteOpen" in components_src
-    assert "class ComposerExtrasController" in extras_src
-    assert "row-bot-slash-palette-list" in extras_src
-    assert "create_designer_composer_extras" in designer_src
-    assert "create_developer_composer_extras" in developer_src
-    assert "set_thread_skills_override" in extras_src
-    assert 'skill_mode="developer"' in extras_src
-    assert 'skill_mode="thread_override"' in extras_src
-    assert "_resolve_active_skill_records" in agent_src
-    assert "elif override is not None" in agent_src
-
-
 def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
     _write_skill(
         tmp_path,

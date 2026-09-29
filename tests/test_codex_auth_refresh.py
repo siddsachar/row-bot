@@ -118,14 +118,3 @@ def test_codex_token_health_revoked_refresh_requires_reconnect(monkeypatch):
     assert health.status == "expired"
     assert not health.runnable
     assert "Reconnect ChatGPT" in health.detail
-
-
-def test_streaming_codex_auth_block_message(monkeypatch, tmp_path):
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
-    import row_bot.ui.streaming as streaming
-    from row_bot.providers import codex
-
-    monkeypatch.setattr(codex, "codex_runtime_block_message", lambda *, refresh_if_needed=True: "reconnect please")
-
-    assert streaming._codex_auth_block_message("model:codex:gpt-5.5") == "reconnect please"
-    assert streaming._codex_auth_block_message("model:openai:gpt-5.5") is None

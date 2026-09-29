@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from pathlib import Path
 from typing import Iterator
 
 import pytest
@@ -229,16 +228,6 @@ def test_transport_constructor_mapping_is_provider_native(provider, selection, e
     plan = ReasoningRequestPlan(f"model:{provider}:exact", selection, caps)
 
     assert _reasoning_constructor_kwargs(plan, provider=provider) == expected
-
-
-def test_shared_reasoning_picker_uses_canonical_labels() -> None:
-    source = Path("src/row_bot/ui/chat_components.py").read_text(encoding="utf-8")
-    picker = source.split("def _build_inline_reasoning_picker(", 1)[1].split(
-        "async def open_reasoning_control(", 1
-    )[0]
-
-    assert "_value(choice): choice.label" in picker
-    assert '"Auto" if choice.is_default' not in picker
 
 
 def test_anthropic_effort_enables_only_exact_adaptive_thinking() -> None:

@@ -1,5 +1,3 @@
-import pathlib
-
 import row_bot.api_keys as api_keys
 import row_bot.providers.config as provider_config
 from row_bot.providers.selection import (
@@ -701,10 +699,3 @@ def test_include_values_respects_custom_endpoint_manual_vision_off_without_quick
     included = next(option for option in inactive_options if option["value"] == ref)
     assert included["active"] is False
     assert included["reason"] == "manual vision capability disabled"
-
-
-def test_models_tab_copy_explains_catalog_pinning_before_picker():
-    source = pathlib.Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-
-    assert "Pin models in the catalog below before looking for them here." in source
-    assert "No pinned Vision choices yet. Pin Vision models in the catalog below." in source

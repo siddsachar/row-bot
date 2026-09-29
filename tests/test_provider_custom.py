@@ -1356,177 +1356,25 @@ def test_custom_probe_summary_reports_distinct_vision_states():
     assert "vision: ok" in ok["text"]
 
 
-def test_custom_probe_checks_summary_is_compact_and_status_colored():
-    from row_bot.providers.custom import custom_probe_summary
-    from row_bot.ui.provider_settings import _probe_checks_summary
-
-    ok = _probe_checks_summary(custom_probe_summary({
-        "classification": "agent_ready",
-        "chat_ok": True,
-        "tool_calling": True,
-        "tool_round_trip": True,
-        "streaming_ok": True,
-        "streaming_tool_calling": True,
-        "vision_ok": True,
-        "vision_probed": True,
-    }))
-    assert ok == {"label": "6/6 checks", "color": "green"}
-
-    skipped_vision = _probe_checks_summary(custom_probe_summary({
-        "classification": "agent_ready",
-        "chat_ok": True,
-        "tool_calling": True,
-        "tool_round_trip": True,
-        "streaming_ok": True,
-        "streaming_tool_calling": True,
-        "vision_ok": None,
-        "vision_probed": False,
-    }))
-    assert skipped_vision == {"label": "5/6 checks", "color": "blue-grey"}
-
-    failed_tools = _probe_checks_summary(custom_probe_summary({
-        "classification": "chat_only",
-        "chat_ok": True,
-        "tool_calling": False,
-        "tool_round_trip": False,
-        "streaming_ok": True,
-        "streaming_tool_calling": False,
-        "vision_ok": None,
-        "vision_probed": True,
-    }))
-    assert failed_tools == {"label": "2/6 checks", "color": "orange"}
-
-
-def test_custom_endpoint_manual_capability_ui_helper_builds_sparse_overrides():
-    from row_bot.ui.provider_settings import _manual_capabilities_from_ui
-
-    assert _manual_capabilities_from_ui("auto", "auto", "") == {}
-    assert _manual_capabilities_from_ui("on", "off", "65536") == {
-        "vision": True,
-        "tool_calling": False,
-        "context_window": 65536,
-    }
-    assert _manual_capabilities_from_ui("off", "on", "not a number") == {
-        "vision": False,
-        "tool_calling": True,
-    }
-
-
-def test_custom_endpoint_edit_payload_preserves_fixed_fields_for_display_name_only():
-    from row_bot.ui.provider_settings import _custom_endpoint_edit_payload
-
-    endpoint = {
-        "id": "llama-cpp",
-        "provider_id": "custom_openai_llama-cpp",
-        "name": "llama-cpp",
-        "display_name": "llama-cpp",
-        "base_url": "http://127.0.0.1:8081/v1",
-        "profile": "llama_cpp",
-        "transport": "openai_chat",
-        "execution_location": "local",
-        "auth_required": False,
-        "models": [{"id": "qwen3.5-9b"}],
-        "last_probe": {"ok": True},
-    }
-
-    payload, stale = _custom_endpoint_edit_payload(
-        endpoint,
-        display_name="Local llama.cpp",
-        base_url="http://127.0.0.1:8081/v1",
-        no_auth=True,
-    )
-
-    assert stale is False
-    assert payload["id"] == "llama-cpp"
-    assert payload["profile"] == "llama_cpp"
-    assert payload["execution_location"] == "local"
-    assert payload["display_name"] == "Local llama.cpp"
-    assert payload["models"] == [{"id": "qwen3.5-9b"}]
-    assert payload["last_probe"] == {"ok": True}
-
-
-def test_custom_endpoint_edit_payload_stales_probe_for_connection_and_advanced_changes():
-    from row_bot.ui.provider_settings import _custom_endpoint_edit_payload
-
-    endpoint = {
-        "id": "lm-studio",
-        "name": "LM Studio",
-        "base_url": "http://127.0.0.1:1234/v1",
-        "profile": "lmstudio",
-        "transport": "openai_chat",
-        "execution_location": "local",
-        "auth_required": False,
-        "manual_capabilities": {"vision": True},
-        "models": [{"id": "qwen/qwen3.5-9b"}],
-        "last_probe": {"ok": True},
-    }
-
-    payload, stale = _custom_endpoint_edit_payload(
-        endpoint,
-        display_name="LM Studio",
-        base_url="http://127.0.0.1:2234/v1/",
-        no_auth=True,
-        vision_mode="off",
-        tool_mode="auto",
-        context_window="65536",
-    )
-
-    assert stale is True
-    assert payload["base_url"] == "http://127.0.0.1:2234/v1"
-    assert payload["manual_capabilities"] == {"vision": False, "context_window": 65536}
-    assert "models" not in payload
-    assert "last_probe" not in payload
-    assert payload["profile"] == "lmstudio"
-    assert payload["execution_location"] == "local"
-
-
-def test_custom_endpoint_edit_payload_validates_reasoning_and_extra_json():
-    from row_bot.ui.provider_settings import _custom_endpoint_edit_payload
-
-    endpoint = {
-        "id": "vllm",
-        "name": "vLLM",
-        "base_url": "http://127.0.0.1:8000/v1",
-        "profile": "vllm",
-        "transport": "openai_chat",
-        "execution_location": "local",
-        "auth_required": False,
-    }
-
-    payload, stale = _custom_endpoint_edit_payload(
-        endpoint,
-        display_name="vLLM",
-        base_url=endpoint["base_url"],
-        no_auth=True,
-        reasoning_mode="on",
-        thinking_budget="4096",
-        extra_body_json='{"top_k": 20, "chat_template_kwargs": {"custom": true}}',
-        supports_reasoning_content=True,
-        supports_reasoning_replay=True,
-    )
-
-    assert stale is False
-    assert payload["reasoning_mode"] == "on"
-    assert payload["thinking_budget"] == 4096
-    assert payload["extra_body"] == {"top_k": 20, "chat_template_kwargs": {"custom": True}}
-    assert payload["supports_reasoning_content"] is True
-    assert payload["supports_reasoning_replay"] is True
-
-
 @pytest.mark.parametrize(
-    ("extra_json", "message"),
+    "extra_json",
     [
-        ("not-json", "invalid"),
-        ("[]", "JSON object"),
-        ('{"authorization": "Bearer secret"}', "credentials"),
-        ('{"nested": {"api_key": "secret"}}', "credentials"),
+        "not-json",
+        "[]",
+        '{"authorization": "Bearer secret"}',
+        '{"nested": {"api_key": "secret"}}',
     ],
 )
-def test_custom_endpoint_extra_request_json_rejects_invalid_or_secret_data(extra_json, message):
-    from row_bot.ui.provider_settings import _parse_custom_extra_body
+def test_custom_endpoint_extra_request_json_rejects_invalid_or_secret_data(extra_json):
+    from dataclasses import asdict
 
-    with pytest.raises(ValueError, match=message):
-        _parse_custom_extra_body(extra_json)
+    from row_bot.application.provider_configuration_controls import ProviderEndpointFields, _fields
+
+    fields = asdict(ProviderEndpointFields(
+        "synthetic", "Synthetic endpoint", "http://127.0.0.1:8123/v1", extra_body_json=extra_json,
+    ))
+    with pytest.raises(provider_config.ProviderConfigError, match="invalid_provider_extra_body"):
+        _fields(fields)
 
 
 def test_custom_endpoint_probe_classifies_chat_only_when_tools_fail(tmp_path, monkeypatch):

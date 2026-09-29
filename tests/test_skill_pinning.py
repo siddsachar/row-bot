@@ -154,10 +154,6 @@ def test_surface_defaults_are_additive_for_designer_and_developer(tmp_path, monk
         "meeting_notes",
     ]
 
-    home_source = Path("src/row_bot/ui/home.py").read_text(encoding="utf-8")
-    assert 'get_default_active_skill_names("designer")' in home_source
-    assert "set_thread_skills_override(tid, default_designer_skills)" in home_source
-
 
 def test_task_advanced_mode_is_persisted(tmp_path, monkeypatch):
     _skills, _activation, _threads, tasks = _reload_skill_pinning_modules(tmp_path, monkeypatch)
@@ -177,22 +173,6 @@ def test_task_advanced_mode_is_persisted(tmp_path, monkeypatch):
         steps=[{"type": "prompt", "prompt": "say hi"}],
     )
     assert tasks.get_task(stepped_id)["advanced_mode"] is True
-
-    dialog_source = Path("src/row_bot/ui/task_dialog.py").read_text(encoding="utf-8")
-    assert "task.get(\"advanced_mode\")" in dialog_source
-    assert "advanced_mode=is_advanced" in dialog_source
-
-
-def test_workflow_dialog_is_profile_first_source_contract() -> None:
-    dialog_source = Path("src/row_bot/ui/task_dialog.py").read_text(encoding="utf-8")
-
-    assert "Agent Profile" in dialog_source
-    assert "agent_profile_id=cur_agent_profile_id" in dialog_source
-    assert "apply_default_skills=False" in dialog_source
-    assert "Tools override" not in dialog_source
-    assert "Skills override" not in dialog_source
-    assert "tools_override" not in dialog_source
-    assert "skills_override" not in dialog_source
 
 
 def test_developer_threads_snapshot_pinned_skills(tmp_path, monkeypatch):

@@ -273,44 +273,8 @@ def test_cli_status_can_be_authenticated_while_api_token_is_invalid(monkeypatch)
     assert status.anonymous_ok
 
 
-def test_settings_exposes_github_account_panel():
-    source = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
-
-    assert "_build_github_account_panel" in source
-    assert "GitHub Personal Access Token" in source
-    assert "GitHub — ✅ Connected" in source
-    assert "Check GitHub" in source
-    assert "Reconnect CLI" in source
-    assert "gh auth login -h github.com" in source
-    assert "gh auth refresh -h github.com" in source
-    assert "github account status load" in source
-    assert "safe_ui_task(lambda token=token, force=force: _load_github_status" in source
-
-
-def test_settings_github_label_does_not_verify_synchronously():
-    source = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
-    helper_start = source.index("def _github_status_text")
-    helper_end = source.index("with ui.expansion(_github_status_text", helper_start)
-    helper_body = source[helper_start:helper_end]
-
-    assert "get_verified_github_account_status" not in helper_body
-    assert "Checking..." in helper_body
-
-
-def test_settings_github_status_load_runs_off_ui_thread():
-    source = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
-    load_start = source.index("async def _load_github_status")
-    load_end = source.index("with ui.row().classes(\"gap-2 items-center\")", load_start)
-    load_body = source[load_start:load_end]
-
-    assert "await run.io_bound" in load_body
-    assert "_github_status_for_settings" in load_body
-
-
 def test_status_bar_registers_github_account_pill():
-    from row_bot.ui import status_checks
-    from row_bot.ui.status_bar import _STATUS_ICON_MAP
+    from row_bot import status_checks
 
     assert status_checks.check_github_oauth in status_checks.ALL_CHECKS
     assert status_checks.check_github_oauth in status_checks.HEAVY_CHECKS
-    assert _STATUS_ICON_MAP["GitHub"] == "code"

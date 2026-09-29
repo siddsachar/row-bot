@@ -371,24 +371,8 @@ def test_goal_continuation_is_posted_to_shared_parent_runner(tmp_path, monkeypat
     assert captured[0]["event_payload"]["goal_id"] == goal["id"]
 
 
-def test_goal_streaming_and_ui_contracts_are_wired():
-    streaming = Path("src/row_bot/ui/streaming.py").read_text(encoding="utf-8")
-    chat = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
-    goal_ui = Path("src/row_bot/ui/goal_ui.py").read_text(encoding="utf-8")
-    composer = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
+def test_goal_guide_documents_goal_update():
     guide = Path("tool_guides/goal_guide/SKILL.md").read_text(encoding="utf-8")
 
-    assert "goals.is_goal_start_argument" in streaming
-    assert "goals.build_initial_goal_prompt" in streaming
-    assert "goals.after_turn" in streaming
-    assert "goal_continuation_prompt" in streaming
-    assert "internal_goal_continuation" in streaming
-    assert "internal_goal_continuation=True" in streaming
-    assert "not queued_visible_user_msg and not internal_goal_continuation" in streaming
-    assert "build_goal_progress_panel" in chat
-    assert "def build_goal_progress_panel" in goal_ui
-    assert "goals.get_current_goal" in goal_ui
-    assert "internal_goal_continuation=True" in goal_ui
-    assert 'spec.handler_key == "goal"' in composer
     assert "name: goal_guide" in guide
     assert "goal_update" in guide

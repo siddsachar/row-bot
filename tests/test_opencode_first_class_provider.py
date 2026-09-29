@@ -1329,43 +1329,9 @@ def test_followup_openrouter_nested_input_modalities_enable_vision():
 
 def test_ux_provider_rows_expose_opencode_keyring_controls():
     from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV
-    from row_bot.ui.provider_settings import _api_key_provider_action_state, _api_key_provider_ids, _api_key_provider_ui
 
     assert PROVIDER_API_KEY_ENV["opencode_zen"] == "OPENCODE_ZEN_API_KEY"
     assert PROVIDER_API_KEY_ENV["opencode_go"] == "OPENCODE_GO_API_KEY"
-    assert "opencode_zen" in _api_key_provider_ids()
-    assert "opencode_go" in _api_key_provider_ids()
-    assert _api_key_provider_action_state({"provider_id": "opencode_zen"})["can_manage_api_key"] is True
-    assert _api_key_provider_action_state({"provider_id": "opencode_go"})["can_manage_api_key"] is True
-    assert _api_key_provider_ui("opencode_zen").validator_name == ""
-    assert _api_key_provider_ui("opencode_go").validator_name == ""
-
-
-def test_ux_setup_wizard_exposes_and_saves_opencode_keys():
-    source = Path("src/row_bot/ui/setup_wizard.py").read_text(encoding="utf-8")
-
-    assert "OpenCode Zen API Key (optional)" in source
-    assert "OpenCode Go API Key (optional)" in source
-    assert '("opencode_zen", opencode_zen_val)' in source
-    assert '("opencode_go", opencode_go_val)' in source
-    assert 'set_key("OPENCODE_ZEN_API_KEY", opencode_zen_val)' in source
-    assert 'set_key("OPENCODE_GO_API_KEY", opencode_go_val)' in source
-
-
-def test_ux_setup_wizard_option_preserves_opencode_ref_without_noisy_label():
-    from row_bot.ui.setup_wizard import cloud_model_setup_option
-
-    option = cloud_model_setup_option(
-        "model:opencode_go:glm-5.1",
-        {"provider": "opencode_go", "label": "GLM 5.1"},
-        emoji_lookup=lambda value: "OG",
-    )
-
-    assert option["value"] == "model:opencode_go:glm-5.1"
-    assert option["provider_id"] == "opencode_go"
-    assert option["model_id"] == "glm-5.1"
-    assert option["label"] == "OG GLM 5.1"
-    assert "model:opencode_go" not in option["label"]
 
 
 def test_ux_provider_status_counts_opencode_provider_qualified_cache(monkeypatch):

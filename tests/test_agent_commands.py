@@ -17,7 +17,6 @@ def _fresh_command_modules(tmp_path, monkeypatch):
         "row_bot.agent_commands",
         "row_bot.slash_commands",
         "row_bot.channels.commands",
-        "row_bot.ui.streaming",
     ):
         sys.modules.pop(name, None)
 
@@ -74,9 +73,10 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
         "slug": "review",
     }
     assert threads.get_thread_skills_override(thread_id) is None
-    import row_bot.ui.streaming as streaming
+    from row_bot.application.profile_controls import freeze_profile
 
-    config = streaming._profile_runtime_config_for_thread(thread_id)
+    config = {"agent_profile_id": threads._get_thread_agent_profile(thread_id)["id"]}
+    freeze_profile(config)
     assert config["tool_allowlist"] == [
         "memory",
         "row_bot_status",
