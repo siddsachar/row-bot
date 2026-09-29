@@ -113,6 +113,7 @@ def test_passive_snapshot_and_review_never_resolve_download_or_create_runtime(se
         assert admissions.read_command_metadata(headers["X-Client-Session"], command["command_id"]) is None
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("runtime_id", ["node", "uv"])
 def test_real_resolve_pinned_review_install_and_receipt_are_exact_and_idempotent(service, runtimes, runtime_id):
     with _client(service) as client:

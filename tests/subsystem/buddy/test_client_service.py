@@ -163,6 +163,7 @@ def test_hardlinked_config_is_not_read_or_replaced(owner):
     assert source.read_text() == '{"visible":true}'
 
 
+@pytest.mark.slow
 def test_pack_pages_continue_and_revision_invalidates_old_cursor(owner):
     for index in range(53):
         pack(owner, f"hatch-{index:03}")

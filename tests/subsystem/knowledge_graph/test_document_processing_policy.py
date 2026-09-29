@@ -764,6 +764,7 @@ def test_original_processing_command_receipt_never_reenables_or_recaptures_polic
     assert service.get_batch(batch).status == "paused"
 
 
+@pytest.mark.slow
 def test_strict_indexing_worker_uses_reviewed_snapshot_and_captured_embeddings(processing, monkeypatch, tmp_path):
     api,service,policy,batch,*_ = processing
     from row_bot import document_jobs, documents, embedding_providers
@@ -799,6 +800,7 @@ def test_strict_indexing_worker_uses_reviewed_snapshot_and_captured_embeddings(p
     assert service.list_document_records() == []
 
 
+@pytest.mark.slow
 def test_strict_worker_completes_canonical_pipeline_without_legacy_provider_selection(processing, monkeypatch, tmp_path):
     import importlib
     from pathlib import Path

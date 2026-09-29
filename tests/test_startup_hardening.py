@@ -118,6 +118,7 @@ def test_startup_timeout_env(monkeypatch):
     assert launcher._startup_timeout() == 120
 
 
+@pytest.mark.slow
 def test_preflight_handles_real_broken_optional_package_subprocess(tmp_path):
     package_dir = tmp_path / "torchcodec"
     package_dir.mkdir()
@@ -266,6 +267,7 @@ def test_sms_webhook_registration_is_scheduled_in_background(monkeypatch):
     asyncio.run(run_check())
 
 
+@pytest.mark.slow
 def test_app_import_survives_broken_cv2_module(tmp_path):
     fake_cv2 = tmp_path / "cv2.py"
     fake_cv2.write_text('raise OSError("libGL.so.1: cannot open shared object file")\n', encoding="utf-8")

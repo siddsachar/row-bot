@@ -153,6 +153,7 @@ def test_channel_pages_cover_registered_adapters_and_reject_changed_snapshot(sha
         assert state['calls'] == []
 
 
+@pytest.mark.slow
 def test_publication_reads_then_unpublishes_through_the_same_reviewed_path(sharing):
     owner, state = sharing
     with _client(owner) as client:

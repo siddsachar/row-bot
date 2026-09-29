@@ -404,6 +404,7 @@ def test_test_mode_requires_an_explicit_secret_backend(monkeypatch) -> None:
         secret_store._backend()
 
 
+@pytest.mark.slow
 def test_encrypted_server_store_survives_a_fresh_python_process(
     tmp_path,
 ) -> None:

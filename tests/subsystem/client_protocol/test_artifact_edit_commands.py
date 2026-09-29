@@ -68,6 +68,7 @@ def test_wrong_binding_never_edits_another_resource(artifact_service):
         assert artifacts.read_artifact(second["resource_id"]).name != "Wrong"
 
 
+@pytest.mark.slow
 def test_page_ops_and_size_change_through_the_command_path(artifact_service):
     with _client(artifact_service) as client:
         _, headers = bootstrap(client)

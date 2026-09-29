@@ -27,6 +27,7 @@ def send(client, headers, command):
     return client.post(BASE + "/commands", headers={**headers,"Idempotency-Key":command["command_id"]}, json=command)
 
 
+@pytest.mark.slow
 def test_remove_binds_exact_target_and_retains_canonical_recovery_copies(service, stack):
     saved = document(stack)
     with _client(service) as client:
@@ -59,6 +60,7 @@ def test_remove_binds_exact_target_and_retains_canonical_recovery_copies(service
         assert next(row for row in current.json()["items"] if row["id"] == saved["job"].id)["record_state"] == "partial"
 
 
+@pytest.mark.slow
 def test_partial_receipt_and_duplicate_do_not_retry_until_explicit_same_operation_review(service, stack, monkeypatch):
     saved = document(stack)
     rebuild = stack["kg"].rebuild_fts_index

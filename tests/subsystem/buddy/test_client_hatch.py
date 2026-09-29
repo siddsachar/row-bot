@@ -258,6 +258,7 @@ def test_explicit_still_recovery_uses_retained_image_without_repeating_provider(
     assert r.assets.load_buddy_pack(recovered.pack_id, strict=True).runtime == "generated_still"
 
 
+@pytest.mark.slow
 def test_motion_retry_creates_distinct_pack_preserving_original_active_bytes(hatch_owner):
     r = hatch_owner
     first = r.start()
@@ -424,6 +425,7 @@ def test_candidate_change_after_publication_checkpoint_prevents_selection(hatch_
     assert not r.config._BUDDY_CONFIG_PATH.exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("field,value", [("stage", []), ("status", {}), ("completed_clips", True), ("pack_id", "../../foreign")])
 def test_saved_result_rejects_corrupt_public_descriptor(hatch_owner, field, value):
     r = hatch_owner

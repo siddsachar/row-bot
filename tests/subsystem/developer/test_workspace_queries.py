@@ -13,6 +13,7 @@ from tests.subsystem.developer.test_client_workspace import domain, register  # 
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.slow
 def test_complete_large_directory_expands_one_level_only(tmp_path, monkeypatch):
     nested = tmp_path / "nested"
     nested.mkdir()

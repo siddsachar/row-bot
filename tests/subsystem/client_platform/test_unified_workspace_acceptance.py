@@ -124,6 +124,7 @@ def test_one_client_disconnect_does_not_stop_producer_or_duplicate_final(service
         assert len(fake.calls) == 1
 
 
+@pytest.mark.slow
 def test_stop_reports_request_until_uninterruptible_producer_releases(service):
     barrier = StreamBarrier(release_on_cancel=False)
     fake = ScriptedAgentStream((("token", "Pending external completion"), barrier, ("done", None)))
@@ -151,6 +152,7 @@ def test_stop_reports_request_until_uninterruptible_producer_releases(service):
         assert len(fake.calls) == 1
 
 
+@pytest.mark.slow
 def test_token_burst_and_acknowledgement_rate_limit_preserve_stop_control(service):
     from fastapi.testclient import TestClient
     from row_bot.api.v1.routes import create_client_platform_app
@@ -336,6 +338,7 @@ def test_created_deck_survives_association_failure_and_continues_exact_identity(
         assert len(list(PROJECTS_DIR.glob("*.json"))) == 1
 
 
+@pytest.mark.slow
 def test_complete_search_crosses_thousand_conversations_and_ten_thousand_messages(service):
     from langchain_core.messages import HumanMessage
     from row_bot import threads
@@ -381,6 +384,7 @@ def test_complete_search_crosses_thousand_conversations_and_ten_thousand_message
         assert len(hits) == 2
 
 
+@pytest.mark.slow
 def test_search_continuation_rejects_changed_query_and_deleted_library_hit(service):
     from row_bot import threads
     from row_bot.application.client_platform import ClientPlatformError

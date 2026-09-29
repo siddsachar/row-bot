@@ -77,6 +77,7 @@ def test_brand_control_is_once_with_saved_history_and_exact_receipt(owner, mode)
     assert '_artifact_design' not in result and 'parameters' not in json.dumps(result)
 
 
+@pytest.mark.slow
 def test_style_hotspot_and_asset_insert_remove_forget_use_real_domain(owner):
     project = storage.load_project(owner.project.id)
     project.mode = 'landing'

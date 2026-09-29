@@ -218,6 +218,7 @@ def test_f_p05_safe_legacy_json_checkpoint_preserves_native_identity_and_fields(
     assert migrated.parent_config["configurable"]["checkpoint_id"] == saved.checkpoint["id"]
 
 
+@pytest.mark.slow
 def test_f_p05_large_active_stream_remains_retrievable_and_completes(platform):
     import base64
 

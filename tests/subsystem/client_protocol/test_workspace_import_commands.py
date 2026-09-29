@@ -15,6 +15,7 @@ from tests.subsystem.developer.test_client_workspace_imports import domain, impo
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.slow
 def test_import_review_nonce_new_folders_and_passive_exact_original_receipt(imports, monkeypatch):
     d = imports
     violations = []
@@ -70,6 +71,7 @@ def test_import_review_nonce_new_folders_and_passive_exact_original_receipt(impo
         assert client.get(base + '/commands/' + command['command_id'], headers=foreign).status_code == 404
 
 
+@pytest.mark.slow
 def test_partial_import_recovers_original_after_expired_nonce_without_republishing_files(imports, monkeypatch):
     d = imports
     pending = d.pending({'file.txt': 'before\n'}, {'file.txt': 'after\n'})

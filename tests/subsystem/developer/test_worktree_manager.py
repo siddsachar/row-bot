@@ -81,6 +81,7 @@ def _create_repo(tmp_path):
     return repo
 
 
+@pytest.mark.slow
 def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadata(tmp_path, monkeypatch):
     _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
     repo = _create_repo(tmp_path)
@@ -128,6 +129,7 @@ def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadat
     assert worktree_path.exists()
 
 
+@pytest.mark.slow
 def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repository(tmp_path, monkeypatch):
     _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
     from row_bot.thread_cleanup import delete_thread
@@ -159,6 +161,7 @@ def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repositor
     assert _git_out(repo, "branch", "--list", branch_name).strip()
 
 
+@pytest.mark.slow
 def test_child_delete_captures_owned_allocation_before_purging_run(tmp_path, monkeypatch):
     _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
     importlib.reload(importlib.import_module("row_bot.agent_profiles"))
@@ -195,6 +198,7 @@ def test_child_delete_captures_owned_allocation_before_purging_run(tmp_path, mon
     assert sentinel.read_text(encoding="utf-8") == "Synthetic project remains"
 
 
+@pytest.mark.slow
 def test_thread_deletion_preserves_dirty_worktree_and_exposes_recovery_workspace(tmp_path, monkeypatch):
     _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
     from row_bot.thread_cleanup import delete_thread
@@ -269,6 +273,7 @@ def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_change
     )
 
 
+@pytest.mark.slow
 def test_dirty_current_changes_seed_into_worktree_without_mutating_parent(tmp_path, monkeypatch):
     _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
     repo = _create_repo(tmp_path)
@@ -310,6 +315,7 @@ def test_dirty_current_changes_seed_into_worktree_without_mutating_parent(tmp_pa
     assert "?? notes.md" in worktree_status
 
 
+@pytest.mark.slow
 def test_child_worktree_derives_from_dirty_parent_worktree(tmp_path, monkeypatch):
     _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
     repo = _create_repo(tmp_path)
@@ -349,6 +355,7 @@ def test_allocate_worktree_requires_git_repo(tmp_path, monkeypatch):
         worktrees.allocate_agent_worktree("nogit", parent.id, objective="Try")
 
 
+@pytest.mark.slow
 def test_git_summary_distinguishes_nested_folder_from_repo_root(tmp_path, monkeypatch):
     _tasks, _threads, storage, _worktrees = _fresh_modules(tmp_path, monkeypatch)
     repo = _create_repo(tmp_path)

@@ -47,6 +47,7 @@ def api(undo, request):
             base=base, change=change, binding=binding, review=reviewed, send=send, before=before, after=after)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("api", [(
     {"crlf.txt": "before\r\n", "no-eof.txt": "before", "empty-deleted.txt": "", "deleted.txt": "delete me\n"},
     {"crlf.txt": "after\r\n", "no-eof.txt": "after", "empty-deleted.txt": None, "deleted.txt": None,
@@ -73,6 +74,7 @@ def test_mixed_exact_bytes_and_completed_api_replay_are_passive(api, monkeypatch
     assert "_workspace_undo" not in receipt.text and str(api.d.root) not in receipt.text
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("change", ["nonce", "binding", "bytes", "same_bytes_inode"])
 def test_changed_authority_or_file_before_admission_has_no_undo(api, change):
     command = api.review()
@@ -95,6 +97,7 @@ def test_changed_authority_or_file_before_admission_has_no_undo(api, change):
     assert not api.d.ledger.read_change_set(api.change)[0].reverted
 
 
+@pytest.mark.slow
 def test_expiry_after_atomic_claim_recovers_original_review_with_fresh_nonce(api, monkeypatch):
     command = api.review()
     claim = admissions.claim_command
@@ -116,6 +119,7 @@ def test_expiry_after_atomic_claim_recovers_original_review_with_fresh_nonce(api
     assert restored.status_code == 200 and restored.json()["status"] == "undone", restored.text
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("after_commit", [False, True])
 def test_final_receipt_uncertainty_and_lost_response_recover_without_republication(api, monkeypatch, after_commit):
     command = api.review()
@@ -162,6 +166,7 @@ def test_auth_revocation_at_actual_publication_prevents_effect_and_new_owner_ado
     assert (api.d.root / "file.txt").read_bytes() == b"after\r\n"
 
 
+@pytest.mark.slow
 def test_binding_revocation_at_actual_publication_retains_original_no_effect(api, monkeypatch):
     command = api.review()
     publish = api.d.edits.publish_text_revision
@@ -176,6 +181,7 @@ def test_binding_revocation_at_actual_publication_retains_original_no_effect(api
     assert admissions.read_command_metadata(api.headers["X-Client-Session"], command["command_id"]) is not None
 
 
+@pytest.mark.slow
 def test_lost_file_publication_acknowledgement_recovers_exact_retained_identity(api, monkeypatch):
     command = api.review()
     publish = api.d.edits.publish_text_revision

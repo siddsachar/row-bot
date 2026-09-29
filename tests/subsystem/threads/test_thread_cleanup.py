@@ -113,6 +113,7 @@ def _insert_thread_checkpoint(threads, thread_id: str, checkpoint_id: str) -> No
         conn.commit()
 
 
+@pytest.mark.slow
 def test_normal_thread_deletion_removes_owned_state_and_persistent_media(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads = stack["threads"]
@@ -264,6 +265,7 @@ def test_workflow_audits_survive_with_deleted_thread_links_scrubbed(tmp_path, mo
         conn.close()
 
 
+@pytest.mark.slow
 def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(
     tmp_path,
     monkeypatch,
@@ -434,6 +436,7 @@ def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(
     assert set((parent_id, child_id, nested_id)) <= set(killed_browser)
 
 
+@pytest.mark.slow
 def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
     tmp_path,
     monkeypatch,
@@ -526,6 +529,7 @@ def test_repeated_deletion_cleans_late_sidecars_and_write_guard_blocks_active_th
     assert cleanup.delete_thread(thread_id).deleted is False
 
 
+@pytest.mark.slow
 def test_explicit_channel_recreation_can_reuse_a_deleted_thread_id(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads = stack["threads"]
@@ -543,6 +547,7 @@ def test_explicit_channel_recreation_can_reuse_a_deleted_thread_id(tmp_path, mon
     assert threads._thread_exists(thread_id) is True
 
 
+@pytest.mark.slow
 def test_deletion_resumes_after_metadata_purge_before_durable_completion(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads, cleanup = stack["threads"], stack["cleanup"]
@@ -564,6 +569,7 @@ def test_deletion_resumes_after_metadata_purge_before_durable_completion(tmp_pat
     assert not threads._thread_exists(thread_id)
 
 
+@pytest.mark.slow
 def test_deletion_guard_stays_until_an_active_producer_finalizes(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads = stack["threads"]
@@ -598,6 +604,7 @@ def test_deletion_guard_stays_until_an_active_producer_finalizes(tmp_path, monke
     assert cleanup.is_thread_deleting(thread_id) is False
 
 
+@pytest.mark.slow
 def test_designer_conversation_detaches_but_project_artifacts_survive(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads = stack["threads"]
@@ -630,6 +637,7 @@ def test_designer_conversation_detaches_but_project_artifacts_survive(tmp_path, 
     assert published.exists()
 
 
+@pytest.mark.slow
 def test_design_deletion_removes_history_publish_cache_and_all_linked_threads(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads = stack["threads"]
@@ -747,6 +755,7 @@ def test_developer_current_folder_and_unimported_sandbox_are_preserved(tmp_path,
     assert [item.id for item in pending] == ["unimported"]
 
 
+@pytest.mark.slow
 def test_idle_orphan_sweep_removes_only_unowned_managed_artifacts(tmp_path, monkeypatch) -> None:
     stack = _fresh_stack(tmp_path, monkeypatch)
     threads = stack["threads"]
@@ -810,6 +819,7 @@ def test_idle_orphan_sweep_removes_only_unowned_managed_artifacts(tmp_path, monk
     assert not orphan_publish.exists()
 
 
+@pytest.mark.slow
 def test_idle_repair_deletes_only_provable_historical_agent_child_orphans(
     tmp_path,
     monkeypatch,

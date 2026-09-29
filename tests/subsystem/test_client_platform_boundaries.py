@@ -31,6 +31,7 @@ def test_real_headless_scopes_have_no_layer_or_annotation_regression():
     assert not {path: items for path, items in violations.items() if items}
 
 
+@pytest.mark.slow
 def test_nothing_imports_the_removed_nicegui_ui():
     assert presentation_violations() == []
 
@@ -46,6 +47,7 @@ def test_a_module_importing_the_removed_ui_is_reported(monkeypatch, tmp_path):
         "src/row_bot/plugins/health.py:2: CP003 imports the removed NiceGUI UI (row_bot.plugins.ui_settings)"]
 
 
+@pytest.mark.slow
 def test_real_headless_generation_and_shutdown_with_presentation_imports_unavailable(tmp_path):
     script = textwrap.dedent('''
         import asyncio

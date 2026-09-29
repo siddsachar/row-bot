@@ -61,6 +61,7 @@ def _chat_snapshot() -> dict:
     }
 
 
+@pytest.mark.slow
 def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch):
     threads, profiles, agent_runs, goals, agent, status_tool = _fresh_status_modules(
         tmp_path,
@@ -238,6 +239,7 @@ def test_row_bot_status_reports_plugin_tools_and_stale_plugins(tmp_path, monkeyp
     assert "rss_fetch_feed" in tools
 
 
+@pytest.mark.slow
 def test_row_bot_status_agents_goals_empty_state_and_overview(tmp_path, monkeypatch):
     *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
 
@@ -324,6 +326,7 @@ def test_row_bot_status_tools_keeps_global_catalog_without_profile_allowlist(tmp
     assert "runtime-bound" not in tools
 
 
+@pytest.mark.slow
 def test_row_bot_status_tools_reports_inherited_profile_scope(tmp_path, monkeypatch):
     threads, _profiles, _agent_runs, _goals, agent, status_tool = _fresh_status_modules(
         tmp_path,

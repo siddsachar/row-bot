@@ -196,6 +196,7 @@ def test_invalid_saved_query_is_rejected(api_store, kind, params):
         )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kind", ["entities", "documents"])
 def test_missing_store_does_not_bootstrap_from_get(
     api_store, kind, monkeypatch, tmp_path

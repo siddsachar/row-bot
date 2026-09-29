@@ -37,6 +37,7 @@ def undo(imports, monkeypatch):
     return d
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("before,after", [(b"old\r\n", b"new\r\n"), (b"old", b"new"),
     (b"", None), (None, b""), (None, b"new\n"), (b"old\n", None)])
 def test_exact_original_bytes_and_metadata_are_restored(undo, before, after):
@@ -57,6 +58,7 @@ def test_exact_original_bytes_and_metadata_are_restored(undo, before, after):
     assert d.ledger.read_change_set(identity)[0].reverted
 
 
+@pytest.mark.slow
 def test_invalid_utf8_untouched_source_restores_exact_bytes(undo):
     d = undo
     before = b"first\n" + b"context\n" * 10 + b"retained \xff\n"
@@ -98,6 +100,7 @@ def test_user_changes_are_never_overwritten(undo, stage, edit):
     assert not d.ledger.read_change_set(identity)[0].reverted
 
 
+@pytest.mark.slow
 def test_new_directories_remain_and_unrelated_children_survive(undo):
     d = undo
     pending = d.sandbox._record_pending_change(d.workspace, "chat", "synthetic", {}, {"new/nested/file.txt": "created\n"})
@@ -111,6 +114,7 @@ def test_new_directories_remain_and_unrelated_children_survive(undo):
     assert not (d.root / "new/nested/file.txt").exists()
 
 
+@pytest.mark.slow
 def test_mixed_empty_creation_and_text_update_are_separate_git_changes(undo):
     d = undo
     identity = d.imported({"old.txt": "before\n"}, {"old.txt": "after\n", "new/nested/empty.txt": ""})
@@ -120,6 +124,7 @@ def test_mixed_empty_creation_and_text_update_are_separate_git_changes(undo):
     assert (d.root / "old.txt").read_bytes() == b"before\n"
 
 
+@pytest.mark.slow
 def test_partial_restore_retries_original_proof_without_overwriting_later_edits(undo, monkeypatch):
     d = undo
     identity = d.imported({"a.txt": "old a\n", "b.txt": "old b\n"}, {"a.txt": "new a\n", "b.txt": "new b\n"})
@@ -140,6 +145,7 @@ def test_partial_restore_retries_original_proof_without_overwriting_later_edits(
     assert (d.root / "b.txt").read_bytes() == b"old b\n"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("failure", ["ledger", "release", "finish"])
 def test_original_command_recovers_finalization_without_duplicate_restore(undo, monkeypatch, failure):
     from row_bot import agent_runs
@@ -202,6 +208,7 @@ def test_reviewed_action_tampering_is_rejected(undo):
     assert result.status == "conflict" and result.code == "edit_recovery_conflict"
 
 
+@pytest.mark.slow
 def test_retained_adapter_recovers_original_review_after_lost_marker(undo, monkeypatch):
     d = undo
     identity = d.imported({"a.txt": "old\n"}, {"a.txt": "new\n"})
@@ -276,6 +283,7 @@ def test_retained_source_tampering_never_restores_unproven_content(undo, tamper)
     assert (d.root / "a.txt").read_bytes() == b"new\n"
 
 
+@pytest.mark.slow
 def test_later_edit_after_partial_undo_is_not_overwritten_on_retry(undo, monkeypatch):
     d = undo
     identity = d.imported({"a.txt": "old\n"}, {"a.txt": "new\n"})
@@ -291,6 +299,7 @@ def test_later_edit_after_partial_undo_is_not_overwritten_on_retry(undo, monkeyp
     assert (d.root / "a.txt").read_bytes() == b"user after restore\n"
 
 
+@pytest.mark.slow
 def test_legacy_tool_routes_strict_undo_through_original_review(undo, monkeypatch):
     from row_bot import agent, conversation_resources
     from row_bot.tools import developer_tool
@@ -326,6 +335,7 @@ def test_legacy_tool_approval_cannot_adopt_a_later_source_revision(undo, monkeyp
     assert (d.root / "a.txt").read_bytes() == b"user during approval\n"
 
 
+@pytest.mark.slow
 def test_cancelled_tool_review_allows_a_new_explicit_review_without_resurrecting_approval(undo):
     from row_bot.runtime import admissions
     d = undo
@@ -338,6 +348,7 @@ def test_cancelled_tool_review_allows_a_new_explicit_review_without_resurrecting
     assert d.undo.execute_retained_undo(second_review, second, confirmed=True, validate=lambda: None).reverted
 
 
+@pytest.mark.slow
 def test_fresh_inspector_snapshot_keeps_original_reverted_undo_until_finalization(undo, monkeypatch):
     from row_bot.developer import inspector_snapshot, runtime, todos
     d = undo

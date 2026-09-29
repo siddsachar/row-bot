@@ -71,9 +71,10 @@ def _app_lane_test_modules() -> list[Path]:
 
 def test_tests_of_platform_sensitive_modules_are_marked_platform() -> None:
     unmarked = []
+    leaf_names = {name.rsplit(".", 1)[1] for name in PLATFORM_SENSITIVE}
     for path in _app_lane_test_modules():
         source = path.read_text(encoding="utf-8")
-        if "row_bot" not in source:
+        if not any(name in source for name in leaf_names):
             continue
         tree = ast.parse(source)
         sensitive = sorted(_imported_modules(tree) & PLATFORM_SENSITIVE)

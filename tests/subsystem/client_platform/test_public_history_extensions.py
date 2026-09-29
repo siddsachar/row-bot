@@ -72,6 +72,7 @@ def test_public_text_cursor_pins_message_and_checkpoint_and_api_does_not_expose_
         read_text(service, conversation, "first", cursor=first["next_cursor"])
 
 
+@pytest.mark.slow
 def test_server_pin_and_resource_groups_find_old_conversations_beyond_first_thousand(resource_service, tmp_path):
     from row_bot import threads
     from row_bot.application.client_platform import ClientPlatformError

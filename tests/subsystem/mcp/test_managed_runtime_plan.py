@@ -40,6 +40,7 @@ def owner(tmp_path, monkeypatch):
     return tmp_path, data, calls, plan
 
 
+@pytest.mark.slow
 def test_plan_is_passive_immutable_and_install_never_resolves_again(owner, monkeypatch):
     tmp, _, calls, make = owner
     plan = make()
@@ -120,6 +121,7 @@ def test_download_mismatch_retains_prior_manifest_and_generation(owner, monkeypa
     assert not (runtime.RUNTIMES_DIR / "synthetic/2.0.0").exists()
 
 
+@pytest.mark.slow
 def test_publication_failure_retains_previous_and_unadvertised_new_generation(owner, monkeypatch):
     _, _, _, make = owner
     runtime.install_runtime_plan(make())
@@ -199,6 +201,7 @@ def test_native_node_link_install_and_link_target_generation_proof(tmp_path, mon
     assert runtime._managed_bin_dir("node") is None
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("runtime_id", ["node", "uv"])
 def test_legacy_install_resolves_once_and_publishes_actual_platform_layout(tmp_path, monkeypatch, runtime_id):
     import json
@@ -358,6 +361,7 @@ def test_revocation_while_waiting_for_real_install_lock_prevents_directory_effec
     assert not runtime.RUNTIMES_DIR.exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("legacy", [False, True])
 def test_private_download_directory_os_alias_is_canonicalized(owner, monkeypatch, legacy):
     from contextlib import contextmanager

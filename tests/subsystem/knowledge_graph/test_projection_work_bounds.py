@@ -24,6 +24,7 @@ def test_complete_rebuild_bounds_each_embedding_batch(projection_stack):
     assert kg.memory_vector_status()["ready"]
 
 
+@pytest.mark.slow
 def test_explicit_repair_limits_embedding_work_and_reports_remaining(projection_stack):
     kg, embedding, _fingerprint, _config = projection_stack
     for number in range(5):
@@ -233,6 +234,7 @@ def test_failed_context_keeps_saved_work_for_explicit_repair(projection_stack, m
     assert kg.repair_projections(max_entities=1)["complete"]
 
 
+@pytest.mark.slow
 def test_ordinary_writes_keep_only_selected_and_previous_owned_generations(projection_stack, monkeypatch):
     kg, embedding, _fingerprint, _config = projection_stack
     monkeypatch.setattr(kg, "_skip_reindex", False)
@@ -246,6 +248,7 @@ def test_ordinary_writes_keep_only_selected_and_previous_owned_generations(proje
     assert kg.memory_vector_status()["retirement_pending"] == 0
 
 
+@pytest.mark.slow
 def test_removal_inside_batch_stays_synchronous(projection_stack, monkeypatch):
     kg, _embedding, _fingerprint, _config = projection_stack
     removed = add(kg, "Retired document", "document:removed")

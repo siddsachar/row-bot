@@ -53,6 +53,7 @@ def index(tmp_path, monkeypatch):
     return module, root, build, search
 
 
+@pytest.mark.slow
 def test_same_id_failed_manifest_publication_preserves_old_generation(index):
     module, root, build, search = index
     before = (root / "manifest.json").read_bytes()
@@ -69,6 +70,7 @@ def test_same_id_failed_manifest_publication_preserves_old_generation(index):
     assert module.index_health(index_root=root, legacy_root=root / "absent")["readable_documents"] == 1
 
 
+@pytest.mark.slow
 def test_reader_pinned_before_commit_finishes_old_generation(index, monkeypatch):
     module, root, build, search = index
     work, manifest = build("new")
@@ -112,6 +114,7 @@ def test_same_id_directory_rename_failure_preserves_old_generation(index, monkey
     assert work.exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("commit", [False, True])
 def test_restart_observes_only_committed_complete_generation(index, commit):
     module, root, build, search = index
@@ -149,6 +152,7 @@ print(json.dumps(sorted(doc.page_content for doc in facade.similarity_search('qu
     assert json.loads(result.stdout) == [f"{'new' if commit else 'old'}-{i}" for i in range(3)]
 
 
+@pytest.mark.slow
 def test_replacing_pre_generation_layout_keeps_snapshot_readable(index):
     module, root, build, search = index
     # Construct the supported older on-disk layout, independently of the writer.
@@ -183,6 +187,7 @@ def test_invalid_generation_cannot_escape_managed_document_directory(index, gene
     assert health["readable_documents"] == 0
 
 
+@pytest.mark.slow
 def test_failed_publish_retry_and_delete_retire_all_same_id_generations(index):
     module, root, build, search = index
     work, manifest = build("failed")

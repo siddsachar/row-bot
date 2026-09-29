@@ -12,6 +12,7 @@ from tests.subsystem.developer.test_client_workspace_edits import domain as doma
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.slow
 def test_recovery_does_not_adopt_same_bytes_from_replacement_inode(imports, monkeypatch):
     d = imports
     pending = d.pending({"file.txt": "before\n"}, {"file.txt": "after\n"})

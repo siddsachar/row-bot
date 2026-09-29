@@ -208,6 +208,7 @@ def test_wiki_drain_never_acknowledges_newer_source_revision(projection_stack, m
     assert kg.get_entity(entity["id"])["description"] == "Newer canonical source"
 
 
+@pytest.mark.slow
 def test_another_process_reader_preserves_obsolete_generation_until_release(projection_stack, monkeypatch):
     import subprocess
     import sys
@@ -282,6 +283,7 @@ def test_retirement_preserves_unverified_generation_bytes(projection_stack, monk
     assert kg.memory_vector_status()["ready"]
 
 
+@pytest.mark.slow
 def test_retirement_failure_after_capture_retries_without_losing_new_head(projection_stack, monkeypatch):
     from pathlib import Path
 

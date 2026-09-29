@@ -368,6 +368,7 @@ def test_process_interruption_after_directory_creation_is_not_replayed(workspace
     assert len(list(parent.iterdir())) == 1
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("bad", ["no_grant", "artifact", "existing_id", "wrong_intent", "deck"])
 def test_invalid_empty_setup_is_rejected_before_domain_write(workspace_api, bad):
     service, storage, parent, client, headers, _, _ = workspace_api

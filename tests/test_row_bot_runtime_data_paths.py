@@ -16,6 +16,7 @@ LEGACY_DATA_DIR_ENV = "THOTH_DATA_DIR"
 LEGACY_DATA_DIR_NAME = ".thoth"
 
 
+@pytest.mark.slow
 def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
     fake_home = tmp_path / "home"
     row_bot_data = tmp_path / "row-bot-data"

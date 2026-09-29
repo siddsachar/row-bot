@@ -386,6 +386,7 @@ def test_full_row_cas_releases_writer_on_update_failure(wiki_stack, monkeypatch)
         connection.close()
 
 
+@pytest.mark.slow
 def test_snapshot_has_no_old_limit_and_is_consistent_across_batches(wiki_stack):
     kg = wiki_stack["kg"]
     entity = article(wiki_stack)

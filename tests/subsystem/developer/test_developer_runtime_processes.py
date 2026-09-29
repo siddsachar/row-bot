@@ -16,6 +16,7 @@ def _py_command(code: str) -> str:
     return f'"{sys.executable}" -c "{escaped}"'
 
 
+@pytest.mark.slow
 def test_run_workspace_command_captures_stdout_stderr_nonzero_and_timeout(tmp_path) -> None:
     from row_bot.developer import runtime
 

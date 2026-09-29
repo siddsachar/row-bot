@@ -73,6 +73,7 @@ def test_provider_probe_is_not_queued_when_capture_network_is_disabled(monkeypat
     assert docs_capture_disable_network() is True
 
 
+@pytest.mark.slow
 def test_task_database_is_query_only_for_real_capture() -> None:
     with TemporaryDirectory(prefix="row-bot-settings-capture-") as temp:
         data = Path(temp) / "data"

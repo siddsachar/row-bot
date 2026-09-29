@@ -26,6 +26,7 @@ def url(created, identity):
     return f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}/exports/{identity}"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("mode", ["deck", "document", "landing", "app_mockup", "storyboard"])
 def test_all_modes_explicit_export_and_scoped_download(artifact_service, mode, monkeypatch):
     monkeypatch.setattr(export, "_launch_playwright_browser", lambda *a: pytest.fail("HTML export launched a browser"))

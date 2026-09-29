@@ -46,6 +46,7 @@ def test_migration_scan_rejects_overlap_and_missing_source(tmp_path):
         )
 
 
+@pytest.mark.slow
 def test_migration_scan_api_denies_remote_before_reading_source(tmp_path, monkeypatch):
     source = create_realistic_hermes_home(tmp_path / "source")
     target = tmp_path / "target"

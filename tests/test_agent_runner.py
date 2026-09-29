@@ -228,6 +228,7 @@ def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, mo
     assert order == [first["id"], second["id"]]
 
 
+@pytest.mark.slow
 def test_default_dispatcher_runs_cumulative_children_in_bounded_waves(
     tmp_path,
     monkeypatch,
@@ -365,6 +366,7 @@ def test_budget_terminal_child_is_blocked_not_completed(tmp_path, monkeypatch):
     assert run["result_json"]["complete"] is False
 
 
+@pytest.mark.slow
 def test_child_active_time_timeout_is_opt_in_and_terminal(tmp_path, monkeypatch):
     agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path, monkeypatch

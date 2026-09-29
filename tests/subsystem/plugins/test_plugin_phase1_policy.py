@@ -146,6 +146,7 @@ def test_bound_plugin_tool_revoked_by_disable_and_reload(plugin_modules, tmp_pat
         bound.invoke({"query": "fixture"})
 
 
+@pytest.mark.slow
 def test_registration_process_after_timeout_cannot_publish(plugin_modules, tmp_path, monkeypatch):
     from row_bot.plugins.worker import WorkerAPI
     state, loader, webhooks = (plugin_modules[k] for k in ("state", "loader", "webhooks"))

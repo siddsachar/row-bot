@@ -11,6 +11,7 @@ from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.slow
 def test_public_child_detail_parent_return_and_foreign_run_denial(service):
     from row_bot import threads, agent_runs
     from row_bot.application.delegated_activity import read_activity, read_run

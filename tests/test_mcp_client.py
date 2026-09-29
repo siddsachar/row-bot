@@ -622,6 +622,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(manifest["chromium_revision"], "1234")
         self.assertTrue(Path(requirements.playwright_browser_executable_path()).exists())
 
+    @pytest.mark.slow
     def test_stdio_server_discovers_and_calls_dynamic_tool(self) -> None:
         cfg = self._reload_config()
         import row_bot.mcp_client.runtime as runtime
@@ -848,6 +849,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(tool_registry.is_enabled("mcp"))
         discover_mock.assert_called_once()
 
+    @pytest.mark.slow
     def test_bad_stdio_server_reports_failure_without_tools(self) -> None:
         cfg = self._reload_config()
         import row_bot.mcp_client.runtime as runtime

@@ -206,6 +206,7 @@ def test_completed_receipt_read_is_passive_and_auth_scoped(client,monkeypatch):
         api.read_document_control_command(command_id=value["command_id"],**{**identity,"authority_id":"another"})
 
 
+@pytest.mark.slow
 def test_queue_paginates_and_never_exposes_paths_or_raw_error(client):
     api,service,_ = client
     for index in range(53):

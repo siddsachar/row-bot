@@ -167,6 +167,7 @@ def test_read_rejects_corrupt_identity(isolated):
         service.read_artifact("bad")
 
 
+@pytest.mark.slow
 def test_complete_library_continues_and_keeps_other_modes_visible(isolated):
     assert service.list_artifacts().items == ()
     assert not isolated.exists()

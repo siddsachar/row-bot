@@ -19,6 +19,7 @@ MODEL = "model:fixture:fixture/model"
 pytestmark = pytest.mark.contract
 
 
+@pytest.mark.slow
 def test_record_f_p12_exact_model_thinking_http_roundtrip(
     platform, client, monkeypatch, tmp_path
 ):

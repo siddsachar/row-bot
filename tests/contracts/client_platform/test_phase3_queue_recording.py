@@ -29,6 +29,7 @@ class QueueTrace(RecordedProtocolTrace):
         return normalized
 
 
+@pytest.mark.slow
 def test_record_f_p11_ordinary_and_parent_queue_receipts(platform, client, monkeypatch):
     from row_bot import agent_orchestrator, agent_runs
     from row_bot.application.client_platform import _COMMAND_LOCK

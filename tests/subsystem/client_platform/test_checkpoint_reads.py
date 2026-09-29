@@ -61,6 +61,7 @@ def test_legacy_identity_migration_preserves_content_ids_and_order_once(platform
     assert [row["message_id"] for row in platform.transcript("conversation-a")["rows"]] == [message.id for message in migrated]
 
 
+@pytest.mark.slow
 def test_active_large_stream_uses_lazy_projection_and_keeps_native_completion(platform):
     from tests.contracts.client_platform.test_headless_lifecycle import submit
     from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier

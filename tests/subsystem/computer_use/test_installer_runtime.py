@@ -93,6 +93,7 @@ def test_pinned_installer_preserves_a_reviewed_macos_app_bundle(tmp_path, monkey
     assert manifest["preserve_top_level_directory"] is True
 
 
+@pytest.mark.slow
 def test_pinned_installer_repairs_legacy_flattened_macos_app_layout(tmp_path, monkeypatch) -> None:
     archive = tmp_path / "cua-driver.tar.gz"
     sha = _tar_gz(
@@ -247,6 +248,7 @@ def test_cancel_after_download_leaves_no_active_runtime(tmp_path, monkeypatch) -
     assert not (runtimes / "cua-driver" / "manifest.json").exists()
 
 
+@pytest.mark.slow
 def test_upgrade_retains_known_good_until_doctor_then_supports_rollback_or_finalize(tmp_path, monkeypatch) -> None:
     old_archive = tmp_path / "old.zip"
     new_archive = tmp_path / "new.zip"

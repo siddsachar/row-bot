@@ -43,6 +43,7 @@ def settle(service):
         return client_queue.read_queue(service, "conversation-a")
 
 
+@pytest.mark.slow
 def test_seven_exact_inputs_drain_in_order_without_entering_current_prompt(platform, monkeypatch):
     from row_bot import threads
     barriers = [StreamBarrier() for _ in range(8)]

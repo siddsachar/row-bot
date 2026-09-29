@@ -132,6 +132,7 @@ def _ok(value):
     return value.get("status") == "ok"
 
 
+@pytest.mark.slow
 def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_path, api) -> None:
     port = api.server_address[1]
     report = _run(tmp_path, port, "overlay_lifecycle")

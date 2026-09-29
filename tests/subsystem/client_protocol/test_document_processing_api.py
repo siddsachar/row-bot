@@ -167,6 +167,7 @@ def test_review_identity_and_current_policy_checked_before_service_admission(ser
         assert queue.service.get_batch(batch).status == "paused" and providers["factory"] == []
 
 
+@pytest.mark.slow
 def test_actual_admission_runs_canonical_index_extract_finalize_with_captured_fakes(service, queue, providers, monkeypatch):
     from row_bot import document_jobs, knowledge_graph
     kg = importlib.reload(knowledge_graph)
@@ -199,6 +200,7 @@ def test_actual_admission_runs_canonical_index_extract_finalize_with_captured_fa
         assert "_document_processing" not in result.text
 
 
+@pytest.mark.slow
 def test_original_receipt_and_replay_are_passive_after_pause_and_model_change(service, queue, providers, monkeypatch):
     from row_bot import threads
     from row_bot.application.document_processing import DocumentProcessingPolicy
@@ -218,6 +220,7 @@ def test_original_receipt_and_replay_are_passive_after_pause_and_model_change(se
         assert queue.service.get_batch(batch).status == "paused" and len(providers["start"]) == 1
 
 
+@pytest.mark.slow
 def test_restart_requires_new_authenticated_review_and_preserves_upload_owner(service, queue, providers):
     identifier = conversation()
     with _client(service) as client:
@@ -263,6 +266,7 @@ def test_auth_revocation_after_http_admission_prevents_worker_factory(service, q
         assert client.get(base(identifier) + "/commands/" + command["command_id"], headers=headers).status_code == 401
 
 
+@pytest.mark.slow
 def test_new_authenticated_admission_waits_for_actual_old_worker_scope_exit(service, queue, providers):
     identifier = conversation()
     with _client(service) as client:
@@ -291,6 +295,7 @@ def test_new_authenticated_admission_waits_for_actual_old_worker_scope_exit(serv
         assert queue.service.processing_admission(batch) == current
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("change", ["model", "credential", "profile"])
 def test_in_scope_current_policy_change_denies_embedding_without_legacy_fallback(service, queue, providers, change):
     from row_bot import threads

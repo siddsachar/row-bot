@@ -678,6 +678,7 @@ def test_bundled_manual_default_migration_is_one_time(tmp_path):
     assert skills.is_enabled("meeting_notes") is False
 
 
+@pytest.mark.slow
 def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):
     _write_skill(tmp_path, "alpha_skill", description="Alpha planning workflow", tags=["alpha"])
     _write_skill(tmp_path, "beta_skill", description="Beta review workflow", tags=["beta"])
