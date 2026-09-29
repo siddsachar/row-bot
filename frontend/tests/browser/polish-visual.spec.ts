@@ -150,6 +150,7 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
   const headings: Record<string, string> = {
     knowledge: 'Memory',
     profiles: 'Agent profiles',
+    access: 'Devices & remote access',
   };
   for (const viewport of [viewports[0], viewports[3]]) {
     await page.setViewportSize(viewport);

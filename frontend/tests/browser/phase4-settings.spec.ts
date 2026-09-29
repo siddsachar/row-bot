@@ -209,6 +209,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     mcp: 'MCP',
     knowledge: 'Memory',
     profiles: 'Agent profiles',
+    access: 'Devices & remote access',
   };
   const label = (id: string) => labels[id] ?? id[0].toUpperCase() + id.slice(1);
 
