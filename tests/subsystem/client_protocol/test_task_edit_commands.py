@@ -137,6 +137,8 @@ def test_duplicate_is_a_revision_bound_copy_without_schedule_or_webhook(task_api
         assert copy["name"] == f"{fields.name} (copy)"
         assert copy["prompts"] == list(fields.prompts) and copy["channels"] == ["telegram"]
         assert copy["schedule"] is None and copy["at"] is None and not copy.get("trigger")
+        # B177: a copy starts switched off, whatever the original was.
+        assert copy["enabled"] is False
         assert send(client, headers, command).json() == receipt
         assert len(tasks.list_tasks()) == 2 and tasks.get_recent_runs() == []
         stale = {**command, "command_id": str(uuid4()), "payload": {**command["payload"], "task_revision": "0" * 64}}

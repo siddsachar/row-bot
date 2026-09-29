@@ -2335,7 +2335,8 @@ def duplicate_task(task_id: str, *, new_task_id: str | None = None,
     """Clone a task and return the new ID.
 
     The copy has no schedule, one-off time or trigger (a webhook secret is
-    never copied), so it never runs by itself.
+    never copied), so it never runs by itself, and it starts switched off
+    until the person turns it on (B177).
     """
     task = get_task(task_id)
     if not task:
@@ -2360,6 +2361,7 @@ def duplicate_task(task_id: str, *, new_task_id: str | None = None,
         advanced_mode=bool(task.get("advanced_mode")),
         agent_profile_id=task.get("agent_profile_id"),
         apply_default_skills=False,
+        enabled=False,
         **({"task_id": new_task_id} if new_task_id is not None else {}),
         **({"validate": validate} if validate is not None else {}),
         **({"record_commit": record_commit} if record_commit is not None else {}),
