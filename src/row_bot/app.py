@@ -531,29 +531,16 @@ async def _run_startup_sequence():
         _safe_console_print("[startup] Authorized real-data capture - startup writes suppressed")
         _app_boot_event("startup_real_data_capture_ready")
         return
-    live_chat_parity = os.environ.get("ROW_BOT_LIVE_CHAT_PARITY") == "1"
     install_asyncio_exception_handler()
     start_performance_monitor()
-    # The explicitly authorized owner-profile parity run must not retain a
-    # prompt-bearing app log outside its redacted evidence pack.
-    if not live_chat_parity:
-        # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
-        from row_bot.logging_config import setup_file_logging
-        with _startup_phase("file_logging"):
-            setup_file_logging()
+    # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
+    from row_bot.logging_config import setup_file_logging
+    with _startup_phase("file_logging"):
+        setup_file_logging()
 
     from row_bot.application.lifecycle import application_lifecycle
     with _startup_phase("client_platform_recovery"):
         await application_lifecycle.startup()
-
-    if live_chat_parity:
-        startup_state.status = "Live chat parity validation ready"
-        startup_state.ready = True
-        _safe_console_print(
-            "[startup] Live chat parity mode - unrelated background and autostart activity skipped"
-        )
-        _app_boot_event("startup_live_chat_parity_ready")
-        return
 
     if docs_capture_disable_autostart():
         startup_state.status = "Docs capture ready"
