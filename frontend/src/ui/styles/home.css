@@ -549,6 +549,24 @@
 .workflow-row + .workflow-row {
   border-top: 1px solid var(--border-hairline);
 }
+/* ▶ reviews in place (U40): the line wraps below the row's own controls. */
+.workflow-row:has(> .workflow-run-review) {
+  flex-wrap: wrap;
+}
+.workflow-run-review {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-hover);
+  font-size: var(--text-13);
+}
+.workflow-run-review > span {
+  flex: 1 1 auto;
+}
 .workflow-row:hover {
   background: color-mix(in srgb, var(--surface-hover) 60%, transparent);
 }

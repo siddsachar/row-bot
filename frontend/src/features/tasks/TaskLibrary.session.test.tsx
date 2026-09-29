@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
@@ -255,7 +256,7 @@ it('keeps the generic title when the task cannot be read, and never reopens a cl
   act(() => taskEditSessions.dispose());
 });
 
-it('Run now on a row opens its run drawer without starting a run', async () => {
+it('Run on a row reviews in place first, without starting a run (U40)', async () => {
   const { controller, taskEditSessions, application, taskRunReview } = harness([
     {
       id: 'task-1',
@@ -276,13 +277,12 @@ it('Run now on a row opens its run drawer without starting a run', async () => {
   await userEvent.click(
     await screen.findByRole('button', { name: 'Run workflow: Morning digest' }),
   );
-  expect(
-    await screen.findByRole('dialog', { name: 'Morning digest' }),
-  ).toBeVisible();
-  expect(
-    await screen.findByRole('button', { name: 'Run now' }),
-  ).toBeInTheDocument();
-  expect(taskRunReview).toHaveBeenCalledWith('task-1', expect.any(AbortSignal));
+  const line = await screen.findByRole('group', {
+    name: 'Run Morning digest now?',
+  });
+  expect(within(line).getByRole('button', { name: 'Run' })).toBeInTheDocument();
+  expect(taskRunReview).toHaveBeenCalledWith('task-1');
+  expect(screen.queryByRole('dialog', { name: 'Morning digest' })).toBeNull();
   expect(screen.getByTestId('location')).toHaveTextContent(
     /^\/\?tab=workflows$/,
   );

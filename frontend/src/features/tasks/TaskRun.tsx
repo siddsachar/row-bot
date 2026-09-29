@@ -35,8 +35,17 @@ export interface TaskRunProps {
     approved: boolean,
   ) => Promise<TaskApprovalResult>;
   stop: (taskId: string, runId: string) => Promise<TaskStopResult>;
+  /** Re-read one run; the drawer follows a run that is still going (B121). */
+  loadRun?: (
+    taskId: string,
+    runId: string,
+    signal?: AbortSignal,
+  ) => Promise<TaskRunSummary>;
   openConversation: (conversationId: string) => void;
 }
+
+// How often the drawer re-reads a run that is still going.
+const FOLLOW_MS = 2000;
 
 const terminal = new Set([
   'completed',
@@ -54,6 +63,7 @@ export default function TaskRun({
   loadApprovals,
   respondApproval,
   stop,
+  loadRun,
   openConversation,
 }: TaskRunProps) {
   const [review, setReview] = useState<TaskRunReview | null>(null);
@@ -110,15 +120,17 @@ export default function TaskRun({
     };
   }, [taskId, loadReview, loadHistory, reload]);
 
+  const selectedId = selected?.id ?? null;
+  const selectedState = selected?.status ?? null;
   useEffect(() => {
     const abort = new AbortController();
     setApprovals(null);
-    if (!selected || terminal.has(selected.status)) {
+    if (!selectedId || !selectedState || terminal.has(selectedState)) {
       setLoadingApprovals(false);
       return () => abort.abort();
     }
     setLoadingApprovals(true);
-    loadApprovals(taskId, selected.id, undefined, abort.signal).then(
+    loadApprovals(taskId, selectedId, undefined, abort.signal).then(
       (page) => {
         if (abort.signal.aborted) return;
         setApprovals(page);
@@ -131,7 +143,55 @@ export default function TaskRun({
       },
     );
     return () => abort.abort();
-  }, [taskId, selected, loadApprovals]);
+  }, [taskId, selectedId, selectedState, loadApprovals]);
+
+  // B121: a run that is still going is read again every couple of seconds
+  // until it ends; then the drawer reviews again, so Run now is ready.
+  const followId =
+    loadRun && selectedId && selectedState && !terminal.has(selectedState)
+      ? selectedId
+      : null;
+  useEffect(() => {
+    if (!followId || !loadRun) return;
+    const abort = new AbortController();
+    const ticket = epoch.current;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const next = await loadRun(taskId, followId, abort.signal);
+        if (abort.signal.aborted || ticket !== epoch.current) return;
+        updateRun(next);
+        if (terminal.has(next.status)) {
+          finished(next);
+          return;
+        }
+      } catch {
+        if (abort.signal.aborted) return;
+      }
+      timer = window.setTimeout(() => void tick(), FOLLOW_MS);
+    };
+    timer = window.setTimeout(() => void tick(), FOLLOW_MS);
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+    // updateRun/finished only set state; the loop restarts per followed run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followId, loadRun, taskId]);
+
+  function finished(done: TaskRunSummary) {
+    setNotice(`Run finished · ${runStatus(done.status).label}.`);
+    const ticket = epoch.current;
+    loadReview(taskId).then(
+      (next) => {
+        if (ticket !== epoch.current) return;
+        setReview(next);
+        setStale(false);
+        setActionUnconfirmed(false);
+      },
+      () => {},
+    );
+  }
 
   function updateRun(next: TaskRunSummary) {
     setSelected(next);
@@ -204,8 +264,9 @@ export default function TaskRun({
       setNotice(
         result.replayed
           ? 'Showing the existing run for this request.'
-          : 'Run started. Refresh to see its latest progress.',
+          : 'Run started.',
       );
+      if (terminal.has(result.run.status)) finished(result.run);
     });
   }
 
@@ -369,7 +430,7 @@ export default function TaskRun({
                         setNotice(
                           result.quiesced
                             ? 'The run has stopped and its worker has finished.'
-                            : 'Stop requested. Waiting for confirmed worker cleanup; refresh for progress.',
+                            : 'Stop requested. Waiting for the run to finish.',
                         );
                       });
                     }}
@@ -431,8 +492,8 @@ export default function TaskRun({
                             updateRun(result.run);
                             setNotice(
                               approved
-                                ? 'Approval recorded. Refresh for progress.'
-                                : 'Rejection recorded. Refresh for progress.',
+                                ? 'Approval recorded.'
+                                : 'Rejection recorded.',
                             );
                           });
                         }}

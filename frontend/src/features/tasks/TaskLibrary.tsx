@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import type {
   TaskDeliverySnapshot,
+  TaskRunReview,
   TaskSummary,
   TaskSummaryPage,
 } from '../../api/types';
@@ -62,7 +63,7 @@ import {
   runStatus,
   scheduleWords,
 } from '../home/home-format';
-import { parseTimestamp } from '../../ui/format';
+import { humanizeToken, parseTimestamp } from '../../ui/format';
 
 const workflowIcons = {
   notifications: Bell,
@@ -241,6 +242,8 @@ export function SavedTasks({
   deliveryOptions = [],
   onToggleEnabled,
   onDuplicate,
+  onReview,
+  onRun,
   onDelete,
   onBulkDelete,
   onStop,
@@ -260,6 +263,9 @@ export function SavedTasks({
   onToggleEnabled?: (id: string, enabled: boolean) => void | Promise<void>;
   /** Copy a workflow (no schedule or trigger); resolves to the copy's name. */
   onDuplicate?: (id: string) => Promise<string>;
+  /** ▶ reviews in the row (U40), then Run starts the reviewed request. */
+  onReview?: (id: string) => Promise<TaskRunReview>;
+  onRun?: (review: TaskRunReview) => Promise<void>;
   onDelete?: (id: string) => void | Promise<void>;
   onBulkDelete?: (ids: readonly string[]) => void | Promise<void>;
   onStop?: (id: string) => void | Promise<void>;
@@ -293,6 +299,11 @@ export function SavedTasks({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [action, setAction] = useState('');
   const [actionError, setActionError] = useState('');
+  const [reviewing, setReviewing] = useState<{
+    id: string;
+    name: string;
+    review?: TaskRunReview;
+  } | null>(null);
   const actionRef = useRef('');
   const epoch = useRef(0);
   const more = useRef<AbortController | null>(null);
@@ -856,12 +867,31 @@ export function SavedTasks({
                               <Square size={14} aria-hidden />
                             </IconButton>
                           )
-                        : onRuns && (
+                        : (onRuns || onReview) && (
                             <IconButton
                               size="sm"
                               label={`Run workflow: ${task.name}`}
                               disabled={Boolean(action)}
-                              onClick={() => onRuns(task.id, task.name)}
+                              onClick={() => {
+                                if (!onReview || !onRun) {
+                                  onRuns?.(task.id, task.name);
+                                  return;
+                                }
+                                setReviewing({ id: task.id, name: task.name });
+                                setActionError('');
+                                onReview(task.id).then(
+                                  (review) =>
+                                    setReviewing((current) =>
+                                      current?.id === task.id
+                                        ? { ...current, review }
+                                        : current,
+                                    ),
+                                  (cause: unknown) => {
+                                    setReviewing(null);
+                                    setActionError(clientError(cause).message);
+                                  },
+                                );
+                              }}
                             >
                               <Play size={15} aria-hidden />
                             </IconButton>
@@ -888,6 +918,46 @@ export function SavedTasks({
                         </Menu>
                       )}
                     </div>
+                    {reviewing?.id === task.id && (
+                      <div
+                        role="group"
+                        aria-label={`Run ${task.name} now?`}
+                        className="workflow-run-review"
+                      >
+                        {reviewing.review ? (
+                          <span>{reviewLine(reviewing.review)}</span>
+                        ) : (
+                          <span className="home-caption">Checking…</span>
+                        )}
+                        <Button
+                          variant="primary"
+                          className="small"
+                          disabled={!reviewing.review || Boolean(action)}
+                          onClick={() => {
+                            const { review, id, name } = reviewing;
+                            if (!review || !onRun) return;
+                            void invoke(
+                              `run:${id}`,
+                              async () => {
+                                await onRun(review);
+                                setReviewing(null);
+                                onRuns?.(id, name);
+                              },
+                              'Run started.',
+                            );
+                          }}
+                        >
+                          <Play size={14} aria-hidden /> Run
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="small"
+                          onClick={() => setReviewing(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -906,6 +976,23 @@ export function SavedTasks({
       )}
     </section>
   );
+}
+
+// One line of what a run will use: steps, profile and approvals (U40).
+function reviewLine(review: TaskRunReview) {
+  const steps = review.notify_only
+    ? 'Reminder'
+    : `${review.steps_total} ${review.steps_total === 1 ? 'step' : 'steps'}`;
+  const profile =
+    humanizeToken(review.agent_profile_id.replace(/^builtin:/, '')) ||
+    'Default profile';
+  const approvals =
+    review.approval_mode === 'approve'
+      ? 'Asks before actions'
+      : review.approval_mode === 'allow_all'
+        ? 'Auto approvals'
+        : 'Blocks actions';
+  return `${steps} · ${profile} · ${approvals}`;
 }
 
 const noTaskSubscription = () => () => {};
@@ -1322,6 +1409,10 @@ export default function TaskLibrary() {
         onOpenConversation={openConversation}
         onToggleEnabled={toggleEnabled}
         onDuplicate={duplicateTask}
+        onReview={controller.taskRunReview}
+        onRun={async (review) => {
+          await execution.run(review);
+        }}
         onDelete={deleteTask}
         onBulkDelete={deleteTasks}
         onStop={stopTask}
@@ -1353,6 +1444,7 @@ export default function TaskLibrary() {
             loadReview={controller.taskRunReview}
             loadHistory={controller.taskRuns}
             loadApprovals={controller.taskApprovals}
+            loadRun={controller.taskRun}
             run={execution.run}
             stop={execution.stop}
             respondApproval={execution.respondApproval}

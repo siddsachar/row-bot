@@ -1171,3 +1171,40 @@ it('duplicates a workflow from the row menu and says what it made (parity row 18
   ).toBeInTheDocument();
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
+
+it('runs from the row after one review line, then follows it in the drawer (U40)', async () => {
+  const user = userEvent.setup();
+  const reviewed = {
+    task_id: 'Digest',
+    task_revision: 'a'.repeat(64),
+    policy_revision: 'b'.repeat(64),
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
+    notify_only: false,
+    steps_total: 3,
+    conversation_id: null,
+  };
+  const onReview = vi.fn(async () => reviewed);
+  const onRun = vi.fn(async () => {});
+  const runs = vi.fn();
+  const load = vi.fn(async () => pageOf([task('Digest', { enabled: true })]));
+  show(load, { onReview, onRun, onRuns: runs });
+  await user.click(
+    await screen.findByRole('button', { name: 'Run workflow: Digest' }),
+  );
+  const line = await screen.findByRole('group', { name: 'Run Digest now?' });
+  expect(line).toHaveTextContent('3 steps · Row bot default · Blocks actions');
+  expect(onRun).not.toHaveBeenCalled();
+  await user.click(within(line).getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('group', { name: 'Run Digest now?' })).toBeNull();
+  await user.click(
+    screen.getByRole('button', { name: 'Run workflow: Digest' }),
+  );
+  await user.click(
+    within(
+      await screen.findByRole('group', { name: 'Run Digest now?' }),
+    ).getByRole('button', { name: 'Run' }),
+  );
+  expect(onRun).toHaveBeenCalledWith(reviewed);
+  expect(runs).toHaveBeenCalledWith('Digest', 'Digest');
+});

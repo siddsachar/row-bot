@@ -364,32 +364,34 @@ test('Phase 4 explicit workflow run records history and opens the unified conver
   await page.goto('/app-v2/?tab=workflows');
   await searchWorkflows(page, 'Phase 4 saved task 104');
   await expect(workflowCards(page)).toHaveCount(1);
-  await page
+  // ▶ reviews in the row (U40); Run starts it and the drawer follows it.
+  const card = workflowCards(page).first();
+  await card
     .getByRole('button', {
       name: 'Run workflow: Phase 4 saved task 104',
       exact: true,
     })
     .click();
+  const line = card.getByRole('group', {
+    name: 'Run Phase 4 saved task 104 now?',
+    exact: true,
+  });
+  await expect(line).toContainText('Reminder');
+  await screenshot(page, info, 'workflow-run-review');
+  await accessibility(page, info, 'workflow-run-review');
+  await line.getByRole('button', { name: 'Run', exact: true }).click();
   const runs = page.getByRole('region', {
     name: 'Task runs and approvals',
     exact: true,
   });
   await expect(
-    runs.getByRole('button', { name: 'Run now', exact: true }),
-  ).toBeEnabled();
-  const before = await runs.getByRole('button', { name: /^Show run / }).count();
-  await screenshot(page, info, 'workflow-run-review');
-  await accessibility(page, info, 'workflow-run-review');
-  await runs.getByRole('button', { name: 'Run now', exact: true }).click();
-  await expect(
     runs.getByRole('region', { name: 'Selected run', exact: true }),
   ).toContainText('Completed');
+  await expect(runs.getByRole('button', { name: /^Show run / })).toHaveCount(1);
+  // A finished run is followed by a fresh review: Run now is ready again.
   await expect(
     runs.getByRole('button', { name: 'Run now', exact: true }),
-  ).toBeDisabled();
-  await expect(runs.getByRole('button', { name: /^Show run / })).toHaveCount(
-    before + 1,
-  );
+  ).toBeEnabled();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);

@@ -132,34 +132,56 @@ it('loads a review and saved history without running or granting approval', asyn
   ).not.toBeInTheDocument();
 });
 
-it('starts only one explicit operation and requires fresh review for another run', async () => {
+it('starts only one explicit operation and follows the run until it ends (B121)', async () => {
+  vi.useFakeTimers();
   const started = deferred<TaskRunResult>();
-  const callbacks = props({ run: vi.fn().mockReturnValue(started.promise) });
+  const halfway = { ...runSummary('run-a', 'running'), steps_done: 1 };
+  const loadRun = vi
+    .fn()
+    .mockResolvedValueOnce(halfway)
+    .mockResolvedValueOnce(runSummary('run-a', 'completed'));
+  const callbacks = props({
+    run: vi.fn().mockReturnValue(started.promise),
+    loadRun,
+  });
   render(<TaskRun {...callbacks} />);
-  await screen.findByText(EMPTY_HISTORY);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
   const button = screen.getByRole('button', { name: 'Run now' });
   fireEvent.click(button);
   fireEvent.click(button);
   expect(callbacks.run).toHaveBeenCalledTimes(1);
   expect(callbacks.run).toHaveBeenCalledWith(review);
   await act(async () =>
-    started.resolve({ run: runSummary(), replayed: false }),
+    started.resolve({ run: runSummary('run-a', 'running'), replayed: false }),
   );
+  // While it runs, Run now waits; the drawer reads the run by itself.
   expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
-  expect(callbacks.run).toHaveBeenCalledTimes(1);
-  expect(screen.queryByText(EMPTY_HISTORY)).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Run started.');
+  expect(screen.getByRole('status')).not.toHaveTextContent('Refresh');
+  const selected = () => screen.getByRole('region', { name: 'Selected run' });
+  expect(within(selected()).getByText('0 of 2 steps')).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(loadRun).toHaveBeenCalledWith('task-a', 'run-a', expect.anything());
+  expect(within(selected()).getByText('1 of 2 steps')).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(within(selected()).getByText('Completed')).toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent(
-    'Run started. Refresh to see its latest progress.',
+    'Run finished · Completed.',
   );
-  expect(
-    screen.getByRole('button', { name: 'Show run run-a' }),
-  ).toHaveAttribute('aria-current', 'true');
-  expect(
-    within(screen.getByRole('region', { name: 'Selected run' })).getByText(
-      'Completed',
-    ),
-  ).toBeInTheDocument();
+  // A finished run is followed by a fresh review, so Run now is ready again.
+  expect(callbacks.loadReview).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(loadRun).toHaveBeenCalledTimes(2);
+  expect(callbacks.run).toHaveBeenCalledTimes(1);
 });
 
 it('preserves uncertainty and does not automatically retry the run', async () => {
@@ -252,7 +274,7 @@ it('shows a stop request without claiming cleanup completed', async () => {
   );
   expect(callbacks.stop).toHaveBeenCalledWith('task-a', 'run-a');
   expect(screen.getByRole('status')).toHaveTextContent(
-    'Waiting for confirmed worker cleanup',
+    'Stop requested. Waiting for the run to finish.',
   );
   expect(
     screen.getByText(/Completion and cleanup are not yet confirmed/),
