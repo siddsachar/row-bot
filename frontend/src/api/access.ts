@@ -154,7 +154,12 @@ export interface AccessInvitationClient {
     lifetime: 'trusted' | 'temporary',
     signal?: AbortSignal,
   ): Promise<{ invitation: AccessInvitation; url: string }>;
-  cancel(invitationId: string, signal?: AbortSignal): Promise<void>;
+  cancel(
+    invitationId: string,
+    signal?: AbortSignal,
+    /** Still sent while the page is being left. */
+    keepalive?: boolean,
+  ): Promise<void>;
   setListenMode(
     expected: AccessRouteSettings['listen_mode'],
     next: AccessRouteSettings['listen_mode'],
@@ -382,11 +387,11 @@ export const accessInvitationClient: AccessInvitationClient = {
       throw { code: 'dependency_unavailable' };
     return { invitation: value.invitation, url: value.invitation_url };
   },
-  async cancel(invitationId, signal) {
+  async cancel(invitationId, signal, keepalive = false) {
     if (!identifier.test(invitationId)) throw { code: 'invalid_command' };
     await request(
       `/api/access/invitations/${encodeURIComponent(invitationId)}/cancel`,
-      { method: 'POST', signal },
+      { method: 'POST', signal, keepalive },
     );
   },
   async setListenMode(expected, next) {

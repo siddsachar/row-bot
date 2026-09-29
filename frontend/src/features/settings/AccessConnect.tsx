@@ -167,8 +167,17 @@ export default function AccessConnect({
     live.current = null;
     if (id) void client.cancel(id).catch(() => undefined);
   }, [client]);
-  // Leaving the page (or the flow) cancels the open code.
+  // Leaving the flow cancels the open code; so does leaving the page
+  // (closing the tab or reloading runs no React cleanup).
   useEffect(() => cancelLive, [cancelLive]);
+  useEffect(() => {
+    const leave = () => {
+      const id = live.current;
+      if (id) void client.cancel(id, undefined, true).catch(() => undefined);
+    };
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, [client]);
 
   useEffect(() => {
     if (!open) return;
