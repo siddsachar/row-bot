@@ -34,12 +34,13 @@ LOCAL_ENTRIES = frozenset({
     "cache", "font_cache", "vector_store", "memory_vectors", "document_index", "node",
     "runtimes", "piper", "kokoro", "logs", "plugin_logs", "crashes", "feedback_reports",
     "recovery", "evolution_backups", "migration-backups", "migration_reports", "backups",
-    "doc_staging", "stale_plugins", "document_ingestion", PENDING_DIR,
+    "doc_staging", "stale_plugins", "document_ingestion", ".checkpoint-locks", PENDING_DIR,
     "backup_state.json", RESULT_FILE,
 })
 LOCAL_NAMES = re.compile(
     r"(.*_cache\.json|.*\.log|.*\.log\.prev|.*\.lock|launcher-.*|tmp.*|.*-wal|.*-shm"
-    r"|mobile\.db\..*|.*-backup-\d{8}-\d{6}\.json|" + re.escape(ASIDE_PREFIX) + r".*)",
+    r"|mobile\.db\..*|.*-backup-\d{8}-\d{6}\.json|\.skills_activation\..+\.json|"
+    + re.escape(ASIDE_PREFIX) + r".*)",
     re.IGNORECASE,
 )
 # Anywhere in the tree: files that hold credentials.
