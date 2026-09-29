@@ -1322,6 +1322,29 @@ def _account(
     }
 
 
+# One GitHub status for Accounts and Monitor (B118), in the account states.
+_GITHUB_STATES = {
+    "connected": "connected",
+    "rate_limited": "connected",
+    "secondary_limited": "connected",
+    "invalid_token": "invalid",
+    "configured_unchecked": "configured_unchecked",
+    "offline": "configured_unchecked",
+    "anonymous": "not_configured",
+    "not_configured": "not_configured",
+}
+
+
+def _github_state() -> str:
+    try:
+        from row_bot import github_account
+
+        status = github_account.shared_github_status()
+    except Exception:
+        return "unavailable"
+    return _GITHUB_STATES.get(status.state, "configured_unchecked")
+
+
 def _accounts(
     root: Path,
     tools: Mapping[str, Any],
@@ -1329,6 +1352,7 @@ def _accounts(
     registered: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     github_credential = _credential_status("GITHUB_TOKEN")
+    github_state = _github_state()
     gmail = _mapping(tool_configs.get("gmail"))
     calendar = _mapping(tool_configs.get("calendar"))
     x_config = _mapping(tool_configs.get("x"))
@@ -1356,12 +1380,8 @@ def _accounts(
         "github": _account(
             account_id="github",
             enabled=None,
-            configured=github_credential["configured"],
-            authentication_state=(
-                "configured_unchecked"
-                if github_credential["configured"]
-                else "not_configured"
-            ),
+            configured=github_credential["configured"] or github_state != "not_configured",
+            authentication_state=github_state,
             credential=github_credential,
         ),
         "gmail": _account(

@@ -23,7 +23,7 @@ def _passive() -> github_account.GitHubAccountStatus:
 def test_github_access_is_passive_and_check_is_explicit_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
     checks = []
-    monkeypatch.setattr(github_account, "get_passive_github_account_status", _passive)
+    monkeypatch.setattr(github_account, "shared_github_status", _passive)
     monkeypatch.setattr(client_accounts, "resolve_github_cli", lambda: "")
 
     def check():
@@ -60,7 +60,7 @@ def test_github_access_is_passive_and_check_is_explicit_idempotent(tmp_path, mon
 
 def test_github_cli_action_starts_only_on_click_and_does_not_claim_login(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
-    monkeypatch.setattr(github_account, "get_passive_github_account_status", _passive)
+    monkeypatch.setattr(github_account, "shared_github_status", _passive)
     monkeypatch.setattr(client_accounts, "resolve_github_cli", lambda: "fixture-gh")
     starts = []
     monkeypatch.setattr(client_accounts, "_start_cli", lambda mode: starts.append(mode))
@@ -77,7 +77,7 @@ def test_github_cli_action_starts_only_on_click_and_does_not_claim_login(tmp_pat
 
 def test_github_access_api_denies_remote_before_account_probe(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
-    monkeypatch.setattr(github_account, "get_passive_github_account_status", _passive)
+    monkeypatch.setattr(github_account, "shared_github_status", _passive)
     monkeypatch.setattr(client_accounts, "resolve_github_cli", lambda: "")
     calls = []
     monkeypatch.setattr(github_account, "check_github_access", lambda: calls.append("check"))
@@ -91,3 +91,44 @@ def test_github_access_api_denies_remote_before_account_probe(tmp_path, monkeypa
         })
         assert response.status_code == 403
     assert calls == []
+
+
+def test_accounts_and_monitor_share_one_github_status(tmp_path, monkeypatch):
+    """B118: Accounts said "Not connected" while Monitor said "Connected as …"
+    for a GitHub CLI sign-in. Both read one status now, and Accounts never
+    probes the network to show it."""
+    from row_bot import status_checks
+    from row_bot.application.settings_snapshot import _accounts
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    github_account._clear_token_cache_for_tests()
+    github_account.clear_github_status_cache()
+    monkeypatch.setattr(github_account.api_keys, "get_key", lambda _name: "")
+    monkeypatch.setattr(github_account, "_github_cli_token", lambda *args, **kwargs: "fixture-cli-token")
+    monkeypatch.setattr(github_account, "_github_cli_status", lambda: github_account.GitHubAccountStatus(
+        connected=False, gh_installed=True, gh_authenticated=True, user="octo"))
+    monkeypatch.setattr(client_accounts, "resolve_github_cli", lambda: "fixture-gh")
+    probes = []
+
+    def api(token, source="", timeout=10):
+        probes.append(token.source)
+        return github_account.GitHubAccountStatus(
+            connected=True, source=token.source, fingerprint=token.fingerprint, user="octo",
+            state=github_account.GITHUB_STATE_CONNECTED, authenticated=True, token_valid=True)
+
+    monkeypatch.setattr(github_account, "check_github_token_access", api)
+    # Before anything checked it: signed in through the CLI, not yet checked.
+    passive = client_accounts.read_github_access(owner_id="owner-fixture")
+    assert passive["state"] == "configured_unchecked" and passive["credential_source"] == "github_cli"
+    assert _accounts(tmp_path, {}, {}, {})["github"]["authentication_state"] == "configured_unchecked"
+    assert probes == []
+    # Monitor's check verifies it; Accounts then says the same.
+    assert status_checks.check_github_oauth().status == "ok"
+    assert probes == ["github_cli"]
+    assert client_accounts.read_github_access(owner_id="owner-fixture")["state"] == "connected"
+    assert _accounts(tmp_path, {}, {}, {})["github"]["authentication_state"] == "connected"
+    assert probes == ["github_cli"]
+    github_account.clear_github_status_cache()
+    github_account._clear_token_cache_for_tests()

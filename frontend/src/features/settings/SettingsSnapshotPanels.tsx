@@ -258,6 +258,8 @@ function accountStateLabel(value: string) {
     {
       not_configured: 'Not configured',
       not_authenticated: 'Not authenticated',
+      connected: 'Connected',
+      invalid: 'Reconnect needed',
       configured_unchecked: 'Configured · not checked',
       saved_unchecked: 'Saved · not checked',
       expired: 'Expired',

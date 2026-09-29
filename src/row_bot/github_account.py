@@ -24,6 +24,9 @@ _TOKEN_CACHE_TTL_SECONDS = 300
 _STATUS_CACHE_TTL_SECONDS = 300
 _token_cache: tuple[float, bool, "GitHubToken"] | None = None
 _status_cache: tuple[float, str, "GitHubAccountStatus"] | None = None
+# The last verified status and the credential it was for: what Accounts and
+# Monitor both show (B118). Unlike the probe cache it does not expire.
+_last_verified: tuple[str, "GitHubAccountStatus"] | None = None
 
 GITHUB_STATE_NOT_CONFIGURED = "not_configured"
 GITHUB_STATE_CONFIGURED_UNCHECKED = "configured_unchecked"
@@ -188,10 +191,10 @@ def _legacy_discovery_status() -> GitHubAccountStatus:
 
 def get_verified_github_account_status(*, use_cache: bool = True, timeout: int = 10) -> GitHubAccountStatus:
     """Return GitHub API status after verifying the selected credential."""
-    global _status_cache
+    global _status_cache, _last_verified
     token = resolve_github_token(include_cli=True, use_cache=use_cache)
     gh_status = _github_cli_status()
-    cache_key = f"{token.source}:{token.fingerprint}:{bool(token.value)}"
+    cache_key = _token_key(token)
     now = time.time()
     if (
         use_cache
@@ -204,18 +207,56 @@ def get_verified_github_account_status(*, use_cache: bool = True, timeout: int =
     if token.value:
         status = check_github_token_access(token, timeout=timeout)
         status = _merge_cli_status(status, gh_status)
-        if status.connected:
-            _status_cache = (now, cache_key, status)
-            return status
+        if not status.connected:
+            anonymous = check_github_anonymous_access(timeout=timeout)
+            status = _with_anonymous_fallback(status, anonymous)
+    else:
         anonymous = check_github_anonymous_access(timeout=timeout)
-        status = _with_anonymous_fallback(status, anonymous)
-        _status_cache = (now, cache_key, status)
-        return status
+        status = _merge_cli_status(anonymous, gh_status)
+    _status_cache = (now, cache_key, status)
+    _last_verified = (cache_key, status)
+    return status
 
-    anonymous = check_github_anonymous_access(timeout=timeout)
-    anonymous = _merge_cli_status(anonymous, gh_status)
-    _status_cache = (now, cache_key, anonymous)
-    return anonymous
+
+def _token_key(token: GitHubToken) -> str:
+    return f"{token.source}:{token.fingerprint}:{bool(token.value)}"
+
+
+def shared_github_status() -> GitHubAccountStatus:
+    """One GitHub status for Settings › Accounts and Monitor (B118).
+
+    The last verified result (Monitor's check or an explicit Check) while it
+    is for the credential in use now; otherwise what is saved, including a
+    GitHub CLI sign-in, as not yet checked. Never contacts GitHub; the CLI is
+    asked only for its local token. Captures stay passive.
+    """
+    from row_bot.docs_capture import is_docs_capture
+
+    if is_docs_capture():
+        return get_passive_github_account_status()
+    token = resolve_github_token(include_cli=True, use_cache=True)
+    remembered = _last_verified
+    if remembered is not None and remembered[0] == _token_key(token):
+        return remembered[1]
+    if token.configured:
+        message = f"GitHub credential found via {token.source.replace('_', ' ')}. Check GitHub to verify access."
+        return GitHubAccountStatus(
+            connected=False,
+            source=token.source,
+            message=message,
+            fingerprint=token.fingerprint,
+            state=GITHUB_STATE_CONFIGURED_UNCHECKED,
+            action_label="Check GitHub",
+            settings_message=message,
+        )
+    message = "Not connected. Use GitHub CLI login or save a token."
+    return GitHubAccountStatus(
+        connected=False,
+        message=message,
+        state=GITHUB_STATE_NOT_CONFIGURED,
+        action_label="Connect GitHub",
+        settings_message=message,
+    )
 
 
 def get_passive_github_account_status() -> GitHubAccountStatus:
@@ -609,8 +650,9 @@ def clear_github_token_cache() -> None:
 
 
 def clear_github_status_cache() -> None:
-    global _status_cache
+    global _status_cache, _last_verified
     _status_cache = None
+    _last_verified = None
 
 
 def clear_github_caches() -> None:

@@ -942,6 +942,8 @@ class AccountSettingsItem(WireModel):
     authentication_state: Literal[
         "not_configured",
         "not_authenticated",
+        "connected",
+        "invalid",
         "configured_unchecked",
         "saved_unchecked",
         "expired",
