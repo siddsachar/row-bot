@@ -43,6 +43,8 @@ import { taskRuns } from './task-runs';
 import { taskEdits, taskMutation, type TaskCommandOwner } from './task-edits';
 import TaskGraphEditor from './TaskGraphEditor';
 import TaskSettingsEditor from './TaskSettingsEditor';
+import { webhookReach } from './webhook-reach';
+import { writeClipboardText } from '../../platform/clipboard';
 import { RunSparkline } from './RunSparkline';
 import {
   Button,
@@ -1031,7 +1033,8 @@ function EditorFrame({
 }
 
 export default function TaskLibrary() {
-  const { controller, taskEditSessions } = useRuntime();
+  const { controller, taskEditSessions, platform } = useRuntime();
+  const reach = useMemo(() => webhookReach(controller), [controller]);
   const state = useClientState();
   const navigate = useNavigate();
   const overlay = useOverlay();
@@ -1221,6 +1224,14 @@ export default function TaskLibrary() {
           onCancel={close}
           profileOptions={profileOptions}
           modelOptions={modelOptions}
+          webhook={{
+            localBase: window.location.origin,
+            readAddress: reach.readAddress,
+            writeClipboard: (text) =>
+              writeClipboardText(text, platform.writeClipboard),
+            loadTunnel: reach.loadTunnel,
+            setPublic: reach.setPublic,
+          }}
         />
       </EditorFrame>
     );

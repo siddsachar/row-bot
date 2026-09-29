@@ -289,6 +289,20 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
       { exact: true },
     ),
   ).toBeVisible();
+  // The address shows with its secret hidden; nothing is public until the
+  // person asks for it (parity rows 20, 52). Never clicked here.
+  const address = editor.getByRole('group', {
+    name: 'Webhook address',
+    exact: true,
+  });
+  await expect(address).toContainText('/api/webhook/p4-task-102?secret=••••');
+  await expect(
+    address.getByRole('button', { name: 'Copy address', exact: true }),
+  ).toBeVisible();
+  await expect(
+    editor.getByText('Not reachable from the internet.', { exact: false }),
+  ).toBeVisible();
+  expect(await editor.textContent()).not.toContain(secret!);
 });
 
 test('Phase 4 Home discovers saved tasks with bounded paging and recorded details', async ({

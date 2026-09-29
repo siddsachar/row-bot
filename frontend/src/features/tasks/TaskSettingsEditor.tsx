@@ -17,6 +17,7 @@ import {
   type ComboboxOption,
 } from '../../ui/primitives';
 import { DangerAction, SettingsDangerZone } from '../settings/anatomy';
+import WebhookAddress, { type WebhookAddressProps } from './WebhookAddress';
 
 export interface TaskSettingsEditorProps {
   session?: TaskEditSession;
@@ -41,6 +42,10 @@ export interface TaskSettingsEditorProps {
   modelOptions?: ReadonlyArray<{ id: string; label: string }>;
   /** Shown in the page's one-line description. */
   taskName?: string;
+  /** The saved webhook's address and reachability (parity rows 20, 52). */
+  webhook?: Omit<WebhookAddressProps, 'taskId' | 'readAddress'> & {
+    readAddress: (taskId: string, revision: string) => Promise<string>;
+  };
 }
 
 export default function TaskSettingsEditor({
@@ -55,6 +60,7 @@ export default function TaskSettingsEditor({
   profileOptions = [],
   modelOptions = [],
   taskName = '',
+  webhook,
   session: injectedSession,
 }: TaskSettingsEditorProps) {
   const session = useTaskEditSession(injectedSession, 'settings', taskId);
@@ -559,6 +565,18 @@ export default function TaskSettingsEditor({
               className="task-settings-group"
             >
               <legend>Saved webhook</legend>
+              {webhook && snapshot.webhook_configured && (
+                <WebhookAddress
+                  taskId={taskId}
+                  localBase={webhook.localBase}
+                  readAddress={() =>
+                    webhook.readAddress(taskId, snapshot.revision)
+                  }
+                  writeClipboard={webhook.writeClipboard}
+                  loadTunnel={webhook.loadTunnel}
+                  setPublic={webhook.setPublic}
+                />
+              )}
               <SettingRow
                 label="Configuration"
                 description={
