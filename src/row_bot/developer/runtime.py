@@ -341,6 +341,20 @@ def _watch_tracked_process(state: TrackedProcess) -> None:
     state.done.set()
 
 
+def _worker_interpreter() -> str:
+    """The interpreter for the stdlib-only process worker.
+
+    On Windows a virtual environment's python.exe is a redirector that runs the
+    real interpreter inside its own job, one that lets children break away
+    silently: a command started by a worker there left the owning job and
+    outlived Stop (B191). The worker needs no packages (-I -S), so it runs on the
+    real interpreter directly.
+    """
+    if os.name == "nt":
+        return getattr(sys, "_base_executable", "") or sys.executable
+    return sys.executable
+
+
 def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
         process_id: str | None = None, metadata: dict[str, str] | None = None,
         on_quiesced: Callable[[TrackedProcess], None] | None = None,
@@ -384,7 +398,7 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
                   "stderr": subprocess.PIPE, "shell": False, "close_fds": True}
         if os.name != "nt":
             kwargs["start_new_session"] = True
-        process = subprocess.Popen(bootstrap_argv or [sys.executable, "-I", "-S", "-B",
+        process = subprocess.Popen(bootstrap_argv or [_worker_interpreter(), "-I", "-S", "-B",
             str(pathlib.Path(__file__).with_name("process_worker.py"))], **kwargs)
         state = TrackedProcess(identity, command, dict(metadata or {}), process, on_quiesced)
         state.guard = validate
