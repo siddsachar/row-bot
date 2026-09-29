@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs
 
 from row_bot.access.access_routes import (
+    AccessRouteConfig,
     AccessRouteConfigStore,
     ListenMode,
     apply_listen_mode,
@@ -24,7 +25,7 @@ from row_bot.access.tailscale import (
     TailscaleServeController,
     process_tailscale_status_cache,
 )
-from row_bot.app_port import get_app_port
+from row_bot.app_port import get_app_host, get_app_port
 
 from fastapi import APIRouter
 from starlette.requests import Request
@@ -362,10 +363,30 @@ def _device_public(
     }
 
 
+def _listening_on_network() -> bool:
+    """Whether this server is bound beyond loopback right now (B184).
+
+    The bind host comes from ``ROW_BOT_HOST`` (the launcher always sets it)
+    before the saved listen mode, so an explicit host can keep a server on
+    this computer while the saved mode says "network".
+    """
+    host = get_app_host().strip().strip("[]").lower()
+    return not (host in {"localhost", "::1"} or host.startswith("127."))
+
+
 def _route_inventory(request: Request, context: AccessContext):
     """Read current owner-visible routes without probing or changing access."""
     port = get_app_port()
-    config = AccessRouteConfigStore().load_or_default()
+    saved = AccessRouteConfigStore().load_or_default()
+    # Same Wi-Fi addresses are offered only while the server listens on them.
+    config = AccessRouteConfig(
+        listen_mode=(
+            ListenMode.LOCAL_NETWORK
+            if saved.lan_enabled and _listening_on_network()
+            else ListenMode.LOCAL_ONLY
+        ),
+        configured_origins=saved.configured_origins,
+    )
     ownership_store = TailscaleOwnershipStore()
     verified = process_tailscale_status_cache().get(
         instance_key=str(ownership_store.path.resolve(strict=False)),
@@ -392,6 +413,7 @@ def _route_settings(context: AccessContext) -> dict[str, Any]:
     config = AccessRouteConfigStore().load_or_default()
     return {
         "listen_mode": config.listen_mode.value,
+        "listening_on_network": _listening_on_network(),
         "configured_origins": list(config.configured_origins),
         "managed_externally": "ROW_BOT_ALLOWED_HOSTS" in os.environ,
         "can_manage_routes": context.is_local_owner,

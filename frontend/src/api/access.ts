@@ -127,6 +127,8 @@ export type AccessRoute = {
 
 export type AccessRouteSettings = {
   listen_mode: 'local_only' | 'local_network';
+  /** Bound beyond this computer right now; a launch host can override the mode (B184). */
+  listening_on_network?: boolean;
   configured_origins: string[];
   managed_externally: boolean;
   can_manage_routes: boolean;
@@ -336,6 +338,10 @@ export const accessInvitationClient: AccessInvitationClient = {
       throw { code: 'dependency_unavailable' };
     return {
       listen_mode: value.listen_mode,
+      listening_on_network:
+        typeof value.listening_on_network === 'boolean'
+          ? value.listening_on_network
+          : undefined,
       configured_origins: value.configured_origins,
       managed_externally: value.managed_externally,
       can_manage_routes: value.can_manage_routes,

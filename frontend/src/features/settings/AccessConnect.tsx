@@ -564,6 +564,13 @@ export default function AccessConnect({
                       </p>
                     )}
                   </div>
+                ) : network?.listening_on_network === false ? (
+                  // B184: the saved mode says network, the launch says no.
+                  <p className="settings-help">
+                    Row-Bot was started to listen on this computer only, so Same
+                    Wi-Fi can’t reach it now. Restart Row-Bot normally to use
+                    Same Wi-Fi.
+                  </p>
                 ) : lanRoute ? (
                   <div className="access-option-detail">
                     <ol className="access-next-steps">

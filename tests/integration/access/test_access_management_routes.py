@@ -119,6 +119,50 @@ def test_route_selection_is_revalidated_before_invitation_creation(
     assert len(service.list_invitations()) == 1
 
 
+def test_same_wifi_is_offered_only_while_row_bot_listens_on_the_network(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """B184: a launch bound to this computer never offers a Same Wi-Fi code.
+
+    The saved listen mode can say "network" while an explicit host (the
+    launcher's ROW_BOT_HOST, ``--host``) binds loopback only; a code for the
+    Wi-Fi address would then never reach the server.
+    """
+    from row_bot.access.access_routes import AccessRouteConfigStore
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr(
+        access_routes, "discover_private_lan_addresses", lambda: ("192.168.1.23",)
+    )
+    AccessRouteConfigStore().set_listen_mode("local_network")
+    client, _service, _registration = _application(tmp_path, mode="desktop")
+
+    def lan_state() -> tuple[list[bool], bool]:
+        listed = client.get("/api/access/routes").json()
+        return (
+            [row["available"] for row in listed["routes"] if row["kind"] == "lan"],
+            listed["listening_on_network"],
+        )
+
+    monkeypatch.setenv("ROW_BOT_HOST", "127.0.0.1")
+    assert lan_state() == ([False], False)
+    lan_id = next(
+        row["id"]
+        for row in client.get("/api/access/routes").json()["routes"]
+        if row["kind"] == "lan"
+    )
+    refused = client.post(
+        "/api/access/invitations",
+        json={"route_id": lan_id},
+        headers={"origin": "http://localhost:8080"},
+    )
+    assert refused.status_code == 409
+
+    monkeypatch.setenv("ROW_BOT_HOST", "0.0.0.0")
+    assert lan_state() == ([True], True)
+
+
 def test_routes_require_owner(tmp_path) -> None:
     client, _service, _registration = _application(tmp_path)
     response = client.get("/api/access/routes")
