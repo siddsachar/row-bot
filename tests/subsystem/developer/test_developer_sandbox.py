@@ -64,11 +64,16 @@ def test_confirmed_shell_command_can_cross_approval_gate_for_safe_workspace(tmp_
 
     workspace = fake_workspace(tmp_path, execution_mode="local")
     monkeypatch.setattr("row_bot.developer.storage.get_workspace", lambda workspace_id: workspace)
-    monkeypatch.setattr(
-        runtime.subprocess,
-        "run",
-        lambda *_args, **_kwargs: type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})(),
-    )
+    ran: list[object] = []
+
+    def fake_run(argv, **_kwargs):
+        # The approved command is recorded, never executed (a real `git commit`
+        # here once committed the checkout's staged changes: B216).
+        ran.append(argv)
+        return type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": "", "timed_out": False,
+                                      "cancelled": False})()
+
+    monkeypatch.setattr(runtime, "run_cancellable_subprocess", fake_run)
     monkeypatch.setattr(runtime, "_snapshot_changed_files", lambda _root: {})
 
     result = runtime.run_workspace_shell_command(
@@ -83,3 +88,4 @@ def test_confirmed_shell_command_can_cross_approval_gate_for_safe_workspace(tmp_
     assert result.ran is True
     assert result.decision is not None
     assert result.decision.allowed is True
+    assert len(ran) == 1 and "git commit -m test" in str(ran[0])

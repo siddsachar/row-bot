@@ -77,6 +77,11 @@ DEFAULT_TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("TMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("TEMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("ROW_BOT_TEST_MODE", "1")
+# Test folders live under the checkout's .tmp: git run there by the code under test
+# must stop at .tmp instead of finding (and committing to) the checkout (B216).
+os.environ["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(
+    filter(None, [str(PROJECT_ROOT / ".tmp"), os.environ.get("GIT_CEILING_DIRECTORIES", "")])
+)
 
 
 _ORIGINAL_BUILTINS_OPEN = builtins.open

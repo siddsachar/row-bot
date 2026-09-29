@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,16 @@ def test_pytest_blocks_live_row_bot_user_state_writes():
 
     with pytest.raises(AssertionError, match="live app user state"):
         sqlite3.connect(Path.home() / ".row-bot" / "threads.db")
+
+
+def test_git_in_a_test_folder_never_reaches_the_checkout(tmp_path):
+    # Test folders live under the checkout's .tmp. A git command run there by the
+    # code under test (a workspace shell command, a clone) must not find the
+    # checkout's own repository and commit or reset it (B216).
+    result = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=tmp_path,
+                            capture_output=True, text=True, check=False)
+
+    assert result.returncode != 0, f"git found a repository above {tmp_path}: {result.stdout.strip()}"
 
 
 def test_voice_runtime_follows_changed_test_data_dir(tmp_path, monkeypatch):
