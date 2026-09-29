@@ -10,10 +10,12 @@ import {
   MousePointer2,
   PanelRight,
   Play,
+  Plus,
   Redo2,
   Share2,
   Smartphone,
   Tablet,
+  Trash2,
   Undo2,
   X,
 } from 'lucide-react';
@@ -110,6 +112,36 @@ const DEVICES: Record<Exclude<Device, 'desktop'>, [number, number]> = {
   phone: [390, 844],
 };
 const ZOOMS = ['fit', 'width', '0.5', '0.75', 'actual', '1.5', '2'] as const;
+/**
+ * The size menu (parity row 29): common formats that re-fit every page. Only
+ * for page-based designs; landing pages and app mockups size by device width.
+ * Anything unusual (custom sizes) is asked for in the conversation.
+ */
+export const DESIGN_SIZES = [
+  { ratio: '16:9', label: '16:9 · Widescreen', width: 1920, height: 1080 },
+  { ratio: '4:3', label: '4:3 · Standard', width: 1024, height: 768 },
+  { ratio: '1:1', label: '1:1 · Square', width: 1080, height: 1080 },
+  { ratio: 'A4', label: 'A4 · Document', width: 794, height: 1123 },
+  { ratio: '9:16', label: '9:16 · Phone', width: 1080, height: 1920 },
+] as const;
+type DesignSize = (typeof DESIGN_SIZES)[number]['ratio'];
+
+export function designSize(width: number, height: number) {
+  return DESIGN_SIZES.find(
+    (size) => size.width === width && size.height === height,
+  );
+}
+
+function structureFailure(reason: unknown) {
+  const code =
+    typeof reason === 'object' && reason !== null && 'code' in reason
+      ? String(reason.code)
+      : '';
+  return code === 'resource_revision_conflict'
+    ? 'The design changed meanwhile, so nothing was changed. Try again.'
+    : 'That change was not saved. The design is unchanged.';
+}
+
 /** Panel width from which the inspector sits beside the canvas (panels.css). */
 const SIDE_BY_SIDE = 720;
 const noLifecycle = () => new Promise<never>(() => {});
@@ -207,6 +239,9 @@ export default function ArtifactPreview({
     name: string;
   } | null>(null);
   const [nameSaving, setNameSaving] = useState(false);
+  // Page and size changes: one at a time; a deleted page offers Undo in place.
+  const [structureBusy, setStructureBusy] = useState(false);
+  const [undoOffer, setUndoOffer] = useState(false);
   // The saved name shows until the server's title moves on; after that the
   // title leads, so an undo that restores the old name shows it again.
   const [titleSeen, setTitleSeen] = useState(title);
@@ -656,6 +691,68 @@ export default function ArtifactPreview({
     }
   }
 
+  async function changeStructure(
+    payload: Parameters<NonNullable<typeof edit>>[0],
+    after: { pageId?: string; notice: string; undo?: boolean },
+  ) {
+    if (!edit || !current || structureBusy || historyOperation.current) return;
+    setStructureBusy(true);
+    setNotice('');
+    setUndoOffer(false);
+    try {
+      const receipt = await edit(payload, current.resource_revision);
+      if (receipt.status !== 'completed' || !receipt.resource_revision)
+        throw { code: receipt.code ?? 'save_incomplete' };
+      setPicked(null);
+      setSelectedElementId(undefined);
+      // Without a page the preview opens the one the server selected (a
+      // new page is selected when it is added).
+      setSelection({ resourceId, pageId: after.pageId });
+      setNotice(after.notice);
+      setUndoOffer(!!after.undo);
+    } catch (reason) {
+      setNotice(structureFailure(reason));
+    } finally {
+      setStructureBusy(false);
+      setRefresh((value) => value + 1);
+    }
+  }
+
+  function addPage() {
+    if (!current) return;
+    void changeStructure(
+      { operation: 'page_add', page_id: current.page_id },
+      { notice: `Added a ${pageLabel.toLowerCase()}.` },
+    );
+  }
+
+  function deletePage() {
+    if (!current || current.page_count < 2) return;
+    const neighbour =
+      current.pages[current.page_index + 1] ??
+      current.pages[current.page_index - 1];
+    void changeStructure(
+      { operation: 'page_delete', page_id: current.page_id },
+      {
+        pageId: neighbour?.id,
+        notice: `Deleted “${current.page_title}”.`,
+        undo: true,
+      },
+    );
+  }
+
+  function resize(ratio: DesignSize) {
+    if (!current) return;
+    void changeStructure(
+      { operation: 'canvas_size', aspect_ratio: ratio },
+      {
+        pageId: current.page_id,
+        notice: `Changed the size to ${ratio}. Every ${pageLabel.toLowerCase()} was re-fitted.`,
+        undo: true,
+      },
+    );
+  }
+
   function ask(instruction: string): AskOutcome {
     if (!pickedCurrent || !current) return 'unavailable';
     const text = askText(
@@ -717,6 +814,12 @@ export default function ArtifactPreview({
   const editorRevision = current?.resource_revision ?? resourceRevision;
   const hasInspector = (!!loadEditing && !!edit) || !!design;
   const pages = current?.pages ?? [];
+  const canStructure = !!edit && !!current && !loading && !structureBusy;
+  const sized =
+    !!current && ['deck', 'document', 'storyboard'].includes(current.mode);
+  const size = current
+    ? designSize(current.canvas_width, current.canvas_height)
+    : undefined;
   const moreActions = [
     ...(loadPalette && onDraftText && current
       ? [
@@ -1118,6 +1221,20 @@ export default function ArtifactPreview({
                 <p className="design-hint" role="status">
                   {notice ||
                     'Click an element to ask Row-Bot about it. Double-click text to edit it.'}
+                  {notice && undoOffer && canHistory && (
+                    <Button
+                      variant="ghost"
+                      className="design-hint-action"
+                      aria-label="Undo this change"
+                      disabled={historyBusy || structureBusy}
+                      onClick={() => {
+                        setUndoOffer(false);
+                        void restoreStep('undo');
+                      }}
+                    >
+                      Undo
+                    </Button>
+                  )}
                 </p>
               )}
               <Toolbar label="Design preview controls" className="design-dock">
@@ -1140,11 +1257,35 @@ export default function ArtifactPreview({
                   variant="ghost"
                   className="design-dock-page"
                   disabled={!current || loading}
-                  actions={(current?.pages ?? []).map((page) => ({
-                    label: `${page.index + 1}. ${page.title}`,
-                    selected: page.id === current?.page_id,
-                    onSelect: () => goToPage(page.id),
-                  }))}
+                  actions={[
+                    ...(current?.pages ?? []).map((page) => ({
+                      label: `${page.index + 1}. ${page.title}`,
+                      selected: page.id === current?.page_id,
+                      onSelect: () => goToPage(page.id),
+                    })),
+                    ...(edit && current
+                      ? [
+                          {
+                            label: `Add a ${pageLabel.toLowerCase()} after this one`,
+                            icon: <Plus size={16} aria-hidden />,
+                            separatorBefore: true,
+                            disabled: !canStructure,
+                            onSelect: addPage,
+                          },
+                          ...(current.page_count > 1
+                            ? [
+                                {
+                                  label: `Delete this ${pageLabel.toLowerCase()}`,
+                                  icon: <Trash2 size={16} aria-hidden />,
+                                  danger: true,
+                                  disabled: !canStructure,
+                                  onSelect: deletePage,
+                                },
+                              ]
+                            : []),
+                        ]
+                      : []),
+                  ]}
                 >
                   <span aria-hidden>
                     {current
@@ -1166,6 +1307,27 @@ export default function ArtifactPreview({
                 >
                   <ChevronRight size={15} aria-hidden />
                 </IconButton>
+                {sized && edit && current && (
+                  <>
+                    <ToolbarSeparator />
+                    <Menu
+                      label={`Size: ${size?.ratio ?? 'custom'}. Change the size`}
+                      variant="ghost"
+                      className="design-dock-size"
+                      disabled={!canStructure}
+                      actions={DESIGN_SIZES.map((option) => ({
+                        label: option.label,
+                        selected: option.ratio === size?.ratio,
+                        onSelect: () => {
+                          if (option.ratio !== size?.ratio)
+                            resize(option.ratio);
+                        },
+                      }))}
+                    >
+                      <span aria-hidden>{size?.ratio ?? 'Custom'}</span>
+                    </Menu>
+                  </>
+                )}
                 <ToolbarSeparator />
                 <Select
                   aria-label="Preview zoom"

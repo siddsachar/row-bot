@@ -1177,3 +1177,126 @@ it('runs the canvas undo shortcut through the same reviewed restore', async () =
     ),
   );
 });
+
+function renderDeck(edit = vi.fn(async () => receipt('resource-2'))) {
+  const load = vi.fn(async (pageId?: string) =>
+    snapshot('deck-a', pageId === 'slide-1' ? 1 : 0),
+  );
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible
+      load={load}
+      loadEditing={vi.fn(async () => editing())}
+      edit={edit}
+    />,
+  );
+  return { edit, load };
+}
+
+it('adds a slide after the one shown and opens it', async () => {
+  const user = userEvent.setup();
+  const { edit, load } = renderDeck();
+  await user.click(
+    await screen.findByRole('button', { name: /^Slide 1 of 2: Opening/ }),
+  );
+  await user.click(
+    screen.getByRole('menuitem', { name: 'Add a slide after this one' }),
+  );
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      { operation: 'page_add', page_id: 'slide-0' },
+      'resource-1',
+    ),
+  );
+  expect(await screen.findByText('Added a slide.')).toBeInTheDocument();
+  // The server selects the new slide: the preview reloads without a page.
+  await waitFor(() => expect(load.mock.calls.length).toBeGreaterThan(1));
+  expect(load.mock.lastCall?.[0]).toBeUndefined();
+});
+
+it('deletes the slide shown, moves to its neighbour and offers Undo', async () => {
+  const user = userEvent.setup();
+  const { edit, load } = renderDeck();
+  await user.click(
+    await screen.findByRole('button', { name: /^Slide 1 of 2: Opening/ }),
+  );
+  await user.click(screen.getByRole('menuitem', { name: 'Delete this slide' }));
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      { operation: 'page_delete', page_id: 'slide-0' },
+      'resource-1',
+    ),
+  );
+  const status = await screen.findByText('Deleted “Opening”.');
+  expect(status).toBeInTheDocument();
+  await waitFor(() => expect(load.mock.lastCall?.[0]).toBe('slide-1'));
+  expect(
+    screen.getByRole('button', { name: 'Undo this change' }),
+  ).toBeInTheDocument();
+});
+
+it('offers no delete for the only slide', async () => {
+  const user = userEvent.setup();
+  const only = { ...snapshot(), page_count: 1, pages: [snapshot().pages[0]] };
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible
+      load={vi.fn(async () => only)}
+      loadEditing={vi.fn(async () => editing())}
+      edit={vi.fn()}
+    />,
+  );
+  await user.click(
+    await screen.findByRole('button', { name: /^Slide 1 of 1: Opening/ }),
+  );
+  expect(
+    screen.getByRole('menuitem', { name: 'Add a slide after this one' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole('menuitem', { name: 'Delete this slide' }),
+  ).toBeNull();
+});
+
+it('changes the size from the dock and re-fits every slide', async () => {
+  const user = userEvent.setup();
+  const { edit } = renderDeck();
+  const trigger = await screen.findByRole('button', {
+    name: 'Size: 16:9. Change the size',
+  });
+  await user.click(trigger);
+  expect(
+    screen.getByRole('menuitem', { name: '16:9 · Widescreen' }),
+  ).toHaveAttribute('aria-current', 'true');
+  await user.click(screen.getByRole('menuitem', { name: '4:3 · Standard' }));
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      { operation: 'canvas_size', aspect_ratio: '4:3' },
+      'resource-1',
+    ),
+  );
+  expect(
+    await screen.findByText(
+      'Changed the size to 4:3. Every slide was re-fitted.',
+    ),
+  ).toBeInTheDocument();
+});
+
+it('keeps the size menu off landing pages and read-only previews', async () => {
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible
+      load={vi.fn(async () => snapshot())}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  expect(screen.queryByRole('button', { name: /^Size:/ })).toBeNull();
+});

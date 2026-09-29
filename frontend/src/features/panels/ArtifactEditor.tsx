@@ -79,6 +79,9 @@ const OPERATION_WORDS: Record<string, string> = {
   asset_insert: 'inserting an asset',
   asset_remove: 'removing an asset',
   block_insert: 'inserting a block',
+  page_add: 'adding a page',
+  page_delete: 'deleting a page',
+  canvas_size: 'a size change',
 };
 
 /** A saved version's label in words ("Before a text edit"). */

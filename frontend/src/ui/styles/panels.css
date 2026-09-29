@@ -195,6 +195,15 @@
 .design-dock-zoom {
   max-width: 104px;
 }
+.design-dock-size {
+  font-variant-numeric: tabular-nums;
+}
+.design-hint .design-hint-action {
+  min-height: 24px;
+  margin-inline-start: 6px;
+  padding-inline: 6px;
+  font-size: inherit;
+}
 
 /* ------------------------------------------------------------ page strip */
 
