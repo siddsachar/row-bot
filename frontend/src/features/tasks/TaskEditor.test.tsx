@@ -127,15 +127,15 @@ it('shows schedule, delivery and policy in the rail of a new workflow with manua
   expect(
     within(rail).getByRole('switch', { name: 'Enabled' }),
   ).not.toBeChecked();
-  const delivery = within(rail).getByRole('combobox', {
-    name: /^Send results to/,
-  });
-  expect(delivery).toHaveValue('inherit');
-  expect(delivery).toBeEnabled();
-  expect(within(rail).getByText('Defaults: Web app only.')).toBeVisible();
+  // Results always stay in the app; with no channel set up that is all.
+  const delivery = within(rail).getByRole('group', { name: 'Send results to' });
+  const app = within(delivery).getByRole('checkbox', { name: 'In this app' });
+  expect(app).toBeChecked();
+  expect(app).toBeDisabled();
+  expect(within(delivery).getAllByRole('checkbox')).toHaveLength(1);
   expect(
-    within(rail).queryByLabelText('Channel names', { exact: false }),
-  ).not.toBeInTheDocument();
+    within(delivery).getByText(/Set up a channel in Settings › Channels/),
+  ).toBeVisible();
   // New workflows are saved with the block policy, so the note says so.
   const policyNote = within(rail).getByText(/Change this after the first save/);
   expect(policyNote).toBeVisible();
@@ -149,16 +149,30 @@ it('shows schedule, delivery and policy in the rail of a new workflow with manua
   ).not.toBeInTheDocument();
 });
 
-it('names the saved delivery defaults behind Use workflow defaults', () => {
-  render(
-    <TaskEditor {...props({ deliveryDefaults: ['Telegram', 'Slack'] })} />,
+const channels = [
+  { id: 'slack', label: 'Slack', selected: false },
+  { id: 'telegram', label: 'Telegram', selected: true },
+];
+
+it('prefills the channel checklist from the defaults and keeps following them', async () => {
+  const callbacks = props({ deliveryChannels: channels });
+  render(<TaskEditor {...callbacks} />);
+  fillNew();
+  const delivery = screen.getByRole('group', { name: 'Send results to' });
+  expect(
+    within(delivery).getByRole('checkbox', { name: 'Telegram' }),
+  ).toBeChecked();
+  expect(
+    within(delivery).getByRole('checkbox', { name: 'Slack' }),
+  ).not.toBeChecked();
+  expect(within(delivery).getByText('Following your defaults.')).toBeVisible();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
   );
-  expect(
-    screen.getByRole('combobox', { name: /^Send results to/ }),
-  ).toHaveDisplayValue('Use workflow defaults');
-  expect(
-    screen.getByText('Defaults: Web app, Telegram, Slack.'),
-  ).toBeInTheDocument();
+  // Untouched, it keeps following the defaults (null), never a copy of them.
+  expect(callbacks.create).toHaveBeenCalledWith(
+    expect.objectContaining({ channels: null }),
+  );
 });
 
 it('retains a new draft and settles create after an actual unmount without creating again', async () => {
@@ -224,28 +238,12 @@ it('creates a disabled workflow using inherited delivery, without run controls',
   expect(callbacks.onSaved).toHaveBeenCalledWith(snapshot());
 });
 
-it('preserves [] versus inherited delivery and never invents a selected channel', async () => {
-  const callbacks = props();
+it('saves [] for in-app only once the defaults are unticked', async () => {
+  const callbacks = props({ deliveryChannels: channels });
   render(<TaskEditor {...callbacks} />);
   fillNew();
-  const delivery = () =>
-    screen.getByRole('combobox', { name: /^Send results to/ });
-  fireEvent.change(delivery(), { target: { value: 'selected' } });
-  expect(screen.getByLabelText('Channel names', { exact: false })).toHaveValue(
-    '',
-  );
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
-  );
-  expect(callbacks.create).not.toHaveBeenCalled();
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    'at least one registered channel',
-  );
-  fireEvent.change(delivery(), { target: { value: 'app' } });
-  expect(screen.getByText('Results stay in this app.')).toBeInTheDocument();
-  expect(
-    screen.queryByLabelText('Channel names', { exact: false }),
-  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Telegram' }));
+  expect(screen.getByText('Only in this app.')).toBeInTheDocument();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
   );
@@ -254,7 +252,7 @@ it('preserves [] versus inherited delivery and never invents a selected channel'
   );
 });
 
-it('sends typed channels, and returns to inherited delivery as null', async () => {
+it('ticks channels for one workflow and goes back to the defaults as null', async () => {
   const callbacks = props({
     taskId: 'task-a',
     load: vi
@@ -270,23 +268,21 @@ it('sends typed channels, and returns to inherited delivery as null', async () =
       }),
     ),
   });
-  render(<TaskEditor {...callbacks} />);
+  render(<TaskEditor {...callbacks} deliveryChannels={channels} />);
   await screen.findByDisplayValue('Saved workflow');
-  const delivery = () =>
-    screen.getByRole('combobox', { name: /^Send results to/ });
-  expect(delivery()).toHaveValue('selected');
-  const channels = screen.getByLabelText('Channel names', { exact: false });
-  expect(channels).toHaveValue('slack');
-  fireEvent.change(channels, { target: { value: 'telegram, , slack ' } });
+  expect(screen.getByRole('checkbox', { name: 'Slack' })).toBeChecked();
+  expect(screen.getByText('Only for this workflow.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Telegram' }));
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
   );
   expect(callbacks.save).toHaveBeenLastCalledWith(
     'task-a',
     'a'.repeat(64),
-    expect.objectContaining({ channels: ['telegram', 'slack'] }),
+    expect.objectContaining({ channels: ['slack', 'telegram'] }),
   );
-  fireEvent.change(delivery(), { target: { value: 'inherit' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Use my defaults' }));
+  expect(screen.getByText('Following your defaults.')).toBeInTheDocument();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
   );
@@ -298,21 +294,22 @@ it('sends typed channels, and returns to inherited delivery as null', async () =
 });
 
 it.each([
-  [null, 'inherit'],
-  [[], 'app'],
-  [['slack'], 'selected'],
+  [null, ['Telegram'], 'Following your defaults.'],
+  [[], [], 'Only in this app.'],
+  [['slack'], ['Slack'], 'Only for this workflow.'],
 ] as const)(
-  'opens saved channels %j as the %s delivery choice',
-  async (channels, choice) => {
+  'opens saved channels %j with %j ticked',
+  async (saved, ticked, words) => {
     render(
       <TaskEditor
         {...props({
           taskId: 'task-a',
+          deliveryChannels: channels,
           load: vi.fn().mockResolvedValue(
             snapshot({
               fields: {
                 ...fields,
-                channels: channels === null ? null : [...channels],
+                channels: saved === null ? null : [...saved],
               },
             }),
           ),
@@ -320,11 +317,44 @@ it.each([
       />,
     );
     await screen.findByDisplayValue('Saved workflow');
+    const delivery = screen.getByRole('group', { name: 'Send results to' });
     expect(
-      screen.getByRole('combobox', { name: /^Send results to/ }),
-    ).toHaveValue(choice);
+      within(delivery)
+        .getAllByRole('checkbox')
+        .filter((box) => (box as HTMLInputElement).checked)
+        .map(
+          (box) =>
+            box.getAttribute('aria-label') ?? box.parentElement?.textContent,
+        ),
+    ).toEqual(['In this app', ...ticked]);
+    expect(within(delivery).getByText(words)).toBeInTheDocument();
   },
 );
+
+it('shows a saved channel that is no longer set up, so it can be unticked', async () => {
+  const callbacks = props({
+    taskId: 'task-a',
+    deliveryChannels: channels,
+    load: vi
+      .fn()
+      .mockResolvedValue(
+        snapshot({ fields: { ...fields, channels: ['discord'] } }),
+      ),
+  });
+  render(<TaskEditor {...callbacks} />);
+  await screen.findByDisplayValue('Saved workflow');
+  const gone = screen.getByRole('checkbox', { name: 'discord (not set up)' });
+  expect(gone).toBeChecked();
+  fireEvent.click(gone);
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+  );
+  expect(callbacks.save).toHaveBeenLastCalledWith(
+    'task-a',
+    'a'.repeat(64),
+    expect.objectContaining({ channels: [] }),
+  );
+});
 
 it('preserves prompt order and exact full-row revision on update', async () => {
   const callbacks = props({
@@ -492,11 +522,10 @@ it('preserves advanced graph and legacy destination settings as readonly', async
   expect(screen.getByLabelText('Prompt 1')).toHaveAttribute('readonly');
   expect(screen.getByLabelText('Task type')).toBeDisabled();
   expect(screen.getByText(/change them in the step graph/)).toBeVisible();
-  const delivery = screen.getByRole('combobox', { name: /^Send results to/ });
-  expect(delivery).toBeDisabled();
-  expect(delivery).toHaveDisplayValue('Saved destination');
+  const delivery = screen.getByRole('group', { name: 'Send results to' });
+  expect(within(delivery).queryAllByRole('checkbox')).toHaveLength(0);
   expect(
-    screen.getByText(/keeps a destination from the earlier app/),
+    within(delivery).getByText(/keeps a destination from the earlier app/),
   ).toHaveTextContent('It is preserved when you save.');
   for (const name of [
     'Add step',

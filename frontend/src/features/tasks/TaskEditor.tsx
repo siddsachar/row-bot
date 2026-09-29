@@ -42,8 +42,12 @@ export interface TaskEditorProps {
   ) => Promise<TaskSaveResult>;
   onSaved: (task: TaskEditorSnapshot) => void;
   onCancel: () => void;
-  /** Labels of the saved delivery defaults, for "Use workflow defaults". */
-  deliveryDefaults?: readonly string[];
+  /** The configured channels; `selected` marks the workflow defaults. */
+  deliveryChannels?: ReadonlyArray<{
+    id: string;
+    label: string;
+    selected: boolean;
+  }>;
   /** Open the step graph for this saved workflow. */
   onAdvancedSteps?: () => void;
   /** Open the saved workflow's model and approval settings. */
@@ -83,7 +87,7 @@ export default function TaskEditor({
   save,
   onSaved,
   onCancel,
-  deliveryDefaults = [],
+  deliveryChannels = [],
   onAdvancedSteps,
   onTaskSettings,
   session: injectedSession,
@@ -107,16 +111,6 @@ export default function TaskEditor({
   const [error, setError] = useTaskEditValue(session, 'error', '');
   const [stale, setStale] = useTaskEditValue(session, 'stale', false);
   const [reload, setReload] = useTaskEditValue(session, 'reload', 0);
-  const [channelText, setChannelText] = useTaskEditValue(
-    session,
-    'channelText',
-    '',
-  );
-  const [delivery, setDelivery] = useTaskEditValue(
-    session,
-    'delivery',
-    'inherit',
-  );
   const epoch = useRef(0);
   const pending = useRef(false);
 
@@ -131,8 +125,6 @@ export default function TaskEditor({
     setFields(emptyFields());
     setError('');
     setStale(false);
-    setChannelText('');
-    setDelivery('inherit');
     setLoading(!!taskId);
     if (taskId) {
       load(taskId, abort.signal).then(
@@ -140,14 +132,6 @@ export default function TaskEditor({
           if (abort.signal.aborted || !session.getMeta().active) return;
           setSnapshot(next);
           setFields(next.fields);
-          setChannelText(next.fields.channels?.join(', ') ?? '');
-          setDelivery(
-            next.fields.channels === null
-              ? 'inherit'
-              : next.fields.channels.length === 0
-                ? 'app'
-                : 'selected',
-          );
           setLoading(false);
           session.clean();
           session.finishRead(abort);
@@ -180,8 +164,6 @@ export default function TaskEditor({
     setFields,
     setError,
     setStale,
-    setChannelText,
-    setDelivery,
     setLoading,
   ]);
 
@@ -203,12 +185,6 @@ export default function TaskEditor({
       (taskId && !snapshot)
     )
       return;
-    if (delivery === 'selected' && !fields.channels?.length) {
-      setError(
-        'Enter at least one registered channel name, or choose In app only.',
-      );
-      return;
-    }
     // Saving never starts a run (B133): a one-off in the past is refused
     // unless it is unchanged (the server knows whether it already ran).
     if (
@@ -280,9 +256,33 @@ export default function TaskEditor({
         Workflow access changed. Reopen the editor in the current session.
       </p>
     );
-  const defaultsText = deliveryDefaults.length
-    ? `Web app, ${deliveryDefaults.join(', ')}`
-    : 'Web app only';
+  // Decision 18: results always stay in the app; the checklist adds the
+  // configured channels. Untouched it follows the defaults (null); a tick
+  // makes this workflow's own list ([] = in this app only).
+  const defaultIds = deliveryChannels
+    .filter((channel) => channel.selected)
+    .map((channel) => channel.id);
+  const following = fields.channels === null;
+  const ticked = new Set(following ? defaultIds : fields.channels);
+  const channelRows = [
+    ...deliveryChannels.map((channel) => ({
+      id: channel.id,
+      label: channel.label,
+    })),
+    // A saved channel that is no longer set up can still be unticked.
+    ...(fields.channels ?? [])
+      .filter((id) => !deliveryChannels.some((channel) => channel.id === id))
+      .map((id) => ({ id, label: `${id} (not set up)` })),
+  ];
+  const tick = (id: string, on: boolean) => {
+    const next = new Set(ticked);
+    if (on) next.add(id);
+    else next.delete(id);
+    change(
+      'channels',
+      channelRows.map((row) => row.id).filter((row) => next.has(row)),
+    );
+  };
   return (
     <form
       className="task-builder"
@@ -429,69 +429,50 @@ export default function TaskEditor({
           </section>
           <section className="task-rail-section">
             <h3>Delivery</h3>
-            <Field
-              label="Send results to"
-              hint={
-                legacyDelivery
-                  ? 'This task keeps a destination from the earlier app. It is preserved when you save.'
-                  : delivery === 'inherit'
-                    ? `Defaults: ${defaultsText}.`
-                    : delivery === 'app'
-                      ? 'Results stay in this app.'
-                      : 'Channels use their saved destinations and approval settings.'
-              }
-            >
-              <Select
-                disabled={legacyDelivery}
-                value={delivery}
-                onChange={(event) => {
-                  setDelivery(event.target.value);
-                  if (event.target.value === 'selected') {
-                    change(
-                      'channels',
-                      channelText
-                        .split(',')
-                        .map((value) => value.trim())
-                        .filter(Boolean),
-                    );
-                  } else
-                    change(
-                      'channels',
-                      event.target.value === 'inherit' ? null : [],
-                    );
-                }}
-              >
-                <option value="inherit">
-                  {legacyDelivery
-                    ? 'Saved destination'
-                    : 'Use workflow defaults'}
-                </option>
-                <option value="app">In app only</option>
-                <option value="selected">Selected channels</option>
-              </Select>
-            </Field>
-            {delivery === 'selected' && (
-              <Field
-                label="Channel names"
-                hint="Comma-separated channel IDs, for example telegram, slack. Checked when delivery runs."
-              >
-                <Input
-                  disabled={legacyDelivery}
-                  value={channelText}
-                  maxLength={2048}
-                  onChange={(event) => {
-                    setChannelText(event.target.value);
-                    change(
-                      'channels',
-                      event.target.value
-                        .split(',')
-                        .map((value) => value.trim())
-                        .filter(Boolean),
-                    );
-                  }}
-                />
-              </Field>
-            )}
+            <fieldset className="task-delivery">
+              <legend>Send results to</legend>
+              {legacyDelivery ? (
+                <p className="field-hint">
+                  This task keeps a destination from the earlier app. It is
+                  preserved when you save.
+                </p>
+              ) : (
+                <>
+                  <label className="checkbox-row">
+                    <input type="checkbox" checked disabled />
+                    In this app
+                  </label>
+                  {channelRows.map((row) => (
+                    <label className="checkbox-row" key={row.id}>
+                      <input
+                        type="checkbox"
+                        checked={ticked.has(row.id)}
+                        onChange={(event) => tick(row.id, event.target.checked)}
+                      />
+                      {row.label}
+                    </label>
+                  ))}
+                  <p className="field-hint">
+                    {!channelRows.length
+                      ? 'Set up a channel in Settings › Channels to also send results there.'
+                      : following
+                        ? 'Following your defaults.'
+                        : ticked.size
+                          ? 'Only for this workflow.'
+                          : 'Only in this app.'}{' '}
+                    {!following && defaultIds.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        className="small"
+                        onClick={() => change('channels', null)}
+                      >
+                        Use my defaults
+                      </Button>
+                    )}
+                  </p>
+                </>
+              )}
+            </fieldset>
           </section>
           <section className="task-rail-section">
             <h3>Model and approvals</h3>

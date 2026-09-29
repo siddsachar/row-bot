@@ -945,6 +945,30 @@
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--border-hairline);
 }
+/* "Send results to": In this app (always) + the configured channels. */
+.task-delivery {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.task-delivery legend {
+  margin-bottom: 2px;
+  padding: 0;
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+.task-delivery .checkbox-row {
+  align-items: center;
+  font-size: var(--text-13);
+}
+.task-delivery .field-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
 .task-rail-switch {
   display: flex;
   align-items: center;

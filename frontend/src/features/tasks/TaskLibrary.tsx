@@ -1159,11 +1159,7 @@ export default function TaskLibrary() {
           save={selected.edits.save}
           onSaved={saved}
           onCancel={close}
-          deliveryDefaults={
-            delivery?.channels
-              .filter((channel) => channel.selected)
-              .map((channel) => channel.label) ?? []
-          }
+          deliveryChannels={delivery?.channels ?? []}
           onAdvancedSteps={() =>
             taskEditSessions.open(
               'graph',
@@ -1203,11 +1199,7 @@ export default function TaskLibrary() {
             save={selected.edits.save}
             onSaved={saved}
             onCancel={close}
-            deliveryDefaults={
-              delivery?.channels
-                .filter((channel) => channel.selected)
-                .map((channel) => channel.label) ?? []
-            }
+            deliveryChannels={delivery?.channels ?? []}
           />
         )}
       </ModalTask>
