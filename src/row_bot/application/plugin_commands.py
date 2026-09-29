@@ -933,7 +933,7 @@ def execute_plugin_command(
         from row_bot.plugins import state as plugin_state
 
         if action == "plugin.test":
-            from row_bot.plugins.ui_settings import _record_manifest_health
+            from row_bot.plugins.health import record_manifest_health
 
             manifest = next(
                 (
@@ -946,7 +946,7 @@ def execute_plugin_command(
             if manifest is None:
                 raise _error("plugin_not_found")
             validate()
-            _record_manifest_health(manifest, validate=validate)
+            record_manifest_health(manifest, validate=validate)
             enabled = plugin_state.is_plugin_enabled(plugin_id)
         elif action == "plugin.configure":
             for name, value in review_payload["settings"].items():

@@ -86,29 +86,6 @@ def _deferred(fn):
             pass
 
 
-def _branded_blank_html(project: DesignerProject, title: str) -> str:
-    """Generate a minimal branded HTML skeleton for a new blank page."""
-    brand = project.brand
-    w, h = project.canvas_width, project.canvas_height
-    if brand:
-        from row_bot.designer.preview import _build_brand_css
-        brand_css = _build_brand_css(brand)
-    else:
-        brand_css = ""
-    return (
-        f"<!DOCTYPE html><html><head>{brand_css}"
-        f"<style>html,body{{margin:0;width:{w}px;height:{h}px;overflow:hidden;"
-        f"background:var(--bg,#0F172A);color:var(--text,#F8FAFC);"
-        f"font-family:var(--body-font,sans-serif);}}"
-        f"h1,h2,h3,h4{{font-family:var(--heading-font,sans-serif);}}</style>"
-        f"</head><body>"
-        f"<div style=\"display:flex;align-items:center;justify-content:center;"
-        f"height:100%;\">"
-        f"<h1 style=\"font-size:2.5rem;opacity:0.3;\">{title}</h1>"
-        f"</div></body></html>"
-    )
-
-
 def build_page_navigator(
     project: DesignerProject,
     *,
@@ -254,7 +231,8 @@ def build_page_navigator(
                     from row_bot.designer.state import DesignerPage
                     new_title = f"Page {len(project.pages) + 1}"
                     # Create a brand-aware blank page
-                    blank_html = _branded_blank_html(project, new_title)
+                    from row_bot.designer.preview import branded_blank_html
+                    blank_html = branded_blank_html(project, new_title)
                     prepare_project_mutation(project, "add_page_ui")
                     project.pages.append(DesignerPage(title=new_title, html=blank_html))
                     project.active_page = len(project.pages) - 1

@@ -40,6 +40,25 @@ def _build_brand_css(brand: BrandConfig) -> str:
     )
 
 
+def branded_blank_html(project: DesignerProject, title: str) -> str:
+    """A minimal page in the design's brand, for a new blank page or screen."""
+    brand = project.brand
+    w, h = project.canvas_width, project.canvas_height
+    brand_css = _build_brand_css(brand) if brand else ""
+    return (
+        f"<!DOCTYPE html><html><head>{brand_css}"
+        f"<style>html,body{{margin:0;width:{w}px;height:{h}px;overflow:hidden;"
+        f"background:var(--bg,#0F172A);color:var(--text,#F8FAFC);"
+        f"font-family:var(--body-font,sans-serif);}}"
+        f"h1,h2,h3,h4{{font-family:var(--heading-font,sans-serif);}}</style>"
+        f"</head><body>"
+        f"<div style=\"display:flex;align-items:center;justify-content:center;"
+        f"height:100%;\">"
+        f"<h1 style=\"font-size:2.5rem;opacity:0.3;\">{_escape_attr(title)}</h1>"
+        f"</div></body></html>"
+    )
+
+
 def _escape_attr(value: str) -> str:
     return (
         value.replace("&", "&amp;")

@@ -132,10 +132,11 @@ def doctor_plugin(plugin_id_or_path: str | Path) -> PluginValidationResult:
     if not result.ok:
         return result
     manifest = parse_manifest(plugin_dir)
-    from row_bot.plugins.ui_settings import _get_missing_secrets, _get_missing_settings
+    from row_bot.plugins.health import missing_secrets as _missing_secrets
+    from row_bot.plugins.health import missing_settings as _missing_settings
 
-    missing_settings = _get_missing_settings(manifest)
-    missing_secrets = _get_missing_secrets(manifest)
+    missing_settings = _missing_settings(manifest)
+    missing_secrets = _missing_secrets(manifest)
     warnings = list(result.warnings)
     if missing_settings:
         warnings.append("Missing required settings: " + ", ".join(missing_settings))

@@ -310,7 +310,7 @@ def _make_pdf_aware_read_tool(root_dir: str):
             return f"Error: file not found: {file_path}"
 
         # ── Image files — display inline instead of reading as text ────
-        from row_bot.ui.constants import IMAGE_EXTENSIONS
+        from row_bot.file_context import IMAGE_EXTENSIONS
         if resolved.suffix.lower() in IMAGE_EXTENSIONS:
             import base64 as _b64
             global _last_displayed_image

@@ -8,8 +8,7 @@ import pathlib
 
 from row_bot.designer.state import DesignerProject, DesignerReference
 from row_bot.designer.storage import delete_reference_bytes, save_reference_bytes
-from row_bot.ui.constants import DATA_EXTENSIONS, IMAGE_EXTENSIONS, TEXT_EXTENSIONS
-from row_bot.ui.helpers import process_attached_files
+from row_bot.file_context import DATA_EXTENSIONS, IMAGE_EXTENSIONS, TEXT_EXTENSIONS, process_attached_files
 
 SUMMARY_LIMIT = 320
 EXCERPT_LIMIT = 4000
