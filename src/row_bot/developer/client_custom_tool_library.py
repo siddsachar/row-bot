@@ -64,11 +64,13 @@ def approval_needed(subject: str, command_name: str, command_text: str,
     verdict = capsules.classify_custom_tool_command(command_text, approval_mode)
     if not verdict["requires_approval"] or verdict["blocked"]:
         return None
-    reasons = {"Network": "It uses the network.", "Install": "It installs software.",
-               "Server": "It starts a server that keeps running."}
+    reasons = {"run_network": "It uses the network.", "run_install": "It installs software.",
+               "start_server": "It starts a server that keeps running.", "delete": "It can delete files.",
+               "git_commit": "It changes the Git history.", "git_push": "It sends changes to a remote.",
+               "git_pr": "It opens a pull request."}
     return {"command_name": command_name[:128], "command": command_text[:4096],
             "label": str(verdict["label"])[:64],
-            "reason": reasons.get(verdict["label"], "It needs your approval to run.")[:1024],
+            "reason": reasons.get(str(verdict["action"]), "It needs your approval to run.")[:1024],
             "nonce": _nonce(subject, command_name, command_text)}
 
 
