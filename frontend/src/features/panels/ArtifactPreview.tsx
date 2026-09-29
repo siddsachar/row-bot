@@ -88,6 +88,8 @@ export type ArtifactPreviewProps = {
   ) => Promise<DesignerPalette>;
   onDraftText?: (text: string) => void;
   edit?: ArtifactEditorProps['edit'];
+  /** Make a copy of this design beside it (it opens in its own panel). */
+  duplicate?: () => Promise<void>;
   createExport?: ArtifactExportsProps['create'];
   downloadExport?: ArtifactExportsProps['download'];
   sharing?: Pick<
@@ -197,6 +199,7 @@ export default function ArtifactPreview({
   design,
   title,
   onAsk,
+  duplicate,
 }: ArtifactPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -758,6 +761,21 @@ export default function ArtifactPreview({
     }
   }
 
+  async function duplicateDesign() {
+    if (!duplicate || structureBusy) return;
+    setStructureBusy(true);
+    setNotice('');
+    setUndoOffer(false);
+    try {
+      await duplicate();
+      setNotice('Made a copy. It opens beside this design.');
+    } catch {
+      setNotice('The copy was not made. This design is unchanged.');
+    } finally {
+      setStructureBusy(false);
+    }
+  }
+
   function addPage() {
     if (!current) return;
     void changeStructure(
@@ -884,6 +902,16 @@ export default function ArtifactPreview({
       : []),
     ...(design && current && ['deck', 'document'].includes(current.mode)
       ? [{ label: 'Import document', onSelect: () => setImportOpen(true) }]
+      : []),
+    ...(duplicate && current
+      ? [
+          {
+            label: 'Duplicate design',
+            separatorBefore: true,
+            disabled: structureBusy || loading,
+            onSelect: () => void duplicateDesign(),
+          },
+        ]
       : []),
   ];
   const zoomLabel = (value: string) =>

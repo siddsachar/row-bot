@@ -229,7 +229,14 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                     "setup_intent": intent, "association_required": True, "confirmed_stages": [],
                     **({"conversation_id": target} if target != "resources" else {}),
                 })
-                if payload.get("artifact") is not None:
+                if payload.get("duplicate_of") is not None:
+                    from row_bot.designer.client_service import ArtifactError, duplicate_artifact
+                    try:
+                        duplicate_artifact(identity, payload["duplicate_of"],
+                                           expected_revision=payload.get("expected_resource_revision") or "")
+                    except ArtifactError as exc:
+                        raise ClientPlatformError(exc.code, exc.current_revision) from exc
+                elif payload.get("artifact") is not None:
                     if payload.get("deck") is not None or payload.get("folder_grant") is not None:
                         raise ClientPlatformError("invalid_command")
                     create_artifact(identity, ArtifactSetup(**payload["artifact"]))

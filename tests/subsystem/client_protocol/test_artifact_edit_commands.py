@@ -93,3 +93,31 @@ def test_page_ops_and_size_change_through_the_command_path(artifact_service):
             "target": target(client, headers, created, removed["resource_revision"]),
             "operation": "canvas_size", "aspect_ratio": "landing"}, **kwargs)
         assert refused.status_code == 422
+
+
+def test_duplicate_binds_a_copy_beside_the_original(artifact_service):
+    from tests.subsystem.client_platform.test_workspace_setup_integrity import _setup
+
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        source = artifacts.read_artifact(created["resource_id"])
+        payload = {"kind": "artifact", "intent": "create", "duplicate_of": source.id,
+                   "expected_resource_revision": source.updated_at}
+        copy = _completed(_setup(client, headers, payload, target=created["conversation_id"],
+                                 revision=created["revision"]))
+        assert copy["conversation_id"] == created["conversation_id"]
+        assert copy["resource_id"] != source.id
+        duplicate = artifacts.read_artifact(copy["resource_id"])
+        assert duplicate.name == f"{source.name} (copy)"
+        assert duplicate.thread_id == created["conversation_id"]
+        workspace = client.get(f"/api/v1/conversations/{created['conversation_id']}/workspace",
+                               headers=headers).json()
+        bound = {item["binding"]["resource_id"] for item in workspace["resources"]}
+        assert {source.id, duplicate.id} <= bound
+        stale = _setup(client, headers, {**payload, "expected_resource_revision": "old"},
+                       target=created["conversation_id"], revision=copy["revision"])
+        assert stale.status_code == 409 and stale.json()["code"] == "resource_revision_conflict"
+        refused = _setup(client, headers, {**payload, "artifact": {"mode": "deck"}},
+                         target=created["conversation_id"], revision=copy["revision"])
+        assert refused.status_code == 422

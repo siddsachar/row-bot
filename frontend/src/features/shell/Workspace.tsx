@@ -93,6 +93,10 @@ import type {
   SearchHit,
 } from '../../api/types';
 import ResourcePanel from '../panels/ResourcePanel';
+import {
+  onResourcePanelRequest,
+  type ResourcePanelRequest,
+} from '../panels/panel-requests';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
 import NativeTerminal from '../panels/NativeTerminal';
 import { WorkspaceActionsContext } from './workspace-actions';
@@ -358,6 +362,42 @@ export default function Workspace() {
       resources: readonly ResourceView[],
     ) => showPanel(panel, undefined, resources),
   );
+  // A panel asked for another resource's panel (a design it duplicated).
+  const openRequestedPanel = useEffectEvent((request: ResourcePanelRequest) => {
+    if (request.conversationId !== conversationId) return;
+    void controller
+      .workspaceFor(request.conversationId)
+      .then((fresh) => {
+        const item = fresh.resources.find(
+          (entry) =>
+            entry.resource_ref === request.resourceRef && entry.available,
+        );
+        if (
+          !item ||
+          controller.getSnapshot().selectedConversationId !==
+            request.conversationId
+        )
+          return;
+        showPanel(
+          {
+            panel_kind:
+              item.binding.kind === 'artifact'
+                ? 'artifact.preview'
+                : 'workspace.inspector',
+            title: item.title,
+            resource_ref: item.resource_ref,
+            resource_kind: item.binding.kind,
+            resource_revision: item.resource_revision,
+          },
+          undefined,
+          fresh.resources,
+        );
+      })
+      .catch(() => {
+        // The copy stays listed in Context if the read fails.
+      });
+  });
+  useEffect(() => onResourcePanelRequest(openRequestedPanel), []);
   const presentationScope = useRef({
     conversationId,
     routeKey: location.key,

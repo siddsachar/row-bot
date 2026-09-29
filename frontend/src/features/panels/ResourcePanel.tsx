@@ -30,6 +30,7 @@ import DeveloperRepositoryPanel, {
 } from '../developer/DeveloperRepositoryPanel';
 import CustomToolBuilder from '../developer/CustomToolBuilder';
 import { sendPrompt } from '../shell/composer-bridge';
+import { requestResourcePanel } from './panel-requests';
 import type { AskOutcome } from './DesignSelection';
 import type { WorkspaceEditScope } from './workspace-edit-sessions';
 
@@ -520,10 +521,37 @@ function ResourcePanel({
       return 'unavailable';
     return sendPrompt(conversation, text) ? 'sent' : 'unavailable';
   };
+  // A copy is bound beside the original and opens in its own panel.
+  const duplicateDesign = async () => {
+    const fresh = await controller.workspaceFor(conversation);
+    const source = fresh.resources.find(
+      (item) => item.binding.binding_id === binding,
+    );
+    if (!source?.available || source.binding.kind !== 'artifact')
+      throw { code: 'resource_binding_revoked' };
+    const result = await controller.intent(
+      conversation,
+      'resource.setup',
+      {
+        kind: 'artifact',
+        intent: 'create',
+        duplicate_of: source.binding.resource_id,
+        expected_resource_revision: source.resource_revision,
+      },
+      fresh.revision,
+    );
+    if (result.status !== 'completed' || !result.binding_id)
+      throw { code: result.code ?? 'setup_stage_failed' };
+    requestResourcePanel({
+      conversationId: conversation,
+      resourceRef: `${conversation}:${result.binding_id}`,
+    });
+  };
   return (
     <Preview
       title={resource.title}
       onAsk={askDesign}
+      duplicate={duplicateDesign}
       resourceId={resource.binding.resource_id}
       resourceRevision={resource.resource_revision}
       visible={visible}

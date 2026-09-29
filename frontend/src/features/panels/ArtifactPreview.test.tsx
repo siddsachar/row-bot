@@ -1361,3 +1361,31 @@ it('presents full screen and ends when the person leaves full screen', async () 
     .requestFullscreen;
   delete (document as { fullscreenElement?: unknown }).fullscreenElement;
 });
+
+it('duplicates the design from the menu and says where the copy is', async () => {
+  const user = userEvent.setup();
+  const duplicate = vi.fn(async () => {});
+  render(
+    <ArtifactPreview
+      resourceId="deck-a"
+      resourceRevision="resource-1"
+      title="Launch deck"
+      visible
+      load={vi.fn(async () => snapshot())}
+      duplicate={duplicate}
+    />,
+  );
+  await screen.findByTitle('Slide preview: Opening');
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Duplicate design' }));
+  expect(duplicate).toHaveBeenCalledOnce();
+  expect(
+    await screen.findByText('Made a copy. It opens beside this design.'),
+  ).toBeInTheDocument();
+  duplicate.mockRejectedValueOnce({ code: 'resource_revision_conflict' });
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Duplicate design' }));
+  expect(
+    await screen.findByText('The copy was not made. This design is unchanged.'),
+  ).toBeInTheDocument();
+});

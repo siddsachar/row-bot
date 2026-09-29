@@ -4314,9 +4314,20 @@ class ResourceSetupPayload(WireModel):
     draft_workspace: bool | None = None
     clone_workspace: CloneWorkspaceSetupPayload | None = None
     folder_grant: OpaqueId | None = None
+    # Create a copy of this design (with its revision in expected_resource_revision).
+    duplicate_of: OpaqueId | None = None
 
     @model_validator(mode="after")
     def typed_setup(self) -> ResourceSetupPayload:
+        if self.duplicate_of is not None and (
+            self.kind != "artifact" or self.intent != "create"
+            or self.expected_resource_revision is None or self.resource_id is not None
+            or self.folder_grant is not None
+            or any(value is not None for value in (
+                self.deck, self.artifact, self.empty_workspace, self.draft_workspace, self.clone_workspace
+            ))
+        ):
+            raise ValueError("A duplicate names one design and its current revision.")
         if self.artifact is not None and (
             self.kind != "artifact"
             or self.intent != "create"

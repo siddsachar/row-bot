@@ -7503,6 +7503,21 @@
           "default": null,
           "title": "Draft Workspace"
         },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Of"
+        },
         "empty_workspace": {
           "anyOf": [
             {
