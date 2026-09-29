@@ -34,7 +34,7 @@ const JOB_FAILED: Record<string, string> = {
 };
 
 function signInLine(item: DataBackupSignIn) {
-  if (item.kind === 'provider') return `${humanizeToken(item.name)} key`;
+  if (item.kind === 'provider') return `${humanizeToken(item.name)} (provider)`;
   if (item.kind === 'account') return `${item.name} account`;
   if (item.kind === 'channel') return `${item.name} channel`;
   if (item.kind === 'mcp') return `${item.name} (MCP server)`;

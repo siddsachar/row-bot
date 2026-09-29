@@ -114,7 +114,7 @@ it('checks a picked backup, and restores it on restart only after confirming', a
   });
   expect(group).toHaveTextContent('Row-Bot 4.9.0 · 42 files · 5.0 MB');
   const signIns = within(group).getByRole('list', { name: 'Sign in again' });
-  expect(signIns).toHaveTextContent('OpenAI key');
+  expect(signIns).toHaveTextContent('OpenAI (provider)');
   expect(signIns).toHaveTextContent('Gmail account');
   expect(signIns).toHaveTextContent('1 webhook workflow: new webhook secrets');
   // Looking changes nothing; Cancel leaves no trace.

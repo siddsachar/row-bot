@@ -78,6 +78,7 @@ const TOKEN_LABELS: Record<string, string> = {
   ai: 'AI',
   llm: 'LLM',
   openai: 'OpenAI',
+  xai: 'xAI',
   codex: 'ChatGPT / Codex',
   ollama: 'Ollama',
 };
