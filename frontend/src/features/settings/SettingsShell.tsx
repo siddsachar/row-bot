@@ -41,6 +41,7 @@ import {
   type SettingsLeaf,
 } from './model';
 import { SettingsHeaderSlot, useSettingsAnchor } from './anatomy';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
 
@@ -113,6 +114,7 @@ export default function SettingsShell({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const compactControls = useWorkspaceActions()?.compactControls;
   const heading = useRef<HTMLHeadingElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState<HTMLDivElement | null>(null);
@@ -152,8 +154,13 @@ export default function SettingsShell({
     // settings area is narrow in a wide window (sidebar open, 200% zoom).
     <div className="settings-shell-frame">
       <section className="settings-shell" aria-label="Settings">
-        <header className="settings-shell-header">
+        <header
+          className="settings-shell-header"
+          data-compact-controls={compactControls ? 'true' : undefined}
+        >
+          {compactControls?.navigation}
           <h1>Settings</h1>
+          {compactControls?.commands}
           <Link className="icon-button" to="/" aria-label="Close settings">
             <X size={18} aria-hidden />
           </Link>

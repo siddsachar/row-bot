@@ -1465,9 +1465,10 @@ export default function Workspace() {
           Skip to conversation
         </a>
         <div className="context-parking" ref={contextParking} hidden />
-        {!desktop && !conversationVisible && !compact && (
-          // Home and routed views: one 48px bar. A conversation carries these
-          // controls in its own header; a panel sheet covers the whole height.
+        {!desktop && !conversationVisible && !compact && !settingsOpen && (
+          // Home and routed views: one 48px bar. A conversation and Settings
+          // carry these controls in their own header (B119); a panel sheet
+          // covers the whole height.
           <div className="compact-controls">
             <div
               className="workspace-controls"
@@ -1723,6 +1724,12 @@ export default function Workspace() {
                               void creation.newChat(draft, undefined, {
                                 send: false,
                               }),
+                            compactControls: desktop
+                              ? undefined
+                              : {
+                                  navigation: navigationToggle,
+                                  commands: commandsButton,
+                                },
                           }}
                         >
                           <Outlet />

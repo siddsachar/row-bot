@@ -29,7 +29,7 @@ const settingsRoutes = [
   ['channels', 'Channels'],
   ['profiles', 'Agent profiles'],
   ['system', 'System'],
-  ['access', 'Access'],
+  ['access', 'Devices & remote access'],
   ['updates', 'Updates'],
   ['data', 'Data'],
 ] as const;
@@ -396,8 +396,17 @@ for (const [id, label] of settingsRoutes) {
         }),
         `${label} must retain keyboard focus inside the Settings shell`,
       ).toBe(true);
-      if (info.project.use.viewport!.width === 390)
+      if (info.project.use.viewport!.width === 390) {
+        // One header on phones (B119): Settings carries the navigation
+        // toggle and commands instead of a second bar above it.
+        await expect(page.locator('.compact-controls')).toHaveCount(0);
+        await expect(
+          page
+            .locator('.settings-shell-header')
+            .getByRole('button', { name: 'Toggle navigation' }),
+        ).toBeVisible();
         await expectCoarseTargets(page, info);
+      }
       await accessibility(page, info, `settings-${id}-axe`);
       await screenshot(page, info, `settings-${id}-light-blue-compact`);
     } finally {

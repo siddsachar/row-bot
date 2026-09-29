@@ -2853,6 +2853,16 @@
 }
 
 /* Settings › Devices & remote access (Phase 14). ------------------------ */
+/* Below desktop width the Settings header carries the navigation toggle
+   and Workspace commands: one header on phones and tablets (B119). */
+.settings-shell-header[data-compact-controls] {
+  justify-content: flex-start;
+  padding-left: 8px;
+}
+.settings-shell-header[data-compact-controls] h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .settings-access-page,
 .access-connect,
 .access-devices {
