@@ -1743,7 +1743,11 @@ export function VoiceSnapshotPanel({
             />
             <VoiceModelRow
               title="Kokoro"
-              description={`Speech output · ${snapshot.tts.voice}`}
+              description={`Speech output · ${
+                snapshot.tts_voice_options.find(
+                  (option) => option.value === snapshot.tts.voice,
+                )?.label ?? humanizeToken(snapshot.tts.voice)
+              }`}
               provider="Local"
               status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
               ready={snapshot.tts.installed}

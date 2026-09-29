@@ -1109,7 +1109,7 @@ function KnowledgeDetail({
         <div className="settings-knowledge-relations">
           <strong>Relations</strong>
           {detail.relations.map((relation, index) => {
-            const label = `${relation.direction === 'outgoing' ? '→' : '←'} ${relation.relation_type}: ${relation.peer_subject}`;
+            const label = `${relation.direction === 'outgoing' ? '→' : '←'} ${humanizeToken(relation.relation_type).toLowerCase()}: ${relation.peer_subject}`;
             return onOpen ? (
               <button
                 className="settings-knowledge-relation-link"

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button, Field, Input } from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
+import { humanizeToken } from '../../ui/format';
 import { SettingsSummary, SummaryChip } from './anatomy';
 
 export type ChannelFieldStatus = {
@@ -521,7 +522,7 @@ export default function ChannelSettings({
                   have not been inferred.
                 </p>
                 {channel.capabilities.length > 0 && (
-                  <p>Capabilities: {channel.capabilities.join(', ')}.</p>
+                  <p>{capabilityWords(channel.capabilities)}</p>
                 )}
                 <ul
                   className="settings-compact-list"
@@ -591,7 +592,7 @@ export default function ChannelSettings({
               {channel.source.kind === 'plugin' ? ' · Plugin channel' : ''}
             </p>
             {channel.capabilities.length > 0 && (
-              <p>Capabilities: {channel.capabilities.join(', ')}.</p>
+              <p>{capabilityWords(channel.capabilities)}</p>
             )}
             <div
               className="actions"
@@ -741,4 +742,28 @@ export default function ChannelSettings({
       {state.message && <p role="status">{state.message}</p>}
     </section>
   );
+}
+
+// What a channel can carry, in words (U59): never "photo_in, voice_in".
+const CAPABILITIES: Record<string, string> = {
+  text_in: 'receives messages',
+  text_out: 'sends messages',
+  photo_in: 'receives photos',
+  photo_out: 'sends photos',
+  voice_in: 'receives voice notes',
+  voice_out: 'sends voice notes',
+  document_in: 'receives files',
+  document_out: 'sends files',
+  video_in: 'receives videos',
+  video_out: 'sends videos',
+  slash_commands: 'takes slash commands',
+};
+
+function capabilityWords(capabilities: readonly string[]) {
+  const words = capabilities.map(
+    (item) => CAPABILITIES[item] ?? humanizeToken(item).toLowerCase(),
+  );
+  if (!words.length) return 'Text messages only.';
+  const text = words.join(', ');
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
 }

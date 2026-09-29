@@ -95,8 +95,6 @@ export default function DocumentsCatalog({
                   <dl>
                     <dt>Record state</dt>
                     <dd>{recordStates[item.record_state] ?? 'Unknown'}</dd>
-                    <dt>Saved identity</dt>
-                    <dd>{item.id}</dd>
                     <dt>Saved status</dt>
                     <dd>{statuses[item.status] ?? 'Unknown'}</dd>
                     <dt>Saved stage</dt>

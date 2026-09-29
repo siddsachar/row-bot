@@ -111,6 +111,8 @@ it('loads only redacted passive status and does not review or execute', async ()
   ).toBeVisible();
   expect(screen.getAllByText(/Synthetic person/)[0]).toHaveTextContent('…3456');
   expect(screen.getByLabelText(/New Bot token/)).toHaveValue('');
+  // Capabilities read as words, never raw tokens (U59).
+  expect(screen.getByText('Streaming, buttons.')).toBeVisible();
   expect(props.load).toHaveBeenCalledTimes(1);
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
