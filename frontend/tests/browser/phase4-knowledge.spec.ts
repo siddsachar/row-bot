@@ -101,7 +101,7 @@ test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', 
   await expect(page.getByText(/Phase 4 knowledge 000 \(0\.93\)/)).toBeVisible();
   await page.getByText('Memory change log', { exact: true }).click();
   await expect(
-    page.getByText('mark needs review', { exact: true }),
+    page.getByText('Mark needs review', { exact: true }),
   ).toBeVisible();
   // The page is titled Memory since the Phase 3 regroup (id stays knowledge).
   await page

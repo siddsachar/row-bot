@@ -46,9 +46,14 @@ async function findDocumentRow(
   await expect(search).toBeVisible();
   await search.fill(target.name);
   await search.press('Enter');
-  const row = page
-    .getByRole('listitem')
-    .filter({ hasText: target.document_id });
+  // The row is the one whose own Remove button names the document (the
+  // saved id is no longer shown, U59).
+  const row = page.getByRole('listitem').filter({
+    has: page.getByRole('button', {
+      name: `Remove ${target.name}`,
+      exact: true,
+    }),
+  });
   await expect(row).toBeVisible();
   return row;
 }

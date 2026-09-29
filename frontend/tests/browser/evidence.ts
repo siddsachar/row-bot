@@ -260,6 +260,15 @@ export async function assertNoOverflow(page: Page): Promise<void> {
         : null;
     };
     const offenders = [...document.querySelectorAll<HTMLElement>('body *')]
+      // A visually hidden element (clipped to nothing, e.g. a toast's focus
+      // proxy) never shows or scrolls, whatever its box.
+      .filter((element) => {
+        const own = getComputedStyle(element);
+        return !(
+          own.clip === 'rect(0px, 0px, 0px, 0px)' ||
+          /inset\(50%\)/.test(own.clipPath)
+        );
+      })
       .map((element) => {
         const box = element.getBoundingClientRect();
         let visibleLeft = box.left;

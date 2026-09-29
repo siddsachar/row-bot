@@ -80,8 +80,16 @@ test('Setup Center pixels hold on the fixture server', async ({
   ).toBeVisible();
   await expect(page.getByLabel('Loading setup progress')).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
-  // The fixture server is shared by the run: other specs add conversations
-  // to the sidebar, so it is masked.
+  // The fixture server is shared by the run: another spec's workflow run can
+  // leave a background notice (a reminder) for new windows; close it.
+  for (const dismiss of await page
+    .getByRole('button', { name: 'Dismiss notification', exact: true })
+    .all())
+    await dismiss.click();
+  await expect(
+    page.getByRole('button', { name: 'Dismiss notification', exact: true }),
+  ).toHaveCount(0);
+  // Other specs also add conversations to the sidebar, so it is masked.
   await expect(page).toHaveScreenshot(name, {
     ...OPTIONS,
     mask: [
