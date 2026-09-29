@@ -275,9 +275,13 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [accessChanged, setAccessChanged] = useState(false);
   const [notice, setNotice] = useState('');
-  const [tab, setTab] = useState<{ owner: string; value: InspectorTab } | null>(
-    null,
-  );
+  // `chosen` marks a tab the person picked; an automatic Files moves to
+  // Changes when agent changes arrive after the summary (U34).
+  const [tab, setTab] = useState<{
+    owner: string;
+    value: InspectorTab;
+    chosen?: boolean;
+  } | null>(null);
   const [editPath, setEditPath] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const scopedEdit = useSyncExternalStore(
@@ -485,6 +489,15 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         // The newest agent change sets open with their files; the rest
         // start folded and read their files when opened.
         const live = result.items.filter((item) => !item.reverted);
+        if (!cursor && live.length)
+          setTab((value) =>
+            value &&
+            value.owner === callbacks.current.resourceId &&
+            !value.chosen &&
+            value.value === 'files'
+              ? { ...value, value: 'changes' }
+              : value,
+          );
         const eager = live.slice(0, cursor ? 0 : EAGER_CHANGE_SETS);
         setCollapsed((value) => {
           const next = new Set(value);
@@ -658,7 +671,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
 
   const activeTab = tab?.owner === props.resourceId ? tab.value : 'files';
   const chooseTab = (value: InspectorTab) =>
-    setTab({ owner: props.resourceId, value });
+    setTab({ owner: props.resourceId, value, chosen: true });
   const repository = props.repository?.repository;
   const tracking = parseTracking(repository?.tracking_summary ?? '');
   const checkState = checksStatus(checks, props.processes ?? []);

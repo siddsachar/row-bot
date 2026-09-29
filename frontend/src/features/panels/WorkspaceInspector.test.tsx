@@ -386,6 +386,43 @@ describe('Developer inspector', () => {
     );
   });
 
+  it('opens on Changes for agent changes in a folder without Git (U34)', async () => {
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...fixture,
+      is_git: false,
+      changed_total: 0,
+    }));
+    render(<WorkspaceInspector {...options} />);
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /^Changes/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    );
+  });
+
+  it('keeps the tab the person chose when agent changes arrive later', async () => {
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...fixture,
+      is_git: false,
+      changed_total: 0,
+    }));
+    const sets = pending<Awaited<ReturnType<typeof options.changeSets>>>();
+    const original = options.changeSets;
+    options.changeSets = vi.fn(() => sets.promise);
+    render(<WorkspaceInspector {...options} />);
+    await screen.findByRole('tab', { name: /^Files/ });
+    chooseTab('Run');
+    sets.resolve(await original('1', undefined, new AbortController().signal));
+    await waitFor(() => expect(options.changeSets).toHaveBeenCalled());
+    expect(screen.getByRole('tab', { name: /^Run/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
   it('keeps clone, install, network and delete boundaries in the safety popover', async () => {
     const user = userEvent.setup();
     const options = props();
@@ -455,6 +492,13 @@ describe('Developer inspector', () => {
       branch: '',
       changed_total: 0,
       diff_stats: null,
+    }));
+    // No agent changes either: with them it opens on Changes.
+    options.changeSets = vi.fn(async () => ({
+      items: [],
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 0,
     }));
     render(<WorkspaceInspector {...options} />);
     expect(
