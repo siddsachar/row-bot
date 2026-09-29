@@ -393,6 +393,20 @@ export function createTaskEditSessions(
       notify();
       return true;
     },
+    /** A deleted workflow's drafts go with it, even one still waiting (B122). */
+    forget(taskId: string) {
+      let changed = false;
+      for (const [key, entry] of [...entries]) {
+        if (!taskId || entry.session.taskId !== taskId) continue;
+        entries.delete(key);
+        entry.session.dispose();
+        if (selected === key) selected = null;
+        changed = true;
+      }
+      if (!changed) return;
+      full = false;
+      notify();
+    },
     hasRetained: () =>
       [...entries.values()].some((entry) => entry.session.retained()),
     dispose() {

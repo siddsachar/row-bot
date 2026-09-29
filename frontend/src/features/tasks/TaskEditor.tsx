@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type FormEvent,
 } from 'react';
 import { ArrowUp, GitBranch, GripVertical, Plus, X } from 'lucide-react';
 import {
@@ -175,7 +174,15 @@ export default function TaskEditor({
     setFields((current) => ({ ...current, [key]: value }));
   }
 
-  async function submit(event: FormEvent) {
+  // B122: leaving for the step graph or the model settings with unsaved
+  // changes asks to save first instead of dropping them silently.
+  const [leaving, setLeaving] = useState<null | (() => void)>(null);
+  const leaveTo = (go: () => void) => () => {
+    if (session.getMeta().dirty) setLeaving(() => go);
+    else go();
+  };
+
+  async function submit(event: { preventDefault(): void }, after?: () => void) {
     event.preventDefault();
     if (
       pending.current ||
@@ -230,7 +237,10 @@ export default function TaskEditor({
       setSnapshot(next.task);
       setFields(next.task.fields);
       session.clean('Saved task. No workflow was run.');
-      if (epoch.current === ticket) onSaved(next.task);
+      if (epoch.current === ticket) {
+        onSaved(next.task);
+        after?.();
+      }
     } catch (cause) {
       if (!session.getMeta().active) return;
       const failure = clientError(cause);
@@ -293,6 +303,34 @@ export default function TaskEditor({
       <h2 className="visually-hidden">
         {taskId ? 'Edit task' : 'Create task'}
       </h2>
+      {leaving && (
+        <div
+          role="group"
+          aria-label="Save your changes first?"
+          className="task-builder-leave"
+        >
+          <span>Your changes to this workflow aren't saved yet.</span>
+          <Button
+            variant="primary"
+            className="small"
+            disabled={saving}
+            onClick={(event) => {
+              const go = leaving;
+              setLeaving(null);
+              void submit(event, go);
+            }}
+          >
+            Save and continue
+          </Button>
+          <Button
+            variant="ghost"
+            className="small"
+            onClick={() => setLeaving(null)}
+          >
+            Keep editing
+          </Button>
+        </div>
+      )}
       {error && (
         <p className="task-builder-alert" role="alert">
           {error}
@@ -368,7 +406,7 @@ export default function TaskEditor({
               <Button
                 variant="ghost"
                 className="small task-builder-graph"
-                onClick={onAdvancedSteps}
+                onClick={leaveTo(onAdvancedSteps)}
               >
                 <GitBranch size={14} aria-hidden /> Open step graph
               </Button>
@@ -498,7 +536,7 @@ export default function TaskEditor({
               <Button
                 variant="ghost"
                 className="small"
-                onClick={onTaskSettings}
+                onClick={leaveTo(onTaskSettings)}
               >
                 Change model and approvals
               </Button>

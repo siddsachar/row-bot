@@ -1153,6 +1153,7 @@ export default function TaskLibrary() {
       id,
       async () => undefined,
     );
+    taskEditSessions?.forget(id);
   };
   // A copy without schedule or trigger; the receipt names the new workflow.
   const duplicateTask = async (id: string) => {

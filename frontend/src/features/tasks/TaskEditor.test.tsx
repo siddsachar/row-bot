@@ -911,3 +911,43 @@ it('refuses to switch on a one-off whose time has passed, before saving (B133)',
     'That time has passed. Pick a later time, or switch the workflow off.',
   );
 });
+
+it('asks to save before leaving for the model settings with unsaved changes (B122)', async () => {
+  const onTaskSettings = vi.fn();
+  const callbacks = props({ taskId: 'task-a', onTaskSettings });
+  render(<TaskEditor {...callbacks} />);
+  await screen.findByDisplayValue('Saved workflow');
+  // Nothing changed: it opens at once.
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Change model and approvals' }),
+  );
+  expect(onTaskSettings).toHaveBeenCalledTimes(1);
+  fireEvent.change(screen.getByLabelText('Name'), {
+    target: { value: 'Renamed workflow' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Change model and approvals' }),
+  );
+  const ask = screen.getByRole('group', { name: 'Save your changes first?' });
+  expect(onTaskSettings).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
+  expect(
+    screen.queryByRole('group', { name: 'Save your changes first?' }),
+  ).toBeNull();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Change model and approvals' }),
+  );
+  await act(async () =>
+    fireEvent.click(
+      within(
+        screen.getByRole('group', { name: 'Save your changes first?' }),
+      ).getByRole('button', { name: 'Save and continue' }),
+    ),
+  );
+  expect(callbacks.save).toHaveBeenCalledWith(
+    'task-a',
+    'a'.repeat(64),
+    expect.objectContaining({ name: 'Renamed workflow' }),
+  );
+  expect(onTaskSettings).toHaveBeenCalledTimes(2);
+});

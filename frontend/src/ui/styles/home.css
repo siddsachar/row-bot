@@ -994,6 +994,20 @@
 .prompt-variable small {
   color: var(--text-secondary);
 }
+/* B122: leaving the editor with unsaved changes asks to save first. */
+.task-builder-leave {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-hover);
+  font-size: var(--text-13);
+}
+.task-builder-leave > span {
+  flex: 1 1 auto;
+}
 /* "Send results to": In this app (always) + the configured channels. */
 .task-delivery {
   display: grid;
