@@ -5,7 +5,7 @@ import {
 } from './features/buddy/BuddyFollow';
 import { bindDraftSync } from './draft-sync';
 import { keepNativeLease } from './native-lease';
-import { keepAccessSessionRenewed } from './access-renewal';
+import { keepAccessSessionRenewed } from './api/access-renewal';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';

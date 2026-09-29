@@ -213,7 +213,7 @@ def test_react_client_keeps_a_trusted_access_session_renewed() -> None:
     computer has none), with the same bounded, same-origin request, and it
     stops for good once the server says the session has ended.
     """
-    renewal = Path("frontend/src/access-renewal.ts").read_text(encoding="utf-8")
+    renewal = Path("frontend/src/api/access-renewal.ts").read_text(encoding="utf-8")
     entry = Path("frontend/src/main.tsx").read_text(encoding="utf-8")
 
     assert SESSION_REFRESH_POLL_INTERVAL == timedelta(hours=12)
