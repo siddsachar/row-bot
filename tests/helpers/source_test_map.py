@@ -770,6 +770,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_app_port.py",
             "tests/test_startup_hardening.py",
             "tests/subsystem/client_host/test_server_entry.py",
+            "tests/subsystem/installer/test_one_launcher_per_data_folder.py",
             "tests/subsystem/mobile",
             "tests/integration/mobile",
         ),

@@ -794,7 +794,7 @@ python -m pip install -r requirements.txt
 python launcher.py
 ```
 
-On Windows and macOS, `launcher.py` starts the tray icon and opens the React app on the first available local port, normally `http://localhost:8080/app-v2/`. On Linux it opens the same client in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port. The old `--legacy-ui` and `--client-v2` options are deprecated no-ops; the app always opens React.
+On Windows and macOS, `launcher.py` starts the tray icon and opens the React app on the first available local port, normally `http://localhost:8080/app-v2/`. On Linux it opens the same client in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port. Starting Row-Bot again while it runs shows the running app instead of starting a second one on the same data folder. The old `--legacy-ui` and `--client-v2` options are deprecated no-ops; the app always opens React.
 
 Authenticated headless/server mode:
 

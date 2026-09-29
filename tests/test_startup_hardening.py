@@ -1099,7 +1099,10 @@ def test_direct_restart_reloads_durable_host_when_cli_host_was_omitted(monkeypat
             self.is_alive = False
 
     class FakeControl:
-        def __init__(self, callback):
+        port = None
+        open_token = ""
+
+        def __init__(self, callback, **_options):
             callbacks.append(callback)
 
         def start(self):

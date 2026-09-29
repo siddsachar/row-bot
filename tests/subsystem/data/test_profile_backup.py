@@ -54,6 +54,9 @@ def _profile(root: Path) -> Path:
     (data / ".skills_activation.x7k2m9qa.json").write_text("{}", encoding="utf-8")
     (data / ".checkpoint-locks").mkdir()
     (data / ".checkpoint-locks" / "thread.lock").write_text("", encoding="utf-8")
+    # B214: the running launcher's lock and state (its open-window token) stay on this machine.
+    (data / "launcher.lock").write_text("0", encoding="utf-8")
+    (data / "launcher_state.json").write_text(json.dumps({"open_token": "t" * 43}), encoding="utf-8")
     _db(data / "mobile.db", ["CREATE TABLE sessions(token TEXT)", f"INSERT INTO sessions VALUES ('{KEY}')"])
     _db(data / "threads.db", ["CREATE TABLE threads(id TEXT, title TEXT)",
                                "INSERT INTO threads VALUES ('t1', 'Kept conversation')"])
@@ -90,7 +93,8 @@ def test_a_backup_holds_the_profile_without_secrets_caches_or_logs(tmp_path):
                      "whatsapp_session/session", "runtime/launch.json", "cache/big.bin",
                      "logs/row_bot.log", "model_catalog_cache.json", "mobile.db",
                      "launcher-abc-splash.ready", "tools_config.json.lock",
-                     ".skills_activation.x7k2m9qa.json", ".checkpoint-locks/thread.lock"):
+                     ".skills_activation.x7k2m9qa.json", ".checkpoint-locks/thread.lock",
+                     "launcher.lock", "launcher_state.json"):
         assert left_out not in names
     text = _archive_text(archive)
     assert KEY not in text and WEBHOOK not in text and MCP_KEY not in text

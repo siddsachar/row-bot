@@ -41,6 +41,8 @@ from row_bot.app_port import (
 from row_bot.access.launcher_control import (
     LAUNCH_SECRET_ENV,
     LauncherControlServer,
+    LauncherControlStatus,
+    request_open_window,
 )
 from row_bot.access.access_routes import (
     AccessRouteConfigStore,
@@ -92,6 +94,11 @@ _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
 _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
 _QUIT_WATCHDOG_TIMEOUT = 75.0
 _LAUNCHER_STATE_FILENAME = "launcher_state.json"
+_INSTANCE_LOCK_FILENAME = "launcher.lock"
+# How long a second start waits for the running launcher to answer or to finish
+# quitting (an update relaunch starts the new launcher before the old one exits).
+_INSTANCE_WAIT_SECONDS = 30.0
+_held_instance_locks: dict[Path, "_InstanceLock"] = {}
 _LEGACY_RUNTIME_ENV_VARS = frozenset(
     {
         "THOTH_AUTO_START_OLLAMA",
@@ -191,6 +198,126 @@ def _launcher_state_path() -> Path:
     return _row_bot_data_dir() / _LAUNCHER_STATE_FILENAME
 
 
+class _InstanceLock:
+    """One launcher per data folder: an OS file lock the system drops when the process ends."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.handle = None
+
+    def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self.path.open("a+b")
+        try:
+            handle.seek(0)
+            if handle.read(1) == b"":
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return False
+        self.handle = handle
+        return True
+
+    def release(self) -> None:
+        handle, self.handle = self.handle, None
+        if handle is None:
+            return
+        try:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        handle.close()
+
+
+def _claim_instance() -> bool:
+    """Hold this data folder's launcher lock; True when this process holds it."""
+    path = _row_bot_data_dir() / _INSTANCE_LOCK_FILENAME
+    if path in _held_instance_locks:
+        return True
+    lock = _InstanceLock(path)
+    if not lock.acquire():
+        return False
+    _held_instance_locks[path] = lock
+    return True
+
+
+def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
+    """Another launcher holds this data folder: show it, or wait for it to quit.
+
+    Returns the exit code for this start, or None once the other launcher has
+    quit and this one holds the lock. Never starts a second server.
+    """
+    wants_server = bool(args.server or args.no_open)
+    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None)
+    if changes_data:
+        logger.error("%s is running on this data folder; quit it before resetting or restoring data.",
+                     APP_DISPLAY_NAME)
+        return 1
+    _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
+    deadline = time.monotonic() + _INSTANCE_WAIT_SECONDS
+    while True:
+        state = _read_json_file(_launcher_state_path()) or {}
+        try:
+            alive = int(state.get("pid") or 0) > 0 and _pid_alive(int(state["pid"]))
+        except (TypeError, ValueError):
+            alive = False
+        phase = str(state.get("phase") or "")
+        if alive and not wants_server and phase == "starting":
+            logger.info("%s is starting; its window opens when it is ready.", APP_DISPLAY_NAME)
+            return 0
+        if alive and not wants_server and phase == "running":
+            try:
+                answer = request_open_window(int(state["control_port"]), str(state["open_token"]))
+                port = int(state.get("port") or _PORT)
+            except (KeyError, TypeError, ValueError):
+                answer, port = LauncherControlStatus.ERROR, _PORT
+            if answer is LauncherControlStatus.ACCEPTED:
+                logger.info("%s is already running; showing it.", APP_DISPLAY_NAME)
+                return 0
+            if answer is LauncherControlStatus.UNAVAILABLE:
+                _open_in_browser(port)
+                return 0
+        if _claim_instance():
+            return None
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.25)
+    if wants_server:
+        logger.error("%s is already running on this data folder; quit it before starting a server.",
+                     APP_DISPLAY_NAME)
+    else:
+        logger.error("%s is already running on this data folder but did not answer; quit it and try again.",
+                     APP_DISPLAY_NAME)
+    return 1
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        import psutil
+
+        return psutil.pid_exists(pid)
+    except Exception:
+        return True
+
+
 def _write_launcher_state(
     *,
     port: int,
@@ -203,6 +330,8 @@ def _write_launcher_state(
     opened_mode: str | None = None,
     window_authorized: bool | None = None,
     fallback_reason: str | None = None,
+    phase: str = "running",
+    launcher_control: LauncherControlServer | None = None,
 ) -> None:
     path = _launcher_state_path()
     payload = {
@@ -210,6 +339,7 @@ def _write_launcher_state(
         "pid": os.getpid(),
         "port": int(port),
         "mode": mode,
+        "phase": phase,
         "owns_server": bool(owns_server),
         "session": _LAUNCH_SESSION_ID,
         "updated_at": time.time(),
@@ -223,6 +353,10 @@ def _write_launcher_state(
         payload["window_control_port"] = int(window_control_port)
     if window_pid:
         payload["window_pid"] = int(window_pid)
+    if launcher_control is not None and launcher_control.port:
+        # How a second start of Row-Bot asks this launcher to show itself.
+        payload["control_port"] = int(launcher_control.port)
+        payload["open_token"] = launcher_control.open_token
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -2664,6 +2798,7 @@ class RowBotTray:
         control = LauncherControlServer(
             self._restart_child_from_control,
             shutdown_launcher=self._on_quit,
+            open_window=self._open_for_second_start,
         )
         control.start()
         self._launcher_control = control
@@ -2672,6 +2807,13 @@ class RowBotTray:
             control.child_environment(),
         )
         atexit.register(control.stop)
+
+    def _open_for_second_start(self) -> bool:
+        """Show Row-Bot for a second start (a shortcut); refuse while quitting."""
+        if self._quitting:
+            return False
+        threading.Thread(target=self._on_open, daemon=True, name="row-bot-open-window").start()
+        return True
 
     def _restart_child_from_control(self) -> None:
         """Restart only the child owned by this launcher."""
@@ -3015,6 +3157,7 @@ class RowBotTray:
                     requested_mode=requested_mode,
                     selected_mode="browser",
                     opened_mode="browser",
+                    launcher_control=self._launcher_control,
                 )
             else:
                 self._window_proc = self._launch_window()
@@ -3047,6 +3190,7 @@ class RowBotTray:
                         self._window_proc and self._window_control_port
                     ),
                     fallback_reason=fallback_reason,
+                    launcher_control=self._launcher_control,
                 )
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
@@ -3155,6 +3299,12 @@ def _run_direct(args: argparse.Namespace) -> None:
     launcher_control: LauncherControlServer | None = None
     splash_proc: subprocess.Popen | None = _claim_early_splash()
 
+    def _show_again() -> bool:
+        # Direct modes have no window of their own to raise: open the client.
+        threading.Thread(target=_open_in_browser, args=(port,), daemon=True,
+                         name="row-bot-open-again").start()
+        return True
+
     def _restart_direct_child() -> None:
         if not owns_server or not restart_lock.acquire(blocking=False):
             return
@@ -3179,7 +3329,10 @@ def _run_direct(args: argparse.Namespace) -> None:
         _launch_event("server_already_running", port=port)
     else:
         server_started = time.perf_counter()
-        launcher_control = LauncherControlServer(_restart_direct_child)
+        launcher_control = LauncherControlServer(
+            _restart_direct_child,
+            open_window=None if (args.server or args.no_open) else _show_again,
+        )
         launcher_control.start()
         _set_process_launch_environment(server, launcher_control.child_environment())
         server.start(port, resolved_host)
@@ -3317,6 +3470,7 @@ def _run_direct(args: argparse.Namespace) -> None:
         opened_mode=opened_mode,
         window_authorized=bool(window_proc and window_control_port),
         fallback_reason=fallback_reason,
+        launcher_control=launcher_control,
     )
 
     if owns_server:
@@ -3622,6 +3776,10 @@ def main(argv: list[str] | None = None) -> None:
         args.reset_tasks_db = False
         args.reset_db = False
         args.restore_data = None
+    if not _claim_instance():
+        handed_off = _hand_off_to_running_instance(args)
+        if handed_off is not None:
+            raise SystemExit(handed_off)
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None
@@ -3652,6 +3810,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.restore_data is not None:
         raise SystemExit(_restore_data(args.restore_data))
 
+    # Until the app is up, a second start leaves opening the window to this one.
+    _write_launcher_state(
+        port=parse_app_port(args.port, default=_PORT),
+        mode="starting",
+        owns_server=False,
+        phase="starting",
+    )
     try:
         if direct:
             if sys.platform.startswith("linux") and preferred_mode is None:

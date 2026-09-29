@@ -51,19 +51,28 @@ def _is_loopback(value: object) -> bool:
 
 
 class LauncherControlServer:
-    """Small launcher-owned server exposing only a guarded restart operation."""
+    """Small launcher-owned server exposing only guarded launcher operations.
+
+    Restart and shutdown need the launch secret, which only the server child
+    holds. Opening the window (a second start of Row-Bot on the same data
+    folder) needs its own token, published in the data folder's launcher state
+    and good for nothing else.
+    """
 
     def __init__(
         self,
         restart_child: Callable[[], None],
         *,
         shutdown_launcher: Callable[[], None] | None = None,
+        open_window: Callable[[], bool] | None = None,
         secret: str | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.restart_child = restart_child
         self.shutdown_launcher = shutdown_launcher
+        self.open_window = open_window
         self.secret = secret or secrets.token_urlsafe(32)
+        self.open_token = secrets.token_urlsafe(32)
         self._now = now
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -132,16 +141,20 @@ class LauncherControlServer:
                 if not _is_loopback(self.client_address[0]):
                     self._respond(403, {"ok": False, "error": "loopback_required"})
                     return
-                callbacks = {
-                    "/v1/restart-child": controller.restart_child,
-                    "/v1/shutdown-launcher": controller.shutdown_launcher,
+                routes = {
+                    "/v1/restart-child": (controller.restart_child, controller.secret),
+                    "/v1/shutdown-launcher": (
+                        controller.shutdown_launcher,
+                        controller.secret,
+                    ),
+                    "/v1/open-window": (controller.open_window, controller.open_token),
                 }
-                callback = callbacks.get(self.path)
+                callback, token = routes.get(self.path, (None, ""))
                 if callback is None:
                     self._respond(404, {"ok": False, "error": "not_found"})
                     return
                 authorization = str(self.headers.get("Authorization") or "")
-                expected = f"Bearer {controller.secret}"
+                expected = f"Bearer {token}"
                 if not hmac.compare_digest(authorization, expected):
                     self._respond(403, {"ok": False, "error": "invalid_control"})
                     return
@@ -158,6 +171,14 @@ class LauncherControlServer:
                     return
                 if content_length not in {0}:
                     self._respond(400, {"ok": False, "error": "body_not_allowed"})
+                    return
+                if self.path == "/v1/open-window":
+                    # Quick and answered in place: a launcher that is quitting
+                    # says so, and the second start waits to take over.
+                    if callback():
+                        self._respond(202, {"ok": True, "accepted": True})
+                    else:
+                        self._respond(409, {"ok": False, "error": "launcher_quitting"})
                     return
                 self._respond(202, {"ok": True, "accepted": True})
                 threading.Thread(
@@ -232,6 +253,33 @@ def request_launcher_restart(
     )
 
 
+def request_open_window(
+    port: int, token: str, *, timeout: float = 3.0
+) -> LauncherControlStatus:
+    """Ask the launcher that owns this data folder to show Row-Bot."""
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{int(port)}/v1/open-window",
+        data=b"",
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            LAUNCHER_CONTROL_NONCE_HEADER: secrets.token_urlsafe(24),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=max(0.1, min(timeout, 10.0))) as response:
+            accepted = int(getattr(response, "status", 0)) == 202
+    except urllib.error.HTTPError as error:
+        return (
+            LauncherControlStatus.UNAVAILABLE
+            if error.code == 404
+            else LauncherControlStatus.REJECTED
+        )
+    except (OSError, ValueError, urllib.error.URLError, TimeoutError):
+        return LauncherControlStatus.ERROR
+    return LauncherControlStatus.ACCEPTED if accepted else LauncherControlStatus.ERROR
+
+
 __all__ = [
     "LAUNCHER_CONTROL_NONCE_HEADER",
     "LAUNCHER_CONTROL_PORT_ENV",
@@ -240,4 +288,5 @@ __all__ = [
     "LauncherControlServer",
     "LauncherControlStatus",
     "request_launcher_restart",
+    "request_open_window",
 ]

@@ -35,7 +35,7 @@ LOCAL_ENTRIES = frozenset({
     "runtimes", "piper", "kokoro", "logs", "plugin_logs", "crashes", "feedback_reports",
     "recovery", "evolution_backups", "migration-backups", "migration_reports", "backups",
     "doc_staging", "stale_plugins", "document_ingestion", ".checkpoint-locks", PENDING_DIR,
-    "backup_state.json", RESULT_FILE,
+    "backup_state.json", RESULT_FILE, "launcher_state.json",
 })
 LOCAL_NAMES = re.compile(
     r"(.*_cache\.json|.*\.log|.*\.log\.prev|.*\.lock|launcher-.*|tmp.*|.*-wal|.*-shm"

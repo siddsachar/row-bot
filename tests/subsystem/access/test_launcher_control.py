@@ -14,6 +14,7 @@ from row_bot.access.launcher_control import (
     LauncherControlStatus,
     _is_loopback,
     request_launcher_restart,
+    request_open_window,
 )
 
 
@@ -133,6 +134,51 @@ def test_launcher_control_environment_is_ephemeral_and_server_stops() -> None:
     assert server.port is None
     with pytest.raises(OSError):
         _post(port, "z" * 43, "q" * 24)
+
+
+def test_open_window_needs_its_own_token_which_opens_nothing_else() -> None:
+    """B214: a second start asks the running launcher to show its window."""
+    opened = threading.Event()
+    shutdown = threading.Event()
+    server = LauncherControlServer(
+        lambda: None,
+        shutdown_launcher=shutdown.set,
+        open_window=lambda: opened.set() or True,
+        secret="s" * 43,
+    )
+    port = server.start()
+    try:
+        assert server.open_token and server.open_token != server.secret
+        assert request_open_window(port, server.open_token) is LauncherControlStatus.ACCEPTED
+        assert opened.is_set()
+        with pytest.raises(urllib.error.HTTPError) as launch_secret:
+            _post(port, server.secret, "a" * 24, "/v1/open-window")
+        assert launch_secret.value.code == 403
+        with pytest.raises(urllib.error.HTTPError) as widened:
+            _post(port, server.open_token, "b" * 24, "/v1/shutdown-launcher")
+        assert widened.value.code == 403
+        assert not shutdown.is_set()
+    finally:
+        server.stop()
+
+
+def test_open_window_is_refused_while_the_launcher_quits() -> None:
+    server = LauncherControlServer(lambda: None, open_window=lambda: False)
+    port = server.start()
+    try:
+        assert request_open_window(port, server.open_token) is LauncherControlStatus.REJECTED
+    finally:
+        server.stop()
+
+
+def test_open_window_is_unavailable_without_a_window_and_fails_with_nobody_listening() -> None:
+    server = LauncherControlServer(lambda: None)
+    port = server.start()
+    try:
+        assert request_open_window(port, server.open_token) is LauncherControlStatus.UNAVAILABLE
+    finally:
+        server.stop()
+    assert request_open_window(port, "t" * 43, timeout=0.5) is LauncherControlStatus.ERROR
 
 
 def test_launcher_control_loopback_check_is_exact() -> None:
