@@ -102,6 +102,40 @@ def _check_root(result: SmokeResult, port: int) -> bool:
     return True
 
 
+def _job_owning_tree(proc: subprocess.Popen) -> int | None:
+    """Windows: a job holding the launched process, so ending the job ends its whole tree.
+
+    A launcher runs its server as a child. TerminateProcess can't be caught, so a
+    launcher ended that way never stops that child (B203); terminating the job
+    does. Children join the job as they start. Elsewhere the smoke sends SIGTERM,
+    which the launcher handles by stopping its server.
+    """
+    handle = getattr(proc, "_handle", None)
+    if os.name != "nt" or handle is None:
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    if not kernel32.AssignProcessToJobObject(wintypes.HANDLE(job), wintypes.HANDLE(int(handle))):
+        kernel32.CloseHandle(wintypes.HANDLE(job))
+        return None
+    return job
+
+
+def _end_job(job: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
+    kernel32.CloseHandle(wintypes.HANDLE(job))
+
+
 def _add_tail(result: SmokeResult, label: str, path: Path, max_lines: int = 80) -> None:
     tail = _tail_file(path, max_lines=max_lines)
     if tail:
@@ -128,6 +162,7 @@ def run_app_smoke(
         return result
 
     proc: subprocess.Popen | None = None
+    job: int | None = None
     env = {
         **os.environ,
         "ROW_BOT_PORT": str(port),
@@ -161,6 +196,7 @@ def run_app_smoke(
                 stdout=stdout_file,
                 stderr=stderr_file,
             )
+            job = _job_owning_tree(proc)
             result.add("PASS", f"app process started (PID {proc.pid})")
 
             launched_at = time.monotonic()
@@ -271,12 +307,17 @@ def run_app_smoke(
             return result
     finally:
         if proc and proc.poll() is None:
-            proc.terminate()
+            if job is not None:
+                _end_job(job)
+            else:
+                proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
             result.add("PASS", "app process terminated")
+        elif job is not None:
+            _end_job(job)  # the command exited; anything it started may not have
         if temp_data is not None:
             temp_data.cleanup()
 
@@ -294,12 +335,20 @@ def main() -> int:
         action="store_true",
         help="Use /healthz and /readyz when the command owns the app secret",
     )
-    parser.add_argument("command", nargs=argparse.REMAINDER, help="Optional command after --")
+    parser.add_argument(
+        "command",
+        nargs=argparse.REMAINDER,
+        help="Optional command after --; a leading `python` runs with this script's interpreter",
+    )
     args = parser.parse_args()
 
     command = args.command or None
     if command and command[0] == "--":
         command = command[1:]
+    if command and command[0] == "python":
+        # This environment's interpreter. On Windows a bare `python` would resolve
+        # next to the base interpreter first, outside the virtual environment.
+        command = [sys.executable, *command[1:]]
     result = run_app_smoke(
         command=command,
         cwd=args.cwd,
