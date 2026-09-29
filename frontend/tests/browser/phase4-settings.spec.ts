@@ -945,7 +945,7 @@ test('Managed runtimes review metadata then install exact archive and retain rou
   expect((await saved()).calls).toEqual(['resolve', 'download']);
 });
 
-test('Knowledge Settings omits create, retains modal drafts, and confirms lifecycle changes', async ({
+test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecycle changes', async ({
   page,
 }, info) => {
   const headers = {
@@ -958,9 +958,14 @@ test('Knowledge Settings omits create, retains modal drafts, and confirms lifecy
     ).ok(),
   ).toBe(true);
   await page.goto('/app-v2/settings/knowledge');
-  await expect(
-    page.getByRole('button', { name: 'Create knowledge', exact: true }),
-  ).toHaveCount(0);
+  // Phase 13: Add memory opens a blank editor (closing it keeps nothing).
+  await page.getByRole('button', { name: 'Add memory', exact: true }).click();
+  const adding = page.getByRole('dialog', { name: 'Add memory', exact: true });
+  await expect(adding.getByRole('textbox', { name: 'Subject' })).toHaveValue(
+    '',
+  );
+  await page.keyboard.press('Escape');
+  await expect(adding).toHaveCount(0);
   // Earlier specs in the shared fixture may add entries; the page size is fixed.
   await expect(
     page.getByText(/^Showing 25 of \d+ matching entries\.$/),

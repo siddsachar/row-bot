@@ -436,6 +436,11 @@ export default function Home() {
                 onShowAll={() => setGraphLimit(GRAPH_ALL_LIMIT)}
                 loadDetail={loadKnowledgeDetail}
                 onEdit={(id) => knowledgeOwner?.get()?.open(id)}
+                onAdd={
+                  knowledgeOwner?.get()
+                    ? () => knowledgeOwner.get()?.open(null)
+                    : undefined
+                }
                 onMerge={mergeMemory}
                 onDelete={deleteMemory}
                 onOpenConversation={openConversation}

@@ -68,3 +68,23 @@ it('traps the external editor in one dialog, closes with Escape, returns focus, 
     'Retained draft',
   );
 });
+
+it('Add memory opens a blank editor that creates knowledge', async () => {
+  const owner = setup();
+  render(
+    <>
+      <button onClick={() => owner.open(null)}>Add memory</button>
+      <KnowledgeEditorDialog owner={owner} />
+    </>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add memory' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(dialog).toHaveAccessibleName('Add memory');
+  expect(await screen.findByRole('textbox', { name: 'Subject' })).toHaveValue(
+    '',
+  );
+  expect(
+    screen.getByRole('combobox', { name: 'Entity type' }),
+  ).toHaveDisplayValue('Fact');
+  expect(screen.getByRole('button', { name: 'Save knowledge' })).toBeDisabled();
+});

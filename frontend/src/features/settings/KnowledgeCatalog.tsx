@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Edit3,
   History,
+  Plus,
   RefreshCw,
   ScrollText,
   Search,
@@ -339,6 +340,7 @@ export default function KnowledgeCatalog({
   wikiSession,
   wikiSnapshot,
   onOpen,
+  onCreate,
   onLifecycle,
   onMutation,
   snapshot,
@@ -357,6 +359,8 @@ export default function KnowledgeCatalog({
   wikiSession?: WikiSettingsSession;
   wikiSnapshot?: import('../../api/types').WikiSettingsSnapshot;
   onOpen?: (id: string) => void;
+  /** Add memory: opens a blank knowledge editor. */
+  onCreate?: () => void;
   onLifecycle?: (
     id: string,
     revision: string,
@@ -688,14 +692,21 @@ export default function KnowledgeCatalog({
               or network work.
             </p>
           </div>
-          <Button
-            onClick={() => {
-              setSelecting((value) => !value);
-              setSelected({});
-            }}
-          >
-            {selecting ? 'Done' : 'Select'}
-          </Button>
+          <div className="actions">
+            {onCreate && (
+              <Button variant="primary" onClick={onCreate}>
+                <Plus size={16} aria-hidden /> Add memory
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                setSelecting((value) => !value);
+                setSelected({});
+              }}
+            >
+              {selecting ? 'Done' : 'Select'}
+            </Button>
+          </div>
         </header>
         <div className="settings-knowledge-filters">
           <Field label="Category">

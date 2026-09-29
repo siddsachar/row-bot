@@ -17,6 +17,7 @@ import {
   Moon,
   Network,
   Pencil,
+  Plus,
   RefreshCw,
   Rows3,
   Search,
@@ -139,6 +140,8 @@ export type KnowledgeHomeProps = {
   reload: () => void;
   loadDetail: (id: string) => Promise<KnowledgeNodeDetail>;
   onEdit: (id: string) => void;
+  /** Add memory: opens a blank knowledge editor. */
+  onAdd?: () => void;
   /** Open the editor's relations and replacement for this memory. */
   onMerge?: (id: string) => void;
   /** Review, confirm and delete one memory; resolves once it is gone. */
@@ -352,6 +355,7 @@ export default function KnowledgeHome({
   reload,
   loadDetail,
   onEdit,
+  onAdd,
   onMerge,
   onDelete,
   onOpenConversation,
@@ -564,6 +568,11 @@ export default function KnowledgeHome({
                 Memories and their connections appear here as Row-Bot learns
                 about you.
               </p>
+              {onAdd && (
+                <Button className="small" onClick={onAdd}>
+                  Add memory
+                </Button>
+              )}
             </div>
           )}
         {hasGraph && (
@@ -705,6 +714,11 @@ export default function KnowledgeHome({
                   </Popover.Portal>
                 </Popover.Root>
               </>
+            )}
+            {onAdd && (
+              <IconButton size="sm" label="Add memory" onClick={onAdd}>
+                <Plus size={15} aria-hidden />
+              </IconButton>
             )}
             <IconButton
               size="sm"

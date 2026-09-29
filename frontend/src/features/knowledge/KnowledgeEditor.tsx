@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { Button, ErrorState, Field, Input, Select } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 export type KnowledgeFields = {
   entity_type: string;
@@ -301,7 +302,7 @@ export default function KnowledgeEditor({
       aria-label="Knowledge editor"
       aria-busy={state.busy}
     >
-      <h2>{session.getTarget() ? 'Edit knowledge' : 'Create knowledge'}</h2>
+      <h2>{session.getTarget() ? 'Edit knowledge' : 'Add memory'}</h2>
       {!state.saved && (
         <Button disabled={locked} onClick={() => perform(() => session.load())}>
           Open editor
@@ -326,7 +327,7 @@ export default function KnowledgeEditor({
             >
               {state.saved.entity_types.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {humanizeToken(type)}
                 </option>
               ))}
             </Select>
@@ -358,10 +359,7 @@ export default function KnowledgeEditor({
             />
           </Field>
           {state.saved.entity && (
-            <p>
-              Saved status: {state.saved.entity.status}. Projection readiness:
-              unknown.
-            </p>
+            <p>Status: {humanizeToken(state.saved.entity.status)}.</p>
           )}
           <div className="field-row">
             <Button
@@ -423,8 +421,8 @@ export default function KnowledgeEditor({
             ? 'Existing knowledge reused.'
             : 'Knowledge saved.'}{' '}
           {state.receipt.projection_state === 'pending'
-            ? 'Search and wiki projections remain pending.'
-            : 'Projection readiness is unknown.'}{' '}
+            ? 'Search and the wiki catch up in a moment.'
+            : ''}{' '}
           Reload the saved entry to continue.
         </p>
       )}

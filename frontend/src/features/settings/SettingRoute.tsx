@@ -534,6 +534,11 @@ export default function SettingRoute() {
               wikiSession={wikiOwner?.get()}
               wikiSnapshot={settingsSnapshot?.wiki}
               onOpen={(id) => knowledgeOwner?.get()?.open(id)}
+              onCreate={
+                knowledgeOwner?.get()
+                  ? () => knowledgeOwner.get()?.open(null)
+                  : undefined
+              }
               onLifecycle={async (id, revision, action) => {
                 const review = await controller.reviewKnowledge(action, {
                   entity_id: id,

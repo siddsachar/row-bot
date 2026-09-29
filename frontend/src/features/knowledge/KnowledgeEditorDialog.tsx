@@ -49,6 +49,7 @@ export default function KnowledgeEditorDialog({
 }) {
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
   const selected = owner.selected();
+  const creating = Boolean(selected && !selected.getTarget());
   const returnFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (selected || typeof document === 'undefined') return;
@@ -87,15 +88,15 @@ export default function KnowledgeEditorDialog({
           <header className="dialog-header">
             <div>
               <Dialog.Title className="dialog-title">
-                Edit knowledge
+                {creating ? 'Add memory' : 'Edit knowledge'}
               </Dialog.Title>
               <Dialog.Description
                 className="dialog-description"
                 id="knowledge-editor-description"
               >
-                Update fields, lifecycle, provenance, and reviewed relations.
-                Drafts and unconfirmed changes stay available if this dialog
-                closes.
+                {creating
+                  ? 'Something Row-Bot should remember. A draft stays available if this dialog closes.'
+                  : 'Update fields, lifecycle, provenance, and reviewed relations. Drafts and unconfirmed changes stay available if this dialog closes.'}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>

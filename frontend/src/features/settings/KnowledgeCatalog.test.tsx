@@ -464,3 +464,21 @@ it('does not regress the saved document search contract', async () => {
     expect.any(AbortSignal),
   );
 });
+
+it('offers Add memory only when a knowledge editor can open', async () => {
+  const load = vi.fn<KnowledgePageLoader>(async () => page());
+  const onCreate = vi.fn();
+  const view = render(
+    <KnowledgeCatalog
+      snapshot={snapshot}
+      loadFiltered={load}
+      onCreate={onCreate}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Add memory' }));
+  expect(onCreate).toHaveBeenCalledOnce();
+  view.unmount();
+  render(<KnowledgeCatalog snapshot={snapshot} loadFiltered={load} />);
+  await screen.findByRole('heading', { name: 'Stored Knowledge' });
+  expect(screen.queryByRole('button', { name: 'Add memory' })).toBeNull();
+});
