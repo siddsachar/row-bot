@@ -80,7 +80,6 @@ TARGETS: dict[str, LegacyTarget] = {
             "tests/contracts/test_provider_contract.py",
             "tests/subsystem/providers",
             "tests/test_provider_runtime.py",
-            "tests/test_streaming_batcher.py",
         ),
         "uv run python -m pytest tests/contracts/test_provider_contract.py tests/subsystem/providers tests/test_provider_runtime.py -q",
         status="covered",

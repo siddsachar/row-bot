@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from fnmatch import fnmatch
+from pathlib import Path
+
 import pytest
 
-from tests.helpers.source_test_map import SOURCE_TEST_RULES, select_tests_for_changes
+from tests.helpers.source_test_map import SOURCE_TEST_RULES, normalize_repo_path, select_tests_for_changes
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 pytestmark = pytest.mark.subsystem
@@ -31,7 +36,7 @@ def test_client_foundation_paths_have_routing_and_dependency_owners() -> None:
 def test_headless_platform_changes_select_cross_boundary_behavior_and_quality():
     selection = select_tests_for_changes([
         "src/row_bot/runtime/executions.py", "src/row_bot/api/v1/routes.py",
-        "src/row_bot/conversation_resources.py", "scripts/ui_performance_harness.py",
+        "src/row_bot/conversation_resources.py", "scripts/check_client_platform_boundaries.py",
     ])
     assert "unified_client_platform" in selection.matched_rules
     assert "client_platform_quality" in selection.matched_rules
@@ -40,11 +45,10 @@ def test_headless_platform_changes_select_cross_boundary_behavior_and_quality():
     assert not selection.unmatched_files
 
 
-def test_shared_execution_changes_select_legacy_overlay_and_workflow_adapters() -> None:
-    for path in ("src/row_bot/ui/streaming.py", "src/row_bot/tasks.py"):
-        selection = select_tests_for_changes([path])
-        assert "tests/test_buddy_overlay.py" in selection.test_paths
-        assert "tests/test_channel_workflow_model_routing.py" in selection.test_paths
+def test_shared_execution_changes_select_overlay_and_workflow_adapters() -> None:
+    selection = select_tests_for_changes(["src/row_bot/tasks.py"])
+    assert "tests/test_buddy_overlay.py" in selection.test_paths
+    assert "tests/test_channel_workflow_model_routing.py" in selection.test_paths
 
 
 @pytest.mark.parametrize("path", [
@@ -66,17 +70,14 @@ def test_shared_execution_changes_select_legacy_overlay_and_workflow_adapters() 
     "src/row_bot/client_assets.py", "src/row_bot/conversation_resources.py",
     "src/row_bot/threads.py", "src/row_bot/agent_orchestrator.py",
     "src/row_bot/designer/client_service.py", "src/row_bot/designer/html_ops.py",
-    "src/row_bot/designer/interaction.py", "src/row_bot/designer/presentation.py",
-    "src/row_bot/designer/preview.py", "src/row_bot/designer/runtime/loader.py",
+    "src/row_bot/designer/interaction.py", "src/row_bot/designer/preview.py", "src/row_bot/designer/runtime/loader.py",
     "src/row_bot/designer/state.py", "src/row_bot/designer/storage.py",
     "src/row_bot/developer/client_workspace.py", "src/row_bot/developer/inspector_snapshot.py",
     "src/row_bot/developer/review.py", "src/row_bot/developer/state.py",
-    "src/row_bot/developer/storage.py", "src/row_bot/ui/chat.py",
-    "src/row_bot/ui/chat_components.py", "src/row_bot/ui/voice_realtime_events.py",
+    "src/row_bot/developer/storage.py",
     "src/row_bot/voice/actions.py", "src/row_bot/voice/coordinator.py",
-    "src/row_bot/voice/realtime_client.py",
 ])
-def test_unified_workspace_changes_select_shared_domain_and_legacy_owners(path: str) -> None:
+def test_unified_workspace_changes_select_shared_domain_owners(path: str) -> None:
     selection = select_tests_for_changes([path])
     assert "unified_workspace_composition" in selection.matched_rules
     assert {
@@ -98,10 +99,20 @@ def test_source_test_rules_have_unique_names_and_actionable_tests() -> None:
         assert rule.reason.strip()
 
 
-def test_history_control_change_selects_actual_page_reconciliation_regression() -> None:
-    selection = select_tests_for_changes(["src/row_bot/ui/chat.py"])
-    assert "unified_client_platform" in selection.matched_rules
-    assert "tests/subsystem/test_client_platform_view_subscription.py" in selection.test_paths
+def _names_something(pattern: str) -> bool:
+    if "*" not in pattern:
+        # normalize_repo_path strips leading dots, so ".dockerignore" is mapped as "dockerignore".
+        return (ROOT / pattern).exists() or (ROOT / f".{pattern}").exists()
+    head = pattern.split("*", 1)[0]
+    base = ROOT / head.rsplit("/", 1)[0] if "/" in head else ROOT
+    return any(fnmatch(normalize_repo_path(path.relative_to(ROOT).as_posix()), pattern)
+               for path in base.rglob("*") if path.is_file())
+
+
+def test_every_mapped_source_and_test_path_exists() -> None:
+    stale = [(rule.name, path) for rule in SOURCE_TEST_RULES
+             for path in (*rule.patterns, *rule.test_paths) if not _names_something(path)]
+    assert stale == []
 
 
 def test_thread_cleanup_change_selects_cross_subsystem_deletion_contracts() -> None:
@@ -109,9 +120,7 @@ def test_thread_cleanup_change_selects_cross_subsystem_deletion_contracts() -> N
         [
             "src/row_bot/thread_cleanup.py",
             "src/row_bot/agent_runner.py",
-            "src/row_bot/ui/agent_drawer.py",
             "src/row_bot/channels/telegram.py",
-            "src/row_bot/ui/state.py",
         ]
     )
 
@@ -121,7 +130,6 @@ def test_thread_cleanup_change_selects_cross_subsystem_deletion_contracts() -> N
     assert "tests/subsystem/developer" in selection.test_paths
     assert "tests/subsystem/workflows" in selection.test_paths
     assert "tests/subsystem/channels" in selection.test_paths
-    assert "tests/test_bulk_select.py" in selection.test_paths
     assert not selection.unmatched_files
 
 
@@ -152,17 +160,11 @@ def test_selected_provider_sources_select_focused_legacy_regressions() -> None:
 
 
 def test_voice_runtime_change_selects_offline_and_provider_regressions() -> None:
-    selection = select_tests_for_changes(
-        [
-            "src/row_bot/voice/local_provider.py",
-            "src/row_bot/voice/provider_catalog.py",
-        ]
-    )
+    selection = select_tests_for_changes(["src/row_bot/voice/local_provider.py"])
 
     assert "voice_runtime" in selection.matched_rules
     assert "tests/test_voice_sensevoice.py" in selection.test_paths
     assert "tests/test_voice_providers.py" in selection.test_paths
-    assert "tests/test_voice_provider_catalog.py" in selection.test_paths
     assert "tests/test_voice_coordinator.py" in selection.test_paths
     assert not selection.unmatched_files
 
@@ -173,12 +175,10 @@ def test_agent_profile_workflow_sources_select_profile_and_workflow_regressions(
             "src/row_bot/tools/agent_tool.py",
             "src/row_bot/tools/task_tool.py",
             "src/row_bot/tools/row_bot_status_tool.py",
-            "src/row_bot/ui/task_dialog.py",
             "src/row_bot/agent_runs.py",
             "src/row_bot/agent_commands.py",
             "src/row_bot/agent_context.py",
             "src/row_bot/agent_runner.py",
-            "src/row_bot/ui/streaming.py",
         ]
     )
 
@@ -189,7 +189,6 @@ def test_agent_profile_workflow_sources_select_profile_and_workflow_regressions(
     assert "tests/test_agent_runner.py" in selection.test_paths
     assert "tests/test_agent_tool.py" in selection.test_paths
     assert "tests/test_agent_runs.py" in selection.test_paths
-    assert "tests/test_active_run_queue.py" in selection.test_paths
     assert "tests/test_chat_tool_trace_ui.py" in selection.test_paths
     assert "tests/test_row_bot_status_agents.py" in selection.test_paths
     assert "tests/subsystem/workflows" in selection.test_paths
@@ -205,13 +204,14 @@ def test_memory_tool_change_selects_tool_and_graph_coverage() -> None:
     assert "tests/test_memory_recall_uplift.py" in selection.test_paths
 
 
-def test_launcher_change_selects_startup_regressions() -> None:
-    selection = select_tests_for_changes(["src/row_bot/launcher.py"])
+@pytest.mark.parametrize("path", ["src/row_bot/launcher.py", "src/row_bot/server.py", "src/row_bot/app.py"])
+def test_launcher_and_server_changes_select_startup_regressions(path: str) -> None:
+    selection = select_tests_for_changes([path])
 
     assert "startup_runtime" in selection.matched_rules
     assert "tests/test_app_port.py" in selection.test_paths
     assert "tests/test_startup_hardening.py" in selection.test_paths
-    assert "tests/test_ui_performance.py" in selection.test_paths
+    assert "tests/subsystem/client_host/test_server_entry.py" in selection.test_paths
     assert "tests/subsystem/mobile" in selection.test_paths
     assert "tests/integration/mobile" in selection.test_paths
     assert not selection.unmatched_files
@@ -219,14 +219,13 @@ def test_launcher_change_selects_startup_regressions() -> None:
 
 def test_buddy_overlay_change_selects_state_ui_and_stop_regressions() -> None:
     selection = select_tests_for_changes(
-        ["src/row_bot/buddy/overlay.py", "src/row_bot/ui/buddy.py"]
+        ["src/row_bot/buddy/overlay.py"]
     )
 
     assert "buddy_lifecycle" in selection.matched_rules
     assert "tests/test_buddy_core.py" in selection.test_paths
     assert "tests/test_buddy_ui.py" in selection.test_paths
     assert "tests/test_buddy_overlay.py" in selection.test_paths
-    assert "tests/test_generation_stop.py" in selection.test_paths
     assert not selection.unmatched_files
 
 
@@ -254,35 +253,12 @@ def test_app_port_change_selects_startup_and_mobile_regressions() -> None:
     assert not selection.unmatched_files
 
 
-def test_settings_change_selects_mobile_owner_access_regressions() -> None:
-    selection = select_tests_for_changes(["src/row_bot/ui/settings.py"])
+def test_mobile_change_selects_mobile_owner_access_regressions() -> None:
+    selection = select_tests_for_changes(["src/row_bot/mobile/routes.py"])
 
     assert "mobile_owner_access" in selection.matched_rules
     assert "tests/subsystem/mobile" in selection.test_paths
     assert "tests/integration/mobile" in selection.test_paths
-    assert not selection.unmatched_files
-
-
-def test_chat_composer_change_selects_slash_skills_and_mobile_regressions() -> None:
-    selection = select_tests_for_changes(["src/row_bot/ui/chat_composer_extras.py"])
-
-    assert "chat_composer" in selection.matched_rules
-    assert "tests/subsystem/mobile" in selection.test_paths
-    assert "tests/test_slash_commands.py" in selection.test_paths
-    assert "tests/test_skills_activation.py" in selection.test_paths
-    assert not selection.unmatched_files
-
-
-def test_live_control_change_selects_computer_browser_and_chat_regressions() -> None:
-    selection = select_tests_for_changes(["src/row_bot/ui/live_control.py"])
-
-    assert "live_control" in selection.matched_rules
-    assert "computer_use" in selection.matched_rules
-    assert "browser_automation" in selection.matched_rules
-    assert "tests/subsystem/computer_use" in selection.test_paths
-    assert "tests/integration/computer_use" in selection.test_paths
-    assert "tests/subsystem/browser" in selection.test_paths
-    assert "tests/test_chat_tool_trace_ui.py" in selection.test_paths
     assert not selection.unmatched_files
 
 
@@ -338,9 +314,6 @@ def test_context_compaction_crosses_ui_persistence_and_channel_streaming_ownersh
     selection = select_tests_for_changes([
         "src/row_bot/agent.py",
         "src/row_bot/threads.py",
-        "src/row_bot/ui/chat_components.py",
-        "src/row_bot/ui/mobile_chat.py",
-        "src/row_bot/ui/streaming.py",
         "src/row_bot/channels/streaming.py",
     ])
 
@@ -351,7 +324,6 @@ def test_context_compaction_crosses_ui_persistence_and_channel_streaming_ownersh
     assert "tests/test_agent_context.py" in selection.test_paths
     assert "tests/test_agent_readiness.py" in selection.test_paths
     assert "tests/test_provider_runtime.py" in selection.test_paths
-    assert "tests/test_context_meter_ui.py" in selection.test_paths
     assert "tests/subsystem/channels/test_channel_streaming_engine.py" in selection.test_paths
     assert "tests/subsystem/mobile" in selection.test_paths
     assert not selection.unmatched_files
@@ -373,7 +345,7 @@ def test_plugin_change_selects_plugin_contracts_and_integration_lanes() -> None:
             "src/row_bot/plugins/mcp.py",
             "src/row_bot/app.py",
             "src/row_bot/tools/row_bot_status_tool.py",
-            "src/row_bot/ui/status_checks.py",
+            "src/row_bot/status_checks.py",
             "scripts/build_plugin_index.py",
             "docs/PLUGIN_SYSTEM_V2.md",
             "docs/ARCHITECTURE.md",
@@ -398,7 +370,6 @@ def test_migration_change_selects_migration_wizard_regressions() -> None:
     assert "tests/test_migration_detection.py" in selection.test_paths
     assert "tests/test_migration_planner.py" in selection.test_paths
     assert "tests/test_migration_apply.py" in selection.test_paths
-    assert "tests/test_migration_wizard_ui.py" in selection.test_paths
     assert not selection.unmatched_files
 
 

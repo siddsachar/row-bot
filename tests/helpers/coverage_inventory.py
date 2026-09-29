@@ -162,7 +162,6 @@ COVERAGE_INVENTORY: tuple[CoverageEntry, ...] = (
         ("tests/test_suite.py",),
         (
             "tests/subsystem/designer/test_designer_export_snapshots.py",
-            "tests/subsystem/designer/test_designer_thumbnail.py",
             "tests/subsystem/designer/test_designer_export_helpers.py",
         ),
         invariants=("HTML export snapshot is deterministic", "snapshot smoke stays browser-free"),

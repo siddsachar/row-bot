@@ -1,12 +1,10 @@
 from tests.helpers.source_test_map import select_tests_for_changes
 
 
-def test_remote_access_runtime_and_ui_select_security_and_compatibility_tests() -> None:
+def test_remote_access_runtime_selects_security_and_compatibility_tests() -> None:
     selection = select_tests_for_changes(
         [
             "src/row_bot/access/policy.py",
-            "src/row_bot/ui/access_context.py",
-            "src/row_bot/ui/remote_access_settings.py",
             "scripts/smoke_remote_access.py",
         ]
     )
