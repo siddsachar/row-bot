@@ -13,13 +13,35 @@ permissions:
   issues: write
 
 jobs:
+  # Creates or updates each label in .github/labels.yml with the gh CLI; labels
+  # not in the file are left alone. (The third-party sync action had failed on
+  # every run since April 2026.)
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: EndBug/label-sync@v2
+
+      - uses: actions/setup-python@v6
         with:
-          config-file: .github/labels.yml
-          delete-other-labels: false
+          python-version: "3.12"
+
+      - name: Create or update the labels
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python -m pip install --quiet pyyaml
+          python - <<'PY'
+          import subprocess
+          import yaml
+
+          with open(".github/labels.yml", encoding="utf-8") as handle:
+              labels = yaml.safe_load(handle)
+          for label in labels:
+              subprocess.run(
+                  ["gh", "label", "create", label["name"], "--color", str(label["color"]),
+                   "--description", label.get("description", ""), "--force"],
+                  check=True,
+              )
+          PY
