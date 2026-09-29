@@ -304,45 +304,45 @@ export default function ToolCatalog({
                         )}
                         {tool.requires_approval && (
                           <span className="status-chip warning">
-                            Approval declared
+                            Asks first
                           </span>
                         )}
                       </span>
                     </summary>
                     <dl className="settings-catalog-facts">
-                      <dt>Stable tool ID</dt>
+                      <dt>Tool name</dt>
                       <dd>{tool.id}</dd>
-                      <dt>Enabled setting</dt>
+                      <dt>Turned on</dt>
                       <dd>
                         {tool.enabled == null
                           ? 'Unknown'
                           : tool.enabled
-                            ? 'Enabled'
-                            : 'Disabled'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
-                      <dt>Configuration record</dt>
+                      <dt>Set up</dt>
                       <dd>
                         {tool.configured == null
                           ? 'Unknown'
                           : tool.configured
-                            ? 'Recorded'
-                            : 'Not recorded'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
-                      <dt>Destructive action declaration</dt>
+                      <dt>Changes or deletes things</dt>
                       <dd>
                         {tool.destructive == null
                           ? 'Unknown'
                           : tool.destructive
-                            ? 'Declared'
-                            : 'Not declared'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
-                      <dt>Approval declaration</dt>
+                      <dt>Asks before it runs</dt>
                       <dd>
                         {tool.requires_approval == null
                           ? 'Unknown'
                           : tool.requires_approval
-                            ? 'Declared'
-                            : 'Not declared'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
                       <dt>Runtime readiness</dt>
                       <dd>Unknown</dd>

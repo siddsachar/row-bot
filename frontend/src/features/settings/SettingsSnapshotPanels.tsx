@@ -3529,76 +3529,96 @@ export function ToolConfigurationSnapshot({
           />
         </label>
         <ul className="settings-toggle-list settings-row-list">
-          {tools.map((tool) => (
-            <li key={tool.tool_id}>
-              <div className="settings-row-list-text">
-                <strong>{tool.displayLabel}</strong>
-                <small>
-                  {tool.description}
-                  {!tool.available ? ' · Unavailable' : ''}
-                  {tool.configured_fields.length
-                    ? ` · ${tool.configured_fields.length} configured fields`
-                    : ''}
-                </small>
-              </div>
-              {tool.available && tool.enabled != null ? (
-                <SwitchSetting
-                  mutation={mutation}
-                  field={`${tool.tool_id}.enabled`}
-                  label={`Enable ${tool.displayLabel}`}
-                  value={tool.enabled}
-                  bare
-                />
-              ) : (
-                <StateChip warning>Unavailable</StateChip>
-              )}
-              {(tool.credentials.length > 0 || tool.setupUrl) && (
-                <details className="settings-snapshot-disclosure settings-tool-detail">
-                  <summary>Credentials &amp; setup</summary>
-                  {tool.setupUrl && (
-                    <p className="settings-help">
-                      Create the provider credential at{' '}
-                      <a href={tool.setupUrl} target="_blank" rel="noreferrer">
-                        {new URL(tool.setupUrl).hostname}
-                      </a>
-                      , then save it below. Credentials remain write-only and
-                      masked.
-                    </p>
+          {tools.map((tool) => {
+            // A tool that needs a key says so before it is turned on (U50).
+            const missingKey =
+              tool.credentials.length > 0 &&
+              tool.credentials.some((credential) => !credential.configured);
+            return (
+              <li key={tool.tool_id}>
+                <div className="settings-row-list-text">
+                  <strong>{tool.displayLabel}</strong>
+                  <small>
+                    {tool.description}
+                    {!tool.available ? ' · Unavailable' : ''}
+                    {tool.configured_fields.length
+                      ? ` · ${tool.configured_fields.length} configured fields`
+                      : ''}
+                  </small>
+                  {missingKey && (
+                    <small className="settings-tool-needs-key">
+                      {tool.enabled
+                        ? 'On, but it has no key yet: it fails until you add one below.'
+                        : 'Needs its key first: add it under Credentials & setup.'}
+                    </small>
                   )}
-                  {tool.credentials.map((credential) =>
-                    tool.tool_id === 'web_search' ||
-                    tool.tool_id === 'wolfram_alpha' ? (
-                      <SecretSetting
-                        key={credential.name}
-                        mutation={mutation}
-                        field={`${tool.tool_id}.credential`}
-                        label={credential.label}
-                        configured={credential.configured}
-                        source={credential.source}
-                        fingerprint={credential.fingerprint}
-                      />
-                    ) : (
-                      <div
-                        className="settings-secret-summary"
-                        key={credential.name}
-                      >
-                        <div className="settings-secret-text">
-                          <span className="settings-secret-label">
-                            {credential.label}
-                          </span>
-                          <span className="settings-secret-state">
-                            {credential.configured
-                              ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
-                              : 'Not set'}
-                          </span>
+                </div>
+                {tool.available && tool.enabled != null ? (
+                  <SwitchSetting
+                    mutation={mutation}
+                    field={`${tool.tool_id}.enabled`}
+                    label={`Enable ${tool.displayLabel}`}
+                    value={tool.enabled}
+                    bare
+                  />
+                ) : (
+                  <StateChip warning>Unavailable</StateChip>
+                )}
+                {(tool.credentials.length > 0 || tool.setupUrl) && (
+                  <details
+                    className="settings-snapshot-disclosure settings-tool-detail"
+                    open={missingKey || undefined}
+                  >
+                    <summary>Credentials &amp; setup</summary>
+                    {tool.setupUrl && (
+                      <p className="settings-help">
+                        Create the provider credential at{' '}
+                        <a
+                          href={tool.setupUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {new URL(tool.setupUrl).hostname}
+                        </a>
+                        , then save it below. Credentials remain write-only and
+                        masked.
+                      </p>
+                    )}
+                    {tool.credentials.map((credential) =>
+                      tool.tool_id === 'web_search' ||
+                      tool.tool_id === 'wolfram_alpha' ? (
+                        <SecretSetting
+                          key={credential.name}
+                          mutation={mutation}
+                          field={`${tool.tool_id}.credential`}
+                          label={credential.label}
+                          configured={credential.configured}
+                          source={credential.source}
+                          fingerprint={credential.fingerprint}
+                        />
+                      ) : (
+                        <div
+                          className="settings-secret-summary"
+                          key={credential.name}
+                        >
+                          <div className="settings-secret-text">
+                            <span className="settings-secret-label">
+                              {credential.label}
+                            </span>
+                            <span className="settings-secret-state">
+                              {credential.configured
+                                ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
+                                : 'Not set'}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ),
-                  )}
-                </details>
-              )}
-            </li>
-          ))}
+                      ),
+                    )}
+                  </details>
+                )}
+              </li>
+            );
+          })}
         </ul>
         {!tools.length && (
           <p className="settings-help">No research tools match this search.</p>

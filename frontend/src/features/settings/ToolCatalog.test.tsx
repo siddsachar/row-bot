@@ -148,9 +148,10 @@ it('keeps declarations separate from access and renders labels as text', async (
   expect(container.querySelector('script')).toBeNull();
   fireEvent.click(summary);
   const row = within(summary.closest('li')!);
-  expect(row.getAllByText('Enabled')).toHaveLength(2);
-  expect(row.getByText('Recorded')).toBeVisible();
-  expect(row.getAllByText('Not declared')).toHaveLength(2);
+  // Facts in plain words (U50): turned on, set up, changes things, asks.
+  expect(row.getByText('Enabled')).toBeVisible();
+  expect(row.getAllByText('Yes')).toHaveLength(2);
+  expect(row.getAllByText('No')).toHaveLength(2);
   expect(row.getByText('Unknown')).toBeVisible();
   expect(row.getByText('Plugin ID')).toBeVisible();
   expect(screen.getByText('same · Core')).toBeVisible();

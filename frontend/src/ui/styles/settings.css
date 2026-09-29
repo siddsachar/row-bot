@@ -3298,3 +3298,7 @@
   gap: 6px;
   align-items: center;
 }
+.settings-tool-needs-key {
+  display: block;
+  color: var(--status-warning-text);
+}
