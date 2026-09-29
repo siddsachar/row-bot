@@ -146,3 +146,14 @@ def test_workflow_run_keeps_memory_fallback_warning_at_finish(tmp_path, monkeypa
     assert run["status_message"].startswith("Delivered")
     assert "Memory recall fallback (local_model_timeout)" in run["status_message"]
     assert "Retry local load" in run["status_message"]
+
+
+def test_variables_expand_with_or_without_inner_spaces(tmp_path, monkeypatch) -> None:
+    """The step editor accepts `{{ step.x.output }}`, so running expands it too (parity row 19)."""
+    tasks = fresh_tasks_module(tmp_path, monkeypatch)
+    text = tasks.expand_template_vars(
+        "A {{ prev_output }} B {{step.fetch.output}} C {{ step.fetch.output }} D {{ year }}",
+        prev_output="previous", step_outputs={"fetch": "fetched"},
+    )
+    assert text.startswith("A previous B fetched C fetched D ")
+    assert "{{" not in text

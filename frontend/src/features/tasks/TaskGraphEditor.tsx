@@ -11,6 +11,7 @@ import type {
   TaskGraphStepEdit,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import PromptTextarea, { type PromptVariable } from './PromptTextarea';
 import {
   Button,
   Field,
@@ -289,16 +290,41 @@ export default function TaskGraphEditor({
     }
   }
 
-  function text(field: keyof TaskGraphFields, label: string, hint?: string) {
+  // Earlier saved steps' results, for {{ in this step's text (parity row 19).
+  const earlier = (): PromptVariable[] =>
+    steps
+      .slice(0, Math.max(index, 0))
+      .filter((item) => !item.id.startsWith('draft_'))
+      .map((item) => ({
+        token: `step.${item.id}.output`,
+        label: `Result of step ${steps.indexOf(item) + 1} · ${kindLabel(item.type)}`,
+      }));
+  function text(
+    field: keyof TaskGraphFields,
+    label: string,
+    hint?: string,
+    variables = true,
+  ) {
     return (
       <Field label={label} hint={hint}>
-        <textarea
-          className="input"
-          rows={3}
-          maxLength={16384}
-          value={String(step.fields[field] ?? '')}
-          onChange={(event) => change(field, event.target.value)}
-        />
+        {variables ? (
+          <PromptTextarea
+            className="input"
+            rows={3}
+            maxLength={16384}
+            variables={earlier()}
+            value={String(step.fields[field] ?? '')}
+            onChange={(next) => change(field, next)}
+          />
+        ) : (
+          <textarea
+            className="input"
+            rows={3}
+            maxLength={16384}
+            value={String(step.fields[field] ?? '')}
+            onChange={(event) => change(field, event.target.value)}
+          />
+        )}
       </Field>
     );
   }
@@ -664,6 +690,7 @@ export default function TaskGraphEditor({
                           'condition',
                           'Condition expression',
                           'Examples: contains:done, gte:3, json:status:equals:ok, and:[not_empty,contains:done]. LLM conditions are evaluated only when run.',
+                          false,
                         )}
                         {branch('if_true', 'When true')}
                         {branch('if_false', 'When false')}

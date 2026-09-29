@@ -28,6 +28,7 @@ import {
   Toggle,
 } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
+import PromptTextarea from './PromptTextarea';
 import ScheduleBuilder from './ScheduleBuilder';
 
 export interface TaskEditorProps {
@@ -563,6 +564,7 @@ function StepList({
         <h3>Steps</h3>
         <span className="home-caption">
           Steps run in order; each sees the previous output.
+          {!readOnly && ' Type {{ in a step to add the date or its result.'}
         </span>
       </div>
       <ol className="task-step-list">
@@ -636,7 +638,7 @@ function StepList({
               {index + 1}
             </span>
             <Field label={`Prompt ${index + 1}`}>
-              <textarea
+              <PromptTextarea
                 className="input"
                 rows={3}
                 value={prompt}
@@ -648,10 +650,10 @@ function StepList({
                     ? 'What should Row-Bot do first?'
                     : 'Then what? It can use the previous output.'
                 }
-                onChange={(event) =>
+                onChange={(next) =>
                   onChange(
                     prompts.map((value, position) =>
-                      position === index ? event.target.value : value,
+                      position === index ? next : value,
                     ),
                   )
                 }

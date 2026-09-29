@@ -1473,16 +1473,20 @@ def expand_template_vars(
     }
     if task_id:
         replacements["task_id"] = task_id
-    result = prompt
-    for key, value in replacements.items():
-        result = result.replace("{{" + key + "}}", value)
+    import re
+
+    # "{{ date }}" and "{{date}}" alike: the step editor accepts both.
+    result = re.sub(
+        r"\{\{\s*(" + "|".join(map(re.escape, replacements)) + r")\s*\}\}",
+        lambda match: replacements[match.group(1)],
+        prompt,
+    )
     # Resolve {{step.<step_id>.output}} references
     if step_outputs:
-        import re
         def _resolve_step_ref(m):
             sid = m.group(1)
             return step_outputs.get(sid, "")
-        result = re.sub(r"\{\{step\.([^.]+)\.output\}\}", _resolve_step_ref, result)
+        result = re.sub(r"\{\{\s*step\.([^.\s]+)\.output\s*\}\}", _resolve_step_ref, result)
     return result
 
 
