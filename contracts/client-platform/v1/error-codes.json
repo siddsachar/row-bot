@@ -330,6 +330,7 @@
     "model_selection_mismatch": 422,
     "model_selection_required": 422,
     "model_settings_unavailable": 503,
+    "native_mcp_unavailable": 409,
     "no_recoverable_repository_delete_owner": 409,
     "not_found": 404,
     "onboarding_changed": 409,

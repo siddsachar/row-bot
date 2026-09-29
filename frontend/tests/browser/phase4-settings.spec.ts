@@ -2476,12 +2476,21 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await editor
     .getByLabel('New command', { exact: true })
     .fill('synthetic-unused-command');
+  // Arguments one per line; environment values are masked name/value rows.
   await editor
-    .getByLabel('New arguments (JSON array)', { exact: true })
-    .fill('["--synthetic-private"]');
+    .getByLabel('Arguments (one per line)', { exact: true })
+    .fill('--synthetic-private');
   await editor
-    .getByLabel('Additional settings (JSON)', { exact: true })
-    .fill('{"env":{"SYNTHETIC":"private-test-value"}}');
+    .getByRole('button', { name: 'Add variable', exact: true })
+    .click();
+  await editor
+    .getByLabel('Environment variables name 1', { exact: true })
+    .fill('SYNTHETIC');
+  const secretValue = editor.getByLabel('Environment variables value 1', {
+    exact: true,
+  });
+  await secretValue.fill('private-test-value');
+  await expect(secretValue).toHaveAttribute('type', 'password');
   // The unsaved draft, including write-only fields, is retained by its owner
   // across navigation and reopens the editor.
   await openHomeThroughNavigation(page);

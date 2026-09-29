@@ -4020,6 +4020,39 @@ class McpCatalogPayload(McpCatalogRequest):
     nonce: str = Field(min_length=1, max_length=128)
 
 
+class McpChatState(WireModel):
+    """Whether connected MCP servers' tools reach the chat ("Enable in chat", B130)."""
+    schema_version: Literal[1]
+    resource_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    availability: Literal["available", "missing", "registration_unavailable", "recovery_required", "unavailable"]
+    saved_enabled: bool | None
+    effective_enabled: bool | None
+    registered: bool
+
+
+class McpChatReviewRequest(WireModel):
+    resource_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    enabled: bool
+
+
+class McpChatReview(McpChatReviewRequest):
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    nonce: str = Field(min_length=1, max_length=128)
+
+
+class McpChatPayload(McpChatReviewRequest):
+    nonce: str = Field(min_length=1, max_length=128)
+
+
+class McpChatOutcome(WireModel):
+    schema_version: Literal[1]
+    status: Literal["saved", "partial"]
+    resource_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    saved_enabled: bool | None
+    effective_enabled: bool | None
+    code: str | None = Field(max_length=128)
+
+
 class McpCatalogReview(McpCatalogRequest):
     operation: Literal["accept_catalog"]
     action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -5757,6 +5790,7 @@ class Command(WireModel):
         "browser.back",
         "browser.end",
         "mcp.catalog.accept",
+        "mcp.facade.control",
         "knowledge.create",
         "knowledge.edit",
         "knowledge.archive",
@@ -5935,6 +5969,7 @@ COMMAND_PAYLOADS = {
     "browser.back": BrowserCommandRevisionPayload,
     "browser.end": BrowserCommandRevisionPayload,
     "mcp.catalog.accept": McpCatalogPayload,
+    "mcp.facade.control": McpChatPayload,
     "knowledge.create": KnowledgeWritePayload,
     "knowledge.edit": KnowledgeWritePayload,
     "knowledge.archive": KnowledgeLifecyclePayload,
@@ -6342,6 +6377,7 @@ class CommandReceipt(WireModel):
     selection: DefaultModelSnapshot | None = None
     mcp_configuration: McpConfigurationOutcome | None = None
     mcp_runtime: McpRuntimeOutcome | None = None
+    native_mcp: McpChatOutcome | None = None
     removal: DocumentRemovalOutcome | None = None
     accounts: SubscriptionAccountsSnapshot | None = None
     options: SubscriptionOptionsSnapshot | None = None

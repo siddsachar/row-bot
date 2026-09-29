@@ -4657,6 +4657,33 @@
       "title": "McpCatalogPayload",
       "type": "object"
     },
+    "McpChatPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "nonce": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Nonce",
+          "type": "string"
+        },
+        "resource_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Resource Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_revision",
+        "enabled",
+        "nonce"
+      ],
+      "title": "McpChatPayload",
+      "type": "object"
+    },
     "McpConfigurationControlCommand": {
       "additionalProperties": false,
       "properties": {
@@ -5004,6 +5031,43 @@
         "payload"
       ],
       "title": "McpConfigurationSaveCommand",
+      "type": "object"
+    },
+    "McpFacadeControlCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/McpChatPayload"
+        },
+        "type": {
+          "const": "mcp.facade.control",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "McpFacadeControlCommand",
       "type": "object"
     },
     "McpGlobalPolicyIntent": {
@@ -10973,6 +11037,7 @@
       "mcp.catalog.accept": "#/$defs/McpCatalogAcceptCommand",
       "mcp.configuration.control": "#/$defs/McpConfigurationControlCommand",
       "mcp.configuration.save": "#/$defs/McpConfigurationSaveCommand",
+      "mcp.facade.control": "#/$defs/McpFacadeControlCommand",
       "mcp.runtime.control": "#/$defs/McpRuntimeControlCommand",
       "mcp.runtime.install": "#/$defs/McpRuntimeInstallCommand",
       "mcp.runtime.install.cancel": "#/$defs/McpRuntimeInstallCancelCommand",
@@ -11364,6 +11429,9 @@
     },
     {
       "$ref": "#/$defs/McpCatalogAcceptCommand"
+    },
+    {
+      "$ref": "#/$defs/McpFacadeControlCommand"
     },
     {
       "$ref": "#/$defs/KnowledgeCreateCommand"

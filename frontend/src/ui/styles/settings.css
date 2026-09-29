@@ -3292,3 +3292,9 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
+.settings-mcp-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 6px;
+  align-items: center;
+}

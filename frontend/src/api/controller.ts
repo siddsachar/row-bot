@@ -2162,6 +2162,42 @@ export class ClientController {
         signal,
       ),
     );
+  /** "Enable in chat" for external MCP tools (B130). */
+  mcpChat = (signal?: AbortSignal) =>
+    this.query(() => this.transport.mcpChat?.(signal));
+  reviewMcpChat = (
+    body: import('./types').McpChatReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewMcpChat?.(body, signal));
+  executeMcpChat = async (
+    original: {
+      command_id: string;
+      type: 'mcp.facade.control';
+      payload: { resource_revision: string; enabled: boolean };
+    },
+    review: { nonce?: string },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake || !review.nonce)
+      throw clientError({ code: 'approval_expired' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      payload: { ...original.payload, nonce: review.nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, original.command_id, signal),
+    );
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      command_id: result.command_id,
+      status: result.status,
+      native_mcp: result.native_mcp ?? undefined,
+    };
+  };
   reviewMcpPolicy = (body: unknown, signal?: AbortSignal) => {
     const input = validateWire<import('./types').McpPolicyRequest>(
       'McpPolicyRequest',

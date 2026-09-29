@@ -257,6 +257,10 @@ const CATALOG: Record<string, Entry> = {
     "Row-Bot couldn't reach that endpoint. Check its address and that its server is running, then refresh it.",
     'review',
   ],
+  native_mcp_unavailable: [
+    'External MCP tools are not available in this Row-Bot. Restart it and try again.',
+    'review',
+  ],
   plugin_environment_ready: [
     'This plugin is already prepared. Refresh the list.',
     'review',

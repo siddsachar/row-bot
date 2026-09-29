@@ -22,6 +22,7 @@ import {
 } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
 import { SettingsSummary, SummaryChip } from './anatomy';
+import type { AddConnectStep } from './mcp-add-connect';
 
 export type McpConfigurationPage = {
   schema_version: 1;
@@ -79,13 +80,18 @@ type Attempt = {
   command: McpConfigurationCommand;
   review: McpConfigurationReview;
 };
+type Pair = { key: string; value: string };
 type Draft = {
   operation: McpConfigurationIntent['operation'];
   serverId: string;
   name: string;
   transport: string;
   launch: string;
+  /** One argument per line (a JSON array is still read as before). */
   arguments: string;
+  /** Environment variables (a local command) or headers (HTTP), masked. */
+  env: Pair[];
+  headers: Pair[];
   extra: string;
   imported: string;
 };
@@ -96,6 +102,8 @@ const emptyDraft = (): Draft => ({
   transport: 'stdio',
   launch: '',
   arguments: '',
+  env: [],
+  headers: [],
   extra: '',
   imported: '',
 });
@@ -156,7 +164,9 @@ export function createCapabilitySettingsSession() {
         state.pending ||
         state.reviewed ||
         Object.entries(state.draft).some(
-          ([key, value]) => value !== emptyDraft()[key as keyof Draft],
+          ([key, value]) =>
+            JSON.stringify(value) !==
+            JSON.stringify(emptyDraft()[key as keyof Draft]),
         ),
       ),
     dispose: () => {
@@ -182,6 +192,14 @@ export type CapabilitySettingsSession = ReturnType<
 >;
 export type CapabilitySettingsProps = {
   onConnection?: (serverId: string, name: string) => void;
+  /**
+   * "Add and connect" (U53): after saving a new server, Test it, accept its
+   * tools, turn it on and connect, reporting each step.
+   */
+  addAndConnect?: (
+    serverId: string,
+    onStep: (step: AddConnectStep) => void,
+  ) => Promise<{ tools: number }>;
   session: CapabilitySettingsSession;
   load: (
     query: { query: string; cursor?: string },
@@ -216,6 +234,76 @@ export type CapabilitySettingsProps = {
   }>;
 };
 
+/**
+ * Name and value rows for environment variables or headers (U53): values
+ * are masked like any secret and never read back from the server.
+ */
+function PairRows({
+  label,
+  rows,
+  hint,
+  onChange,
+}: {
+  label: string;
+  rows: Pair[];
+  hint: string;
+  onChange: (rows: Pair[]) => void;
+}) {
+  const singular = label === 'Headers' ? 'header' : 'variable';
+  return (
+    <div className="stack settings-mcp-pairs" role="group" aria-label={label}>
+      <strong>{label}</strong>
+      <small className="settings-help">{hint}</small>
+      {rows.map((row, index) => (
+        <div className="settings-mcp-pair" key={index}>
+          <Input
+            aria-label={`${label} name ${index + 1}`}
+            placeholder="Name"
+            value={row.key}
+            maxLength={256}
+            autoComplete="off"
+            onChange={(event) =>
+              onChange(
+                rows.map((item, at) =>
+                  at === index ? { ...item, key: event.target.value } : item,
+                ),
+              )
+            }
+          />
+          <Input
+            aria-label={`${label} value ${index + 1}`}
+            placeholder="Value"
+            type="password"
+            value={row.value}
+            maxLength={16384}
+            autoComplete="new-password"
+            onChange={(event) =>
+              onChange(
+                rows.map((item, at) =>
+                  at === index ? { ...item, value: event.target.value } : item,
+                ),
+              )
+            }
+          />
+          <Button
+            variant="ghost"
+            aria-label={`Remove ${singular} ${index + 1}`}
+            onClick={() => onChange(rows.filter((_, at) => at !== index))}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
+      <Button
+        className="small"
+        onClick={() => onChange([...rows, { key: '', value: '' }])}
+      >
+        Add {singular}
+      </Button>
+    </div>
+  );
+}
+
 function boundedPage(page: McpConfigurationPage): McpConfigurationPage {
   if (page.items.length > 50) throw Error('Invalid saved server page');
   return page;
@@ -231,8 +319,14 @@ function buildIntent(draft: Draft): McpConfigurationIntent {
       fields.transport = draft.transport;
       fields[draft.transport === 'stdio' ? 'command' : 'url'] = draft.launch;
     }
-    if (draft.arguments) {
-      const args: unknown = JSON.parse(draft.arguments);
+    if (draft.arguments.trim()) {
+      const text = draft.arguments.trim();
+      const args: unknown = text.startsWith('[')
+        ? JSON.parse(text)
+        : text
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean);
       if (!Array.isArray(args) || args.some((item) => typeof item !== 'string'))
         throw Error();
       fields.args = args;
@@ -253,6 +347,18 @@ function buildIntent(draft: Draft): McpConfigurationIntent {
         throw Error();
       Object.assign(fields, extra);
     }
+    // Key–value rows (U53): values stay masked on the page and write-only.
+    const pairs = (rows: Pair[]) => {
+      const named = rows.filter((row) => row.key.trim());
+      if (!named.length) return null;
+      return Object.fromEntries(
+        named.map((row) => [row.key.trim(), row.value]),
+      );
+    };
+    const env = pairs(draft.env);
+    const headers = pairs(draft.headers);
+    if (env) fields.env = env;
+    if (headers) fields.headers = headers;
   }
   return {
     operation: draft.operation,
@@ -261,8 +367,16 @@ function buildIntent(draft: Draft): McpConfigurationIntent {
   };
 }
 
+const STEP_WORDS: Record<AddConnectStep, string> = {
+  test: 'Testing the server…',
+  accept: 'Accepting its tools…',
+  enable: 'Turning it on…',
+  connect: 'Connecting…',
+};
+
 export default function CapabilitySettings({
   onConnection,
+  addAndConnect,
   session,
   load,
   review,
@@ -270,6 +384,9 @@ export default function CapabilitySettings({
   searchDirectory,
 }: CapabilitySettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  // Set by "Add and connect" for the save it starts.
+  const connectAfterSave = useRef(false);
+  const [connecting, setConnecting] = useState('');
   const [editorOpen, setEditorOpen] = useState(session.hasRetained());
   const [directoryQuery, setDirectoryQuery] = useState('');
   const [directoryResult, setDirectoryResult] = useState<Awaited<
@@ -461,6 +578,33 @@ export default function CapabilitySettings({
         const saved = session.getSnapshot().message;
         await refresh(session.getSnapshot().filter);
         if (!session.getSnapshot().message) session.update({ message: saved });
+        const serverId = (
+          result.mcp_configuration as { server_ids?: string[] } | undefined
+        )?.server_ids?.[0];
+        if (connectAfterSave.current && addAndConnect && serverId && !deleted) {
+          connectAfterSave.current = false;
+          const name = attempt.command.payload.intent.fields?.name;
+          try {
+            const done = await addAndConnect(serverId, (step) =>
+              setConnecting(STEP_WORDS[step]),
+            );
+            session.update({
+              message: `Connected. ${done.tools} ${done.tools === 1 ? 'tool is' : 'tools are'} ready in chat; tools that change things still ask first.`,
+            });
+          } catch (cause) {
+            session.update({
+              message: `Saved. ${
+                cause instanceof Error && cause.message
+                  ? cause.message
+                  : clientError(cause).message
+              } Finish in the server's connection below.`,
+            });
+          } finally {
+            setConnecting('');
+            await refresh(session.getSnapshot().filter);
+            if (typeof name === 'string') onConnection?.(serverId, name);
+          }
+        }
       } else if (result.mcp_configuration?.code === 'mcp_cleanup_incomplete') {
         session.update({
           busy: '',
@@ -995,40 +1139,87 @@ export default function CapabilitySettings({
                       onChange={(event) => edit({ launch: event.target.value })}
                     />
                   </Field>
-                  <Field label="New arguments (JSON array)">
-                    <Input
-                      value={draft.arguments}
-                      maxLength={65536}
-                      autoComplete="off"
-                      onChange={(event) =>
-                        edit({ arguments: event.target.value })
-                      }
-                    />
-                  </Field>
+                  {draft.transport === 'stdio' && (
+                    <Field label="Arguments (one per line)">
+                      <textarea
+                        className="input"
+                        rows={3}
+                        value={draft.arguments}
+                        maxLength={65536}
+                        autoComplete="off"
+                        onChange={(event) =>
+                          edit({ arguments: event.target.value })
+                        }
+                      />
+                    </Field>
+                  )}
+                  <PairRows
+                    label={
+                      draft.transport === 'stdio'
+                        ? 'Environment variables'
+                        : 'Headers'
+                    }
+                    rows={
+                      draft.transport === 'stdio' ? draft.env : draft.headers
+                    }
+                    onChange={(rows) =>
+                      edit(
+                        draft.transport === 'stdio'
+                          ? { env: rows }
+                          : { headers: rows },
+                      )
+                    }
+                    hint={
+                      draft.operation === 'edit'
+                        ? 'Values stay hidden. Leave empty to keep the saved ones.'
+                        : 'Values stay hidden; use them for keys and tokens.'
+                    }
+                  />
                   <Field label="Additional settings (JSON)">
                     <textarea
                       className="input"
-                      rows={3}
+                      rows={2}
                       value={draft.extra}
                       maxLength={131072}
                       autoComplete="off"
                       onChange={(event) => edit({ extra: event.target.value })}
                     />
                   </Field>
-                  <p>
-                    Optional fields: cwd, env, headers, connect_timeout,
-                    tool_timeout, output_limit. Omitted values remain saved; use
-                    empty objects or arrays to clear them.
-                  </p>
+                  <small className="settings-help">
+                    Rarely needed: cwd, connect_timeout, tool_timeout,
+                    output_limit. Omitted values stay saved.
+                  </small>
                 </>
               )}
             </>
           )}
           <div className="action-cluster">
-            <Button variant="primary" onClick={() => void requestReview()}>
+            {draft.operation === 'add' && addAndConnect && (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  connectAfterSave.current = true;
+                  void requestReview();
+                }}
+              >
+                Add and connect
+              </Button>
+            )}
+            <Button
+              variant={
+                draft.operation === 'add' && addAndConnect
+                  ? 'secondary'
+                  : 'primary'
+              }
+              onClick={() => {
+                connectAfterSave.current = false;
+                void requestReview();
+              }}
+            >
               Save Disabled
             </Button>
           </div>
+          {connecting && <p role="status">{connecting}</p>}
         </fieldset>
       </details>
       <ModalTask

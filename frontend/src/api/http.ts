@@ -886,6 +886,12 @@ export class HttpTransport implements ClientTransport {
   reviewMcpPolicy(body: wire.McpPolicyRequest, signal?: AbortSignal) {
     return wire.reviewMcpPolicy(this.base, this.session(), body, signal);
   }
+  mcpChat(signal?: AbortSignal) {
+    return wire.getMcpChat(this.base, this.session(), signal);
+  }
+  reviewMcpChat(body: wire.McpChatReviewRequest, signal?: AbortSignal) {
+    return wire.reviewMcpChat(this.base, this.session(), body, signal);
+  }
   reviewDocumentRemoval(document: string | null, signal?: AbortSignal) {
     return wire.reviewDocumentRemoval(
       this.base,

@@ -86,8 +86,8 @@ async function enterDraft() {
   fireEvent.change(screen.getByLabelText('New command'), {
     target: { value: 'synthetic-executable' },
   });
-  fireEvent.change(screen.getByLabelText('New arguments (JSON array)'), {
-    target: { value: '["one two", "--exact"]' },
+  fireEvent.change(screen.getByLabelText('Arguments (one per line)'), {
+    target: { value: 'one two\n--exact' },
   });
 }
 
@@ -233,8 +233,8 @@ it('preserves the exact unsent draft across full unmount', async () => {
   await enterDraft();
   first.unmount();
   render(<CapabilitySettings {...props} />);
-  expect(screen.getByLabelText('New arguments (JSON array)')).toHaveValue(
-    '["one two", "--exact"]',
+  expect(screen.getByLabelText('Arguments (one per line)')).toHaveValue(
+    'one two\n--exact',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
   await screen.findByText(/^Saved disabled\./);
@@ -437,8 +437,8 @@ it('rejects malformed and oversized drafts before review or execution', async ()
   render(<CapabilitySettings {...props} />);
   await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
-  fireEvent.change(screen.getByLabelText('New arguments (JSON array)'), {
-    target: { value: '"not-an-array"' },
+  fireEvent.change(screen.getByLabelText('Arguments (one per line)'), {
+    target: { value: '[not json' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
   await screen.findByText(/could not be validated/);

@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "resource_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Resource Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resource_revision",
+    "enabled"
+  ],
+  "title": "McpChatReviewRequest",
+  "type": "object"
+}

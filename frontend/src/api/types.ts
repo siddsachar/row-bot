@@ -827,7 +827,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.WikiReceipt>;
   channels?(query: string, signal?: AbortSignal): Promise<Wire.ChannelPage>;
-  channelLink?(channel: string, signal?: AbortSignal): Promise<Wire.ChannelLink>;
+  channelLink?(
+    channel: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ChannelLink>;
   reviewChannel?(
     body: Wire.ChannelActionRequest,
     signal?: AbortSignal,
@@ -944,7 +947,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ProfileReceipt>;
   channels?(query: string, signal?: AbortSignal): Promise<Wire.ChannelPage>;
-  channelLink?(channel: string, signal?: AbortSignal): Promise<Wire.ChannelLink>;
+  channelLink?(
+    channel: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ChannelLink>;
   reviewChannel?(
     body: Wire.ChannelActionRequest,
     signal?: AbortSignal,
@@ -1023,6 +1029,11 @@ export interface ClientTransport {
     body: Wire.McpPolicyRequest,
     signal?: AbortSignal,
   ): Promise<Wire.McpPolicyReview>;
+  mcpChat?(signal?: AbortSignal): Promise<Wire.McpChatState>;
+  reviewMcpChat?(
+    body: Wire.McpChatReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpChatReview>;
   mcpRuntime?(
     server: string,
     signal?: AbortSignal,

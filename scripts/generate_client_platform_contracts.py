@@ -45,6 +45,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "McpRuntimeState", "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpTestedCatalogPage", "McpCatalogRequest", "McpCatalogReview",
+    "McpChatState", "McpChatReviewRequest", "McpChatReview", "McpChatOutcome",
     "RuntimeInstallationSnapshot", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview", "RuntimeInstallationReceipt",
     "DocumentQueuePage", "DocumentControlReviewRequest", "DocumentControlReview", "DocumentControlReceipt",
     "DocumentUploadReviewRequest", "DocumentUploadReview", "DocumentUploadReceipt",
@@ -271,6 +272,8 @@ OPERATIONS = (
     ("get", "/settings/plugins/lifecycle/commands/{command_id}", None, "PluginLifecycleReceipt"),
     ("post", "/settings/plugins/lifecycle/commands", "PluginLifecycleCommand", "PluginLifecycleReceipt"),
     ("post", "/settings/mcp/policy/review", "McpPolicyRequest", "McpPolicyReview"),
+    ("get", "/settings/mcp/chat", None, "McpChatState"),
+    ("post", "/settings/mcp/chat/review", "McpChatReviewRequest", "McpChatReview"),
     ("post", "/settings/mcp/runtime/review", "McpRuntimeReviewRequest", "McpRuntimeReview"),
     ("post", "/settings/mcp/configuration/review", "McpConfigurationReviewRequest", "McpConfigurationReview"),
     ("get", "/settings/providers/{provider_id}/credential", None, "ProviderSettingsSnapshot"),
@@ -1093,6 +1096,10 @@ export const getMcpPolicy = (base: string, proof: SessionProof, server: string |
   jsonRequest(base, '/settings/mcp/policy' + query({server_id:server ?? undefined,query:search,cursor}), 'McpPolicyPage', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpPolicy = (base: string, proof: SessionProof, body: McpPolicyRequest, signal?: AbortSignal): Promise<McpPolicyReview> =>
   jsonRequest(base, '/settings/mcp/policy/review', 'McpPolicyReview', proof, 'POST', validateWire('McpPolicyRequest', body), undefined, signal);
+export const getMcpChat = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<McpChatState> =>
+  jsonRequest(base, '/settings/mcp/chat', 'McpChatState', proof, 'GET', undefined, undefined, signal);
+export const reviewMcpChat = (base: string, proof: SessionProof, body: McpChatReviewRequest, signal?: AbortSignal): Promise<McpChatReview> =>
+  jsonRequest(base, '/settings/mcp/chat/review', 'McpChatReview', proof, 'POST', validateWire('McpChatReviewRequest', body), undefined, signal);
 export const getMcpRuntime = (base: string, proof: SessionProof, server: string, signal?: AbortSignal): Promise<McpRuntimeState> =>
   jsonRequest(base, `/settings/mcp/runtime/${id(server)}`, 'McpRuntimeState', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpRuntime = (base: string, proof: SessionProof, body: McpRuntimeReviewRequest, signal?: AbortSignal): Promise<McpRuntimeReview> =>

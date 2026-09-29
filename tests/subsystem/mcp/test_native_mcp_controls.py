@@ -410,3 +410,32 @@ def test_unloaded_registration_read_is_passive_and_write_is_rejected(owner):
     with pytest.raises(controls.NativeMcpError, match="native_mcp_unavailable"):
         execute(command())
     assert configuration.configuration_path().read_bytes() == before
+
+
+def test_enable_in_chat_is_reachable_from_the_settings_api(owner):
+    """B130: the "Enable in chat" switch (McpFacadeControls) had no route, so
+    React never mounted it and external MCP tools could not be turned on for
+    the chat there. It is read, reviewed and saved through the MCP API."""
+    from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
+
+    registry, _document = owner
+    local, _service, _active = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        state = local.get("/api/v1/settings/mcp/chat", headers=headers)
+        assert state.status_code == 200, state.text
+        assert state.json()["saved_enabled"] is False and registry._enabled["mcp"] is False
+        revision = state.json()["resource_revision"]
+        review = local.post("/api/v1/settings/mcp/chat/review", headers=headers,
+                            json={"resource_revision": revision, "enabled": True})
+        assert review.status_code == 200, review.text
+        assert registry._enabled["mcp"] is False  # reviewing changes nothing
+        command_id = str(uuid4())
+        body = {"command_id": command_id, "client_session_id": headers["X-Client-Session"],
+                "type": "mcp.facade.control", "expected_revision": "0",
+                "payload": {"resource_revision": revision, "enabled": True, "nonce": review.json()["nonce"]}}
+        done = local.post("/api/v1/settings/mcp/commands",
+                          headers={**headers, "Idempotency-Key": command_id}, json=body)
+        assert done.status_code == 200, done.text
+        assert done.json()["native_mcp"]["saved_enabled"] is True
+    assert registry._enabled["mcp"] is True

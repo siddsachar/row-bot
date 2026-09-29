@@ -18,6 +18,8 @@ import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
 import CapabilitySettings from './CapabilitySettings';
+import McpFacadeControls from './McpFacadeControls';
+import { addAndConnect, type AddConnectApi } from './mcp-add-connect';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
 import McpConnectionsPanel from './McpConnections';
@@ -85,6 +87,7 @@ export default function SettingRoute() {
     providerConfigurationOwner,
     defaultModelOwner,
     capabilitySettingsOwner,
+    mcpChatOwner,
     subscriptionAccountsOwner,
     subscriptionOptionsOwner,
     mcpConnectionsOwner,
@@ -442,6 +445,19 @@ export default function SettingRoute() {
           />
         ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
           <>
+            {mcpChatOwner?.get() && (
+              // "Enable in chat" for external MCP tools (B130).
+              <McpFacadeControls
+                session={mcpChatOwner.get()!}
+                load={(signal) => controller.mcpChat(signal)}
+                review={(payload, signal) =>
+                  controller.reviewMcpChat(payload, signal)
+                }
+                execute={(command, review) =>
+                  controller.executeMcpChat(command, review)
+                }
+              />
+            )}
             <CapabilitySettings
               session={capabilitySettingsOwner.get()!}
               load={({ query, cursor }, signal) =>
@@ -452,6 +468,25 @@ export default function SettingRoute() {
               searchDirectory={controller.searchMcpDirectory}
               onConnection={(id, name) =>
                 mcpConnectionsOwner?.get()?.select(id, name)
+              }
+              addAndConnect={(serverId, onStep) =>
+                addAndConnect(
+                  {
+                    runtime: (id) => controller.mcpRuntime(id),
+                    reviewRuntime: (payload) =>
+                      controller.reviewMcpRuntime(payload),
+                    executeRuntime: (command, review) =>
+                      controller.executeMcpRuntime(command, review),
+                    catalog: (query) => controller.mcpTestedCatalog(query),
+                    reviewCatalog: (body) => controller.reviewMcpCatalog(body),
+                    policy: (query) => controller.mcpPolicy(query),
+                    reviewPolicy: (body) => controller.reviewMcpPolicy(body),
+                    executeConfiguration: (command, review) =>
+                      controller.executeMcpConfiguration(command, review),
+                  } as AddConnectApi,
+                  serverId,
+                  onStep,
+                )
               }
             />
             {mcpConnectionsOwner?.get() && (

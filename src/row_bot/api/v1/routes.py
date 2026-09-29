@@ -654,6 +654,8 @@ _STATUS["channel_not_running"] = 409
 _STATUS["channel_test_target_missing"] = 409
 # A custom endpoint that did not answer a refresh or probe (B114).
 _STATUS["endpoint_unreachable"] = 409
+# "Enable in chat" (B130): the MCP tool isn't registered in this process.
+_STATUS["native_mcp_unavailable"] = 409
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(
@@ -3376,6 +3378,44 @@ def create_router(
                 validate_review=validate_catalog_review,
             )
             return await respond(request, dto.CommandReceipt, public_receipt(result))
+        if body.type == "mcp.facade.control":
+            # "Enable in chat" (B130): external MCP tools reach the chat.
+            from row_bot.application.native_mcp_controls import (
+                execute_native_mcp_command,
+                public_receipt as native_public_receipt,
+            )
+            from row_bot.runtime.admissions import keyed_digest, read_command_metadata
+
+            def validate_chat_review(review: dict) -> None:
+                validate_access()
+                security.consume_nonce(
+                    current,
+                    "settings:mcp-chat",
+                    review["resource_revision"],
+                    review["action_digest"],
+                    body.payload["nonce"],
+                    str(body.command_id),
+                )
+
+            chat_intent = {
+                "resource_revision": body.payload["resource_revision"],
+                "enabled": body.payload["enabled"],
+            }
+            reviewed = {**chat_intent, "action_digest": await call(keyed_digest, chat_intent)}
+            original = await call(
+                read_command_metadata, security.instance_id, str(body.command_id)
+            )
+            if original is None:
+                await call(validate_chat_review, reviewed)
+            result = await call(
+                execute_native_mcp_command,
+                owner_id=security.instance_id,
+                key=key,
+                command=wire,
+                validate=validate_access,
+                validate_review=lambda _review: validate_access(),
+            )
+            return await respond(request, dto.CommandReceipt, native_public_receipt(result))
         if body.type in {"mcp.configuration.save", "mcp.configuration.control"}:
             from row_bot.application.capability_configuration_controls import (
                 execute_mcp_configuration_command,
@@ -6914,6 +6954,36 @@ def create_router(
     @router.post("/settings/mcp/commands")
     async def mcp_mutation(request: Request) -> JSONResponse:
         return await command("settings:mcp", request, mcp_command=True)
+
+    @router.get("/settings/mcp/chat")
+    async def mcp_chat_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.native_mcp_controls import read_native_mcp_state
+
+        result = await call(
+            read_native_mcp_state, validate=dispatch_validation(request, current)
+        )
+        return await respond(request, dto.McpChatState, asdict(result))
+
+    @router.post("/settings/mcp/chat/review")
+    async def mcp_chat_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpChatReviewRequest, 4096)
+        from row_bot.application.native_mcp_controls import review_native_mcp_command
+
+        result = await call(
+            review_native_mcp_command,
+            body.resource_revision,
+            body.enabled,
+            validate=dispatch_validation(request, current),
+        )
+        result["nonce"] = security.approval_nonce(
+            current,
+            "settings:mcp-chat",
+            result["resource_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.McpChatReview, result)
 
     @router.get("/settings/mcp/runtime/{server_id}")
     async def mcp_runtime_state(server_id: str, request: Request) -> JSONResponse:
