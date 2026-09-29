@@ -253,6 +253,10 @@ const CATALOG: Record<string, Entry> = {
   ],
   invalid_fields: ['Check the fields you filled in and try again.', 'review'],
 
+  endpoint_unreachable: [
+    "Row-Bot couldn't reach that endpoint. Check its address and that its server is running, then refresh it.",
+    'review',
+  ],
   plugin_environment_ready: [
     'This plugin is already prepared. Refresh the list.',
     'review',

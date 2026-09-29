@@ -292,3 +292,24 @@ def test_nested_probe_stage_cannot_restart_overall_deadline(store, monkeypatch):
     now[0] = 130.0
     with pytest.raises(custom.EndpointAuthorityError, match="provider_probe_limit"):
         custom._endpoint_timeout(inner, 15)
+
+
+def test_an_unreachable_endpoint_refresh_ends_definitely_and_says_so(store, monkeypatch):
+    """B114: a refresh of an endpoint that doesn't answer stayed "unconfirmed"
+    forever (the list hid behind "Check again" until a reload) and the
+    endpoint still read as connected. The failure is definite now: the
+    command is refused as unreachable and the endpoint reads Not reachable."""
+    execute(command())
+
+    def unreachable(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(custom, "_probe_request", unreachable)
+    refresh = command("provider.endpoint.refresh", {"endpoint_id": "synthetic"})
+    with pytest.raises(config.ProviderConfigError, match="endpoint_unreachable"):
+        execute(refresh)
+    receipt = controls.read_provider_configuration_receipt(
+        owner_id="owner", command_id=refresh["command_id"], validate=lambda: None)
+    assert receipt["status"] == "rejected"
+    assert custom.get_custom_endpoint("synthetic")["last_probe"]["classification"] == "unavailable"
+    assert "models" not in custom.get_custom_endpoint("synthetic")

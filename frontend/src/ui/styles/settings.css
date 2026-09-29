@@ -3287,3 +3287,8 @@
 .connect-link-code {
   justify-items: start;
 }
+.settings-dialog-error {
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}

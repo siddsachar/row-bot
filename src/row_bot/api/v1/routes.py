@@ -652,6 +652,8 @@ _STATUS["plugin_environment_ready"] = 409
 # "Send a test message to me" needs a running channel that knows the person.
 _STATUS["channel_not_running"] = 409
 _STATUS["channel_test_target_missing"] = 409
+# A custom endpoint that did not answer a refresh or probe (B114).
+_STATUS["endpoint_unreachable"] = 409
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(

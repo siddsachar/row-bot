@@ -163,6 +163,7 @@
     "editing_record_too_large": 413,
     "element_unavailable": 409,
     "empty_audio": 422,
+    "endpoint_unreachable": 409,
     "exact_page_target_and_hidden_text_contract_required": 409,
     "exact_page_target_contract_required": 409,
     "export_busy": 429,

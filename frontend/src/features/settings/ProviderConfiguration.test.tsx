@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ProviderConfiguration, {
@@ -465,5 +466,44 @@ it('labels rejected receipts as rejection and allows explicit unsent discard', a
   expect(props.onSaved).not.toHaveBeenCalled();
   expect(
     screen.getByRole('button', { name: 'Discard unsent changes' }),
+  ).toBeEnabled();
+});
+
+it('says what is wrong inside the endpoint dialog and keeps the list after a refresh that fails (B114)', async () => {
+  const props = options();
+  render(<ProviderConfiguration {...props} compact />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add custom endpoint' }),
+  );
+  fireEvent.change(screen.getByLabelText('Endpoint id'), {
+    target: { value: 'Bad id!' },
+  });
+  fireEvent.change(screen.getByLabelText('Display name'), {
+    target: { value: 'Unreachable endpoint' },
+  });
+  fireEvent.change(screen.getByLabelText('Base URL'), {
+    target: { value: 'http://127.0.0.1:1299/v1' },
+  });
+  props.review.mockRejectedValueOnce({ code: 'invalid_fields' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  // The refusal is inside the dialog, not behind it.
+  const dialog = screen.getByTestId('shared-dialog-task');
+  expect(
+    await within(dialog).findByText(/Check the fields you filled in/),
+  ).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Endpoint id'), {
+    target: { value: 'unreachable' },
+  });
+  // Saved, then the endpoint doesn't answer its model refresh.
+  props.apply
+    .mockResolvedValueOnce({ configuration_revision: 'b'.repeat(64) })
+    .mockRejectedValueOnce({ code: 'endpoint_unreachable' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(await screen.findByText(/couldn't reach that endpoint/)).toBeVisible();
+  // The list stays, nothing is left "unconfirmed", Add works again.
+  expect(screen.getByText('Synthetic endpoint')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Add custom endpoint' }),
   ).toBeEnabled();
 });

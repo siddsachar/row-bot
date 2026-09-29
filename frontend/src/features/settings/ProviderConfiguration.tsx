@@ -459,19 +459,21 @@ export default function ProviderConfiguration(
         structuredClone(reviewed),
       );
       if (!session.getSnapshot().active) return;
+      // The list stays on screen while it re-reads (B114).
       session.update({
         pending: null,
         busy: '',
         dirty: false,
         editing: false,
         fields: blank(),
-        page: null,
         notice:
           next === 'provider.endpoint.probe'
-            ? 'Endpoint probe completed.'
+            ? 'Endpoint probe finished.'
             : next === 'provider.endpoint.refresh'
               ? 'Endpoint models refreshed.'
-              : 'Endpoint settings saved.',
+              : next === 'provider.endpoint.delete'
+                ? 'Endpoint removed.'
+                : 'Endpoint settings saved.',
       });
       if (generation === epoch.current) props.onSaved();
       if (
@@ -519,26 +521,39 @@ export default function ProviderConfiguration(
               pending: null,
               busy: '',
               notice: 'Endpoint saved and models refreshed.',
-              page: null,
             });
             if (generation === epoch.current) props.onSaved();
             void load();
           } catch (cause) {
+            const failure = clientError(cause);
+            // An endpoint that doesn't answer is a definite outcome: nothing
+            // to check again, and the list shows it as Not reachable (B114).
+            if (failure.code === 'endpoint_unreachable')
+              session.update({ pending: null });
             session.update({
               busy: '',
-              error: clientError(cause).message,
+              error:
+                failure.code === 'endpoint_unreachable' ? '' : failure.message,
               notice: session.getSnapshot().pending
                 ? "Endpoint saved, but Row-Bot couldn't confirm the model refresh. Check again."
-                : 'Endpoint saved, but model refresh did not start.',
+                : failure.code === 'endpoint_unreachable'
+                  ? `Endpoint saved. ${failure.message}`
+                  : 'Endpoint saved, but model refresh did not start.',
             });
             if (!session.getSnapshot().pending) void load();
           }
         } else void load();
       } else void load();
     } catch (cause) {
+      const failure = clientError(cause);
+      if (failure.code === 'endpoint_unreachable') {
+        session.update({ pending: null, busy: '', notice: failure.message });
+        void load();
+        return;
+      }
       session.update({
         busy: '',
-        error: clientError(cause).message,
+        error: failure.message,
         notice:
           "Row-Bot couldn't confirm that. Check again before another action.",
       });
@@ -570,7 +585,8 @@ export default function ProviderConfiguration(
       >
         <h3 className="settings-provider-group-heading">Custom endpoints</h3>
         {state.busy === 'load' && <Skeleton label="Loading custom endpoints" />}
-        {state.error && <p role="alert">{state.error}</p>}
+        {/* While the dialog is open its errors show inside it (B114). */}
+        {state.error && !state.editing && <p role="alert">{state.error}</p>}
         {state.notice && <p role="status">{state.notice}</p>}
         {page && page.items.length > 0 && (
           <ul className="settings-provider-list settings-custom-endpoint-list">
@@ -951,6 +967,11 @@ export default function ProviderConfiguration(
                   </Field>
                 </div>
               </details>
+              {state.error && (
+                <p role="alert" className="settings-dialog-error">
+                  {state.error}
+                </p>
+              )}
               <div className="actions">
                 <Button
                   disabled={
@@ -976,6 +997,7 @@ export default function ProviderConfiguration(
                       editing: false,
                       dirty: false,
                       reviewed: null,
+                      error: '',
                       fields: blank(),
                     })
                   }

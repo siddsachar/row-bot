@@ -291,10 +291,25 @@ def _execute_probe(owner_id: str, key: str, command: dict, validate: Callable[[]
         if current is None or custom.endpoint_configuration_revision(current) != captured or load_provider_config(strict=True)["providers"].get(endpoint["provider_id"]) != credential_config:
             raise ProviderConfigError("revision_conflict")
     authority()
-    if operation.endswith(".probe"):
-        custom.probe_custom_endpoint(endpoint_id, validate=authority, strict=True)
-    else:
-        custom.refresh_custom_endpoint_models(endpoint_id, validate=authority, strict=True)
+    try:
+        if operation.endswith(".probe"):
+            custom.probe_custom_endpoint(endpoint_id, validate=authority, strict=True)
+        else:
+            custom.refresh_custom_endpoint_models(endpoint_id, validate=authority, strict=True)
+    except ProviderConfigError:
+        raise
+    except Exception:
+        # The endpoint didn't answer (B114). Nothing was published, so the
+        # outcome is definite: the endpoint reads Not reachable and the
+        # command is refused, instead of staying unconfirmed forever.
+        custom._store_custom_endpoint_probe(
+            endpoint_id,
+            {"classification": "unavailable", "ok": False, "models_ok": False,
+             "errors": ["models: the endpoint did not answer"]},
+            validate=authority,
+        )
+        admissions.reject_command(owner_id, key, "endpoint_unreachable")
+        raise ProviderConfigError("endpoint_unreachable") from None
     with provider_config_transaction():
         authority()
         cfg = load_provider_config(strict=True)
