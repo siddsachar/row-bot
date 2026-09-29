@@ -1969,8 +1969,8 @@ def main() -> None:
         return b'v=0\r\nsynthetic-browser-answer'
     client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
 
-    # NiceGUI adds its BaseHTTPMiddleware instances later inside ui.run().
-    # Wrap the completed stack so their own exceptions are observed too.
+    # The middleware stack is built on the first request. Wrap the completed
+    # stack so the middlewares' own exceptions are observed too.
     build_middleware_stack = app.build_middleware_stack
     app.build_middleware_stack = lambda: SyntheticRequestDiagnostics(build_middleware_stack())
 

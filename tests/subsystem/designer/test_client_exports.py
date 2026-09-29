@@ -276,7 +276,7 @@ def test_strict_partial_pdf_merge_and_pptx_item_failures_never_claim_ready(proje
         with pytest.raises(client_service.ArtifactError, match='export_incomplete'):
             create(project, format='pdf')
         # Compatibility behavior belongs to the retained owner; strict policy
-        # does not leak after failure into existing NiceGUI callers.
+        # does not leak after failure into its other callers.
         assert export.export_pdf(project, directory=tmp_path)
     def fail_item(*_args):
         raise ValueError('synthetic item conversion failure')

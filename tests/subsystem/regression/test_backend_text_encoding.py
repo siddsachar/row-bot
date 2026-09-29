@@ -16,10 +16,6 @@ def test_backend_strings_are_not_double_encoded():
     found = []
     for path in sorted(SOURCE.rglob("*.py")):
         relative = path.relative_to(SOURCE)
-        # The legacy NiceGUI package is retired separately; comments may name
-        # the pattern they guard against.
-        if relative.parts[0] == "ui":
-            continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue

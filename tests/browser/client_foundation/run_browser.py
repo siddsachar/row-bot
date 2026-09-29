@@ -1,4 +1,4 @@
-"""Run the new shell against one private real NiceGUI/API host.
+"""Run the new shell against one private real API host.
 
 Uses the unchanged Phase 1 scripted provider fixture, an owned loopback port,
 and a fresh data directory. Node and browser dependencies must already exist.

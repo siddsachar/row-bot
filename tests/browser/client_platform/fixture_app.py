@@ -1,7 +1,7 @@
-"""Disposable real NiceGUI app with scripted external calls for browser QA.
+"""Disposable real Row-Bot server with scripted external calls for browser QA.
 
-Run only through run_browser.py. This is not an alternate application service:
-the real app entry, stores, runtime, projection and NiceGUI renderer are used.
+This is not an alternate application service: the real app entry, stores,
+runtime and projection are used.
 External provider/tool calls are scripted, with explicit producer barriers;
 native desktop notification and sound outputs are replaced by counted sinks.
 """

@@ -1,4 +1,4 @@
-"""Models owner reuses saved catalog readiness and NiceGUI's local settings owners."""
+"""Models owner reuses saved catalog readiness and the local settings owners."""
 from __future__ import annotations
 
 from dataclasses import dataclass

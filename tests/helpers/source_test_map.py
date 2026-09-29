@@ -188,7 +188,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "interactive_provider_settings",
         ("src/row_bot/providers/live_settings.py",),
         ("tests/subsystem/client_protocol/test_provider_live_settings.py",),
-        "Interactive provider cards share NiceGUI connection facts while explicit refresh and runtime checks remain authenticated.",
+        "Provider cards read saved connection facts while explicit refresh and runtime checks remain authenticated.",
     ),
     SourceTestRule(
         "reviewed_workspace_undo",
@@ -367,7 +367,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_startup_hardening.py",
             "tests/subsystem/installer/test_test_matrix_runner.py",
         ),
-        "The default SPA shares backend access, asset integrity and native authority while the NiceGUI fallback remains mounted; changed frontend paths also select the explicit Node lane.",
+        "The React client shares backend access, asset integrity and native authority; changed frontend paths also select the explicit Node lane.",
     ),
     SourceTestRule(
         "public_docs_inventory",
