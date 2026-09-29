@@ -21,7 +21,7 @@ const mock = vi.hoisted(() => ({
     library: vi.fn(),
     selectConversation: vi.fn(),
   },
-  platform: { selectFolder: vi.fn() },
+  platform: { selectFolder: vi.fn(), discover: vi.fn() },
   navigate: vi.fn(),
   routeKey: 'opening-route',
   selectionVersion: 1,
@@ -168,9 +168,19 @@ function view(
     </MemoryRouter>,
   );
 }
+const discovered = (kind: 'pywebview' | 'browser') => ({
+  status: 'ok' as const,
+  value: {
+    kind,
+    platform:
+      kind === 'pywebview' ? ('windows' as const) : ('browser' as const),
+    capabilities: kind === 'pywebview' ? ['select_folder'] : [],
+  },
+});
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  mock.platform.discover.mockResolvedValue(discovered('pywebview'));
   mock.handshake.instance_id = crypto.randomUUID();
   mock.routeKey = 'opening-route';
   mock.selectionVersion = 1;
@@ -547,6 +557,52 @@ it('names a new draft from the request, or leaves the name to Row-Bot', async ()
     expect.any(String),
     expect.any(String),
   );
+});
+
+const FOLDER_PICKS = ['existing_folder', 'empty_folder', 'clone_repository'];
+const DESKTOP_NOTE =
+  'Choosing a folder on this computer needs the Row-Bot desktop app. In the browser, start a new draft or ask Row-Bot in the chat.';
+
+it('says before any pick that folders on this computer need the desktop app', async () => {
+  mock.platform.discover.mockResolvedValue(discovered('browser'));
+  setupSessions.update(setupSessions.scope(mock.handshake.instance_id, null), {
+    kind: 'workspace',
+    workspaceMode: 'existing_folder',
+  });
+  await act(async () => view(null));
+  const setup = screen.getByRole('combobox', { name: 'Folder setup' });
+  // A saved choice that needs a pick falls back to a new draft.
+  expect(setup).toHaveValue('draft_folder');
+  for (const value of FOLDER_PICKS)
+    expect(
+      setup.querySelector(`option[value="${value}"]`) as HTMLOptionElement,
+    ).toBeDisabled();
+  expect(screen.getByText(DESKTOP_NOTE)).toBeVisible();
+  expect(setup).toHaveAccessibleDescription(DESKTOP_NOTE);
+  expect(
+    screen.queryByRole('button', { name: /Choose (existing|parent) folder/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Create draft code folder' }),
+  ).toBeEnabled();
+  expect(mock.platform.selectFolder).not.toHaveBeenCalled();
+});
+
+it('keeps every folder setup in the desktop app', async () => {
+  await act(async () =>
+    view('conversation-a', { kind: 'workspace', mode: 'create' }),
+  );
+  const setup = screen.getByRole('combobox', { name: 'Folder setup' });
+  for (const value of FOLDER_PICKS)
+    expect(
+      setup.querySelector(`option[value="${value}"]`) as HTMLOptionElement,
+    ).toBeEnabled();
+  expect(screen.queryByText(DESKTOP_NOTE)).not.toBeInTheDocument();
+  fireEvent.change(setup, { target: { value: 'existing_folder' } });
+  expect(setup).toHaveValue('existing_folder');
+  expect(
+    screen.getByRole('button', { name: 'Choose existing folder' }),
+  ).toBeEnabled();
 });
 
 it('protects an unresolved setup receipt from a new Home starter', async () => {

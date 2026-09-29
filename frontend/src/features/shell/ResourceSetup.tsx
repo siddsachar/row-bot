@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -243,6 +244,42 @@ export default function ResourceSetup({
       alive.current = false;
     };
   }, []);
+  // Only the desktop app picks a folder on this computer; a browser says so
+  // before any pick (null while unknown keeps every choice open).
+  const [desktopFolders, setDesktopFolders] = useState<boolean | null>(null);
+  const desktopNoteId = useId();
+  useEffect(() => {
+    let current = true;
+    Promise.resolve()
+      .then(() => platform.discover())
+      .then((result) => {
+        if (current)
+          setDesktopFolders(
+            result.status === 'ok' && result.value.kind === 'pywebview',
+          );
+      })
+      .catch(() => {
+        if (current) setDesktopFolders(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [platform]);
+  const foldersNeedDesktop = desktopFolders === false;
+  useEffect(() => {
+    const current = setupSessions.read(scope);
+    if (
+      !foldersNeedDesktop ||
+      current.workspaceMode === 'draft_folder' ||
+      current.commandId
+    )
+      return;
+    try {
+      setupSessions.update(scope, { workspaceMode: 'draft_folder' });
+    } catch {
+      // The choice stays; its pick explains itself.
+    }
+  }, [foldersNeedDesktop, scope, workspaceMode]);
   useEffect(() => {
     setFolder(null);
     setReview(null);
@@ -1054,6 +1091,9 @@ export default function ResourceSetup({
                 <Select
                   value={workspaceMode}
                   disabled={busy}
+                  aria-describedby={
+                    foldersNeedDesktop ? desktopNoteId : undefined
+                  }
                   onChange={(event) => {
                     update({
                       workspaceMode: event.target
@@ -1065,15 +1105,27 @@ export default function ResourceSetup({
                   <option value="draft_folder">
                     New draft in the configured workspace
                   </option>
-                  <option value="existing_folder">
+                  <option value="existing_folder" disabled={foldersNeedDesktop}>
                     Register an existing folder
                   </option>
-                  <option value="empty_folder">
+                  <option value="empty_folder" disabled={foldersNeedDesktop}>
                     Create a new empty folder
                   </option>
-                  <option value="clone_repository">Clone a repository</option>
+                  <option
+                    value="clone_repository"
+                    disabled={foldersNeedDesktop}
+                  >
+                    Clone a repository
+                  </option>
                 </Select>
               </Field>
+              {foldersNeedDesktop && (
+                <p className="muted" id={desktopNoteId}>
+                  Choosing a folder on this computer needs the Row-Bot desktop
+                  app. In the browser, start a new draft or ask Row-Bot in the
+                  chat.
+                </p>
+              )}
               {workspaceMode === 'draft_folder' && (
                 <Field label="Name (optional)">
                   <Input
