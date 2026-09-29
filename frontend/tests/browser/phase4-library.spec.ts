@@ -135,9 +135,17 @@ test('Phase 4 workflow create and edit retain saved fields without starting a ru
   ).toBeVisible();
   await searchWorkflows(page, name);
   await expect(workflowCards(page)).toHaveCount(1);
-  await expect(
-    page.getByText('Edited in the unified client', { exact: true }),
-  ).toBeVisible();
+  // Phones drop a row's description (it stays the row's title).
+  const phone = info.project.use.viewport!.width < 640;
+  const description = page.getByText('Edited in the unified client', {
+    exact: true,
+  });
+  if (phone)
+    await expect(description).toHaveAttribute(
+      'title',
+      'Edited in the unified client',
+    );
+  else await expect(description).toBeVisible();
   await expect(page.getByText('Never run', { exact: true })).toBeVisible();
   await screenshot(page, info, 'workflow-saved');
 });
@@ -326,7 +334,9 @@ test('Phase 4 Home discovers saved tasks with bounded paging and recorded detail
   await expect(workflowCards(page)).toHaveCount(105);
   await searchWorkflows(page, 'Phase 4 saved task 104');
   await expect(workflowCards(page)).toHaveCount(1);
-  await expect(page.getByText('No runs yet', { exact: true })).toBeVisible();
+  // Phones drop the run sparkline; the meta line still says it never ran.
+  if (info.project.use.viewport!.width >= 640)
+    await expect(page.getByText('No runs yet', { exact: true })).toBeVisible();
   await expect(page.getByText('Reminder', { exact: true })).toBeVisible();
   const card = workflowCards(page).first();
   const routineActions = [
@@ -435,17 +445,24 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
   if (info.project.use.viewport!.width >= 900) {
     await expect(workspaceNavigation).toBeVisible();
   } else {
+    // Phones open the navigation as a drawer.
     await page
-      .getByRole('button', { name: 'Expand navigation', exact: true })
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   }
   await workspaceNavigation
     .getByRole('link', { name: 'Settings', exact: true })
     .click();
-  await page
-    .getByRole('navigation', { name: 'Settings sections' })
-    .getByRole('link', { name: 'Tools', exact: true })
-    .click();
+  // Below 900px Settings picks its page from the "Settings section" select.
+  if (info.project.use.viewport!.width < 900)
+    await page
+      .getByRole('combobox', { name: 'Settings section' })
+      .selectOption('tools');
+  else
+    await page
+      .getByRole('navigation', { name: 'Settings sections' })
+      .getByRole('link', { name: 'Tools', exact: true })
+      .click();
   await page
     .locator('summary')
     .filter({ hasText: 'Cached tool catalogue' })
