@@ -144,6 +144,7 @@ _STATUS.update(
 )
 _STATUS.update(
     {
+        "migration_source_not_found": 404,
         "invalid_migration_selection": 422,
         "migration_plan_too_large": 413,
         "migration_plan_missing": 404,
@@ -5161,6 +5162,15 @@ def create_router(
         if result["account"] != account:
             raise ProtocolError("action_denied", 403)
         return await respond(request, dto.AccountAuthReceipt, result)
+
+    @router.get("/system/migration/sources")
+    async def migration_sources(request: Request) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_migration import detect_sources
+
+        return await respond(request, dto.MigrationSources, await call(detect_sources))
 
     @router.post("/system/migration/scan")
     async def migration_scan(request: Request) -> JSONResponse:

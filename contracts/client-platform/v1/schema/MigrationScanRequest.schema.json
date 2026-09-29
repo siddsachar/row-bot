@@ -15,8 +15,8 @@
       "type": "string"
     },
     "source": {
+      "default": "",
       "maxLength": 2048,
-      "minLength": 1,
       "title": "Source",
       "type": "string"
     },
@@ -28,8 +28,7 @@
     }
   },
   "required": [
-    "provider",
-    "source"
+    "provider"
   ],
   "title": "MigrationScanRequest",
   "type": "object"

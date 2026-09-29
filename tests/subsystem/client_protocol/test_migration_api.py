@@ -215,3 +215,47 @@ def test_migration_conflict_requires_explicit_overwrite_and_preserves_restore_co
     assert backups[0].read_text(encoding="utf-8") == original
     shutil.copy2(backups[0], target / "identity" / "SOUL.md")
     assert (target / "identity" / "SOUL.md").read_text(encoding="utf-8") == original
+
+
+def test_migration_finds_the_old_app_in_its_usual_folder(tmp_path, monkeypatch):
+    """Parity row 53: the source is detected; only a home-relative place is shown."""
+    from row_bot.migration.fixtures import create_realistic_openclaw_home
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    assert client_migration.detect_sources() == {"sources": [
+        {"provider": "hermes", "label": "Hermes Agent", "found": False, "place": None},
+        {"provider": "openclaw", "label": "OpenClaw", "found": False, "place": None},
+    ]}
+    with pytest.raises(Exception, match="migration_source_not_found"):
+        client_migration.scan_migration(owner_id="local", provider="hermes", source="",
+                                        target=str(tmp_path / "target"))
+    create_realistic_openclaw_home(home / ".clawdbot")
+    (home / ".hermes").mkdir()  # an empty folder is not Hermes
+    found = client_migration.detect_sources()["sources"]
+    assert found == [
+        {"provider": "hermes", "label": "Hermes Agent", "found": False, "place": None},
+        {"provider": "openclaw", "label": "OpenClaw", "found": True, "place": "~/.clawdbot"},
+    ]
+    assert str(tmp_path) not in json.dumps(found)
+    preview = client_migration.scan_migration(owner_id="local", provider="openclaw", source="",
+                                              target=str(tmp_path / "target"))
+    assert preview["source_found"] is True and preview["summary"]["total"] > 0
+    assert not (tmp_path / "target").exists()
+
+
+def test_migration_sources_api_is_for_this_computer_only(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    create_realistic_hermes_home(home / ".hermes")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    local, _, _ = client_app()
+    remote, _, _ = client_app(remote=True)
+    with local, remote:
+        _, headers = bootstrap(local)
+        _, remote_headers = bootstrap(remote)
+        assert remote.get("/api/v1/system/migration/sources", headers=remote_headers).status_code == 403
+        result = local.get("/api/v1/system/migration/sources", headers=headers)
+    assert result.status_code == 200, result.text
+    assert result.json()["sources"][0] == {"provider": "hermes", "label": "Hermes Agent",
+                                           "found": True, "place": "~/.hermes"}

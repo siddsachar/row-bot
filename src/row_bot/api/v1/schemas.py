@@ -2104,9 +2104,21 @@ class UpdateInstallStatus(WireModel):
 
 class MigrationScanRequest(WireModel):
     provider: Literal["hermes", "openclaw"]
-    source: str = Field(min_length=1, max_length=2048)
+    # Empty: the old app's folder found in its usual place.
+    source: str = Field(default="", max_length=2048)
     target: str = Field(default="", max_length=2048)
     include_secrets: bool = False
+
+
+class MigrationSource(WireModel):
+    provider: Literal["hermes", "openclaw"]
+    label: str = Field(max_length=64)
+    found: bool
+    place: str | None = Field(default=None, max_length=64)
+
+
+class MigrationSources(WireModel):
+    sources: list[MigrationSource] = Field(max_length=4)
 
 
 class MigrationPreviewSummary(WireModel):

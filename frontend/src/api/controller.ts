@@ -2251,6 +2251,8 @@ export class ClientController {
     this.query(() => this.transport.updateInstall?.(commandId, signal));
   cancelUpdateInstall = (commandId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.cancelUpdateInstall?.(commandId, signal));
+  migrationSources = (signal?: AbortSignal) =>
+    this.query(() => this.transport.migrationSources?.(signal));
   scanMigration = (request: MigrationScanRequest, signal?: AbortSignal) =>
     this.query(() => this.transport.scanMigration?.(request, signal));
   searchSkillHub = (request: SkillHubSearchRequest, signal?: AbortSignal) =>

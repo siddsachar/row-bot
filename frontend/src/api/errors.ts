@@ -633,6 +633,10 @@ const CATALOG: Record<string, Entry> = {
     'review',
     MIGRATION,
   ],
+  migration_source_not_found: [
+    "That app isn't in its usual folder. Enter the folder it uses.",
+    'review',
+  ],
   invalid_migration_selection: [
     'Choose a source, a target and the items to import, then scan again.',
     'review',

@@ -224,6 +224,9 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  migrationSources(signal?: AbortSignal) {
+    return wire.getMigrationSources(this.base, this.session(), signal);
+  }
   scanMigration(request: wire.MigrationScanRequest, signal?: AbortSignal) {
     return wire.scanMigration(this.base, this.session(), request, signal);
   }

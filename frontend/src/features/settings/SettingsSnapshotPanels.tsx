@@ -3604,10 +3604,10 @@ export function PreferencesSnapshotPanel({
         >
           <div className="settings-inline-row">
             <div>
-              <strong>Sources</strong>
+              <strong>Works with</strong>
               <p>
                 {snapshot.migration.available
-                  ? snapshot.migration.sources.join(', ') || 'None detected'
+                  ? snapshot.migration.sources.join(' and ')
                   : 'Migration is unavailable on this installation.'}
               </p>
             </div>

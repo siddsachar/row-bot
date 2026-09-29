@@ -7,6 +7,7 @@ import type {
   MigrationApplyReviewRequest,
   MigrationPreview,
   MigrationScanRequest,
+  MigrationSources,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -24,6 +25,8 @@ type Owner = {
   review: (body: MigrationApplyReviewRequest) => Promise<MigrationApplyReview>;
   apply: (body: MigrationApplyCommand) => Promise<MigrationApplyReceipt>;
   receipt: (commandId: string) => Promise<MigrationApplyReceipt>;
+  /** Which old apps are in their usual folders (this computer only). */
+  sources?: () => Promise<MigrationSources>;
 };
 
 const pendingKey = 'row-bot:migration:pending:v1';
@@ -58,7 +61,28 @@ export function MigrationControls({ owner }: { owner: Owner }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [missingReceipt, setMissingReceipt] = useState(false);
+  const [detected, setDetected] = useState<MigrationSources['sources']>([]);
   const active = useRef(false);
+  const usual = detected.find((item) => item.provider === provider);
+  const useUsual = !source.trim() && Boolean(usual?.found);
+
+  useEffect(() => {
+    if (!owner.sources) return;
+    let cancelled = false;
+    void owner.sources().then(
+      (result) => {
+        if (cancelled) return;
+        setDetected(result.sources);
+        // Start with the app that is actually on this computer.
+        const found = result.sources.filter((item) => item.found);
+        if (found.length === 1) setProvider(found[0].provider);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [owner]);
 
   useEffect(() => {
     const original = savedCommand();
@@ -120,6 +144,15 @@ export function MigrationControls({ owner }: { owner: Owner }) {
       active.current = false;
       setBusy(false);
     }
+  }
+
+  const selectable = (preview?.items ?? [])
+    .filter((item) => canSelect(item.status, item.action))
+    .map((item) => item.id);
+
+  function choose(ids: string[]) {
+    setSelected(ids);
+    setReview(null);
   }
 
   function canSelect(status: string, action: string) {
@@ -223,8 +256,8 @@ export function MigrationControls({ owner }: { owner: Owner }) {
   return (
     <div className="stack" aria-label="Migration controls">
       <p>
-        Choose folders, scan without changes, then select what to import. Source
-        files stay in place.
+        Scan without changes, then select what to import. Source files stay in
+        place.
       </p>
       <div className="field-row">
         <label>
@@ -248,7 +281,11 @@ export function MigrationControls({ owner }: { owner: Owner }) {
               setSource(event.target.value);
               clearPreview();
             }}
-            placeholder="Absolute path to the old app folder"
+            placeholder={
+              usual?.found
+                ? `${usual.place} (found)`
+                : 'Absolute path to the old app folder'
+            }
           />
         </label>
         <label>
@@ -263,6 +300,13 @@ export function MigrationControls({ owner }: { owner: Owner }) {
           />
         </label>
       </div>
+      {usual && (
+        <p className="muted" role="status">
+          {usual.found
+            ? `Found ${usual.label} in ${usual.place}. Leave Source folder empty to use it.`
+            : `${usual.label} isn't in its usual folder. Enter the folder it uses.`}
+        </p>
+      )}
       <div className="check-field">
         <span>Include API keys and tokens</span>
         <Toggle
@@ -276,7 +320,7 @@ export function MigrationControls({ owner }: { owner: Owner }) {
       </div>
       <div className="actions">
         <Button
-          disabled={!source.trim() || busy || !!pending}
+          disabled={(!source.trim() && !useUsual) || busy || !!pending}
           onClick={() => void scan()}
         >
           <FolderSearch size={16} aria-hidden /> Scan folders
@@ -330,6 +374,26 @@ export function MigrationControls({ owner }: { owner: Owner }) {
                 setReview(null);
               }}
             />
+          </div>
+          <div className="actions">
+            <Button
+              variant="ghost"
+              disabled={
+                busy ||
+                !selectable.length ||
+                selectable.every((id) => selected.includes(id))
+              }
+              onClick={() => choose(selectable)}
+            >
+              Select all
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy || !selected.length}
+              onClick={() => choose([])}
+            >
+              Clear all
+            </Button>
           </div>
           <div className="stack migration-item-list">
             {preview.items.map((item) => (
@@ -431,6 +495,7 @@ export default function ConnectedMigrationControls() {
     review: (body) => controller.reviewMigration(body),
     apply: (body) => controller.applyMigration(body),
     receipt: (commandId) => controller.migrationReceipt(commandId),
+    sources: () => controller.migrationSources() as Promise<MigrationSources>,
   });
   return <MigrationControls owner={owner.current} />;
 }

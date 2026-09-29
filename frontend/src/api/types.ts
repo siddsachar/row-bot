@@ -659,6 +659,7 @@ export interface ClientTransport {
     commandId: string,
     signal?: AbortSignal,
   ): Promise<Wire.UpdateInstallStatus>;
+  migrationSources?(signal?: AbortSignal): Promise<Wire.MigrationSources>;
   scanMigration?(
     request: Wire.MigrationScanRequest,
     signal?: AbortSignal,

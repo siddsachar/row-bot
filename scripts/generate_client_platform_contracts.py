@@ -62,7 +62,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -167,6 +167,7 @@ OPERATIONS = (
     ("post", "/system/updates/installs", "UpdateInstallCommand", "UpdateInstallStatus"),
     ("get", "/system/updates/installs/{command_id}", None, "UpdateInstallStatus"),
     ("post", "/system/updates/installs/{command_id}/cancel", None, "UpdateInstallStatus"),
+    ("get", "/system/migration/sources", None, "MigrationSources"),
     ("post", "/system/migration/scan", "MigrationScanRequest", "MigrationPreview"),
     ("post", "/settings/skills/hub/search", "SkillHubSearchRequest", "SkillHubSearchResult"),
     ("post", "/settings/skills/hub/preview", "SkillHubPreviewRequest", "SkillHubPreview"),
@@ -665,6 +666,8 @@ export const cancelUpdateInstall = (base: string, proof: SessionProof, command: 
   jsonRequest(base, `/system/updates/installs/${id(command)}/cancel`, 'UpdateInstallStatus', proof, 'POST', undefined, undefined, signal);
 export const scanMigration = (base: string, proof: SessionProof, body: MigrationScanRequest, signal?: AbortSignal): Promise<MigrationPreview> =>
   jsonRequest(base, '/system/migration/scan', 'MigrationPreview', proof, 'POST', validateWire('MigrationScanRequest', body), undefined, signal);
+export const getMigrationSources = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MigrationSources> =>
+  jsonRequest(base, '/system/migration/sources', 'MigrationSources', proof, 'GET', undefined, undefined, signal);
 export const searchSkillHub = (base: string, proof: SessionProof, body: SkillHubSearchRequest, signal?: AbortSignal): Promise<SkillHubSearchResult> =>
   jsonRequest(base, '/settings/skills/hub/search', 'SkillHubSearchResult', proof, 'POST', validateWire('SkillHubSearchRequest', body), undefined, signal);
 export const previewSkillHub = (base: string, proof: SessionProof, body: SkillHubPreviewRequest, signal?: AbortSignal): Promise<SkillHubPreview> =>

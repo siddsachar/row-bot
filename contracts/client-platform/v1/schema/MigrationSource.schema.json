@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "found": {
+      "title": "Found",
+      "type": "boolean"
+    },
+    "label": {
+      "maxLength": 64,
+      "title": "Label",
+      "type": "string"
+    },
+    "place": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Place"
+    },
+    "provider": {
+      "enum": [
+        "hermes",
+        "openclaw"
+      ],
+      "title": "Provider",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "label",
+    "found"
+  ],
+  "title": "MigrationSource",
+  "type": "object"
+}

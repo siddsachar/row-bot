@@ -322,6 +322,7 @@
     "migration_plan_missing": 404,
     "migration_plan_too_large": 413,
     "migration_receipt_missing": 404,
+    "migration_source_not_found": 404,
     "model_configuration_unavailable": 409,
     "model_selection_mismatch": 422,
     "model_selection_required": 422,

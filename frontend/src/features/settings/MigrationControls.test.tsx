@@ -174,3 +174,69 @@ it('recovers an original interrupted command without replaying apply', async () 
   );
   expect(owner.apply).not.toHaveBeenCalled();
 });
+
+it('finds the old app in its usual folder and scans it without a typed path', async () => {
+  const owner = {
+    ...owners(),
+    sources: vi.fn(async () => ({
+      sources: [
+        {
+          provider: 'hermes' as const,
+          label: 'Hermes Agent',
+          found: false,
+          place: null,
+        },
+        {
+          provider: 'openclaw' as const,
+          label: 'OpenClaw',
+          found: true,
+          place: '~/.openclaw',
+        },
+      ],
+    })),
+  };
+  render(<MigrationControls owner={owner} />);
+  expect(
+    await screen.findByText(
+      'Found OpenClaw in ~/.openclaw. Leave Source folder empty to use it.',
+    ),
+  ).toBeVisible();
+  expect(screen.getByLabelText('Source app')).toHaveValue('openclaw');
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  expect(await screen.findByText(/2 items found/)).toBeVisible();
+  expect(owner.scan).toHaveBeenCalledWith({
+    provider: 'openclaw',
+    source: '',
+    target: '',
+    include_secrets: false,
+  });
+  fireEvent.change(screen.getByLabelText('Source app'), {
+    target: { value: 'hermes' },
+  });
+  expect(
+    screen.getByText(
+      "Hermes Agent isn't in its usual folder. Enter the folder it uses.",
+    ),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Scan folders' })).toBeDisabled();
+});
+
+it('Select all and Clear all change only the items that can be imported', async () => {
+  const owner = owners();
+  render(<MigrationControls owner={owner} />);
+  fireEvent.change(screen.getByLabelText('Source folder'), {
+    target: { value: 'C:\\fixture\\hermes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  expect(await screen.findByText(/1 selected/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select all' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+  expect(screen.getByText(/0 selected/)).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Apply selected items' }),
+  ).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+  expect(screen.getByText(/1 selected/)).toBeVisible();
+  expect(screen.getByLabelText(/Agent identity/)).toBeChecked();
+  expect(screen.getByLabelText(/Old sessions/)).not.toBeChecked();
+});
