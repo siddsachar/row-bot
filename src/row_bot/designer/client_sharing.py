@@ -73,6 +73,37 @@ class SharingOutcome:
     total_count: int
 
 
+@dataclass(frozen=True)
+class Publication:
+    resource_id: str
+    resource_revision: str
+    published: bool
+    url: str | None
+    link_kind: str | None
+    published_at: str | None
+
+
+def read_publication(project_id: str) -> Publication:
+    """The saved published link, only while its published copy exists (passive read)."""
+    from urllib.parse import urlsplit
+
+    project = read_artifact(project_id)
+    if project.mode not in DESIGNER_MODES:
+        raise ArtifactError('artifact_type_unavailable')
+    url = project.publish_url if isinstance(project.publish_url, str) else ''
+    try:
+        parsed = urlsplit(url)
+        valid = (parsed.scheme in {'http', 'https'} and bool(parsed.hostname)
+                 and not parsed.username and not parsed.password and len(url) <= 4096)
+    except ValueError:
+        valid = False
+    if not valid or _published_version(project_id) == 'missing':
+        return Publication(project_id, project.updated_at, False, None, None, None)
+    local = parsed.hostname in {'127.0.0.1', 'localhost', '::1'}
+    return Publication(project_id, project.updated_at, True, url,
+                       'local' if local else 'remote_access', project.published_at or None)
+
+
 def _digest(value) -> str:
     return hmac.new(_REVIEW_KEY, json.dumps(value, sort_keys=True, separators=(',', ':'),
                                           default=str).encode('utf-8'), hashlib.sha256).hexdigest()
@@ -84,7 +115,7 @@ def _prepare(project_id: str, *, action: str, channel_name: str | None = None,
              _revision_override: str | None = None, _published_override: str | None = None):
     from row_bot.channels import config, registry
 
-    if (action not in {'publish', 'channel', 'x'} or type(remote) is not bool
+    if (action not in {'publish', 'unpublish', 'channel', 'x'} or type(remote) is not bool
             or not isinstance(text, str) or len(text) > 10000
             or target is not None and (not isinstance(target, str) or len(target) > 1024)
             or pptx_mode not in {'screenshot', 'structured'}):
@@ -128,7 +159,8 @@ def _prepare(project_id: str, *, action: str, channel_name: str | None = None,
     source['updated_at'] = revision
     fingerprint = list(preview_fingerprint(project))
     fingerprint[1] = revision
-    publication = _published_version(project_id) if action == 'publish' or action == 'channel' and delivery == 'link' else 'unused'
+    publication = (_published_version(project_id) if action in {'publish', 'unpublish'}
+                   or action == 'channel' and delivery == 'link' else 'unused')
     binding = [project_id, revision, source, fingerprint, action, channel_name,
                recipient, delivery, pages, text, pptx_mode, remote, channel_scope]
     binding.append(_published_override if _published_override is not None else publication)
@@ -346,7 +378,8 @@ def execute_share(project_id: str, *, review_id: str, command_id: str,
         raise ArtifactError('share_review_changed')
     expected_revision = project.updated_at
     original_revision = project.updated_at
-    original_publication = _published_version(project_id) if action == 'publish' or action == 'channel' and delivery == 'link' else 'unused'
+    original_publication = (_published_version(project_id) if action in {'publish', 'unpublish'}
+                            or action == 'channel' and delivery == 'link' else 'unused')
     expected_publication = original_publication
     submitted, total, uncertain, published, last_stage = 0, 0, False, False, ''
     result_url, link_kind = None, None
@@ -395,6 +428,19 @@ def execute_share(project_id: str, *, review_id: str, command_id: str,
             link_kind = 'remote_access' if result['public'] else 'local'
             expected_revision = source.updated_at
             return result
+
+    if action == 'unpublish':
+        # Removes the published copy and the saved link; publishing again
+        # brings the same link back. Nothing leaves this computer.
+        with storage._project_save_lock(project_id):
+            guard()
+            publish.delete_published_project(project_id)
+            current = read_artifact(project_id)
+            if current.publish_url or current.published_at:
+                current.publish_url, current.published_at = '', ''
+                storage.save_project(current)
+                current = read_artifact(project_id)
+            return SharingOutcome('unpublished', None, project_id, current.updated_at, None, None, 0, 0)
 
     try:
         with export.strict_export(guard):

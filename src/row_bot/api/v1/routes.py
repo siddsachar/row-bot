@@ -8031,6 +8031,17 @@ def create_router(
         )
         return await respond(request, dto.ArtifactShareReview, result)
 
+    @router.get("/conversations/{conversation_id}/artifacts/{binding_id}/publication")
+    async def artifact_publication(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        await session(request, lane="view")
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        from row_bot.designer.client_sharing import read_publication
+
+        value = await call(read_publication, identity)
+        return await respond(request, dto.ArtifactPublication, asdict(value))
+
     @router.get("/sharing/channels")
     async def share_channels(
         request: Request, cursor: str | None = None

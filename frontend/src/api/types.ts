@@ -1262,6 +1262,11 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactShareChannels>;
+  artifactPublication?(
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactPublication>;
   prepareArtifactShare?(
     conversation: string,
     binding: string,

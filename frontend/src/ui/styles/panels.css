@@ -363,6 +363,32 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Share: the published link with Copy, Open, QR and Unpublish. */
+.share-published {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.share-published-state {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.share-published-state strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.share-published-url {
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-size: var(--text-12);
+}
+.qr-code {
+  justify-self: start;
+  border-radius: 6px;
+}
 .design-side-body > :is(section, .stack) {
   padding: 12px;
 }

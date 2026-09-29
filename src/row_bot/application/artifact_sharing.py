@@ -107,7 +107,7 @@ def execute_sharing(service: Any, command: dict, conversation_id: str, *, owner_
                 return result
             admissions.reject_command(owner_id, key, exc.code)
             raise ClientPlatformError(exc.code) from exc
-        result.update(status="completed" if outcome.status in {"published", "submitted", "denied"} else "partial",
+        result.update(status="completed" if outcome.status in {"published", "unpublished", "submitted", "denied"} else "partial",
                       share_outcome=asdict(outcome))
         if outcome.resource_revision != target["resource_revision"]:
             service.projection.publish(conversation_id, "resource.changed", {"revision": command["expected_revision"]})

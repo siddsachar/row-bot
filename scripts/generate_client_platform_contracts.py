@@ -75,7 +75,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactDocumentImportPayload", "ArtifactDocumentImportPreviewRequest", "ArtifactDocumentImportPage", "ArtifactDocumentImportPreview", "ArtifactNotesGeneratePayload",
     "ArtifactDesignOutcome", "ArtifactPresetReviewRequest", "ArtifactPresetReview", "ArtifactReviewDraftRequest", "ArtifactReviewDraft",
     "ArtifactShareOptions", "ArtifactShareReview", "ArtifactShareOutcome",
-    "ArtifactShareChannels",
+    "ArtifactShareChannels", "ArtifactPublication",
     "TaskRunReview", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskApprovalReview",
     "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
@@ -328,6 +328,7 @@ OPERATIONS = (
     ("post", "/tasks/{task_id}/settings-review", "TaskSettingsFields", "TaskSettingsSnapshot"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/sharing-review", "ArtifactShareOptions", "ArtifactShareReview"),
     ("get", "/sharing/channels", None, "ArtifactShareChannels"),
+    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/publication", None, "ArtifactPublication"),
     ("get", "/tasks/{task_id}/run-review", None, "TaskRunReview"),
     ("get", "/tasks/{task_id}/runs", None, "TaskRunPage"),
     ("get", "/tasks/{task_id}/runs/{run_id}", None, "TaskRunSummary"),
@@ -754,6 +755,8 @@ export async function downloadTaskWebhook(base: string, proof: SessionProof, tas
 }
 export const prepareArtifactShare = (base: string, proof: SessionProof, conversation: string, binding: string, options: ArtifactShareOptions, signal?: AbortSignal): Promise<ArtifactShareReview> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/sharing-review`, 'ArtifactShareReview', proof, 'POST', options, undefined, signal);
+export const getArtifactPublication = (base: string, proof: SessionProof, conversation: string, binding: string, signal?: AbortSignal): Promise<ArtifactPublication> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/publication`, 'ArtifactPublication', proof, 'GET', undefined, undefined, signal);
 export const getArtifactShareChannels = (base: string, proof: SessionProof, cursor?: string, signal?: AbortSignal): Promise<ArtifactShareChannels> =>
   jsonRequest(base, `/sharing/channels${cursor ? '?cursor=' + encodeURIComponent(cursor) : ''}`, 'ArtifactShareChannels', proof, 'GET', undefined, undefined, signal);
 export const getTaskRunReview = (base: string, proof: SessionProof, task: string, signal?: AbortSignal): Promise<TaskRunReview> =>

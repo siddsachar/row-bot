@@ -5094,7 +5094,7 @@ class ArtifactExportPayload(WireModel):
 
 
 class ArtifactShareOptions(WireModel):
-    action: Literal["publish", "channel", "x"]
+    action: Literal["publish", "unpublish", "channel", "x"]
     channel_name: str | None = Field(default=None, max_length=128)
     target: str | None = Field(default=None, max_length=1024)
     delivery: Literal["link", "slides", "pdf", "pptx", "html"] = "link"
@@ -5120,7 +5120,7 @@ class ArtifactShareReview(WireModel):
     review_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     resource_id: OpaqueId
     resource_revision: str = Field(max_length=128)
-    action: Literal["publish", "channel", "x"]
+    action: Literal["publish", "unpublish", "channel", "x"]
     channel_name: str | None = Field(max_length=128)
     recipient: str | None = Field(max_length=1024)
     delivery: Literal["link", "slides", "pdf", "pptx", "html"]
@@ -5132,7 +5132,7 @@ class ArtifactShareReview(WireModel):
 
 
 class ArtifactShareOutcome(WireModel):
-    status: Literal["published", "submitted", "partial", "uncertain", "denied"]
+    status: Literal["published", "unpublished", "submitted", "partial", "uncertain", "denied"]
     code: str | None = Field(max_length=128)
     resource_id: OpaqueId
     resource_revision: str = Field(max_length=128)
@@ -5140,6 +5140,16 @@ class ArtifactShareOutcome(WireModel):
     link_kind: Literal["local", "remote_access"] | None
     submitted_count: int = Field(ge=0, le=200)
     total_count: int = Field(ge=0, le=200)
+
+
+class ArtifactPublication(WireModel):
+    """A design's published link, shown with Copy, QR and Unpublish."""
+    resource_id: OpaqueId
+    resource_revision: str = Field(max_length=128)
+    published: bool
+    url: str | None = Field(max_length=4096)
+    link_kind: Literal["local", "remote_access"] | None
+    published_at: str | None = Field(max_length=64)
 
 
 class ArtifactShareProgress(WireModel):

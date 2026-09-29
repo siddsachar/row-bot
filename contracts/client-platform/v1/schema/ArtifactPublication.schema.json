@@ -1,18 +1,7 @@
 {
   "additionalProperties": false,
+  "description": "A design's published link, shown with Copy, QR and Unpublish.",
   "properties": {
-    "code": {
-      "anyOf": [
-        {
-          "maxLength": 128,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Code"
-    },
     "link_kind": {
       "anyOf": [
         {
@@ -28,6 +17,22 @@
       ],
       "title": "Link Kind"
     },
+    "published": {
+      "title": "Published",
+      "type": "boolean"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Published At"
+    },
     "resource_id": {
       "maxLength": 128,
       "minLength": 1,
@@ -39,30 +44,6 @@
       "maxLength": 128,
       "title": "Resource Revision",
       "type": "string"
-    },
-    "status": {
-      "enum": [
-        "published",
-        "unpublished",
-        "submitted",
-        "partial",
-        "uncertain",
-        "denied"
-      ],
-      "title": "Status",
-      "type": "string"
-    },
-    "submitted_count": {
-      "maximum": 200,
-      "minimum": 0,
-      "title": "Submitted Count",
-      "type": "integer"
-    },
-    "total_count": {
-      "maximum": 200,
-      "minimum": 0,
-      "title": "Total Count",
-      "type": "integer"
     },
     "url": {
       "anyOf": [
@@ -78,15 +59,13 @@
     }
   },
   "required": [
-    "status",
-    "code",
     "resource_id",
     "resource_revision",
+    "published",
     "url",
     "link_kind",
-    "submitted_count",
-    "total_count"
+    "published_at"
   ],
-  "title": "ArtifactShareOutcome",
+  "title": "ArtifactPublication",
   "type": "object"
 }

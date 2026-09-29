@@ -50,26 +50,28 @@ export default function ArtifactSharingPanel({
           Reload the channel list. Saved destinations are retained.
         </ErrorState>
       )}
-      <div className="actions">
-        <Button
-          disabled={loading}
-          onClick={() => {
-            setCursor(undefined);
-            setPage(null);
-            setReload((value) => value + 1);
-          }}
-        >
-          First channel page
-        </Button>
-        {page?.next_cursor && (
+      {(cursor || page?.next_cursor || error) && (
+        <div className="actions">
           <Button
             disabled={loading}
-            onClick={() => setCursor(page.next_cursor!)}
+            onClick={() => {
+              setCursor(undefined);
+              setPage(null);
+              setReload((value) => value + 1);
+            }}
           >
-            Next channel page
+            First channel page
           </Button>
-        )}
-      </div>
+          {page?.next_cursor && (
+            <Button
+              disabled={loading}
+              onClick={() => setCursor(page.next_cursor!)}
+            >
+              Next channel page
+            </Button>
+          )}
+        </div>
+      )}
       <ArtifactSharing {...props} channels={page?.items ?? []} />
     </div>
   );

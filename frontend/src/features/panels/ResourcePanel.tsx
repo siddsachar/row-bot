@@ -87,6 +87,8 @@ function resourceApi(
     sharing: {
       ...artifactSharing(controller, conversation, binding),
       loadChannels: controller.artifactShareChannels,
+      loadPublication: (signal: AbortSignal) =>
+        controller.artifactPublication(conversation, binding, signal),
     },
     presentation: {
       load: (

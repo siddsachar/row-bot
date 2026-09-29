@@ -3950,6 +3950,14 @@ export class ClientController {
         signal,
       ),
     );
+  artifactPublication = (
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactPublication?.(conversation, binding, signal),
+    );
   artifactShareChannels = (cursor?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.artifactShareChannels?.(cursor, signal));
   workspaceImports = (

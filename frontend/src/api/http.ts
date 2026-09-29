@@ -2228,6 +2228,19 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  artifactPublication(
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getArtifactPublication(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      signal,
+    );
+  }
   artifactShareChannels(cursor?: string, signal?: AbortSignal) {
     return wire.getArtifactShareChannels(
       this.base,
