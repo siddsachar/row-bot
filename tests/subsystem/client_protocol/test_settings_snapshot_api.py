@@ -1456,7 +1456,8 @@ def test_documents_pick_their_own_model_and_can_go_back_to_the_conversations(api
 
     client, headers, data, _ = api
     before = client.get(BASE, headers=headers).json()
-    assert before["documents"]["processing_model"] is None
+    assert before["documents"]["processing_model"] == ""
+    assert before["defaults"]["documents"]["processing_model"] == ""
     request = {"settings_revision": before["revision"], "page": "documents",
                "field": "processing_model", "value": "model:ollama:qwen3.8:27b"}
     response = _execute(client, headers, request, _review(client, headers, request))
@@ -1468,7 +1469,7 @@ def test_documents_pick_their_own_model_and_can_go_back_to_the_conversations(api
     back = {"settings_revision": current, "page": "documents", "field": "processing_model", "value": ""}
     response = _execute(client, headers, back, _review(client, headers, back))
     assert response.status_code == 200, response.text
-    assert response.json()["snapshot"]["documents"]["processing_model"] is None
+    assert response.json()["snapshot"]["documents"]["processing_model"] == ""
     assert read_document_processing_model() is None
     latest = response.json()["snapshot"]["revision"]
     for bad in ("gpt-4o", "model:", "model:x", 7):

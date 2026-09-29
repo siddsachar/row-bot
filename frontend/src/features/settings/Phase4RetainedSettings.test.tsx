@@ -1507,6 +1507,8 @@ it('installs the chosen Whisper size from Voice settings (B140)', () => {
 
 it('picks the model for documents next to the queue and saves at once (U45)', async () => {
   mutation.page = 'documents';
+  // Nothing picked is the default: no "Reset … to default" until a model is.
+  mutation.defaults = { processing_model: '' };
   render(
     <DocumentModelSetting
       snapshot={snapshot.documents}
@@ -1521,8 +1523,13 @@ it('picks the model for documents next to the queue and saves at once (U45)', as
       ]}
     />,
   );
-  const picker = screen.getByLabelText('Model for documents');
+  const picker = screen.getByLabelText('Model for documents', { exact: true });
   expect(picker).toHaveDisplayValue("Conversation's model");
+  expect(
+    screen.queryByRole('button', {
+      name: 'Reset Model for documents to default',
+    }),
+  ).toBeNull();
   expect(
     screen.queryByRole('option', { name: 'GPT-4o (not available)' }),
   ).toBeNull();

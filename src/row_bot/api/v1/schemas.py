@@ -888,8 +888,8 @@ class DocumentRuntimeStatus(WireModel):
 class DocumentSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     embedding: DocumentEmbeddingSettingsSnapshot
-    # The model picked for document processing; None follows the conversation.
-    processing_model: str | None = Field(default=None, max_length=512)
+    # The model picked for document processing; "" follows the conversation.
+    processing_model: str = Field(default="", max_length=512)
     indexed_documents: int | None = Field(default=None, ge=0)
     active_embedding: str = Field(default="", max_length=256)
     document_vectors: DocumentRuntimeStatus = Field(

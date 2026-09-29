@@ -981,7 +981,8 @@ def _documents(root: Path) -> dict[str, Any]:
     memory_index = _memory_index_status(root / "memory.db")
     return {
         "availability": "available",
-        "processing_model": _processing_model(root),
+        # "" follows the conversation's model (the picker's first choice).
+        "processing_model": _processing_model(root) or "",
         "indexed_documents": indexed_documents,
         "active_embedding": active_embedding,
         "document_vectors": document_vectors,
@@ -1546,7 +1547,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "logging.level": "DEBUG",
     },
     "documents": {
-        "processing_model": None,
+        "processing_model": "",
         "embedding.provider": "local",
         "embedding.local_model": "mxbai-large-v1",
         "embedding.cloud_model": "openai:text-embedding-3-small",
