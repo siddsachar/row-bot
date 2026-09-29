@@ -882,6 +882,16 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Orphan project_id sweep failed")
 
+    # One-shot: temp and splash files Row-Bot left in the data folder, by
+    # exact name pattern only; this launch's splash stays (B126).
+    try:
+        from row_bot.data_paths import get_row_bot_data_dir
+        from row_bot.thread_cleanup import sweep_data_dir_leftovers
+        with _startup_phase("data_dir_leftovers"):
+            sweep_data_dir_leftovers(get_row_bot_data_dir(), keep_launch=_LAUNCH_SESSION_ID)
+    except Exception:
+        logger.exception("Data folder leftover sweep failed")
+
     import row_bot.ui.state as _st
 
     logger.info("%s startup initiated", APP_DISPLAY_NAME)

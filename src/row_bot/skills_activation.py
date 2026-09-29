@@ -149,6 +149,7 @@ def _load_store() -> dict:
 
 
 def _save_store(store: dict) -> None:
+    tmp_name = ""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(
@@ -157,8 +158,17 @@ def _save_store(store: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(store, fh, indent=2, ensure_ascii=False, sort_keys=True)
         os.replace(tmp_name, STATE_PATH)
+        tmp_name = ""
     except Exception:
         logger.debug("Failed to save Smart Skills activation state", exc_info=True)
+    finally:
+        # A failed replace (a Windows sharing violation) left the temp file
+        # behind in the data folder (B126).
+        if tmp_name:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
 
 
 def _thread_state(store: dict, thread_id: str) -> dict:

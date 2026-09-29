@@ -971,3 +971,49 @@ def test_sqlite_compaction_is_thresholded_and_reclaims_file_space(tmp_path, monk
     )
     assert compacted["compacted"] is True
     assert db_path.stat().st_size < before
+
+
+def test_start_up_removes_only_row_bots_own_temp_and_splash_leftovers(tmp_path) -> None:
+    """B126: ~370 splash markers, ~100 skills-activation temp files and ~60
+    tmp* files had piled up in the data folder. Only those exact patterns,
+    old enough not to be in use, are removed; nothing else is touched."""
+    from row_bot import thread_cleanup
+
+    data = tmp_path / "data"
+    (data / "sub").mkdir(parents=True)
+    old = (datetime.now() - timedelta(days=3)).timestamp()
+    current = "c" * 32
+    leftovers = [
+        f"launcher-{'a' * 32}-splash.ready",
+        f"launcher-{'b' * 32}-window-mode-chooser.ready",
+        f"launcher-{'b' * 32}-window-mode-chooser.result",
+        ".skills_activation.05jn1nzq.json",
+        "tmp0iqsg4ot",
+    ]
+    kept = [
+        f"launcher-{current}-splash.ready",  # this launch's splash
+        "splash.log",
+        "skills_activation.json",
+        ".skills_activation.json",
+        "tmpnotes.txt",
+        "mytmp0iqsg4ot",
+        "tmp0iqsg4ot.json",
+        "providers.json",
+        "sub/tmp1apja8e8",
+    ]
+    for name in leftovers + kept:
+        path = data / name
+        path.write_text("{}", encoding="utf-8")
+        os.utime(path, (old, old))
+    (data / "tmpabcdefgh").mkdir()  # a folder, never removed
+    fresh = data / "tmp28taqdyh"  # may still be in use
+    fresh.write_text("{}", encoding="utf-8")
+
+    removed = thread_cleanup.sweep_data_dir_leftovers(data, keep_launch=current)
+
+    assert removed == len(leftovers)
+    for name in leftovers:
+        assert not (data / name).exists(), name
+    for name in kept:
+        assert (data / name).exists(), name
+    assert (data / "tmpabcdefgh").is_dir() and fresh.exists()

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import pathlib
+import re
 import shutil
 import sqlite3
 import sys
@@ -806,6 +807,59 @@ def _remove_stale_temp_files(
                     removed += 1
             except (OSError, ValueError):
                 logger.debug("Skipping unsafe or busy temp file %s", candidate, exc_info=True)
+    return removed
+
+
+_DATA_DIR_LEFTOVERS = (
+    # The launcher's splash and window-mode helper markers, one per launch.
+    (re.compile(r"launcher-([0-9a-f]{32})-(?:splash\.ready|window-mode-chooser\.(?:ready|result))"),
+     timedelta(minutes=10)),
+    # Smart Skills activation writes through a temp file that a failed
+    # replace used to leave behind.
+    (re.compile(r"\.skills_activation\.[a-z0-9_]{8}\.json"), timedelta(hours=1)),
+    # NamedTemporaryFile's default name, from settings writes cut short.
+    (re.compile(r"tmp[a-z0-9_]{8}"), STALE_TEMP_FILE_AGE),
+)
+
+
+def sweep_data_dir_leftovers(
+    data_dir: pathlib.Path,
+    *,
+    keep_launch: str = "",
+    now: datetime | None = None,
+) -> int:
+    """Remove temp and splash files Row-Bot left in its data folder (B126).
+
+    Only regular files directly in the folder whose whole name matches one
+    of the patterns above, and old enough not to be in use, are removed;
+    this launch's splash markers stay. Nothing else is ever touched.
+    """
+    moment = (now or datetime.now()).timestamp()
+    removed = 0
+    try:
+        entries = list(pathlib.Path(data_dir).iterdir())
+    except OSError:
+        return 0
+    for entry in entries:
+        for pattern, age in _DATA_DIR_LEFTOVERS:
+            match = pattern.fullmatch(entry.name)
+            if not match:
+                continue
+            if match.groups() and match.group(1) == keep_launch:
+                break
+            try:
+                if (
+                    not entry.is_symlink()
+                    and entry.is_file()
+                    and entry.stat().st_mtime < moment - age.total_seconds()
+                ):
+                    entry.unlink()
+                    removed += 1
+            except OSError:
+                logger.debug("Skipping busy leftover %s", entry.name, exc_info=True)
+            break
+    if removed:
+        logger.info("Removed %d leftover temp and splash files from the data folder", removed)
     return removed
 
 
