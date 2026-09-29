@@ -3,7 +3,9 @@ import type { EventRecord, GenerationState } from '../../api/types';
 /**
  * While a turn works on a design, the Design panel says what it is doing and
  * refreshes the page as each step is saved (U35). Only the designer's own
- * tools count; a running turn that has not touched the design shows nothing.
+ * tools count (they show as "🎨 Designer" and name their step in
+ * `runtime_tool`); a running turn that has not touched the design shows
+ * nothing.
  */
 const WORDS: Array<[RegExp, string]> = [
   [/^designer_(set_pages|add_page|add_screen)$/, 'Adding pages'],
@@ -55,7 +57,7 @@ export function draftingKey(
       event.conversation_id !== conversationId
     )
       continue;
-    const tool = event.payload.tool_name ?? '';
+    const tool = event.payload.runtime_tool ?? '';
     if (!tool.startsWith('designer_')) continue;
     if (event.payload.pass_id && event.payload.pass_id !== generation.pass_id)
       continue;

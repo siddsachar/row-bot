@@ -5921,6 +5921,10 @@ class ApprovalSetup(WireModel):
 class ToolActivity(WireModel):
     state: Literal["tool_call", "tool_done"]
     tool_name: str = Field(default="", max_length=128)
+    # The first-party designer step behind "🎨 Designer" (designer_set_pages),
+    # so the Design panel can say what a drafting turn is doing. Empty for
+    # every other tool.
+    runtime_tool: str = Field(default="", max_length=64, pattern=r"^(designer_[a-z_]{1,55})?$")
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
     pass_id: OpaqueId | None = None

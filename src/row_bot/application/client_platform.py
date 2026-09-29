@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 import threading
 import time
@@ -1195,6 +1196,8 @@ class ClientPlatformService:
             )
 
             tool_name = canonical_tool_name(getter("name") or getter("tool_name"))
+            raw_tool = str(getter("raw_name") or "")
+            design_step = raw_tool if re.fullmatch(r"designer_[a-z_]{1,55}", raw_tool) else ""
             call_id = str(getter("tool_call_id") or getter("id") or "")
             if not call_id:
                 call_id = hashlib.sha256(
@@ -1227,6 +1230,7 @@ class ClientPlatformService:
             )
             self.projection.publish(conversation_id, "tool.activity", {
                 "tool_name": tool_name[:128],
+                **({"runtime_tool": design_step} if design_step else {}),
                 "state": kind, "tool_call_id": call_id,
                 "message_id": str(getter("message_id") or ""),
                 "pass_id": handle.pass_id, "segment_id": handle.segment_id,

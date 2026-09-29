@@ -17,17 +17,26 @@ const generation = {
   can_stop: true,
 } as GenerationState;
 
+// As the server sends it: designer tools show as "🎨 Designer" and name
+// their step in runtime_tool; every other tool only has its public name.
 function tool(
   name: string,
   state: 'tool_call' | 'tool_done',
   extra: Record<string, unknown> = {},
 ): EventRecord {
+  const designer = name.startsWith('designer_');
   return {
     cursor: `${name}-${state}`,
     event: {
       type: 'tool.activity',
       conversation_id: 'chat',
-      payload: { tool_name: name, state, pass_id: 'pass-1', ...extra },
+      payload: {
+        tool_name: designer ? '🎨 Designer' : name,
+        ...(designer ? { runtime_tool: name } : {}),
+        state,
+        pass_id: 'pass-1',
+        ...extra,
+      },
     },
   } as unknown as EventRecord;
 }

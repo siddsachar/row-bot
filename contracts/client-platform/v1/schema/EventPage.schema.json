@@ -2536,6 +2536,13 @@
           "default": null,
           "title": "Pass Id"
         },
+        "runtime_tool": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(designer_[a-z_]{1,55})?$",
+          "title": "Runtime Tool",
+          "type": "string"
+        },
         "safe_input": {
           "default": "",
           "maxLength": 1024,
