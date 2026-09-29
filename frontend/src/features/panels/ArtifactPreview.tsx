@@ -57,6 +57,7 @@ import {
   type ArtifactLifecyclePanelProps,
 } from './ArtifactLifecyclePanel';
 import DesignPageStrip from './DesignPageStrip';
+import type { DesignDrafting } from './design-drafting';
 import DesignSelection, {
   askText,
   type AskOutcome,
@@ -90,6 +91,8 @@ export type ArtifactPreviewProps = {
   edit?: ArtifactEditorProps['edit'];
   /** Make a copy of this design beside it (it opens in its own panel). */
   duplicate?: () => Promise<void>;
+  /** A turn is drafting this design: what it is doing (U35). */
+  drafting?: DesignDrafting | null;
   createExport?: ArtifactExportsProps['create'];
   downloadExport?: ArtifactExportsProps['download'];
   saveExport?: ArtifactExportsProps['save'];
@@ -204,6 +207,7 @@ export default function ArtifactPreview({
   title,
   onAsk,
   duplicate,
+  drafting,
 }: ArtifactPreviewProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -578,6 +582,16 @@ export default function ArtifactPreview({
     // gesture; where full screen is refused the presentation stays in the panel.
     void stage.current?.requestFullscreen?.().catch(() => {});
   }
+
+  // Each finished drafting step refreshes the page shown, so the design
+  // appears as it is written instead of only when the turn ends.
+  const draftingKeySeen = useRef('');
+  useEffect(() => {
+    const key = drafting?.key ?? '';
+    if (!key || key === draftingKeySeen.current) return;
+    draftingKeySeen.current = key;
+    setRefresh((value) => value + 1);
+  }, [drafting?.key]);
 
   function reload() {
     latest.current = null;
@@ -1282,14 +1296,26 @@ export default function ArtifactPreview({
                   </div>
                 </>
               )}
-              {loading && current && (
+              {drafting ? (
                 <span
                   id="design-preview-refresh-status"
-                  className="design-updating"
+                  className="design-updating design-drafting"
                   role="status"
                 >
-                  Updating preview…
+                  <span className="design-drafting-dot" aria-hidden />
+                  Drafting · {drafting.label}…
                 </span>
+              ) : (
+                loading &&
+                current && (
+                  <span
+                    id="design-preview-refresh-status"
+                    className="design-updating"
+                    role="status"
+                  >
+                    Updating preview…
+                  </span>
+                )
               )}
               {(notice || (authoring && !pickedCurrent && current)) && (
                 <p className="design-hint" role="status">

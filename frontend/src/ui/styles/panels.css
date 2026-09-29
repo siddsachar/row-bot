@@ -126,6 +126,32 @@
   margin: auto;
   max-width: 420px;
 }
+/* A turn drafting this design: a quiet status with a live dot. */
+.design-drafting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  left: 12px;
+  right: auto;
+  color: var(--text-primary);
+}
+.design-drafting-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  animation: design-drafting-pulse 1.4s ease-in-out infinite;
+}
+@keyframes design-drafting-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .design-drafting-dot {
+    animation: none;
+  }
+}
 .design-updating {
   position: absolute;
   top: 10px;

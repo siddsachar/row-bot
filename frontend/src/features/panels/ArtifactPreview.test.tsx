@@ -1389,3 +1389,36 @@ it('duplicates the design from the menu and says where the copy is', async () =>
     await screen.findByText('The copy was not made. This design is unchanged.'),
   ).toBeInTheDocument();
 });
+
+it('says what a drafting turn is doing and refreshes the page per saved step', async () => {
+  const load = vi.fn(async () => snapshot());
+  const base = {
+    resourceId: 'deck-a',
+    resourceRevision: 'resource-1',
+    title: 'Launch deck',
+    visible: true,
+    load,
+  };
+  const view = render(<ArtifactPreview {...base} />);
+  await screen.findByTitle('Slide preview: Opening');
+  const before = load.mock.calls.length;
+  view.rerender(
+    <ArtifactPreview
+      {...base}
+      drafting={{ key: 'p:0:add', label: 'Adding pages' }}
+    />,
+  );
+  expect(
+    await screen.findByText('Drafting · Adding pages…'),
+  ).toBeInTheDocument();
+  await waitFor(() => expect(load.mock.calls.length).toBe(before + 1));
+  view.rerender(
+    <ArtifactPreview
+      {...base}
+      drafting={{ key: 'p:1:add', label: 'Adding pages' }}
+    />,
+  );
+  await waitFor(() => expect(load.mock.calls.length).toBe(before + 2));
+  view.rerender(<ArtifactPreview {...base} drafting={null} />);
+  expect(screen.queryByText(/Drafting/)).toBeNull();
+});

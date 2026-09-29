@@ -31,6 +31,7 @@ import DeveloperRepositoryPanel, {
 import CustomToolBuilder from '../developer/CustomToolBuilder';
 import { sendPrompt } from '../shell/composer-bridge';
 import { requestResourcePanel } from './panel-requests';
+import { draftingKey, draftingOf } from './design-drafting';
 import type { AskOutcome } from './DesignSelection';
 import type { WorkspaceEditScope } from './workspace-edit-sessions';
 
@@ -446,6 +447,14 @@ function ResourcePanel({
     () => workspaceEditSessions?.forBinding(conversation, binding),
     [workspaceEditSessions, conversation, binding],
   );
+  // A turn working on this conversation's design: say what it does and
+  // refresh the page as each step is saved (U35).
+  const drafting = useClientSelector((state) =>
+    panel.descriptor.panel_kind === 'artifact.preview' &&
+    state.selectedConversationId === conversation
+      ? draftingKey(conversation, state.projection?.generation, state.activity)
+      : '',
+  );
   const api = useMemo(
     () => resourceApi(controller, conversation, binding),
     [controller, conversation, binding],
@@ -552,6 +561,7 @@ function ResourcePanel({
   return (
     <Preview
       title={resource.title}
+      drafting={draftingOf(drafting)}
       onAsk={askDesign}
       duplicate={duplicateDesign}
       resourceId={resource.binding.resource_id}
