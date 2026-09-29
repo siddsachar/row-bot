@@ -2826,3 +2826,28 @@
 .settings-confirm-change p {
   margin: 0;
 }
+
+/* Settings › Data: Back up and restore (decision 21). */
+.data-backup-row {
+  padding-block: 8px;
+}
+.data-backup-review,
+.data-backup-pending,
+.data-backup-result {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-hover);
+  font-size: var(--text-13);
+}
+.data-backup-review p,
+.data-backup-pending p,
+.data-backup-result p {
+  margin: 0;
+}
+.data-backup-signins {
+  margin: 0;
+  padding-left: 18px;
+}

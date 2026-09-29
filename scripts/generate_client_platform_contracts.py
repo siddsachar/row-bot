@@ -58,6 +58,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
     "CustomToolSnapshot", "CustomToolCommand", "CustomToolReceipt",
     "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
+    "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
@@ -259,6 +260,8 @@ OPERATIONS = (
     ("get", "/custom-tools", None, "CustomToolLibrary"),
     ("get", "/custom-tools/commands/{command_id}", None, "CustomToolLibraryReceipt"),
     ("post", "/custom-tools/commands", "CustomToolLibraryCommand", "CustomToolLibraryReceipt"),
+    ("get", "/data/backup", None, "DataBackupState"),
+    ("post", "/data/backup/commands", "DataBackupCommand", "DataBackupReceipt"),
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
@@ -923,6 +926,10 @@ export const getCustomToolLibraryReceipt = (base: string, proof: SessionProof, c
   jsonRequest(base, `/custom-tools/commands/${id(command)}`, 'CustomToolLibraryReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendCustomToolLibraryCommand = (base: string, proof: SessionProof, command: CustomToolLibraryCommand, signal?: AbortSignal): Promise<CustomToolLibraryReceipt> =>
   jsonRequest(base, '/custom-tools/commands', 'CustomToolLibraryReceipt', proof, 'POST', validateWire('CustomToolLibraryCommand', command), command.command_id, signal);
+export const getDataBackup = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DataBackupState> =>
+  jsonRequest(base, '/data/backup', 'DataBackupState', proof, 'GET', undefined, undefined, signal);
+export const sendDataBackupCommand = (base: string, proof: SessionProof, command: DataBackupCommand, signal?: AbortSignal): Promise<DataBackupReceipt> =>
+  jsonRequest(base, '/data/backup/commands', 'DataBackupReceipt', proof, 'POST', validateWire('DataBackupCommand', command), command.command_id, signal);
 export const getInsights = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<InsightsSnapshot> =>
   jsonRequest(base, '/insights', 'InsightsSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getInsightReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<InsightReceipt> =>

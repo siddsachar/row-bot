@@ -4049,6 +4049,26 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     return result;
   };
+  dataBackup = (signal?: AbortSignal) =>
+    this.query(() => this.transport.dataBackup?.(signal));
+  executeDataBackup = async (
+    original: Omit<import('./types').DataBackupCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').DataBackupCommand>(
+      'DataBackupCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeDataBackup)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeDataBackup(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   insights = (signal?: AbortSignal) =>
     this.query(() => this.transport.insights?.(signal));
   insightReceipt = (command: string, signal?: AbortSignal) =>

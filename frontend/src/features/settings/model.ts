@@ -111,6 +111,7 @@ export const settingsRedirects: Record<
   gmail: { leaf: 'accounts', anchor: 'google' },
   calendar: { leaf: 'accounts', anchor: 'google' },
   migration: { leaf: 'data', anchor: 'migration' },
+  backup: { leaf: 'data', anchor: 'backup' },
   search: { leaf: 'tools', anchor: 'search-tools' },
   utilities: { leaf: 'tools', anchor: 'built-in-tools' },
   'agent-profiles': { leaf: 'profiles' },
@@ -417,6 +418,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'updates.channel',
     label: 'Update channel',
     keywords: 'beta stable',
+  },
+  {
+    leaf: 'data',
+    anchor: 'backup',
+    label: 'Back up and restore',
+    keywords: 'backup restore copy archive move computer',
   },
   {
     leaf: 'data',

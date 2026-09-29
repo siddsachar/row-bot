@@ -986,6 +986,21 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Task, workflow, and agent orchestration changes need resume/approval and schema coverage.",
     ),
     SourceTestRule(
+        "profile_backup",
+        (
+            "src/row_bot/profile_restore.py",
+            "src/row_bot/application/profile_backup.py",
+            "src/row_bot/application/client_data_backup.py",
+            "src/row_bot/app.py",
+        ),
+        (
+            "tests/subsystem/data",
+            "tests/subsystem/client_protocol/test_data_backups_api.py",
+            "tests/subsystem/client_host/test_folder_selections.py",
+        ),
+        "Backups never hold secrets, and a restore is reviewed, staged and applied only on the next start.",
+    ),
+    SourceTestRule(
         "threads",
         ("src/row_bot/threads.py",),
         (

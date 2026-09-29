@@ -163,6 +163,8 @@ class FolderSelections:
         scope: FolderSelectionScope,
         path: Path | None,
         validate: Callable[[], None],
+        *,
+        kind: str = "folder",
     ) -> dict:
         """Consume an exact native intent and mint a one-shot opaque grant.
 
@@ -185,7 +187,7 @@ class FolderSelections:
                 return {"status": "cancelled"}
             from row_bot.developer.review import scoped_workspace_path
             selected = scoped_workspace_path(Path(path))
-            if not selected.is_dir():
+            if not (selected.is_file() if kind == "file" else selected.is_dir()):
                 raise ClientPlatformError("invalid_resource")
             validate()
             with self._lock:
@@ -261,6 +263,35 @@ class FolderSelections:
             grant_id, session_id, validate, intents={"custom_tool"}, destinations={"custom-tools"},
         )
         return None if exact is None else exact[0]
+
+    def consume_exact_backup_file(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+    ) -> Path | None:
+        """The backup archive picked for Settings › Data › Restore, once."""
+        from row_bot.developer.review import scoped_workspace_path
+
+        with self._lock:
+            self._prune()
+            grant = self._exact_values.get(grant_id)
+            if grant is None:
+                return None
+            scope = grant.scope
+            if (
+                scope.session_id != session_id
+                or scope.intent != "restore_backup"
+                or scope.destination != "data-restore"
+            ):
+                raise ClientPlatformError("capability_revoked")
+            validate(scope)
+            del self._exact_values[grant_id]
+        validate(scope)
+        selected = scoped_workspace_path(grant.path)
+        if not selected.is_file():
+            raise ClientPlatformError("resource_unavailable")
+        return selected
 
     def _consume_exact_for(
         self,

@@ -47,6 +47,12 @@ for _discord_noisy in _DISCORD_BENIGN_VOICE_LOGGERS:
     logging.getLogger(_discord_noisy).setLevel(logging.ERROR)
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
+# A confirmed restore from a backup applies here, before anything below opens
+# the profile's databases; the current profile is kept aside (decision 21).
+if __name__ == "__main__":
+    from row_bot.profile_restore import apply_on_start
+
+    apply_on_start()
 from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME, APP_PING_ID, APP_USER_AGENT
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.access.launcher_control import LAUNCH_SECRET_ENV

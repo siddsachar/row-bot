@@ -1891,6 +1891,17 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  dataBackup(signal?: AbortSignal) {
+    return wire.getDataBackup(this.base, this.session(), signal);
+  }
+  executeDataBackup(command: wire.DataBackupCommand, signal?: AbortSignal) {
+    return wire.sendDataBackupCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
   insights(signal?: AbortSignal) {
     return wire.getInsights(this.base, this.session(), signal);
   }

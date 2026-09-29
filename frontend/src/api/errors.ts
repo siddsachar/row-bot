@@ -821,6 +821,33 @@ const CATALOG: Record<string, Entry> = {
     'That time has passed. Pick a later time, or switch the workflow off.',
     'review',
   ],
+  backup_not_row_bot: ["That file isn't a Row-Bot backup.", 'none'],
+  backup_newer: [
+    'That backup comes from a newer Row-Bot. Update Row-Bot, then restore it.',
+    'update',
+  ],
+  backup_invalid: [
+    "That backup is damaged or has files Row-Bot won't restore.",
+    'none',
+  ],
+  backup_too_large: ['That backup is larger than Row-Bot can restore.', 'none'],
+  backup_review_expired: [
+    'That backup changed or the check is too old. Choose it again.',
+    'review',
+  ],
+  backup_unavailable: [
+    "That backup isn't in the Backups folder any more.",
+    'none',
+  ],
+  backup_storage_unavailable: [
+    "Row-Bot can't write to its Backups folder.",
+    'none',
+  ],
+  data_job_running: [
+    'A backup or restore is already running. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
   task_revision_conflict: [
     'This workflow changed. Refresh to see it; your edits are kept.',
     'retry',

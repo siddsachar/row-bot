@@ -173,3 +173,22 @@ def test_custom_tool_grant_is_consumed_once_for_its_own_intent_and_session(tmp_p
         selections.consume_exact_custom_tool(other, "session-1", seen.append)
     # A legacy picker grant is not an exact one: the caller resolves it itself.
     assert selections.consume_exact_custom_tool("unknown", "session-1", seen.append) is None
+
+
+def test_a_backup_archive_grant_is_one_file_for_its_own_intent(tmp_path) -> None:
+    """Settings › Data › Restore: the desktop pick of one archive, used once."""
+    archive = tmp_path / "Row-Bot backup.zip"
+    archive.write_bytes(b"PK")
+    selections = FolderSelections(clock=lambda: 10.0)
+    scope = replace(_scope(), intent="restore_backup", destination="data-restore", conversation_id=None)
+    with pytest.raises(ClientPlatformError, match="invalid_resource"):
+        selections.complete_exact(selections.begin_exact(scope), scope, tmp_path, lambda: None, kind="file")
+    grant = selections.complete_exact(selections.begin_exact(scope), scope, archive, lambda: None, kind="file")["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_backup_file(grant, "session-2", lambda _scope: None)
+    assert selections.consume_exact_backup_file(grant, "session-1", lambda _scope: None) == archive
+    assert selections.consume_exact_backup_file(grant, "session-1", lambda _scope: None) is None
+    folder_scope = replace(_scope(), intent="custom_tool", destination="custom-tools", conversation_id=None)
+    folder_grant = selections.complete_exact(selections.begin_exact(folder_scope), folder_scope, tmp_path, lambda: None)["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_backup_file(folder_grant, "session-1", lambda _scope: None)

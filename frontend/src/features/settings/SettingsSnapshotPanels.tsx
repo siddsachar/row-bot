@@ -51,6 +51,7 @@ import { writeClipboardText } from '../../platform/clipboard';
 import { ModalTask } from '../../ui/overlays';
 import ConnectedUpdateControls from './UpdateControls';
 import ConnectedMigrationControls from './MigrationControls';
+import ConnectedDataBackup from './DataBackup';
 import ConnectedGitHubAccessControls from './GitHubAccessControls';
 import ConnectedAccountAuthControls from './AccountAuthControls';
 import type {
@@ -3585,6 +3586,16 @@ export function PreferencesSnapshotPanel({
   if (part === 'data')
     return (
       <div className="stack settings-snapshot-page settings-data-page">
+        {showUpdateControls && (
+          <Section
+            title="Back up and restore"
+            description="A copy of your Row-Bot on this computer, without passwords or sign-ins."
+            icon={HardDrive}
+            anchor="backup"
+          >
+            <ConnectedDataBackup />
+          </Section>
+        )}
         <Section
           title="Import from another assistant"
           description="Scan and select data from Hermes Agent or OpenClaw. Nothing is written until you confirm."

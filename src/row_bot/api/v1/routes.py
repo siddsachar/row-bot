@@ -312,6 +312,14 @@ _STATUS.update(
 _STATUS.update(
     {
         "owner_local_only": 403,
+        "backup_not_row_bot": 422,
+        "backup_newer": 422,
+        "backup_invalid": 422,
+        "backup_too_large": 413,
+        "backup_review_expired": 409,
+        "backup_unavailable": 404,
+        "backup_storage_unavailable": 503,
+        "data_job_running": 409,
         "custom_tool_draft_unavailable": 404,
         "custom_tool_unavailable": 404,
         "custom_tool_receipt_unavailable": 404,
@@ -1553,6 +1561,27 @@ def create_router(
                 {"reference": value["grant_id"], "kind": "folder"},
             )
 
+        if (body.intent == "restore_backup" and body.destination == "data-restore"
+                and body.conversation_id is None):
+            # Settings › Data › Restore: one .zip archive, granted by reference.
+            if selected.suffix.lower() != ".zip":
+                raise ProtocolError("invalid_command", 422)
+            native_intent = await call(folder_selections.begin_exact, scope)
+            value = await call(
+                folder_selections.complete_exact,
+                native_intent,
+                scope,
+                selected,
+                authorized,
+                kind="file",
+            )
+            if value.get("status") != "selected":
+                raise ProtocolError("action_denied", 403)
+            return await respond(
+                request,
+                dto.NativeSelectionView,
+                {"reference": value["grant_id"], "kind": "file"},
+            )
         if body.conversation_id is None or body.intent != "attachment":
             raise ProtocolError("invalid_command", 422)
         from row_bot.application.attachments import read_native_selection
@@ -8734,6 +8763,96 @@ def create_router(
         if not (context.is_local_owner and context.direct_loopback):
             raise ProtocolError("owner_local_only", 403)
         return dispatch_validation(request, current)
+
+    # Settings › Data (decision 21): the local owner on this computer only.
+    _DATA_RECEIPTS: dict[str, dict] = {}
+
+    async def data_backup_state(request: Request) -> dict:
+        context = await _context(request)
+        from row_bot.application.client_data_backup import read_state
+
+        return await call(read_state, local_owner=bool(context.is_local_owner and context.direct_loopback))
+
+    @router.get("/data/backup")
+    async def data_backup(request: Request) -> JSONResponse:
+        await session(request)
+        return await respond(request, dto.DataBackupState, await data_backup_state(request))
+
+    @router.post("/data/backup/commands")
+    async def data_backup_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.DataBackupCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        validate = await custom_tool_library_authority(request, current)
+        key = f"{current.id}:{body.command_id}"
+        if key in _DATA_RECEIPTS:
+            receipt = dict(_DATA_RECEIPTS[key])
+            receipt["state"] = await data_backup_state(request)
+            return await respond(request, dto.DataBackupReceipt, receipt)
+        from row_bot.application import client_data_backup as data
+
+        review = None
+        status = "completed"
+        # The owner check waits on the event loop, so it runs in a worker.
+        await call(validate)
+        if body.action == "backup":
+            await call(data.backup)
+            status = "accepted"
+        elif body.action == "inspect_restore":
+            if not body.file_grant:
+                raise ProtocolError("invalid_command", 422)
+
+            def validate_native_file(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            path = await call(
+                folder_selections.consume_exact_backup_file,
+                body.file_grant,
+                current.id,
+                validate_native_file,
+            )
+            if path is None:
+                raise ProtocolError("capability_revoked", 409)
+            from row_bot.application.profile_backup import BackupError
+
+            try:
+                review = await call(data.inspect_restore, path)
+            except BackupError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from None
+        elif body.action == "restore":
+            if not body.review_id:
+                raise ProtocolError("invalid_command", 422)
+            from row_bot.application.profile_backup import BackupError
+
+            try:
+                await call(data.restore, body.review_id)
+            except BackupError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from None
+            status = "accepted"
+        elif body.action == "cancel_restore":
+            await call(data.cancel_restore)
+        elif body.action == "dismiss_result":
+            await call(data.dismiss_result)
+        else:
+            await call(data.reveal_last)
+        receipt = {"command_id": str(body.command_id), "status": status, "review": review}
+        if body.action != "inspect_restore":
+            if len(_DATA_RECEIPTS) > 256:
+                _DATA_RECEIPTS.clear()
+            _DATA_RECEIPTS[key] = receipt
+        receipt = {**receipt, "state": await data_backup_state(request)}
+        return await respond(request, dto.DataBackupReceipt, receipt)
 
     @router.get("/custom-tools")
     async def custom_tool_library(request: Request) -> JSONResponse:

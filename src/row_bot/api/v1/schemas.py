@@ -3573,6 +3573,73 @@ class CustomToolLibraryCommand(WireModel):
     folder_grant: OpaqueId | None = None
 
 
+class DataBackupSignIn(WireModel):
+    kind: Literal["provider", "account", "channel", "mcp", "webhooks"]
+    name: str = Field(max_length=200)
+
+
+class DataBackupJob(WireModel):
+    kind: Literal["backup", "restore"]
+    status: Literal["running", "completed", "failed"]
+    started_at: str | None = Field(default=None, max_length=40)
+    finished_at: str | None = Field(default=None, max_length=40)
+    code: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None, max_length=260)
+
+
+class DataRestorePending(WireModel):
+    created_at: str = Field(max_length=40)
+    source_name: str = Field(max_length=200)
+    sign_in_again: list[DataBackupSignIn] = Field(max_length=100)
+
+
+class DataRestoreResult(WireModel):
+    status: Literal["applied", "failed"]
+    applied_at: str | None = Field(default=None, max_length=40)
+    source_created_at: str = Field(max_length=40)
+    kept_aside: str | None = Field(default=None, max_length=120)
+    sign_in_again: list[DataBackupSignIn] = Field(max_length=100)
+
+
+class DataBackupState(WireModel):
+    """Settings › Data: backups and restores for the local owner (decision 21)."""
+    local_owner: bool
+    last_backup_at: str | None = Field(default=None, max_length=40)
+    last_backup_name: str | None = Field(default=None, max_length=260)
+    folder: str | None = Field(default=None, max_length=300)
+    job: DataBackupJob | None = None
+    pending_restore: DataRestorePending | None = None
+    restore_result: DataRestoreResult | None = None
+
+
+class DataRestoreReview(WireModel):
+    review_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_name: str = Field(max_length=200)
+    created_at: str = Field(max_length=40)
+    app_version: str = Field(max_length=40)
+    files: int = Field(ge=0)
+    bytes: int = Field(ge=0)
+    left_out: list[Annotated[str, StringConstraints(max_length=200)]] = Field(max_length=10)
+    sign_in_again: list[DataBackupSignIn] = Field(max_length=100)
+
+
+class DataBackupCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    action: Literal["backup", "inspect_restore", "restore", "cancel_restore", "dismiss_result", "reveal"]
+    # inspect_restore: the desktop pick of one archive (never a path).
+    file_grant: OpaqueId | None = None
+    # restore: the review of that archive the person confirmed.
+    review_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class DataBackupReceipt(WireModel):
+    command_id: UUID
+    status: Literal["accepted", "completed"]
+    review: DataRestoreReview | None = None
+    state: DataBackupState
+
+
 class CustomToolLibraryReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain", "approval_required"]

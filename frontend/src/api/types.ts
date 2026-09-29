@@ -249,6 +249,11 @@ export interface ClientTransport {
     command: Wire.CustomToolLibraryCommand,
     signal?: AbortSignal,
   ): Promise<Wire.CustomToolLibraryReceipt>;
+  dataBackup?(signal?: AbortSignal): Promise<Wire.DataBackupState>;
+  executeDataBackup?(
+    command: Wire.DataBackupCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.DataBackupReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,
