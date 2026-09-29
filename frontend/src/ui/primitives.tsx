@@ -5,6 +5,7 @@ import {
   isValidElement,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -872,10 +873,18 @@ export function Disclosure({
   onOpenChange?: (open: boolean) => void;
   className?: string;
 }) {
+  // `defaultOpen` opens it (again) when it turns true; it never closes it
+  // under the person, e.g. while a confirmation inside is still showing (B168).
+  const details = useRef<HTMLDetailsElement>(null);
+  useLayoutEffect(() => {
+    if (open === undefined && defaultOpen && details.current)
+      details.current.open = true;
+  }, [open, defaultOpen]);
   return (
     <details
+      ref={details}
       className={`disclosure ${className}`}
-      open={open ?? defaultOpen}
+      open={open}
       onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
     >
       <summary className="disclosure-summary">

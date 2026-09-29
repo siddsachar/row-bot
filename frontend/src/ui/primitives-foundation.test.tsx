@@ -143,6 +143,37 @@ it('renders an Advanced disclosure with plain summary text and optional meta', (
   expect(details.open).toBe(true);
 });
 
+it('opens a disclosure when defaultOpen turns true but never closes it under the person (B168)', () => {
+  const view = render(
+    <Disclosure summary="Sandbox changes" defaultOpen>
+      <p role="status">Sandbox changes imported.</p>
+    </Disclosure>,
+  );
+  const details = view.container.querySelector('details')!;
+  expect(details.open).toBe(true);
+  // What it holds finished (nothing waiting any more): the confirmation stays in view.
+  view.rerender(
+    <Disclosure summary="Sandbox changes" defaultOpen={false}>
+      <p role="status">Sandbox changes imported.</p>
+    </Disclosure>,
+  );
+  expect(details.open).toBe(true);
+  details.open = false;
+  view.rerender(
+    <Disclosure summary="Sandbox changes" defaultOpen={false}>
+      <p role="status">Sandbox changes imported.</p>
+    </Disclosure>,
+  );
+  expect(details.open).toBe(false);
+  // Something new is waiting: it opens again.
+  view.rerender(
+    <Disclosure summary="Sandbox changes" defaultOpen>
+      <p role="status">Sandbox changes imported.</p>
+    </Disclosure>,
+  );
+  expect(details.open).toBe(true);
+});
+
 it('labels a setting row group and ties its visible label to a native control', () => {
   render(
     <SettingRow
