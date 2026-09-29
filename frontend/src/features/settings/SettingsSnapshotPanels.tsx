@@ -1801,23 +1801,20 @@ function PublicLinkStatus({
       <p role={tunnel.runtime_state === 'failed' ? 'alert' : undefined}>
         <strong>Public</strong> {line}
       </p>
-      {url && control && (
-        <div className="button-row">
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void writeClipboardText(url, writeClipboard).then((done) =>
-                setCopied(done ? 'Copied.' : 'Row-Bot couldn’t copy it.'),
-              )
-            }
-          >
-            Copy address
-          </Button>
-          {copied && <span role="status">{copied}</span>}
-        </div>
-      )}
       {control ? (
         <div className="settings-action-grid">
+          {url && (
+            <Button
+              variant="secondary"
+              onClick={() =>
+                void writeClipboardText(url, writeClipboard).then((done) =>
+                  setCopied(done ? 'Copied.' : 'Row-Bot couldn’t copy it.'),
+                )
+              }
+            >
+              Copy address
+            </Button>
+          )}
           {tunnel.runtime_state === 'active' ? (
             <ReviewedSettingsAction
               mutation={mutation}
@@ -1837,6 +1834,7 @@ function PublicLinkStatus({
               />
             </>
           ) : null}
+          {copied && <span role="status">{copied}</span>}
         </div>
       ) : (
         <p className="settings-help">

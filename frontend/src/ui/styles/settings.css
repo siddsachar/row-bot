@@ -3125,6 +3125,29 @@
 .access-status-line[data-tone='danger'] > p {
   color: var(--status-danger-text);
 }
+/* Copy, Start/Stop and Check sit in one row under the line, sized to fit. */
+.settings-page-content .access-status-line .settings-action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.settings-page-content .access-status-line .settings-action-grid > * + * {
+  border-top: 0;
+}
+.settings-page-content .access-status-line .settings-reviewed-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 0;
+  border: 0;
+}
+.settings-page-content
+  .access-status-line
+  .settings-reviewed-action
+  > .settings-help:empty {
+  display: none;
+}
 .access-network {
   min-width: 0;
 }
