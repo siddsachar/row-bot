@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import yaml
 
+from scripts.run_test_matrix import TIER_COMMANDS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
@@ -201,8 +203,6 @@ def test_payload_manifest_includes_dependency_provenance_files():
 def test_ci_security_and_installer_dependency_hooks_are_wired():
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    lint = (ROOT / ".github/workflows/lint.yml").read_text(encoding="utf-8")
-    lock_check = ROOT / ".github/workflows/uv-lockfile-check.yml"
     osv = ROOT / ".github/workflows/osv-scanner.yml"
     windows_build = (ROOT / "installer/build_installer.ps1").read_text(encoding="utf-8")
     mac_build = (ROOT / "installer/build_mac_app.sh").read_text(encoding="utf-8")
@@ -212,11 +212,9 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
 
     assert "uv sync --locked --all-extras --group test" in ci
     assert "uv sync --locked --all-extras --group test" in release
-    assert "uv sync --locked --group lint" in lint
-    assert lock_check.is_file()
-    assert ".github/dependabot.yml" in lock_check.read_text(encoding="utf-8")
-    assert "uv lock --check" in lock_check.read_text(encoding="utf-8")
-    assert "export_locked_requirements.py --check" in lock_check.read_text(encoding="utf-8")
+    # Every pull request checks that uv.lock and requirements.txt are current.
+    assert "scripts/run_test_matrix.py quality" in ci
+    assert {"lock-check", "requirements-check"} <= set(TIER_COMMANDS["quality"])
     assert osv.is_file()
     assert "OSV" in osv.read_text(encoding="utf-8")
     security_workflow = yaml.load(osv.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)

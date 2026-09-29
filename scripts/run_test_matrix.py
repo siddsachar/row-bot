@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import configparser
 import json
 import os
 import subprocess
@@ -43,70 +42,44 @@ TEST_ENV = {
     ),
     "ROW_BOT_TEST_MODE": "1",
 }
+COVERAGE_ENV = {**TEST_ENV, "COVERAGE_FILE": str(REPO_ROOT / ".tmp" / "coverage" / ".coverage")}
 
-COVERAGE_ENV = {
-    **TEST_ENV,
-    "COVERAGE_FILE": str(REPO_ROOT / ".tmp" / "coverage" / ".coverage.migrated-subsystems"),
-}
+DETERMINISTIC = "not live_provider and not e2e"
+# docs.yml owns the docs and marketing tooling tests; they read docs sources, not app code.
+APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 
-MIGRATED_COVERAGE_MODULES = (
-    "row_bot.channels.base",
-    "row_bot.channels.registry",
-    "row_bot.mcp_client.runtime",
-    "row_bot.mcp_client.safety",
-    "row_bot.knowledge_graph",
-    "row_bot.memory",
-    "row_bot.memory_extraction",
-    "row_bot.dream_cycle",
-    "row_bot.developer.runtime",
-    "row_bot.developer.sandbox",
-    "row_bot.designer.export",
-    "row_bot.providers.runtime",
-    "row_bot.providers.selection",
-    "row_bot.providers.catalog",
-    "row_bot.tools.memory_tool",
-    "row_bot.updater",
-    "row_bot.plugins.api",
-    "row_bot.plugins.loader",
-    "row_bot.plugins.registry",
-    "row_bot.plugins.installer",
-    "row_bot.plugins.marketplace",
+# One PR browser pass: boot, first run, shell, overlays, a turn's lifecycle, chat,
+# providers, restart recovery, the desktop Buddy window and the UI primitives.
+BROWSER_SMOKE_SPECS = (
+    "bootstrap.spec",
+    "setup-first-run.spec",
+    "shell-slice1.spec",
+    "overlays.spec",
+    "unified-lifecycle.spec",
+    "conversation-first.spec",
+    "providers-parity.spec",
+    "unified-restart.spec",
+    "buddy-overlay.spec",
+    "polish-foundation.spec",
 )
-
-COVERAGE_SOURCE_DIR = Path("src/row_bot")
-COVERAGE_CONFIG_PATH = Path(".tmp/coverage/migrated-subsystems.coveragerc")
+BROWSER_RUNNER = ("uv", "run", "python", "tests/browser/client_workspace/run_browser.py", "--engine", "chromium")
 
 
-def _write_migrated_coverage_config() -> Path:
-    # Package-name discovery can import then evict dependency modules while
-    # retaining their parent attributes. Directory discovery avoids that split;
-    # the report still includes exactly the migrated inventory, including files
-    # with no executed lines.
-    config = configparser.ConfigParser()
-    config["run"] = {"source": COVERAGE_SOURCE_DIR.as_posix()}
-    config["report"] = {
-        "include": "\n" + "\n".join(
-            (Path("src") / Path(*module.split("."))).with_suffix(".py").as_posix()
-            for module in MIGRATED_COVERAGE_MODULES
-        ),
-    }
-    path = REPO_ROOT / COVERAGE_CONFIG_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        config.write(handle)
-    return path
+def _pytest(name: str, *args: str, marker: str = DETERMINISTIC, env: dict[str, str] = TEST_ENV) -> CommandSpec:
+    return _cmd(name, "uv", "run", "python", "-m", "pytest", *args, "-m", marker, "-q", env=env)
 
 
 COMMANDS: dict[str, CommandSpec] = {
-    "client-foundation": _cmd("client-foundation", "python", "scripts/run_client_checks.py", env=TEST_ENV),
-    # The desktop Buddy overlay at its native 380x230 size, both appearances,
-    # against the isolated fixture backend (needs a local Chromium or Edge).
-    "browser-buddy-overlay": _cmd(
-        "browser-buddy-overlay", "uv", "run", "python", "tests/browser/client_workspace/run_browser.py",
-        "--engine", "chromium", "--", "--project=chromium-buddy-overlay", "buddy-overlay.spec",
-        env=TEST_ENV,
+    "lock-check": _cmd("lock-check", "uv", "lock", "--check"),
+    "requirements-check": _cmd("requirements-check", "python", "scripts/export_locked_requirements.py", "--check"),
+    "sync-test": _cmd("sync-test", "uv", "sync", "--locked", "--all-extras", "--group", "test"),
+    "ruff-safety": _cmd(
+        "ruff-safety", "uv", "run", "--group", "lint", "ruff", "check", ".",
+        "--select", "E9,F63,F7,F82", "--output-format=github",
     ),
-    "dependency-requirements": _cmd("dependency-requirements", "uv", "run", "python", "scripts/dependency_requirements.py", env=TEST_ENV),
+    "dependency-requirements": _cmd(
+        "dependency-requirements", "uv", "run", "python", "scripts/dependency_requirements.py", env=TEST_ENV,
+    ),
     "client-platform-boundaries": _cmd(
         "client-platform-boundaries", "uv", "run", "python", "scripts/check_client_platform_boundaries.py",
         env=TEST_ENV,
@@ -115,218 +88,72 @@ COMMANDS: dict[str, CommandSpec] = {
         "client-platform-contracts", "uv", "run", "python", "scripts/generate_client_platform_contracts.py", "--check",
         env=TEST_ENV,
     ),
-    "lock-check": _cmd("lock-check", "uv", "lock", "--check"),
-    "requirements-check": _cmd("requirements-check", "python", "scripts/export_locked_requirements.py", "--check"),
-    "sync-test": _cmd("sync-test", "uv", "sync", "--locked", "--all-extras", "--group", "test"),
     "runtime-deps": _cmd(
-        "runtime-deps",
-        "uv",
-        "run",
-        "python",
-        "scripts/verify_runtime_dependencies.py",
-        "all",
-        env=TEST_ENV,
+        "runtime-deps", "uv", "run", "python", "scripts/verify_runtime_dependencies.py", "all", env=TEST_ENV,
     ),
-    "compileall": _cmd(
-        "compileall",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "compileall",
-        "-q",
-        "-x",
-        r"(\.git|\.venv|dist|build|__pycache__)",
-        "src",
-        "tests",
-        "scripts",
-        "app.py",
-        "debug_tools.py",
-        "launcher.py",
-        env=TEST_ENV,
+    "client-foundation": _cmd("client-foundation", "python", "scripts/run_client_checks.py", env=TEST_ENV),
+    # The PR pass: every deterministic app test once, coverage recorded but not
+    # gated. CI splits it by file with ROW_BOT_TEST_SHARD=k/N (tests/conftest.py).
+    "python": _pytest(
+        "python", *APP_LANES, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python.xml",
+        marker=f"not slow and {DETERMINISTIC}", env=COVERAGE_ENV,
     ),
-    "ruff-safety": _cmd(
-        "ruff-safety",
-        "uv",
-        "run",
-        "--group",
-        "lint",
-        "ruff",
-        "check",
-        ".",
-        "--select",
-        "E9,F63,F7,F82",
-        "--output-format=github",
-    ),
-    "contracts": _cmd(
-        "contracts",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/contracts",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
-    ),
-    "subsystem": _cmd(
-        "subsystem",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/subsystem",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
-    ),
-    "coverage-migrated": _cmd(
-        "coverage-migrated",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/contracts",
-        "tests/subsystem",
-        "-m",
-        "not live_provider and not e2e",
-        f"--cov={COVERAGE_SOURCE_DIR.as_posix()}",
-        f"--cov-config={COVERAGE_CONFIG_PATH.as_posix()}",
-        "--cov-report=term-missing:skip-covered",
-        "--cov-report=xml:.tmp/coverage/migrated-subsystems.xml",
-        "--cov-fail-under=55",
-        "-q",
+    # The nightly pass: the same lanes with the slow tests.
+    "python-full": _pytest(
+        "python-full", *APP_LANES, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python-full.xml",
         env=COVERAGE_ENV,
     ),
-    "deterministic": _cmd(
-        "deterministic",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
-    ),
+    # OS-sensitive tests; CI runs them on Windows (the shipped Python 3.13) and macOS.
+    "platform": _pytest("platform", "tests", marker=f"platform and not slow and {DETERMINISTIC}"),
     "app-smoke": _cmd(
-        "app-smoke",
-        "uv",
-        "run",
-        "python",
-        "scripts/smoke_app.py",
-        "--port",
-        "8090",
-        "--timeout",
-        "120",
+        "app-smoke", "uv", "run", "python", "scripts/smoke_app.py", "--port", "8090", "--timeout", "120",
         env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
     ),
-    "installer-contracts": _cmd(
-        "installer-contracts",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/subsystem/installer",
-        "tests/contracts/installers",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
+    # The launcher owns its launch secret, so the smoke uses the public probes (B203).
+    "launcher-smoke": _cmd(
+        "launcher-smoke", "uv", "run", "python", "scripts/smoke_app.py", "--port", "8092", "--timeout", "180",
+        "--public-probes", "--", "python", "launcher.py", "--server", "--no-open", "--no-splash", "--no-ollama",
+        "--port", "8092",
+        env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
     ),
-    "legacy-inventory": _cmd(
-        "legacy-inventory",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/subsystem/test_legacy_inventory.py",
-        "tests/subsystem/test_source_test_map.py",
-        "-q",
+    "contracts": _pytest("contracts", "tests/contracts"),
+    "subsystem": _pytest("subsystem", "tests/subsystem"),
+    "installer-contracts": _pytest("installer-contracts", "tests/subsystem/installer", "tests/contracts/installers"),
+    "docs": _pytest("docs", "tests/docs", "tests/marketing"),
+    # Needs a local Chromium: Playwright's (CI) or an installed channel via ROW_BOT_BROWSER_CHANNEL.
+    "browser-smoke": _cmd(
+        "browser-smoke", *BROWSER_RUNNER, "--timeout", "1800", "--",
+        "--project=chromium-desktop", "--project=chromium-buddy-overlay", *BROWSER_SMOKE_SPECS,
         env=TEST_ENV,
     ),
 }
 
 
+QUALITY = (
+    "lock-check",
+    "requirements-check",
+    "ruff-safety",
+    "dependency-requirements",
+    "client-platform-boundaries",
+    "client-platform-contracts",
+)
+
 TIER_COMMANDS: dict[str, tuple[str, ...]] = {
-    "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
+    "quality": QUALITY,
     "client-foundation": ("client-foundation",),
-    "browser-buddy-overlay": ("browser-buddy-overlay",),
-    "contract-subsystem": ("contracts", "subsystem"),
+    "python": ("python",),
+    "platform": ("runtime-deps", "platform", "launcher-smoke"),
+    "browser-smoke": ("browser-smoke",),
+    "app-smoke": ("app-smoke",),
+    # What the Linux PR lane runs, in one local command.
+    "pr": (*QUALITY, "client-foundation", "runtime-deps", "python", "app-smoke"),
+    "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
+    "fast": ("ruff-safety", "client-platform-boundaries", "client-platform-contracts", "contracts"),
+    "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
     "subsystem": ("subsystem",),
-    "coverage": ("coverage-migrated",),
-    "deterministic": ("deterministic",),
-    "app-smoke": ("app-smoke",),
     "installer-contracts": ("installer-contracts",),
-    "legacy-inventory": ("legacy-inventory",),
-    "fast": ("ruff-safety", "client-platform-boundaries", "client-platform-contracts", "contracts", "subsystem", "legacy-inventory"),
-    "pr": (
-        "lock-check",
-        "requirements-check",
-        "sync-test",
-        "runtime-deps",
-        "dependency-requirements",
-        "client-foundation",
-        "compileall",
-        "ruff-safety",
-        "client-platform-boundaries",
-        "client-platform-contracts",
-        "contracts",
-        "subsystem",
-        "coverage-migrated",
-        "deterministic",
-        "installer-contracts",
-        "app-smoke",
-        "legacy-inventory",
-    ),
-    "release": (
-        "lock-check",
-        "requirements-check",
-        "sync-test",
-        "runtime-deps",
-        "dependency-requirements",
-        "client-foundation",
-        "compileall",
-        "ruff-safety",
-        "client-platform-boundaries",
-        "client-platform-contracts",
-        "contracts",
-        "subsystem",
-        "coverage-migrated",
-        "deterministic",
-        "installer-contracts",
-        "app-smoke",
-        "legacy-inventory",
-    ),
-    "all": (
-        "lock-check",
-        "requirements-check",
-        "sync-test",
-        "runtime-deps",
-        "dependency-requirements",
-        "client-foundation",
-        "compileall",
-        "ruff-safety",
-        "client-platform-boundaries",
-        "client-platform-contracts",
-        "contracts",
-        "subsystem",
-        "coverage-migrated",
-        "deterministic",
-        "installer-contracts",
-        "app-smoke",
-        "legacy-inventory",
-    ),
+    "docs": ("docs",),
 }
 
 
@@ -379,22 +206,7 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
            for path in changed_files):
         commands.append(COMMANDS["dependency-requirements"])
     if selection.test_paths:
-        commands.append(
-            _cmd(
-                "changed-tests",
-                "uv",
-                "run",
-                "python",
-                "-m",
-                "pytest",
-                *selection.test_paths,
-                "-m",
-                "not live_provider and not e2e",
-                "-q",
-                env=TEST_ENV,
-            )
-        )
-    commands.append(COMMANDS["legacy-inventory"])
+        commands.append(_pytest("changed-tests", *selection.test_paths))
     return commands
 
 
@@ -410,8 +222,6 @@ def run_commands(commands: list[CommandSpec], *, continue_on_failure: bool) -> i
     exit_code = 0
     for spec in commands:
         print(f":: {spec.name}: {spec.display()}", flush=True)
-        if spec.name == "coverage-migrated":
-            _write_migrated_coverage_config()
         env = {**os.environ, **spec.env}
         result = subprocess.run(spec.argv, cwd=REPO_ROOT, env=env, check=False)
         if result.returncode != 0:

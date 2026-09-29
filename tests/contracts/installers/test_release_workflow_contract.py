@@ -8,12 +8,6 @@ import pytest
 pytestmark = [pytest.mark.contract, pytest.mark.installer]
 
 
-def test_ci_uses_matrix_runner_for_subsystem_lane() -> None:
-    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
-
-    assert "scripts/run_test_matrix.py contract-subsystem" in ci
-
-
 def test_release_workflow_has_manual_trigger_and_installer_jobs() -> None:
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 

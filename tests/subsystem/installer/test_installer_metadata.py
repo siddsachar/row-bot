@@ -59,16 +59,6 @@ def test_macos_installer_verify_smokes_native_host() -> None:
     assert '"$APP_EXEC" --self-test' in workflow
 
 
-def test_ci_declares_subsystem_and_smoke_lanes() -> None:
-    ci = pathlib.Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
-
-    assert "scripts/run_test_matrix.py contract-subsystem" in ci
-    assert "scripts/run_test_matrix.py pr" in ci
-    assert "scripts/run_test_matrix.py legacy-parity" not in ci
-    assert "migrated-subsystem-coverage" in ci
-    assert "scripts/smoke_app.py --port 8090 --timeout 120" in ci
-
-
 def test_client_build_action_pins_tools_and_preserves_manifests() -> None:
     action = yaml.load(pathlib.Path(".github/actions/build-client/action.yml").read_text(encoding="utf-8"),
                        Loader=yaml.BaseLoader)
@@ -90,7 +80,6 @@ def test_client_build_action_pins_tools_and_preserves_manifests() -> None:
 
 
 @pytest.mark.parametrize("workflow,jobs", [
-    ("ci.yml", ["smoke", "full-test"]),
     ("release.yml", ["release-preflight", "build-windows", "build-linux", "build-macos"]),
     ("installer-verify.yml", ["verify-windows", "verify-linux", "verify-macos"]),
 ])

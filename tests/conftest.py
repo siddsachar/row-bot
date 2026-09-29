@@ -158,6 +158,33 @@ sqlite3.connect = _guarded_sqlite_connect
 pytest.MonkeyPatch.setenv = _synced_setenv
 
 
+def shard_files(files: set[str], shard: str) -> set[str]:
+    """The files one shard runs for ROW_BOT_TEST_SHARD=k/N.
+
+    Files are dealt round-robin in path order, so neighbouring files of similar
+    cost land on different shards and a file's tests (and module fixtures) stay
+    together. Every file lands in exactly one shard.
+    """
+    index, _, total = shard.partition("/")
+    if not (index.isdigit() and total.isdigit() and 1 <= int(index) <= int(total)):
+        raise ValueError(f"ROW_BOT_TEST_SHARD must look like 1/3, not {shard!r}")
+    return set(sorted(files)[int(index) - 1::int(total)])
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """CI splits the PR pass across jobs with ROW_BOT_TEST_SHARD=k/N."""
+    shard = os.environ.get("ROW_BOT_TEST_SHARD", "").strip()
+    if not shard:
+        return
+    paths = {item.path: item.path.resolve().relative_to(PROJECT_ROOT).as_posix() for item in items}
+    try:
+        kept_files = shard_files(set(paths.values()), shard)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from None
+    config.hook.pytest_deselected(items=[item for item in items if paths[item.path] not in kept_files])
+    items[:] = [item for item in items if paths[item.path] in kept_files]
+
+
 @pytest.fixture(autouse=True)
 def _reset_test_data_env_between_tests():
     _set_default_test_data_env()
