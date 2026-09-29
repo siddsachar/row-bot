@@ -18,7 +18,7 @@ from dataclasses import replace
 
 from fastapi import Header, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from nicegui import app
+from row_bot.server import app
 
 from row_bot.application import client_browser_controls as _browser_controls
 from row_bot.tools import registry as _tool_registry

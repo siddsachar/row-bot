@@ -41,11 +41,11 @@ def test_get_app_host_uses_only_current_environment_name():
     assert app_port.get_app_host(environ={_LEGACY_HOST_ENV: "0.0.0.0"}) == "127.0.0.1"
 
 
-def test_app_always_passes_shared_effective_host_to_nicegui():
+def test_app_always_passes_shared_effective_host_to_the_server():
     source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
 
     assert "_APP_HOST = get_app_host()" in source
-    assert '"host": _APP_HOST' in source
+    assert "host=_APP_HOST" in source
     assert 'if _APP_HOST:' not in source
     assert '_app_boot_event("startup_shell_ready", host=_APP_HOST, port=_APP_PORT)' in source
 

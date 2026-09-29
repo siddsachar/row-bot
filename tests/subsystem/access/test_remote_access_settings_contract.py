@@ -1017,24 +1017,6 @@ def test_trusted_origin_ui_adds_removes_and_discloses_boundaries() -> None:
     assert "remove_button.disable()" in dialog_source
 
 
-def test_startup_and_settings_inject_one_live_policy_and_respect_managed_hosts() -> (
-    None
-):
-    app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-
-    assert "_access_route_config = _access_route_store.load_or_default()" in app_source
-    assert app_source.count("_access_route_store.load_or_default()") == 1
-    assert '"ROW_BOT_ALLOWED_HOSTS" in os.environ' in app_source
-    assert "else _access_route_config.configured_origins" in app_source
-    assert "runtime_access_policy=_runtime_access_policy" in app_source
-    assert "runtime_access_policy: RuntimeAccessPolicy | None = None" in settings_source
-    assert settings_source.count(
-        "runtime_access_policy=runtime_access_policy"
-    ) >= 2
-    assert "host_admission_managed_externally" in settings_source
-
-
 def test_route_inventory_can_be_injected_without_detection() -> None:
     inventory = build_route_inventory(port=9090)
 

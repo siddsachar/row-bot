@@ -703,10 +703,10 @@ async def start_bot() -> bool:
         from twilio.rest import Client
         _client = Client(sid, token)
 
-        # Mount /sms on the main NiceGUI/Starlette app (once)
+        # Mount /sms on the main app (once)
         if not _route_mounted:
-            from nicegui import app as _nicegui_app
-            _nicegui_app.add_route("/sms", _handle_inbound_sms, methods=["POST"])
+            from row_bot.server import add_late_route
+            add_late_route("/sms", _handle_inbound_sms, methods=["POST"])
             _route_mounted = True
             log.info("Mounted /sms webhook route on main app")
 

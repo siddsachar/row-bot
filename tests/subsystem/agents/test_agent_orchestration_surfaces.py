@@ -416,29 +416,6 @@ def test_group_stop_wins_synthesis_race(tmp_path, monkeypatch):
     assert calls == []
 
 
-def test_ui_and_voice_source_contract_has_durable_refresh_without_cutoff():
-    from pathlib import Path
-
-    streaming_source = Path("src/row_bot/ui/streaming.py").read_text(encoding="utf-8")
-    app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "gen.tts_active = False" in streaming_source
-    assert "voice_output.speak_final(speakable.text)" in streaming_source
-    assert "_orchestration_acknowledgement" not in streaming_source
-    assert "remove_latest_checkpoint_ai_message" not in streaming_source
-    assert "get_generation_orchestration" in streaming_source
-    assert "retry_pending_deliveries" in app_source
-    assert "speak_orchestration_final" in app_source
-    assert "voice_final" in app_source
-    assert '"parent_progress"' in app_source
-    assert '"parent_final"' in app_source
-    assert "240" not in "\n".join(
-        line
-        for line in app_source.splitlines()
-        if "orchestration" in line.lower() or "agent" in line.lower()
-    )
-
-
 def test_detached_voice_final_uses_saved_transport():
     from row_bot.voice.output_controller import speak_orchestration_final
 

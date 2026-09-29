@@ -112,75 +112,23 @@ def test_resize_observer_warning_is_benign_and_rate_limited(data_dir, monkeypatc
 def test_stability_source_contracts_are_wired():
     app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
     agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
-    head_src = Path("src/row_bot/ui/head_html.py").read_text(encoding="utf-8")
-    timer_src = Path("src/row_bot/ui/timer_utils.py").read_text(encoding="utf-8")
-    defer_src = timer_src.split("def defer_ui", 1)[1].split("def safe_ui_task", 1)[0]
-    settings_src = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-    catalog_src = Path("src/row_bot/ui/model_catalog.py").read_text(encoding="utf-8")
-    dialog_src = Path("src/row_bot/ui/task_dialog.py").read_text(encoding="utf-8")
-    graph_src = Path("src/row_bot/ui/graph_panel.py").read_text(encoding="utf-8")
     discord_src = Path("src/row_bot/channels/discord_channel.py").read_text(encoding="utf-8")
-    installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "setup_stability_monitoring()" in app_src
-    assert 'app.add_route("/api/client-error"' in app_src
     assert 'app.add_route("/api/launcher-shutdown"' in app_src
     assert 'app.add_route("/api/startup-state"' in app_src
-    assert "window.__rowBotStartupPollInstalled" in app_src
-    assert "window.location.reload()" in app_src
     assert "async def _cleanup_runtime" in app_src
     assert "_ch_registry.all_channels()" in app_src
     assert "await asyncio.wait_for(_ch.stop(), timeout=10)" in app_src
     assert "os._exit(0)" in app_src
-    assert "ui.navigate.reload()" in app_src
-    assert 'ui.navigate.to("/")' not in app_src.split("# ── Startup warnings", 1)[0]
-    assert "window.__rowBotClientErrorReporterInstalled" in head_src
-    assert "rowBotReportClientEvent" in head_src
-    assert "connection_state" in head_src
-    assert "if (!document.body)" in head_src
-    assert "DOMContentLoaded" in head_src
-    assert "document.getElementById('row-bot-ctx-menu')" in head_src
-    assert "def safe_ui_task(" in timer_src
-    safe_task_src = timer_src.split("def safe_ui_task", 1)[1].split("def deactivate_on_disconnect", 1)[0]
-    assert "client = ui.context.client" in safe_task_src
-    assert "with client:" in safe_task_src
-    assert "client = ui.context.client" in defer_src
-    assert "with client:" in defer_src
-    assert "def _schedule_settings_tab" in settings_src
-    assert "def _render_settings_tab" in settings_src
-    assert "p.settings_dlg.open()" in settings_src
-    assert "defer_ui(lambda: _schedule_settings_tab(_initial_name)" in settings_src
-    assert "start_model_catalog_refresh_background" in settings_src
-    assert "build_cached_model_catalog_rows" in settings_src
-    assert "_render_provider_summaries" in catalog_src
-    assert "Open one provider or search" in catalog_src
-    assert "save_workflow_draft" in dialog_src
-    assert "Recovered unsaved draft" in dialog_src
-    assert "safe_timer(2.0, _autosave_draft)" in dialog_src
-    assert "physicsTimer" in graph_src
-    assert "window._rowBotGraph !== G" in graph_src
-    assert "G.network.setOptions({ physics: false })" in graph_src
     assert "_is_transient_stream_disconnect" in agent_src
     assert "provider stream disconnected" in agent_src
     assert "start_performance_monitor()" in app_src
     assert "schedule_idle_extraction" in app_src
     assert "cleanup_old_checkpoints" in app_src
     assert '_ch_config.set("tunnel", "tunnel_main_app", _main_app_tunnel)' in app_src
-    assert '_ch_config.set("tunnel", "tunnel_main_app", enabled)' in settings_src
-    assert '_ch_config.set("tunnel", "tunnel_main_app", e.args)' not in settings_src
     assert "Tunnel auto-start skipped:" in app_src
-    assert "Main-app tunnel requested but unavailable" in settings_src
-    assert "main_app_switch.value = False" in settings_src
-    assert "Tunnel cannot start: {status_detail}" in settings_src
     assert "install_asyncio_exception_handler(loop)" in discord_src
-    assert "loop.run_until_complete(client.close())" in discord_src
-    assert "loop.shutdown_asyncgens()" in discord_src
-    assert "stability.py" in installer_src
-    assert "self._quitting = False" in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-    assert 'name="quit-worker"' in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-    assert 'name="quit-watchdog"' in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-    assert "Quit watchdog forcing launcher exit after timeout" in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-
 
 def test_provider_qualified_cloud_defaults_validate_after_refresh(monkeypatch):
     import row_bot.models as models

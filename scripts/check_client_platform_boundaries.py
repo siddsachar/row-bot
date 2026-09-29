@@ -20,13 +20,13 @@ FORBIDDEN_IMPORTS = ("nicegui", "webview", "row_bot.ui", "row_bot.app",
 PRESENTATION_IMPORTS = ("nicegui", "row_bot.ui")
 PRESENTATION_PREFIXES = ("row_bot.plugins.ui_",)
 LEGACY_PRESENTATION = (
-    "ui/", "app.py", "developer/ui.py", "skills_hub/ui.py",
+    "ui/", "developer/ui.py", "skills_hub/ui.py",
     "plugins/ui_settings.py", "plugins/ui_marketplace.py", "plugins/ui_plugin_dialog.py",
     "designer/brand_dialog.py", "designer/editor.py", "designer/export_dialog.py", "designer/home_tab.py",
     "designer/import_dialog.py", "designer/presentation.py", "designer/review_dialog.py",
     "designer/share_dialog.py", "designer/template_gallery.py", "designer/thumbnail.py",
     "designer/page_navigator.py", "designer/preview.py", "designer/brand_lint.py",
-    "designer/command_palette.py", "channels/whatsapp.py", "channels/sms.py", "plugins/webhooks.py",
+    "designer/command_palette.py", "channels/whatsapp.py",
 )
 
 

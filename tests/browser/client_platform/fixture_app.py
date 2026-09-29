@@ -16,7 +16,7 @@ from typing import Any
 
 from fastapi import Header, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from nicegui import app
+from row_bot.server import app
 
 from tests.helpers.client_platform_fakes import fixture_id
 
@@ -173,14 +173,12 @@ def _authorize(value: str) -> None:
 def fixture_state(x_fixture_token: str = Header(default="")) -> dict:
     _authorize(x_fixture_token)
     from row_bot.threads import get_latest_checkpoint_messages
-    from row_bot.ui.state import _active_generations
 
     with _lock:
         calls = [dict(call) for call in _calls]
         notification_outputs = dict(_notification_outputs)
     return {"calls": calls, "external_calls": 0,
             "notification_outputs": notification_outputs,
-            "legacy_generations": {str(key): str(value.status) for key, value in _active_generations.items()},
             "checkpoint_ids": {thread_id: [str(message.id) for message in get_latest_checkpoint_messages(thread_id)]
                                for thread_id in ("p1-browser-a", "p1-browser-b")}}
 

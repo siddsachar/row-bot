@@ -3853,6 +3853,7 @@ dependencies = [
     { name = "starlette" },
     { name = "tavily-python" },
     { name = "tiktoken" },
+    { name = "uvicorn" },
     { name = "wikipedia" },
     { name = "wolframalpha" },
 ]
@@ -3870,6 +3871,7 @@ all = [
     { name = "kokoro-onnx" },
     { name = "langchain-huggingface" },
     { name = "langchain-mcp-adapters" },
+    { name = "markdown2" },
     { name = "mcp" },
     { name = "modelscope", marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "mss" },
@@ -3899,6 +3901,7 @@ all = [
     { name = "youtube-transcript-api" },
 ]
 browser = [
+    { name = "markdown2" },
     { name = "playwright" },
 ]
 channels = [
@@ -3911,6 +3914,7 @@ channels = [
 designer = [
     { name = "fpdf2" },
     { name = "kaleido" },
+    { name = "markdown2" },
     { name = "pandas" },
     { name = "playwright" },
     { name = "plotly" },
@@ -4022,6 +4026,9 @@ requires-dist = [
     { name = "langchain-xai", specifier = ">=0.2,<2.0" },
     { name = "langgraph", specifier = ">=1.0,<2.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0,<4.0" },
+    { name = "markdown2", marker = "extra == 'all'", specifier = ">=2.5,<3.0" },
+    { name = "markdown2", marker = "extra == 'browser'", specifier = ">=2.5,<3.0" },
+    { name = "markdown2", marker = "extra == 'designer'", specifier = ">=2.5,<3.0" },
     { name = "mcp", marker = "extra == 'all'", specifier = ">=1.20,<2.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.20,<2.0" },
     { name = "modelscope", marker = "(platform_machine != 'x86_64' and extra == 'all') or (sys_platform != 'darwin' and extra == 'all')", specifier = ">=1.38,<2.0" },
@@ -4092,6 +4099,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'local-embeddings'", specifier = ">=5.3,<6.0" },
     { name = "twilio", marker = "extra == 'all'", specifier = ">=9.0,<10.0" },
     { name = "twilio", marker = "extra == 'channels'", specifier = ">=9.0,<10.0" },
+    { name = "uvicorn", specifier = ">=0.30,<1.0" },
     { name = "wikipedia", specifier = ">=1.4,<2.0" },
     { name = "wolframalpha", specifier = ">=5.1,<6.0" },
     { name = "xlrd", marker = "extra == 'all'", specifier = ">=2.0,<3.0" },

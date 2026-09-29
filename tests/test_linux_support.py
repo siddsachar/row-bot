@@ -165,7 +165,7 @@ def test_root_launch_entrypoints_remain_source_compatible():
     assert "launcher.py" in manifest["root_python_files"]
     assert 'runpy.run_module("row_bot.app", run_name="__main__")' in app_src
     assert 'if __name__ in {"__main__", "__mp_main__"}:' in app_impl_src
-    assert "ui.run(**_run_kwargs)" in app_impl_src
+    assert "uvicorn.run(" in app_impl_src
     assert "from row_bot.launcher import main" in launcher_src
     assert 'if __name__ == "__main__":\n    main()' in launcher_src
 

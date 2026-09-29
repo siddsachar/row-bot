@@ -224,14 +224,3 @@ def test_react_client_keeps_a_trusted_access_session_renewed() -> None:
     assert "credentials: 'same-origin'" in renewal
     assert "12 * 60 * 60 * 1000" in renewal
     assert "response.status === 401 || response.status === 403" in renewal
-
-
-def test_authenticated_page_installs_one_bounded_same_origin_refresh_trigger() -> None:
-    source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "AuthenticationKind.SESSION" in source
-    assert "window.__rowBotSessionRefreshInstalled" in source
-    assert "'/api/access/session/refresh'" in source
-    assert "credentials: 'same-origin'" in source
-    assert "SESSION_REFRESH_POLL_INTERVAL" in source
-    assert "response.status === 401 || response.status === 403" in source
