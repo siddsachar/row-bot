@@ -270,3 +270,29 @@ def test_open_pages_hear_about_a_delegated_agents_approval(service, monkeypatch)
 
     assert changed(parent, cursor)
     assert changed(child, "0")
+
+
+def test_an_open_agent_thread_hears_that_its_approval_was_answered(service, monkeypatch):
+    """B186 (found on the real app): answered in its own thread, the agent went
+    on, but the page kept "Waiting for your approval" until it was reloaded."""
+    import time
+    from row_bot import agent_runner, tasks, threads
+    from row_bot.application import client_platform
+
+    monkeypatch.setattr(client_platform, "client_platform_service", service)
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    run, _resumed = _waiting_child(monkeypatch, parent)
+    child = run["thread_id"]
+    approval = next(row for row in tasks.get_pending_approvals() if row["agent_run_id"] == run["id"])
+    assert service.snapshot(child)["generation"]["approval_id"] == approval["id"]
+    cursor = service.projection.snapshot(child)["cursor"]
+    service._resolve_approval(approval["id"], {"decision": "approve"})
+    agent_runner.wait_for_agent_run(run["id"], timeout=5)
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        events = service.projection.events_since(child, cursor)["events"]
+        if any(event["type"] == "transcript.checkpoint" for event in events):
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("the agent's thread was never told")

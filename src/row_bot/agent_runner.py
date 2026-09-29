@@ -1142,6 +1142,8 @@ def _run_agent_thread(
                 finally:
                     with _ACTIVE_LOCK:
                         _ACTIVE_AGENT_RUNS.pop(run_id, None)
+                    # An open page of the agent's thread shows how it ended (B186).
+                    _conversation_changed(str((config.get("configurable") or {}).get("thread_id") or ""))
 
 
 def resume_agent_run(
@@ -1156,6 +1158,8 @@ def resume_agent_run(
     run = get_agent_run(run_id)
     if not run:
         return None
+    # The answered card leaves an open page of the agent's thread (B186).
+    _conversation_changed(str(run.get("thread_id") or ""))
     try:
         from row_bot.agent_orchestrator import (
             get_member_for_run,
@@ -1409,6 +1413,8 @@ def _resume_agent_thread(
                 finally:
                     with _ACTIVE_LOCK:
                         _ACTIVE_AGENT_RUNS.pop(run_id, None)
+                    # An open page of the agent's thread shows how it ended (B186).
+                    _conversation_changed(str((config.get("configurable") or {}).get("thread_id") or ""))
 
 
 def wait_for_agent_run(run_id: str, timeout: float | None = None) -> dict[str, Any] | None:
