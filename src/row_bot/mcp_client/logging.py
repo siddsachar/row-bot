@@ -29,7 +29,11 @@ def mask_mapping(data: dict[str, Any] | None) -> dict[str, Any]:
         return {}
     masked: dict[str, Any] = {}
     for key, value in data.items():
-        if _SECRET_KEY_RE.search(str(key)):
+        if str(key) in {"env", "headers"} and isinstance(value, dict):
+            # Every environment and header value is a secret to Settings
+            # (B185): names like DATABASE_URL don't say so.
+            masked[str(key)] = {str(name): "***" for name in value}
+        elif _SECRET_KEY_RE.search(str(key)):
             masked[str(key)] = mask_secret(value)
         elif isinstance(value, dict):
             masked[str(key)] = mask_mapping(value)

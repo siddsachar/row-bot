@@ -176,3 +176,22 @@ def test_schema_to_model_validates_required_optional_and_falls_back_for_complex_
         input_schema={"type": "object", "properties": {"not-valid-name": {"type": "string"}}},
     )
     assert runtime._schema_to_model(bad) is runtime._GenericArgs
+
+
+def test_server_env_and_header_values_never_reach_the_log():
+    """B185: "mcp.server.connected" logged env and header values whose names
+    don't look secret (POLISH_TEST, DATABASE_URL, X-Workspace) in plain text.
+    Settings treat every env/header value as a secret, so the log does too."""
+    from row_bot.mcp_client.logging import mask_mapping
+
+    cfg = {
+        "command": "python",
+        "env": {"POLISH_TEST": "synthetic-private-value", "DATABASE_URL": "postgres://u:p@h/db"},
+        "headers": {"X-Workspace": "synthetic-private-header"},
+    }
+    masked = mask_mapping(cfg)
+    rendered = str(masked)
+    for value in ("synthetic-private-value", "postgres://u:p@h/db", "synthetic-private-header"):
+        assert value not in rendered
+    assert set(masked["env"]) == {"POLISH_TEST", "DATABASE_URL"}
+    assert masked["command"] == "python"
