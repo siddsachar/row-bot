@@ -160,9 +160,8 @@ test('Vision, media, context, and delegation controls write local settings', asy
     name: /model context|context cap/i,
   });
   await context.selectOption('32768');
-  await expect(models.getByRole('status')).toContainText(
-    'Context setting saved',
-  );
+  // A choice saves at once and offers Undo (decision 19).
+  await expect(models.getByRole('status')).toContainText('Saved');
   await context.selectOption('custom');
   await models
     .getByRole('spinbutton', { name: 'Custom context tokens' })

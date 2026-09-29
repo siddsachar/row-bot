@@ -1047,7 +1047,7 @@ test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecyc
     .click();
   await expect(
     editor.getByText(
-      'Knowledge saved. Search and wiki projections remain pending. Reload the saved entry to continue.',
+      'Knowledge saved. Search and the wiki catch up in a moment. Reload the saved entry to continue.',
       { exact: true },
     ),
   ).toBeVisible();
@@ -1218,10 +1218,7 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
     .getByRole('button', { name: 'Reload saved entry', exact: true })
     .click();
   await expect(
-    editor.getByText(
-      'Saved status: superseded. Projection readiness: unknown.',
-      { exact: true },
-    ),
+    editor.getByText('Status: Superseded.', { exact: true }),
   ).toBeVisible();
 });
 
