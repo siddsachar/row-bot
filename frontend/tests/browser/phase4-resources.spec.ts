@@ -466,6 +466,18 @@ for (const [mode, label] of [
       await expect(
         frame.contentFrame().locator('[data-row-bot-route-active]'),
       ).toHaveCount(1);
+      info.annotations.push({
+        type: 'expected-console-error',
+        description: JSON.stringify({
+          signature:
+            'Failed to load resource: the server responded with a status of 409 (Conflict)',
+          count: 1,
+          upTo: true,
+          owner: 'phase4-resources interaction-page fixture',
+          fixture:
+            'The fixture saves interaction pages behind the panel: a lifecycle read for the revision before answers 409 and the panel reads the new one',
+        }),
+      });
       const seeded = await page.request.post(
         `/__p4_fixture/artifacts/${state.conversation.resource_bindings[0].resource_id}/interaction-pages`,
         {
