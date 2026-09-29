@@ -35,6 +35,20 @@ def test_screenshot_is_ephemeral_and_absent_from_model_text_and_status(service) 
     assert "iVBOR" not in durable
 
 
+def test_card_picture_is_the_in_memory_capture_and_ends_with_take_over_or_stop(service) -> None:
+    service.acquire(OWNER, validate_context=False)
+    target_id = service.list_windows(OWNER, app="Calculator")[0]["target_id"]
+    first = service.capture(target_id, OWNER)
+    assert service.ephemeral_picture() == (first.screenshot, "image/png", first.generation)
+    second = service.capture(target_id, OWNER)
+    assert service.ephemeral_picture()[2] == second.generation > first.generation
+
+    service.take_over()
+    assert service.ephemeral_picture() is None
+    service.stop()
+    assert service.ephemeral_picture() is None
+
+
 def test_typed_value_is_absent_from_service_state_model_output_and_fake_history(service, fake_transport) -> None:
     secret = "never-persist-this-secret"
     service.acquire(OWNER, validate_context=False)

@@ -1221,6 +1221,29 @@ class ComputerUseService:
                 return None
             return observation.screenshot
 
+    def ephemeral_picture(self) -> tuple[bytes, str, int] | None:
+        """The latest in-memory picture, its image type and capture generation.
+
+        Same lifetime as ``ephemeral_screenshot`` (memory only, gone after the
+        TTL or a Stop), and withheld while the person has control or an
+        approval is waiting. The generation tells a new picture apart.
+        """
+
+        with self._lock:
+            observation = self._preview_observation or self._observation
+            if (
+                self._state in {SessionState.WAITING_USER, SessionState.WAITING_APPROVAL}
+                or not observation
+                or not observation.screenshot
+                or time.monotonic() - observation.created_at > self.SCREENSHOT_TTL_SECONDS
+            ):
+                return None
+            return (
+                observation.screenshot,
+                observation.image_mime or "image/png",
+                observation.generation,
+            )
+
     def _validate_local_interactive(self) -> None:
         try:
             from row_bot.agent import get_active_runtime_context
