@@ -210,8 +210,7 @@ def _run_oauth_flow(client_id: str, client_secret: str, *, persist: bool = True)
     the code for tokens.
 
     **Important**: This function blocks until the user completes the flow
-    or the 120-second timeout expires.  Call from a background thread
-    (e.g. ``await run.io_bound(_run_oauth_flow, ...)`` in NiceGUI).
+    or the 120-second timeout expires.  Call from a background thread.
 
     Parameters
     ----------

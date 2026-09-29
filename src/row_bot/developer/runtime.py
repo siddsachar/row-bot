@@ -352,8 +352,8 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
     identity = process_id or str(uuid.uuid4())
     if bootstrap_argv is None and sys.platform.startswith("linux"):
         if verify_receipt is None:
-            # Legacy NiceGUI callers use the same supervised owner without a
-            # durable client command receipt. No detached-child group fallback.
+            # Callers without a durable client command receipt use the same
+            # supervised owner. No detached-child group fallback.
             from row_bot.developer.process_worker import verify_receipt as check_receipt
             secret, target = os.urandom(32), "0" * 64
             request_fields = {"owner_id": identity, "container_id": target, "key": secret.hex()}

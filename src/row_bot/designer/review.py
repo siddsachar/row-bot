@@ -2,7 +2,7 @@
 brand-lint (brand policy) findings into a single report, and routes fixes
 to the matching deterministic repairer or an agent request.
 
-Pure logic (no NiceGUI). The dialog lives in ``designer.review_dialog``.
+Pure logic; it touches no UI.
 """
 
 from __future__ import annotations

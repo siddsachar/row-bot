@@ -54,7 +54,7 @@ def _secret(
 
 
 def passive_core_channels() -> list[PassiveCoreChannel]:
-    """Return the bundled channel descriptions in NiceGUI navigation order."""
+    """Return the bundled channel descriptions in navigation order."""
 
     from row_bot.runtime_paths import PACKAGE_DIR
 

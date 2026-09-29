@@ -1,6 +1,6 @@
 """Placement, positioning and turn-target helpers for the desktop Buddy.
 
-This module deliberately contains no NiceGUI or pywebview imports. The native
+This module deliberately contains no UI or pywebview imports. The native
 host (``native_host.BuddyWindowHost``) and the streaming runtime use these
 small seams, which keeps placement, positioning and routing deterministic
 under test. The desktop Buddy itself is the React overlay.

@@ -1511,7 +1511,7 @@ class ClientPlatformService:
                 self.stop_conversation(conversation_id)
                 return {"approval_id": approval_id, "status": "completed"}
             # A paused computer runs again, from a fresh capture, before the
-            # turn goes on (Resume, as the NiceGUI live panel did).
+            # turn goes on (Resume).
             lease_generation = computer.prepare_approval_resume(
                 self, conversation_id, stored, approved=approved, runtime_surface=runtime_surface)
             try:

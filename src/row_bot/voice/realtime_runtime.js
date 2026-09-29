@@ -1,4 +1,4 @@
-/* Sole browser realtime response arbiter for NiceGUI and the unified client.
+/* Sole browser realtime response arbiter for the unified client.
  * Network and authenticated event delivery are injected by each transport. */
 export async function startRealtimeRuntime(options) {
   const sessionId = options.sessionId;

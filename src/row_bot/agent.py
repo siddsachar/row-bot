@@ -4294,8 +4294,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"capabilities:{discovery_fingerprint}",
         f"skills:{skill_fingerprint}",
     })
-    # Designer tool schemas are scoped to the captured project, not the
-    # project currently visible in the NiceGUI editor.
+    # Designer tool schemas are scoped to the captured project, not whichever
+    # project a client currently shows.
     if "designer" in enabled_tool_names:
         from row_bot.conversation_resources import current_execution_context
         resources = current_execution_context()

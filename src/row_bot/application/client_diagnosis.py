@@ -6,7 +6,7 @@ from row_bot.status_checks import order_status_results, run_all_checks
 
 
 def run_system_diagnosis() -> dict[str, object]:
-    """Run the same checks as the NiceGUI diagnosis on explicit user request."""
+    """Run every status check on explicit user request."""
     results = order_status_results(run_all_checks())[:64]
     return {
         "schema_version": 1,

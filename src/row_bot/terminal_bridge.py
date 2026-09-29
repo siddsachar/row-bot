@@ -1,4 +1,4 @@
-"""Terminal bridge — connects the PTY backend to the NiceGUI UI.
+"""Terminal bridge — connects the PTY backend to the client's terminal.
 
 Singleton ``TerminalBridge`` manages a single PTY session exclusively
 for the **user's interactive terminal** (xterm.js).  The agent never

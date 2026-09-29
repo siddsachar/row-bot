@@ -190,7 +190,7 @@ def canonical_transcript_blocks(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def auto_fence_mermaid(text: str) -> str:
-    """Shared conservative normalization retained by the NiceGUI renderer."""
+    """Fence a bare Mermaid diagram so it renders; text already fenced is left alone."""
 
     if not text or "```mermaid" in text.lower():
         return text

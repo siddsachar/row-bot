@@ -65,7 +65,7 @@ _skip_reindex = False
 
 # PDF extraction and web scraping can introduce lone UTF-16 surrogates
 # (U+D800–U+DFFF) into text.  These are valid in Python str but
-# invalid in strict UTF-8, causing orjson (NiceGUI) to crash on encode.
+# invalid in strict UTF-8, so strict encoders (orjson, file writers) fail on them.
 _SURROGATE_RE = re.compile('[\ud800-\udfff]')
 
 
@@ -1659,8 +1659,8 @@ def _scrub_surrogates() -> None:
     """One-time startup cleanup: strip surrogate chars from existing entities.
 
     PDF text extraction can inject lone UTF-16 surrogates into entity text.
-    These are valid Python str but invalid in strict UTF-8, crashing orjson
-    when NiceGUI serialises graph data for the browser.  This scan fixes
+    These are valid Python str but invalid in strict UTF-8, so strict encoders
+    fail when graph data is serialised.  This scan fixes
     existing rows so the data layer is clean going forward.
     """
     conn = _get_conn()

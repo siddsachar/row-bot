@@ -164,7 +164,7 @@ class TraceGroup:
 
 @dataclass
 class ToolResultGroup:
-    """Legacy display group retained for the NiceGUI renderer."""
+    """Tool results of one tool, grouped for display."""
 
     name: str
     results: list[dict[str, Any]] = field(default_factory=list)

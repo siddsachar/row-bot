@@ -107,7 +107,7 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
 def update_model_surface(surface: str, action: str, *, selection_ref: str | None = None,
                          enabled: bool | None = None, camera_index: int | None = None,
                          validate: Callable[[], None]) -> dict:
-    """Write through the same Vision/tool owners used by NiceGUI."""
+    """Write through the Vision and tool owners."""
     validate()
     from row_bot.tools import registry
     from row_bot.vision_runtime import get_vision_service

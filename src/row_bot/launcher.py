@@ -1809,7 +1809,7 @@ def _port_from_url(url):
         return 8080
 
 def _buddy_overlay_url(port):
-    # The React overlay (its own small Vite entry), never the NiceGUI page.
+    # The React overlay (its own small Vite entry).
     return buddy_overlay_url(port)
 
 def _buddy_window_log(message):

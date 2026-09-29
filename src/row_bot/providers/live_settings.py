@@ -7,7 +7,7 @@ from row_bot.providers.catalog import provider_billing
 
 
 def read_live_provider_cards() -> dict:
-    """Read the same connection facts as NiceGUI without exposing credentials."""
+    """Read the provider connection facts without exposing credentials."""
     cards = []
     source_cards = (
         docs_capture_provider_cards()

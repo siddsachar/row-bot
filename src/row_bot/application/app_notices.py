@@ -3,9 +3,9 @@
 ``notifications.notify()`` (workflow results, reminders, approvals waiting,
 account health, Buddy generation, document batches, memory policy, API
 errors) and the start-up warnings (plugins that failed to load, a tunnel that
-did not start, expiring tokens) used to reach only the NiceGUI page. They now
-land in one bounded journal that the client-platform event stream carries to
-React, which shows them through its notice primitive.
+did not start, expiring tokens) land in one bounded journal that the
+client-platform event stream carries to React, which shows them through its
+notice primitive.
 
 The journal never grows: it keeps the latest ``MAX_NOTICES`` and folds a
 repeat of the same notice into the one already kept (with a count) rather

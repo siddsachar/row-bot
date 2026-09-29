@@ -2,7 +2,7 @@
 
 This module is intentionally UI-light. It owns command metadata, generated
 manual-skill commands, collision rules, text filtering, and send-path command
-dispatch that can run without NiceGUI widgets.
+dispatch that can run without UI widgets.
 """
 
 from __future__ import annotations

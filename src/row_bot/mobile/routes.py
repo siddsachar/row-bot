@@ -371,7 +371,7 @@ def build_mobile_router() -> APIRouter:
 
 
 def register_mobile_routes(app, *, store: MobileAuthStore | None = None) -> None:
-    """Register mobile routes on a FastAPI/NiceGUI app."""
+    """Register mobile routes on the FastAPI app."""
     if store is not None:
         app.state.row_bot_mobile_store = store
     app.include_router(build_mobile_router())

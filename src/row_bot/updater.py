@@ -11,7 +11,7 @@ Design principles
   never auto-installed-into.
 - **Stdlib-only networking** via ``urllib.request`` so the updater has no
   new external dependencies and can run before heavier modules are imported.
-- **Thread-based scheduler** — avoids touching the NiceGUI event loop.
+- **Thread-based scheduler** — avoids touching the server's event loop.
 
 Data model
 ~~~~~~~~~~

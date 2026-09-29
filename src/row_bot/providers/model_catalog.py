@@ -279,7 +279,7 @@ def build_saved_model_catalog_rows(
 ) -> list[CatalogModelRow]:
     """Compose only supplied saved metadata, without runtime or credential reads.
 
-    Unlike the interactive NiceGUI catalog, missing capabilities stay unknown and
+    Unlike the interactive catalog, missing capabilities stay unknown and
     subscription fallbacks, curated models and runtime probes are not consulted.
     This is a passive projection of the existing catalog, not another catalog.
     """
@@ -344,7 +344,7 @@ def build_saved_model_catalog_rows(
 
 
 def project_saved_catalog_readiness(rows: Iterable[CatalogModelRow]) -> list[CatalogModelRow]:
-    """Apply the NiceGUI availability rules using local status and saved metadata.
+    """Apply the availability rules using local status and saved metadata.
 
     A cached cloud row means catalog presence, not a verified provider response.
     Status reads must not refresh tokens or contact provider runtimes.

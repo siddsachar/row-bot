@@ -1,9 +1,9 @@
 """Passive saved-state snapshot for Settings surfaces without a client owner.
 
 The richer Settings capabilities keep their existing bounded read/review/execute
-owners.  This module only projects local, already-saved state used by the
-NiceGUI Buddy, Voice, System, Tracker, Knowledge, Wiki, Documents, Tools,
-Accounts, Utilities, and Preferences panes.  It never starts a runtime,
+owners.  This module only projects local, already-saved state for the Buddy,
+Voice, System, Tracker, Knowledge, Wiki, Documents, Tools, Accounts, Utilities,
+and Preferences settings.  It never starts a runtime,
 refreshes a token, probes a provider, or imports plugin entrypoints.
 """
 
@@ -729,7 +729,7 @@ def _knowledge(
     tools: Mapping[str, Any],
     registered: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Read the NiceGUI memory-graph summary without initializing its owner."""
+    """Read the memory-graph summary without initializing its owner."""
 
     result = {
         "availability": "missing",
@@ -1440,11 +1440,11 @@ def _utilities(
         items.append(
             {
                 "utility_id": tool_id,
-                # The NiceGUI owner presents stable friendly display names;
-                # registry labels are internal identifiers on some adapters.
+                # Stable friendly display names; registry labels are internal
+                # identifiers on some adapters.
                 "label": fallback_label,
                 "description": description,
-                # NiceGUI owns this as a fixed bundled Utilities catalogue and
+                # This is a fixed bundled Utilities catalogue that
                 # reports its nine entries as available even when an adapter
                 # has not yet been registered in this process.  Registration
                 # or saved configuration still determines the separately

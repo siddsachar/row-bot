@@ -3,7 +3,7 @@
 One computer-use session exists at a time, and only the conversation whose
 turn holds it sees it. The picture stays in memory: it is read from the
 session on request and is never written to disk, logged or kept in a command
-receipt. Pause hands the computer to the person (the NiceGUI "Take over");
+receipt. Pause hands the computer to the person;
 Resume starts again from a fresh capture before the paused turn goes on;
 Stop releases the computer, ends the turn and withdraws its waiting pause.
 """
@@ -211,7 +211,7 @@ def prepare_approval_resume(
     """Get the computer ready before an approved turn goes on.
 
     A paused turn continues only after its computer is running again from a
-    fresh capture (the order the NiceGUI live panel used). Returns the
+    fresh capture. Returns the
     generation whose session the continuing turn keeps, or "".
     """
 
