@@ -291,7 +291,11 @@ class TerminalBridge:
         if not isinstance(data, str) or len(data.encode("utf-8")) > _MAX_INPUT_BYTES:
             raise ValueError("invalid_terminal_input")
         if self._pty is not None and self._pty.is_alive():
-            self._pty.write(data)
+            # Ctrl+C on its own (Stop) interrupts the running command.
+            if data == "\x03" and hasattr(self._pty, "interrupt"):
+                self._pty.interrupt()
+            else:
+                self._pty.write(data)
 
     def on_resize(self, cols: int, rows: int) -> None:
         """Handle terminal resize from xterm.js."""

@@ -204,3 +204,68 @@ def test_output_callback_can_disconnect_itself_without_deadlock() -> None:
     bridge._publish_output("first")
     bridge._publish_output("second")
     assert seen == ["first"]
+
+
+def test_stop_interrupts_the_running_command_instead_of_typing_it() -> None:
+    """Stop (Ctrl+C) is an interrupt, not a keystroke ConPTY may ignore (B172)."""
+    bridge, pty = _running_bridge()
+    interrupts: list[int] = []
+    pty.interrupt = lambda: interrupts.append(1)  # type: ignore[attr-defined]
+    bridge.on_input("ping -n 60 127.0.0.1\r")
+    bridge.on_input("\x03")
+    assert pty.writes == ["ping -n 60 127.0.0.1\r"]
+    assert interrupts == [1]
+    # A Ctrl+C inside other text is ordinary input.
+    bridge.on_input("a\x03b")
+    assert pty.writes[-1] == "a\x03b"
+
+
+class _Proc:
+    def __init__(self, pid: int, name: str, children: list[_Proc] | None = None) -> None:
+        self.pid, self._name, self._children = pid, name, children or []
+        self.terminated = False
+
+    def name(self) -> str:
+        return self._name
+
+    def children(self, recursive: bool = False) -> list[_Proc]:
+        if not recursive:
+            return list(self._children)
+        found: list[_Proc] = []
+        for child in self._children:
+            found += [child, *child.children(recursive=True)]
+        return found
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+
+def test_windows_interrupt_stops_the_shells_running_command_but_not_the_shell(monkeypatch) -> None:
+    import psutil
+
+    from row_bot import terminal_pty
+
+    grandchild = _Proc(30, "python.exe")
+    command = _Proc(20, "PING.EXE", [grandchild])
+    console = _Proc(21, "conhost.exe")
+    shell = _Proc(10, "powershell.exe", [command, console])
+    monkeypatch.setattr(psutil, "Process", lambda pid: {10: shell}[pid])
+    monkeypatch.setattr(psutil, "wait_procs", lambda procs, timeout=None: (procs, []))
+    session = terminal_pty.PtySession.__new__(terminal_pty.PtySession)
+    session._closed = False
+    session._lock = __import__("threading").Lock()
+    written: list[str] = []
+
+    class _Process:
+        pid = 10
+
+        def write(self, data: str) -> None:
+            written.append(data)
+
+    session._process = _Process()
+    session._fd = None
+    monkeypatch.setattr(terminal_pty, "_IS_WINDOWS", True)
+    assert session.interrupt() == 2
+    assert written == ["\x03"]
+    assert command.terminated and grandchild.terminated
+    assert not console.terminated and not shell.terminated

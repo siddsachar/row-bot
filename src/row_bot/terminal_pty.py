@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 _IS_WINDOWS = platform.system() == "Windows"
 
 
+# The console hosts ConPTY attaches to the shell; stopping one ends the shell.
+_CONSOLE_HOSTS = {"conhost.exe", "openconsole.exe"}
+
+
 def _validate_dimensions(cols: int, rows: int) -> None:
     if (type(cols) is not int or type(rows) is not int
             or not 20 <= cols <= 500 or not 5 <= rows <= 200):
@@ -238,6 +242,42 @@ class PtySession:
                 self._process.write(data)
             else:
                 os.write(self._fd, data.encode("utf-8", errors="replace"))
+
+    def interrupt(self) -> int:
+        """Stop the running command, as Ctrl+C does in a terminal.
+
+        On macOS and Linux the terminal turns Ctrl+C into SIGINT for the
+        foreground job.  ConPTY on Windows ignores it as typed input, so the
+        shell's running commands (not the shell, not its console host) are
+        also stopped.  Returns how many processes were stopped.
+        """
+        if self._closed:
+            return 0
+        self.write("\x03")
+        if not _IS_WINDOWS:
+            return 0
+        import psutil
+
+        try:
+            shell = psutil.Process(self._process.pid)
+            commands = [
+                child for child in shell.children()
+                if child.name().lower() not in _CONSOLE_HOSTS
+            ]
+            stopping = [
+                process
+                for command in commands
+                for process in (*command.children(recursive=True), command)
+            ]
+        except (psutil.Error, OSError):
+            return 0
+        for process in stopping:
+            try:
+                process.terminate()
+            except (psutil.Error, OSError):
+                pass
+        psutil.wait_procs(stopping, timeout=2)
+        return len(stopping)
 
     def read(self, size: int = 65536) -> str:
         """Non-blocking read from the PTY stdout.
