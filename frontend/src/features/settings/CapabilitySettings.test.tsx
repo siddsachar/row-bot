@@ -437,6 +437,14 @@ it('rejects malformed and oversized drafts before review or execution', async ()
   render(<CapabilitySettings {...props} />);
   await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
+  // Save waits for a name and a command; then the malformed arguments.
+  expect(screen.getByRole('button', { name: 'Save Disabled' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Server name'), {
+    target: { value: 'Malformed' },
+  });
+  fireEvent.change(screen.getByLabelText('New command'), {
+    target: { value: 'synthetic-executable' },
+  });
   fireEvent.change(screen.getByLabelText('Arguments (one per line)'), {
     target: { value: '[not json' },
   });

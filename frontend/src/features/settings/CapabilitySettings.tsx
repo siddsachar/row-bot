@@ -405,6 +405,14 @@ export default function CapabilitySettings({
   useEffect(() => () => clearTimeout(searchTimer.current), []);
   const { page, draft, busy, pending } = state;
   const locked = Boolean(busy || pending || !state.active);
+  const nameInvalid =
+    Boolean(draft.name) &&
+    draft.operation !== 'edit' &&
+    draft.operation !== 'import' &&
+    !/^[A-Za-z0-9][A-Za-z0-9 _().-]{0,127}$/.test(draft.name);
+  // A new server needs its name and command (or address) before saving.
+  const incomplete =
+    draft.operation === 'add' && (!draft.name.trim() || !draft.launch.trim());
   const canSave =
     state.active &&
     page?.revision &&
@@ -1110,9 +1118,17 @@ export default function CapabilitySettings({
                   value={draft.name}
                   maxLength={128}
                   disabled={draft.operation === 'edit'}
+                  aria-invalid={nameInvalid || undefined}
                   onChange={(event) => edit({ name: event.target.value })}
                 />
               </Field>
+              {nameInvalid && (
+                // The rule the server applies, said before saving (U53).
+                <small role="alert" className="settings-dialog-error">
+                  A server name starts with a letter or number and uses letters,
+                  numbers, spaces and _ ( ) . - only.
+                </small>
+              )}
               {draft.operation !== 'rename' && (
                 <>
                   <Field label="Transport">
@@ -1197,6 +1213,7 @@ export default function CapabilitySettings({
             {draft.operation === 'add' && addAndConnect && (
               <Button
                 variant="primary"
+                disabled={nameInvalid || incomplete}
                 onClick={() => {
                   connectAfterSave.current = true;
                   void requestReview();
@@ -1211,6 +1228,7 @@ export default function CapabilitySettings({
                   ? 'secondary'
                   : 'primary'
               }
+              disabled={nameInvalid || incomplete}
               onClick={() => {
                 connectAfterSave.current = false;
                 void requestReview();
