@@ -56,6 +56,35 @@ def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, 
     return [(indexed[0], row) for indexed, row in zip(records, projected)]
 
 
+def _buddy(conversation_id: str, event_type: str, label: str, **payload: Any) -> None:
+    """Tell Buddy what a turn is doing; Buddy never breaks a turn."""
+    try:
+        from row_bot.buddy.events import emit_buddy_event
+        emit_buddy_event(event_type, source="client_platform",
+                         payload={"thread_id": conversation_id, "label": label, **payload})
+    except Exception:
+        _LOG.debug("Buddy event failed for %s", conversation_id, exc_info=True)
+
+
+def _buddy_follows(conversation_id: str, event: tuple) -> None:
+    kind, payload = event[0], event[1] if len(event) > 1 else None
+    if kind == "tool_call":
+        name = str(getattr(payload, "get", lambda *_: "")("name") or "")
+        _buddy(conversation_id, "tool.started", "Using a tool", tool=name[:128])
+    elif kind == "tool_done":
+        _buddy(conversation_id, "tool.finished", "Tool finished")
+    elif kind == "interrupt":
+        from row_bot.application.client_computer_controls import pause_item
+        if pause_item(payload) is not None:
+            _buddy(conversation_id, "generation.interrupted", "Waiting for you")
+        else:
+            _buddy(conversation_id, "approval.needed", "Approval pending")
+    elif kind == "done":
+        _buddy(conversation_id, "generation.done", "Done")
+    elif kind == "error":
+        _buddy(conversation_id, "generation.error", "Error")
+
+
 def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: str,
                     expected_results: int, computer: bool) -> Iterator[tuple]:
     """A denied approval ends the turn once the denied calls have their results.
@@ -1108,6 +1137,7 @@ class ClientPlatformService:
             final_text = ""
             # The goal this turn works on, even if the model finishes it mid-turn.
             started_goal = live_goal(conversation_id)
+            _buddy(conversation_id, "generation.started", "Thinking")
             try:
                 self.registry.check_dispatch(handle)
                 files = []
@@ -1185,6 +1215,7 @@ class ClientPlatformService:
                         if self.stream_factory is not None and event[0] in {"token", "tool_start", "tool_done", "output_binding"}:
                             client_queue.acknowledge_consumed(handle)
                         self.observe_event(conversation_id, event, handle)
+                        _buddy_follows(conversation_id, event)
                         if event[0] == "done":
                             status = "completed"
                             final_text = str(event[1] or "") if len(event) > 1 else ""
@@ -1200,6 +1231,7 @@ class ClientPlatformService:
             finally:
                 if handle.cancel_scope.is_cancelled():
                     status = "stopped"
+                    _buddy(conversation_id, "generation.stopped", "Stopped")
                 try:
                     from row_bot.application.client_computer_controls import release_after_turn
                     release_after_turn(conversation_id, generation_id, status)
