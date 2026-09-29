@@ -25,7 +25,6 @@ REQUIRED_RUNTIME_PACKAGES = (
     "skills_hub",
     "tools",
     "channels",
-    "ui",
     "designer",
     "developer",
     "utils",

@@ -541,38 +541,6 @@ def test_row_bot_status_exposes_evolution_and_proposal_tools(evolution_env):
     } <= tool_names
 
 
-def test_command_center_send_feedback_dialog_has_copy_save_submit_controls():
-    source = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "row_bot"
-        / "ui"
-        / "command_center.py"
-    ).read_text(encoding="utf-8")
-
-    assert 'proposal_type == "send_feedback"' in source
-    assert '"Copy report"' in source
-    assert '"Save report"' in source
-    assert '"Submit"' in source
-    assert "APP_SUPPORT_URL" in source
-    assert "window.open" in source
-    assert "list_display_proposals_for_insight" in source
-    assert "ensure_proposals_for_insight(ins)" not in source
-    assert '"Investigate", on_click' not in source
-    assert "proposal_dialog_state" in source
-    assert "navigate_thread" in source
-    assert "_compact_proposal_title" in source
-    assert "_proposal_status_label" in source
-    assert "row-bot-insight-proposal-row" in source
-    assert "grid-template-columns: minmax(0, 1fr) 26px" in source
-    assert "workflow-console-content" in source
-    assert "workflow-console-section" in source
-    assert ".row-bot-command-center-drawer *,\n.row-bot-command-center-drawer *::before" in source
-    assert "min-width: 0;\n}\n.workflow-console-rail" not in source
-    assert "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;" in source
-    assert "risk: {proposal.get('risk'" in source
-
-
 def test_dream_insights_prompt_discourages_system_issues_as_skills():
     prompt = (
         Path(__file__).resolve().parents[1] / "src" / "row_bot" / "prompts.py"

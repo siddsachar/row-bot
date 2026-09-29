@@ -46,13 +46,6 @@ def test_a_module_importing_the_removed_ui_is_reported(monkeypatch, tmp_path):
         "src/row_bot/plugins/health.py:2: CP003 imports the removed NiceGUI UI (row_bot.plugins.ui_settings)"]
 
 
-def test_legacy_message_helpers_reexport_one_pure_implementation():
-    from row_bot import message_projection
-    from row_bot.ui import helpers
-    assert helpers.langchain_messages_to_ui_messages is message_projection.langchain_messages_to_ui_messages
-    assert helpers.strip_file_context is message_projection.strip_file_context
-
-
 def test_real_headless_generation_and_shutdown_with_presentation_imports_unavailable(tmp_path):
     script = textwrap.dedent('''
         import asyncio
