@@ -42,6 +42,7 @@ export const DEFINITE_TASK_REFUSALS: ReadonlySet<string> = new Set([
   'task_settings_profile_conflict',
   'task_settings_profile_unavailable',
   'task_settings_too_large',
+  'task_time_passed',
   'task_trigger_cycle',
   'task_trigger_target_unavailable',
 ]);

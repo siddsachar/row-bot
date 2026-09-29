@@ -862,3 +862,21 @@ it.each([
     screen.queryByRole('button', { name: 'Change model and approvals' }),
   ).not.toBeInTheDocument();
 });
+
+it('refuses to switch on a one-off whose time has passed, before saving (B133)', async () => {
+  const callbacks = props({
+    load: vi.fn().mockResolvedValue(
+      snapshot({ fields: { ...fields, at: '2020-01-01T09:00' } }),
+    ),
+  });
+  render(<TaskEditor {...callbacks} taskId="task-a" />);
+  const enabled = await screen.findByRole('switch', { name: 'Enabled' });
+  await act(async () => fireEvent.click(enabled));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save task' })),
+  );
+  expect(callbacks.save).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'That time has passed. Pick a later time, or switch the workflow off.',
+  );
+});

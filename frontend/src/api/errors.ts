@@ -817,6 +817,10 @@ const CATALOG: Record<string, Entry> = {
     "This workflow has settings this editor can't change.",
     'review',
   ],
+  task_time_passed: [
+    'That time has passed. Pick a later time, or switch the workflow off.',
+    'review',
+  ],
   task_revision_conflict: [
     'This workflow changed. Refresh to see it; your edits are kept.',
     'retry',

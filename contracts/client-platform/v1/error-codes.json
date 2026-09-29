@@ -514,6 +514,7 @@
     "task_settings_read_unconfirmed": 503,
     "task_settings_too_large": 413,
     "task_settings_unavailable": 409,
+    "task_time_passed": 422,
     "task_webhook_unavailable": 409,
     "transcript_too_large": 413,
     "unsupported_audio_type": 415,

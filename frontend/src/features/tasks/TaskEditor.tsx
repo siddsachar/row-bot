@@ -209,6 +209,19 @@ export default function TaskEditor({
       );
       return;
     }
+    // Saving never starts a run (B133): a one-off in the past is refused
+    // unless it is unchanged (the server knows whether it already ran).
+    if (
+      fields.enabled &&
+      fields.at &&
+      new Date(fields.at).getTime() <= Date.now() &&
+      (!snapshot?.fields.enabled || snapshot.fields.at !== fields.at)
+    ) {
+      setError(
+        'That time has passed. Pick a later time, or switch the workflow off.',
+      );
+      return;
+    }
     if (
       fields.prompts.reduce((total, prompt) => total + prompt.length, 0) > 65536
     ) {
