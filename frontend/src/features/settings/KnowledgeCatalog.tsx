@@ -1405,7 +1405,7 @@ function KnowledgeAuditAndDanger({
                   {item.candidate_count} selected ·{' '}
                   {item.context_characters.toLocaleString()} context characters
                 </span>
-                {item.reason && <p>{item.reason}</p>}
+                {item.reason && <p>{codeWords(item.reason)}</p>}
                 {item.candidates.length > 0 && (
                   <p>
                     Candidates:{' '}
@@ -1418,7 +1418,10 @@ function KnowledgeAuditAndDanger({
                   </p>
                 )}
                 {item.rejection_reasons.length > 0 && (
-                  <p>Skipped because: {item.rejection_reasons.join(', ')}</p>
+                  <p>
+                    Skipped because:{' '}
+                    {item.rejection_reasons.map(codeWords).join(', ')}
+                  </p>
                 )}
               </article>
             ))
@@ -1438,7 +1441,7 @@ function KnowledgeAuditAndDanger({
                 className="settings-audit-row"
                 key={`${item.timestamp}:${index}`}
               >
-                <strong>{item.action.replaceAll('_', ' ')}</strong>
+                <strong>{humanizeToken(item.action)}</strong>
                 <span>
                   <AuditTime value={item.timestamp} /> ·{' '}
                   {item.actor || 'Row-Bot'}
@@ -1453,11 +1456,11 @@ function KnowledgeAuditAndDanger({
                 )}
                 {(item.old_status || item.new_status) && (
                   <p>
-                    {item.old_status || 'unknown'} →{' '}
-                    {item.new_status || 'unknown'}
+                    Status: {codeWords(item.old_status || 'unknown')} →{' '}
+                    {codeWords(item.new_status || 'unknown')}
                   </p>
                 )}
-                {item.reason && <p>{item.reason}</p>}
+                {item.reason && <p>{codeWords(item.reason)}</p>}
               </article>
             ))
           ) : (
@@ -1548,4 +1551,12 @@ function LazyAuditDisclosure<P extends { availability: string }>({
       </div>
     </details>
   );
+}
+
+// A machine code ("needs_review", "high_authority_update") reads as words;
+// free text (an extraction's explanation) is left as written (U59).
+function codeWords(value: string) {
+  return /^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(value)
+    ? humanizeToken(value).toLowerCase()
+    : value;
 }

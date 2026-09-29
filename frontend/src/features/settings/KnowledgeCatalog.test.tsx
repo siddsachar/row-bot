@@ -293,7 +293,9 @@ it('loads each bounded audit view only when first opened', async () => {
   fireEvent.click(screen.getByText('Recent recall decisions'));
   expect(recalls).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByText('Memory change log'));
-  expect(await screen.findByText('user modified')).toBeVisible();
+  expect(await screen.findByText('User modified')).toBeVisible();
+  // Status codes read as words (U59).
+  expect(screen.getByText('Status: needs review → active')).toBeVisible();
   expect(changes).toHaveBeenCalledTimes(1);
 });
 
