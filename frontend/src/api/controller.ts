@@ -74,10 +74,16 @@ const SESSION_RECOVERY_ATTEMPTS = 3;
 const NOTICE_READ_MS = 30000;
 const NOTICE_POSITION_KEY = 'row-bot.notices.v1';
 
+/**
+ * The last notice this device showed, per start of the server (its epoch).
+ * Kept per device, not per window: a start-up warning (a plugin that did not
+ * load) shows once after each start, not in every window opened since;
+ * Monitor › Start-up keeps listing it.
+ */
 function readNoticePosition(): { after: number; epoch: string } {
   try {
     const value = JSON.parse(
-      window.sessionStorage.getItem(NOTICE_POSITION_KEY) ?? 'null',
+      window.localStorage.getItem(NOTICE_POSITION_KEY) ?? 'null',
     ) as { after?: unknown; epoch?: unknown } | null;
     if (
       value &&
@@ -671,6 +677,7 @@ export class ClientController {
     const held = this.heldNotices;
     this.heldNotices = [];
     for (const notice of held) listener(notice);
+    if (held.length) this.rememberShownNotices();
     return () => {
       this.noticeListeners.delete(listener);
     };
@@ -687,20 +694,27 @@ export class ClientController {
       .sort((a, b) => a.id - b.id);
     if (!fresh.length) return;
     this.noticePosition = { epoch, after: fresh.at(-1)!.id };
-    try {
-      window.sessionStorage.setItem(
-        NOTICE_POSITION_KEY,
-        JSON.stringify(this.noticePosition),
-      );
-    } catch {
-      // Kept in memory for this window.
-    }
     if (!this.noticeListeners.size) {
       this.heldNotices = [...this.heldNotices, ...fresh].slice(-20);
       return;
     }
     for (const notice of fresh)
       this.noticeListeners.forEach((listener) => listener(notice));
+    this.rememberShownNotices();
+  }
+  /**
+   * Only notices a window showed count as seen on this device, so a window
+   * that never shows them (the desktop Buddy) cannot swallow them.
+   */
+  private rememberShownNotices(): void {
+    try {
+      window.localStorage.setItem(
+        NOTICE_POSITION_KEY,
+        JSON.stringify(this.noticePosition),
+      );
+    } catch {
+      // Kept in memory for this window.
+    }
   }
   /** Read notices while no conversation stream carries them (Home, Settings). */
   private async readNotices(): Promise<void> {

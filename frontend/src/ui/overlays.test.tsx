@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -8,7 +9,14 @@ import {
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { useEffect, useState } from 'react';
-import { ModalTask, OverlayProvider, useOverlay } from './overlays';
+import {
+  ACTION_NOTICE_MS,
+  ModalTask,
+  NOTICE_MS,
+  OverlayProvider,
+  TONED_NOTICE_MS,
+  useOverlay,
+} from './overlays';
 import { Button, Input, Skeleton } from './primitives';
 
 function Form({ confirmed }: { confirmed: () => void }) {
@@ -228,7 +236,7 @@ it('queues notifications during a modal so Escape dismisses the active task', as
       <Fixture confirmed={vi.fn()} />
     </OverlayProvider>,
   );
-  const footer = container.querySelector('.notification-footer')!;
+  const footer = container.querySelector('.notification-layer')!;
   const viewport = container.querySelector('.toast-viewport')!;
   expect(footer).not.toBeVisible();
   const opener = screen.getByRole('button', { name: 'Edit' });
@@ -277,7 +285,7 @@ function NotificationFixture({ mounted }: { mounted: () => void }) {
   );
 }
 
-it('keeps the child draft and node identity as the normal-flow notification footer opens and empties', async () => {
+it('keeps the child draft and node identity as the floating notification layer opens and empties', async () => {
   const user = userEvent.setup();
   const mounted = vi.fn();
   const { container } = render(
@@ -287,9 +295,10 @@ it('keeps the child draft and node identity as the normal-flow notification foot
   );
   const input = screen.getByRole('textbox', { name: 'Conversation draft' });
   const content = container.querySelector('.overlay-content')!;
-  const footer = container.querySelector('.notification-footer')!;
+  const footer = container.querySelector('.notification-layer')!;
   const viewport = container.querySelector('.toast-viewport')!;
-  expect(content.nextElementSibling).toBe(footer);
+  // The layer floats over the page: it is not part of the content's flow.
+  expect(content.contains(footer)).toBe(false);
   expect(content.contains(input)).toBe(true);
   expect(footer).not.toBeVisible();
   await user.type(input, 'Keep this unsent draft');
@@ -308,6 +317,52 @@ it('keeps the child draft and node identity as the normal-flow notification foot
   );
   expect(input).toHaveValue('Keep this unsent draft');
   expect(mounted).toHaveBeenCalledTimes(1);
+});
+
+it('lets notices go away by themselves: 5 s, warnings 8 s, with Undo 12 s', async () => {
+  vi.useFakeTimers();
+  function Notices() {
+    const { notify } = useOverlay();
+    return (
+      <Button
+        onClick={() => {
+          notify('Saved');
+          notify("The plugin 'rss-reader' didn't load", 'warning');
+          notify('Removed the folder', undefined, {
+            label: 'Undo',
+            onAction: () => {},
+          });
+        }}
+      >
+        Notify all
+      </Button>
+    );
+  }
+  try {
+    render(
+      <OverlayProvider>
+        <Notices />
+      </OverlayProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Notify all' }));
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    await act(async () => {
+      vi.advanceTimersByTime(NOTICE_MS + 100);
+    });
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByText(/didn't load/)).toBeInTheDocument();
+    await act(async () => {
+      vi.advanceTimersByTime(TONED_NOTICE_MS - NOTICE_MS);
+    });
+    expect(screen.queryByText(/didn't load/)).not.toBeInTheDocument();
+    expect(screen.getByText('Removed the folder')).toBeInTheDocument();
+    await act(async () => {
+      vi.advanceTimersByTime(ACTION_NOTICE_MS - TONED_NOTICE_MS);
+    });
+    expect(screen.queryByText('Removed the folder')).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('deduplicates and bounds notices while preserving F8 focus and explicit dismissal', async () => {

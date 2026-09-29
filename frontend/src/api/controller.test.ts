@@ -1169,7 +1169,7 @@ describe('connection and lifecycle ownership', () => {
         yield* super.observe(subscription, cursor, signal);
       }
     }
-    sessionStorage.clear();
+    localStorage.clear();
     const transport = new NoticeStream();
     const value = client(transport);
     const received: number[] = [];
@@ -1180,7 +1180,7 @@ describe('connection and lifecycle ownership', () => {
     // Notices never touch the conversation's projection or cursor.
     expect(value.getSnapshot().status).toBe('ready');
     expect(value.metrics.resets).toBe(1);
-    expect(JSON.parse(sessionStorage.getItem('row-bot.notices.v1')!)).toEqual({
+    expect(JSON.parse(localStorage.getItem('row-bot.notices.v1')!)).toEqual({
       epoch,
       after: 2,
     });
@@ -1219,7 +1219,7 @@ describe('connection and lifecycle ownership', () => {
         };
       }
     }
-    sessionStorage.clear();
+    localStorage.clear();
     const transport = new NoticeRead();
     const value = client(transport);
     const received: string[] = [];
@@ -1259,10 +1259,12 @@ describe('connection and lifecycle ownership', () => {
         };
       }
     }
-    sessionStorage.clear();
+    localStorage.clear();
     const value = client(new EarlyNotices());
     await value.start();
     await flush();
+    // Held, not yet seen: a window that never shows notices swallows none.
+    expect(localStorage.getItem('row-bot.notices.v1')).toBeNull();
     const first: string[] = [];
     const stop = value.onNotice((item) => first.push(item.message));
     expect(first).toEqual(['Warning 1', 'Warning 2']);
@@ -1271,6 +1273,13 @@ describe('connection and lifecycle ownership', () => {
     const later: string[] = [];
     value.onNotice((item) => later.push(item.message));
     expect(later).toEqual([]);
+    // Nor does another window on this device after the same start.
+    const other = client(new EarlyNotices());
+    const again: string[] = [];
+    other.onNotice((item) => again.push(item.message));
+    await other.start();
+    await flush();
+    expect(again).toEqual([]);
   });
   it('keeps an unsaved draft through a restart, hidden until a new session opens (B110)', async () => {
     vi.useFakeTimers();

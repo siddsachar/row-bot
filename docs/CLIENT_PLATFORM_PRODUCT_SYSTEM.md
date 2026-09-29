@@ -84,7 +84,7 @@ both OS schemes.
 | `Button`, `Input`, `Select`, `Field` | Native semantics and labels; primary/secondary/ghost/danger actions; disabled states and named icon buttons. Select stays a native browser control. |
 | `Tabs`, `Menu`, `Popup`, `Hint` | Radix owns keyboard, focus and dismissal behavior. Floating surfaces layer above their active task; give each trigger an accessible name. Menus are bounded by Radix's available width/height and scroll internally, revealing the current choice; `Hint` accepts an optional `shortcut`. Menu actions may carry a 16px monochrome `icon`, a keycap `shortcut` (announced through `aria-keyshortcuts`, kept out of the item's name) and `separatorBefore`; destructive actions always render last, in red, after a separator. An action with `afterClose` runs once the menu has released focus instead of returning focus to the trigger (for items that focus a field they open, such as Rename). Only one transient popover shows at a time: composer-owned popovers such as the slash palette step aside while focus is in another control. |
 | `OverlayProvider`, `useOverlay` | One Radix modal scope with title/description; dialogs, short sheets, navigation drawers, the command palette (`kind: 'palette'`: no header or footer chrome, title kept for assistive tech) and alert-dialog semantics share it. |
-| Notifications | `notify` coalesces duplicate text and retains at most three notices. Notices wait while a modal is open, so they cannot cover its footer or consume Escape; Radix pauses dismissal on focus/hover after display. Errors also need a persistent inline recovery action. |
+| Notifications | `notify` coalesces duplicate text and retains at most three notices. They float just below the top bar (centred, 420px; full width on phones), take no room in the layout and never cover the composer, and go away by themselves: 5 s, warnings and errors 8 s, with an action such as Undo 12 s; hovering or focusing one holds it. Notices wait while a modal is open, so they cannot cover its footer or consume Escape. Errors also need a persistent inline recovery action. |
 | `Skeleton`, `EmptyState`, `ErrorState`, `Progress` | Name the operation; delay skeleton visuals 150ms with cancellation; never invent percentage progress. Empty states explain a useful next step. |
 | `Surface` | Opaque by default. The optional elevated effect has a 94% overlay backing and bounded blur only with supporting CSS and appropriate preferences. |
 | `IconButton`, `Kbd` | Icons for verbs: 28px (`sm`) or 32px (`md`) on fine pointers and 44px on touch. The `label` is required and is both the accessible name and the tooltip; an optional `shortcut` such as `Mod+K` renders keycaps (⌘ on macOS, Ctrl elsewhere) and sets `aria-keyshortcuts`. When a text button becomes an icon button, keep its accessible name. |
@@ -798,7 +798,9 @@ stay underneath.
   stream (`event: notice`, or `notices` on the poll page); with no
   conversation open it reads `GET /notices` every 30 s. Warnings and errors
   always show; information shows only for jobs the person started. Each shows
-  once per window, and start-up warnings stay listed in Monitor › Start-up.
+  once per device for each start of Row-Bot (a window that shows it records
+  it; another window opened later does not repeat it), and start-up warnings
+  stay listed in Monitor › Start-up.
   Desktop (OS) notifications are unchanged.
 - **Recovery after a restart.** When the server restarts, the window
   re-handshakes by itself (after 0.5, 1.5, 3 and 5 s), keeps the open

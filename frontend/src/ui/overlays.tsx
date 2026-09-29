@@ -94,13 +94,19 @@ function useOverlayHistoryLevel(level: number, onBack: () => void) {
   };
 }
 
+/** How long a notice stays (Radix holds it while hovered or focused). */
+export const NOTICE_MS = 5000;
+export const TONED_NOTICE_MS = 8000;
+export const ACTION_NOTICE_MS = 12000;
+
 const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
   close: (returnFocusTo?: HTMLElement | null) => void;
   dismiss: (key: string) => void;
   /**
-   * A short notice; warnings and errors stay longer and are announced. An
-   * action (Undo) keeps it up longer too and runs at most once.
+   * A short notice that goes away by itself (5 s; warnings and errors 8 s
+   * and announced; with an action such as Undo 12 s, run at most once).
+   * Hovering or focusing one holds it.
    */
   notify: (message: string, tone?: NoticeTone, action?: NoticeAction) => void;
 } | null>(null);
@@ -191,7 +197,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
         notify,
       }}
     >
-      <Toast.Provider duration={6000} swipeDirection="right">
+      <Toast.Provider duration={NOTICE_MS} swipeDirection="right">
         <div className="overlay-layout">
           <div className="overlay-content">{children}</div>
           <Dialog.Root
@@ -289,8 +295,10 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
+          {/* Floats over the page below the top bar, never over the
+              composer, and takes no room in the layout. */}
           <div
-            className="notification-footer"
+            className="notification-layer"
             hidden={Boolean(current) || notices.length === 0}
           >
             <Toast.Viewport className="toast-viewport" label="Notifications" />
@@ -304,7 +312,13 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                 type={
                   notice.tone || notice.action ? 'foreground' : 'background'
                 }
-                duration={notice.tone || notice.action ? 12000 : undefined}
+                duration={
+                  notice.action
+                    ? ACTION_NOTICE_MS
+                    : notice.tone
+                      ? TONED_NOTICE_MS
+                      : NOTICE_MS
+                }
                 onOpenChange={(value) => {
                   if (!value)
                     setNotices((values) =>

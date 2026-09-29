@@ -1360,14 +1360,28 @@ small {
   min-height: 0;
   min-width: 0;
 }
-.notification-footer {
-  flex-shrink: 0;
-  max-height: min(200px, 25dvh);
-  overflow: auto;
-  padding: 8px max(16px, env(safe-area-inset-right))
-    max(8px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface);
+/* Notices float just below the top bar: they take no room in the layout and
+   never cover the composer at the bottom. Clicks pass through around them. */
+.notification-layer {
+  position: fixed;
+  z-index: 66;
+  top: calc(56px + env(safe-area-inset-top));
+  inset-inline: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 72px);
+  margin-inline: auto;
+  overflow: visible;
+  pointer-events: none;
+}
+.notification-layer[hidden] {
+  display: none;
+}
+@media (max-width: 767px) {
+  .notification-layer {
+    width: auto;
+    inset-inline: max(12px, env(safe-area-inset-left))
+      max(12px, env(safe-area-inset-right));
+  }
 }
 .pwa-status {
   position: fixed;
@@ -1395,12 +1409,14 @@ small {
 .toast-viewport {
   display: grid;
   gap: 8px;
-  width: min(380px, 100%);
+  width: 100%;
   padding: 0;
-  margin: 0 0 0 auto;
+  margin: 0;
   list-style: none;
 }
 .toast {
+  pointer-events: auto;
+  animation: toast-in var(--motion-popover, 160ms) var(--ease-out, ease-out);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1410,7 +1426,18 @@ small {
   background: var(--surface-raised);
   color: var(--text-primary);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-raised);
+  box-shadow: var(--shadow-modal);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }
 /* Background warnings and errors: a coloured edge plus their own words. */
 .toast[data-tone='warning'] {
