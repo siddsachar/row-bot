@@ -59,9 +59,22 @@ def test_home_status_has_aggregate_pills_for_current_settings_tabs():
         assert f"def {function_name}" in src
 
 
-def test_home_status_has_single_faiss_check():
+def test_home_status_has_single_faiss_check(monkeypatch):
+    import socket
+
+    import row_bot.github_account as github_account
+    import row_bot.models as models
+    import row_bot.status_checks as status_checks
     from row_bot.status_checks import ALL_CHECKS, run_all_checks
 
+    def offline(*_args, **_kwargs):
+        raise OSError("offline")
+
+    # The live probes (local Ollama, GitHub, the internet) answer as offline (B192).
+    monkeypatch.setattr(models, "_ollama_reachable", lambda **_kwargs: False)
+    monkeypatch.setattr(github_account, "get_verified_github_account_status", offline)
+    monkeypatch.setattr(socket, "create_connection", offline)
+    monkeypatch.setattr(status_checks, "_probe_cache", {})
     faiss_check_count = sum(1 for fn in ALL_CHECKS if fn.__name__ == "check_faiss_index")
     assert faiss_check_count == 1
 

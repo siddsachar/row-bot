@@ -354,6 +354,10 @@ def test_skills_sh_source_ref_uses_recursive_github_lookup(monkeypatch):
             install_ref="github:wshobson/agents/plugins/python-development/skills/python-performance-optimization?ref=main",
         )
 
+    def no_raw_copy(url, **_kwargs):
+        raise RuntimeError("raw missing")
+
+    monkeypatch.setattr(current_skills_sh, "fetch_text", no_raw_copy)
     monkeypatch.setattr(current_github.GitHubSource, "fetch", fake_fetch)
     monkeypatch.setattr(current_github.GitHubSource, "find_skill_by_name", fake_find)
 
@@ -691,6 +695,7 @@ def test_github_browse_reports_rate_limit_as_source_status(monkeypatch):
     monkeypatch.setattr("row_bot.skills_hub.github_source._GITHUB_BACKOFF_UNTIL", 0)
     monkeypatch.setattr("row_bot.skills_hub.github_source._GITHUB_BACKOFF_MESSAGE", "")
     monkeypatch.setattr(GitHubSource, "_list_public_root", lambda self, root, limit: (_ for _ in ()).throw(err))
+    monkeypatch.setattr(GitHubSource, "_auth_status_message", lambda self: "")
 
     result = GitHubSource().browse(limit=10)
 

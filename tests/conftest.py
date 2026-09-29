@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import builtins
+import errno
 import io
+import ipaddress
 import os
 import pathlib
+import socket
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -156,6 +159,78 @@ pathlib.Path.replace = _guarded_path_replace
 os.replace = _guarded_os_replace
 sqlite3.connect = _guarded_sqlite_connect
 pytest.MonkeyPatch.setenv = _synced_setenv
+
+
+# Deterministic tests never reach the network: a connection to anything but
+# loopback, or a DNS lookup of a real name, is refused (as if offline) and fails
+# the test that made it. Tests marked live_provider or e2e may use the network.
+_ORIGINAL_SOCKET_CONNECT = socket.socket.connect
+_ORIGINAL_SOCKET_CONNECT_EX = socket.socket.connect_ex
+_ORIGINAL_GETADDRINFO = socket.getaddrinfo
+_OUTBOUND_ATTEMPTS: list[str] = []
+_NETWORK_ALLOWED = False
+_LOCAL_NAMES = {"", "localhost", socket.gethostname().lower()}
+
+
+def _is_local_host(host: Any) -> bool:
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    name = str(host or "").strip("[]").split("%", 1)[0].lower()
+    if name in _LOCAL_NAMES or name.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+def _outbound(self: socket.socket, address: Any) -> str | None:
+    if _NETWORK_ALLOWED or self.family not in (socket.AF_INET, socket.AF_INET6) or _is_local_host(address[0]):
+        return None
+    attempt = f"connect to {address[0]}:{address[1]}"
+    _OUTBOUND_ATTEMPTS.append(attempt)
+    return attempt
+
+
+def _guarded_socket_connect(self: socket.socket, address: Any) -> None:
+    if attempt := _outbound(self, address):
+        raise ConnectionRefusedError(errno.ECONNREFUSED, f"deterministic tests have no network ({attempt})")
+    return _ORIGINAL_SOCKET_CONNECT(self, address)
+
+
+def _guarded_socket_connect_ex(self: socket.socket, address: Any) -> int:
+    if _outbound(self, address):
+        return errno.ECONNREFUSED
+    return _ORIGINAL_SOCKET_CONNECT_EX(self, address)
+
+
+def _guarded_getaddrinfo(host: Any, *args: Any, **kwargs: Any):
+    if not _NETWORK_ALLOWED and not _is_local_host(host):
+        try:
+            ipaddress.ip_address(str(host).strip("[]").split("%", 1)[0])
+        except ValueError:
+            _OUTBOUND_ATTEMPTS.append(f"DNS lookup of {host}")
+            raise socket.gaierror(socket.EAI_NONAME, "deterministic tests have no network") from None
+    return _ORIGINAL_GETADDRINFO(host, *args, **kwargs)
+
+
+socket.socket.connect = _guarded_socket_connect
+socket.socket.connect_ex = _guarded_socket_connect_ex
+socket.getaddrinfo = _guarded_getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def _no_outbound_network(request: pytest.FixtureRequest):
+    global _NETWORK_ALLOWED
+    live = any(request.node.get_closest_marker(name) for name in ("live_provider", "e2e"))
+    _NETWORK_ALLOWED = live
+    before = len(_OUTBOUND_ATTEMPTS)
+    yield
+    _NETWORK_ALLOWED = False
+    attempts = sorted(set(_OUTBOUND_ATTEMPTS[before:]))
+    if attempts and not live:
+        pytest.fail("A deterministic test tried to reach the network: " + "; ".join(attempts), pytrace=False)
 
 
 def shard_files(files: set[str], shard: str) -> set[str]:
