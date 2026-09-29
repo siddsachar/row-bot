@@ -309,6 +309,15 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         ):
             raise SettingsCommandError("invalid_settings_command")
         value = float(value)
+    elif key == ("documents", "processing_model"):
+        # "" or None: follow the conversation's model (U45).
+        if value in ("", None):
+            value = None
+        else:
+            from row_bot.providers.selection import parse_model_ref
+
+            if type(value) is not str or len(value) > 512 or parse_model_ref(value) is None:
+                raise SettingsCommandError("invalid_settings_command")
     elif key == ("documents", "embedding.dimension"):
         if value is not None and (type(value) is not int or not 1 <= value <= 100000):
             raise SettingsCommandError("invalid_settings_command")
@@ -521,6 +530,8 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         path, keys = root / "tts_settings.json", (field.split(".", 1)[1],)
     elif page == "documents" and field.startswith("embedding."):
         path, keys = root / "embedding_config.json", (field.split(".", 1)[1],)
+    elif page == "documents" and field == "processing_model":
+        path, keys = root / "document_processing.json", ("model",)
     elif page == "system" and field in {"tunnel.provider", "tunnel.main_app_enabled"}:
         key = "provider" if field == "tunnel.provider" else "tunnel_main_app"
         path, keys = root / "channels_config.json", ("tunnel", key)

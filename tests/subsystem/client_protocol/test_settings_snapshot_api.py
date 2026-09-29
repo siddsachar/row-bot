@@ -1448,3 +1448,30 @@ def test_fresh_profile_reads_back_every_reported_default(tmp_path, monkeypatch):
 
     monkeypatch.setitem(module.SETTING_DEFAULTS, "tools", {})
     assert read_settings_snapshot()["revision"] == snapshot["revision"]
+
+
+def test_documents_pick_their_own_model_and_can_go_back_to_the_conversations(api):
+    """U45: document processing uses the model chosen in the queue, not the last conversation's."""
+    from row_bot.application.settings_snapshot import read_document_processing_model
+
+    client, headers, data, _ = api
+    before = client.get(BASE, headers=headers).json()
+    assert before["documents"]["processing_model"] is None
+    request = {"settings_revision": before["revision"], "page": "documents",
+               "field": "processing_model", "value": "model:ollama:qwen3.8:27b"}
+    response = _execute(client, headers, request, _review(client, headers, request))
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["documents"]["processing_model"] == "model:ollama:qwen3.8:27b"
+    assert json.loads((data / "document_processing.json").read_text()) == {"model": "model:ollama:qwen3.8:27b"}
+    assert read_document_processing_model() == "model:ollama:qwen3.8:27b"
+    current = response.json()["snapshot"]["revision"]
+    back = {"settings_revision": current, "page": "documents", "field": "processing_model", "value": ""}
+    response = _execute(client, headers, back, _review(client, headers, back))
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["documents"]["processing_model"] is None
+    assert read_document_processing_model() is None
+    latest = response.json()["snapshot"]["revision"]
+    for bad in ("gpt-4o", "model:", "model:x", 7):
+        refused = client.post(BASE + "/review", headers=headers, json={
+            "settings_revision": latest, "page": "documents", "field": "processing_model", "value": bad})
+        assert refused.status_code == 422, bad

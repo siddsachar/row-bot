@@ -3081,6 +3081,39 @@ export function UtilitiesSnapshotPanel({
   );
 }
 
+/** U45: the model that reads documents, chosen next to the queue. */
+export function DocumentModelSetting({
+  snapshot,
+  mutation,
+  models,
+}: {
+  snapshot: SettingsSnapshot['documents'];
+  mutation: SettingsMutationIO;
+  models: { model_ref: string; label: string; available: boolean }[];
+}) {
+  const current = snapshot.processing_model ?? '';
+  return (
+    <SelectSetting
+      mutation={mutation}
+      field="processing_model"
+      label="Model for documents"
+      hint="Reads each document and saves what it says to knowledge. The conversation's model is used when none is picked."
+      value={current}
+      options={[
+        { value: '', label: "Conversation's model" },
+        ...models
+          .filter((model) => model.available || model.model_ref === current)
+          .map((model) => ({
+            value: model.model_ref,
+            label: model.available
+              ? model.label
+              : `${model.label} (not available)`,
+          })),
+      ]}
+    />
+  );
+}
+
 export function DocumentEmbeddingSnapshot({
   snapshot,
   mutation,

@@ -18,6 +18,7 @@ import Phase4RetainedSettings, {
 } from './Phase4RetainedSettings';
 import {
   DocumentEmbeddingSnapshot,
+  DocumentModelSetting,
   PreferencesSnapshotPanel,
   SettingsDraftOwner,
   SystemSnapshotPanel,
@@ -1502,4 +1503,40 @@ it('installs the chosen Whisper size from Voice settings (B140)', () => {
   );
   expect(screen.getByText('Whisper Base (~74 MB) installed')).toBeVisible();
   expect(screen.queryByRole('button', { name: /Install Whisper/ })).toBeNull();
+});
+
+it('picks the model for documents next to the queue and saves at once (U45)', async () => {
+  mutation.page = 'documents';
+  render(
+    <DocumentModelSetting
+      snapshot={snapshot.documents}
+      mutation={mutation}
+      models={[
+        {
+          model_ref: 'model:ollama:qwen3.8:27b',
+          label: 'qwen3.8:27b',
+          available: true,
+        },
+        { model_ref: 'model:openai:gpt-4o', label: 'GPT-4o', available: false },
+      ]}
+    />,
+  );
+  const picker = screen.getByLabelText('Model for documents');
+  expect(picker).toHaveDisplayValue("Conversation's model");
+  expect(
+    screen.queryByRole('option', { name: 'GPT-4o (not available)' }),
+  ).toBeNull();
+  fireEvent.change(picker, { target: { value: 'model:ollama:qwen3.8:27b' } });
+  await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
+  expect(mutation.review).toHaveBeenCalledWith(
+    expect.objectContaining({
+      page: 'documents',
+      field: 'processing_model',
+      value: 'model:ollama:qwen3.8:27b',
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(
+    screen.getByRole('button', { name: 'Undo Model for documents' }),
+  ).toBeVisible();
 });

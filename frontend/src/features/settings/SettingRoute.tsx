@@ -43,6 +43,7 @@ import AccessInvitations from './AccessInvitations';
 import AccessTailscale from './AccessTailscale';
 import {
   DocumentEmbeddingSnapshot,
+  DocumentModelSetting,
   ToolConfigurationSnapshot,
   TrackerDangerAction,
   UtilitiesSnapshotPanel,
@@ -684,6 +685,13 @@ export default function SettingRoute() {
                   if (queue && !queue.hasRetained())
                     void queue.session.load().catch(() => undefined);
                 }}
+              />
+            )}
+            {settingsSnapshot && mutation && (
+              <DocumentModelSetting
+                snapshot={settingsSnapshot.documents}
+                mutation={mutation}
+                models={state.handshake?.models ?? []}
               />
             )}
             {documentQueueOwner?.get() && (

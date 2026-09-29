@@ -6198,7 +6198,12 @@ def create_router(
         def context() -> dict:
             validate()
             row = service._metadata(conversation)
-            selection = row.get("model_override")
+            from row_bot.application.settings_snapshot import (
+                read_document_processing_model,
+            )
+
+            # The model picked in the queue, else the conversation's (U45).
+            selection = read_document_processing_model() or row.get("model_override")
             if not selection:
                 from row_bot.application.provider_default_model import (
                     read_default_model,

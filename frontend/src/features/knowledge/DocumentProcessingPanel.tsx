@@ -311,8 +311,8 @@ export function DocumentProcessingPanel({
         Batch: {batchName(state.selection.batchId)}
       </p>
       <p>
-        This selection remains attached to its original conversation when you
-        navigate to another chat.
+        Processing follows this conversation's approvals and profile, and uses
+        the Model for documents above.
       </p>
       {state.error && (
         <ErrorState title="Processing needs attention">
@@ -349,7 +349,6 @@ export function DocumentProcessingPanel({
       )}
       {state.original && (
         <>
-          <p>Original command: {state.original.command_id}</p>
           <Button disabled={state.busy} onClick={() => invoke(owner.refresh)}>
             Check processing
           </Button>

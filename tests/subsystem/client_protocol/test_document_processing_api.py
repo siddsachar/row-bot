@@ -314,3 +314,27 @@ def test_in_scope_current_policy_change_denies_embedding_without_legacy_fallback
             with pytest.raises(Exception, match="document_processing_policy_changed|document_processing_denied"):
                 worker.embedding.embed_documents(["must not reach provider"])
         assert providers["embed"] == providers["chat"] == []
+
+
+def test_the_model_chosen_for_documents_wins_over_the_conversations(service, queue, providers):
+    """U45: processing reads the model picked in the queue, not the open conversation's."""
+    import json as _json
+
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    identifier = conversation()
+    chosen = get_row_bot_data_dir() / "document_processing.json"
+    chosen.write_text(_json.dumps({"model": "model:openai:gpt-4o-mini"}), encoding="utf-8")
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        batch, _ = uploaded(client, headers)
+        review, command = reviewed(client, headers, identifier, batch)
+        assert review["chat"]["model_ref"] == "model:openai:gpt-4o-mini"
+        # Choosing another model after the review makes it stale.
+        chosen.write_text(_json.dumps({"model": "model:openai:gpt-4o"}), encoding="utf-8")
+        stale = send(client, headers, identifier, command)
+        assert stale.status_code == 409, stale.text
+        assert providers["factory"] == []
+        chosen.unlink()
+        review, _ = reviewed(client, headers, identifier, batch)
+        assert review["chat"]["model_ref"] == "model:openai:gpt-4o"

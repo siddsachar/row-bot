@@ -921,6 +921,23 @@ def _wiki(root: Path) -> dict[str, Any]:
     }
 
 
+def _processing_model(root: Path) -> str | None:
+    value = _mapping(_read_json(root / "document_processing.json", default={})).get("model")
+    if isinstance(value, str) and len(value) <= 512 and value.startswith("model:"):
+        from row_bot.providers.selection import parse_model_ref
+
+        if parse_model_ref(value) is not None:
+            return value
+    return None
+
+
+def read_document_processing_model() -> str | None:
+    """The model picked for document processing; None follows the conversation (U45)."""
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    return _processing_model(get_row_bot_data_dir(create=False))
+
+
 def _documents(root: Path) -> dict[str, Any]:
     config = _mapping(_read_json(root / "embedding_config.json", default={}))
     provider = _text(config.get("provider") or "local", 16)
@@ -964,6 +981,7 @@ def _documents(root: Path) -> dict[str, Any]:
     memory_index = _memory_index_status(root / "memory.db")
     return {
         "availability": "available",
+        "processing_model": _processing_model(root),
         "indexed_documents": indexed_documents,
         "active_embedding": active_embedding,
         "document_vectors": document_vectors,
@@ -1528,6 +1546,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "logging.level": "DEBUG",
     },
     "documents": {
+        "processing_model": None,
         "embedding.provider": "local",
         "embedding.local_model": "mxbai-large-v1",
         "embedding.cloud_model": "openai:text-embedding-3-small",
