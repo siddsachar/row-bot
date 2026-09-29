@@ -374,14 +374,6 @@ for (const [id, label] of settingsRoutes) {
         'data-density',
         'compact',
       );
-      await expect(
-        page.getByText(
-          'This setting is available in the current application.',
-          {
-            exact: true,
-          },
-        ),
-      ).toHaveCount(0);
       await assertNoOverflow(page);
       const close = page.getByRole('link', {
         name: 'Close settings',

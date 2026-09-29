@@ -300,9 +300,6 @@ test('retained settings expose real capability state without leaving the unified
   await expect(
     page.getByRole('region', { name: 'Talk', exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByText('This setting is available in the current application.'),
-  ).toHaveCount(0);
 
   await openSettingThroughCommands(page, {
     label: 'Accounts',

@@ -258,7 +258,7 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
         except AssetValidationError:
             return Response("Not found", 404, headers=headers)
         if not assets:
-            return Response("Client preview is not built. Build the local frontend and restart the host.",
+            return Response("The Row-Bot client is not built. Build the frontend and restart Row-Bot.",
                             503, media_type="text/plain", headers=headers)
         runtime = runtime_assets.get(path)
         if runtime is not None:

@@ -381,9 +381,15 @@ it('supports an empty collapsible section without introducing commands or contro
   expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Conversations' }));
   expect(screen.queryByText('Your conversations will appear here.')).toBeNull();
+  // React is the only application: the utilities link to nothing outside it.
+  const utilities = screen
+    .getByText('About and developer utilities')
+    .closest('details') as HTMLElement;
   expect(
-    screen.getByRole('link', { name: 'Current application' }),
-  ).toHaveAttribute('href', '/');
+    within(utilities)
+      .getAllByRole('link')
+      .map((link) => link.textContent),
+  ).toEqual(['Component gallery']);
   expect(transport.counters.commands).toBe(0);
 });
 

@@ -166,7 +166,7 @@ class RenderBoundary extends Component<
             </a>
           }
         >
-          Try reloading, or return to the <a href="/">current application</a>.
+          Try reloading. If this keeps happening, restart Row-Bot.
         </ErrorState>
       </main>
     ) : (

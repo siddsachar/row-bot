@@ -66,9 +66,6 @@ test('reconnects by itself after a restart, without a reload (B110)', async ({
     dispatchEvent(new PopStateEvent('popstate'));
   });
   await expect(
-    page.getByText('This setting is available in the current application.'),
-  ).toHaveCount(0);
-  await expect(
     page.getByRole('heading', { name: 'Models', exact: true }),
   ).toBeVisible();
   await writeEvidence(testInfo, 'restart-recovery', {

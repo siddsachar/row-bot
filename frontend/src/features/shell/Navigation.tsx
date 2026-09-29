@@ -959,9 +959,6 @@ export default function Navigation({
         </div>
         <details className="nav-secondary-destinations">
           <summary>About and developer utilities</summary>
-          <a href="/" className="button ghost">
-            Current application
-          </a>
           <Link
             className="button ghost"
             to="/primitives"
