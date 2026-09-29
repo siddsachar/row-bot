@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import sqlite3
 
-from fastapi import FastAPI, Request, WebSocket
-import pytest
+from fastapi import FastAPI, Request
+from starlette.responses import StreamingResponse
 from starlette.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 
 from row_bot.access.config import AccessConfig
 from row_bot.access.cookies import LEGACY_HTTPS_COOKIE_NAME
@@ -17,6 +16,8 @@ from row_bot.access.runtime_policy import RuntimeAccessPolicy
 from row_bot.access.service import AccessService
 from row_bot.access.store import AccessStore
 from row_bot.access.tokens import hash_secret
+from row_bot.api.v1 import routes as v1_routes
+from row_bot.api.v1.security import ProtocolError
 from row_bot.tunnel import TunnelManager, TunnelProvider
 
 MANAGED_ORIGIN = "https://stable-phone.ngrok-free.app"
@@ -144,12 +145,17 @@ def _build_app(path):
             "origin": context.origin,
         }
 
-    @app.websocket("/_nicegui_ws/socket.io")
-    async def websocket_route(websocket: WebSocket):
-        await websocket.accept()
-        message = await websocket.receive_text()
-        await websocket.send_text(message)
-        await websocket.close()
+    @app.get("/api/v1/events")
+    async def events(request: Request) -> StreamingResponse:
+        # As the React event stream does: it re-checks access before sending.
+        async def stream():
+            try:
+                await v1_routes._context(request)
+            except ProtocolError:
+                return
+            yield "event: domain\ndata: paired\n\n"
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
 
     registration = register_access_routes(
         app,
@@ -222,15 +228,16 @@ def test_migrated_mobile_cookie_survives_same_managed_ngrok_host(
     assert changed_without_cookie.headers["location"].startswith("/connect?next=")
     assert service.list_invitations() == []
 
-    with client.websocket_connect(
-        "/_nicegui_ws/socket.io",
+    paired = client.get(
+        "/api/v1/events",
         headers={
             **_proxy_headers(MANAGED_ORIGIN, cookie=LEGACY_TOKEN),
             "origin": MANAGED_ORIGIN,
+            "accept": "text/event-stream",
         },
-    ) as websocket:
-        websocket.send_text("paired")
-        assert websocket.receive_text() == "paired"
+    )
+    assert paired.status_code == 200
+    assert "data: paired" in paired.text
 
     manager.stop_tunnel(8080)
     assert MANAGED_ORIGIN not in runtime_policy.snapshot().managed_origins
@@ -241,14 +248,14 @@ def test_migrated_mobile_cookie_survives_same_managed_ngrok_host(
     assert stopped.status_code == 400
     assert stopped.json()["error"] == "unexpected_host"
 
-    with pytest.raises(WebSocketDisconnect) as stopped_websocket:
-        with client.websocket_connect(
-            "/_nicegui_ws/socket.io",
-            headers={
-                "host": "stable-phone.ngrok-free.app",
-                "origin": MANAGED_ORIGIN,
-                "cookie": f"{LEGACY_HTTPS_COOKIE_NAME}={LEGACY_TOKEN}",
-            },
-        ):
-            pass
-    assert stopped_websocket.value.code == 1008
+    stopped_stream = client.get(
+        "/api/v1/events",
+        headers={
+            "host": "stable-phone.ngrok-free.app",
+            "origin": MANAGED_ORIGIN,
+            "cookie": f"{LEGACY_HTTPS_COOKIE_NAME}={LEGACY_TOKEN}",
+            "accept": "text/event-stream",
+        },
+    )
+    assert stopped_stream.status_code == 400
+    assert "data: paired" not in stopped_stream.text

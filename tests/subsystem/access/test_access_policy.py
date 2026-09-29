@@ -83,9 +83,21 @@ def test_unpaired_browser_navigation_and_api_are_classified_separately() -> None
     ).status_code == 401
 
 
-def test_websocket_requires_authentication_and_origin() -> None:
+def test_the_event_stream_requires_authentication() -> None:
     policy = AccessPolicy()
-    route = policy.classify(_scope("/_nicegui_ws/socket.io", scope_type="websocket"))
+    route = policy.classify(_scope("/api/v1/events"))
+
+    assert route.kind is RouteKind.AUTHENTICATED
+    assert route.browser_navigation is False  # a JSON 401, never a redirect
+    assert policy.authorize(
+        _context(kind=AuthenticationKind.UNAUTHENTICATED), route
+    ).status_code == 401
+
+
+def test_any_websocket_requires_authentication_and_origin() -> None:
+    # The app serves no WebSocket; one reaching the gate is still refused.
+    policy = AccessPolicy()
+    route = policy.classify(_scope("/api/v1/events", scope_type="websocket"))
 
     assert route.kind is RouteKind.AUTHENTICATED
     assert route.require_same_origin is True

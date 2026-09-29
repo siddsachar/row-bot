@@ -1,15 +1,23 @@
+"""HTTP routes and the React event stream share one session gate.
+
+The event stream re-checks access on every tick, so a revoked session ends
+an open stream within the tick's bound, as it did for the NiceGUI socket.
+"""
 from __future__ import annotations
 
+import asyncio
+import threading
 import time
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request
+from starlette.responses import StreamingResponse
 from starlette.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
-import pytest
 
 from row_bot.access.config import AccessConfig
 from row_bot.access.middleware import AccessMiddleware
 from row_bot.access.request_context import SessionIdentity
+from row_bot.api.v1 import routes as v1_routes
+from row_bot.api.v1.security import ProtocolError
 
 
 class FakeSessionAuthenticator:
@@ -57,15 +65,19 @@ def _build_app(authenticator: FakeSessionAuthenticator) -> TestClient:
     async def devices():
         return {"devices": []}
 
-    @app.websocket("/_nicegui_ws/socket.io")
-    async def nicegui_socket(websocket: WebSocket):
-        await websocket.accept()
-        try:
-            while True:
-                message = await websocket.receive_text()
-                await websocket.send_text(message)
-        except WebSocketDisconnect:
-            return
+    @app.get("/api/v1/events")
+    async def events(request: Request) -> StreamingResponse:
+        # As the React event stream does: every tick re-checks access.
+        async def stream():
+            try:
+                while True:
+                    await v1_routes._context(request)
+                    yield ": heartbeat\n\n"
+                    await asyncio.sleep(0.02)
+            except ProtocolError:
+                return
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
 
     middleware = AccessMiddleware(
         app,
@@ -84,63 +96,40 @@ def _build_app(authenticator: FakeSessionAuthenticator) -> TestClient:
     )
 
 
-def test_server_http_and_websocket_use_the_same_session_gate() -> None:
+def test_server_http_and_the_event_stream_use_the_same_session_gate() -> None:
     authenticator = FakeSessionAuthenticator()
     client = _build_app(authenticator)
     cookie_header = {"cookie": "row_bot_test=owner-token"}
+    stream_headers = {"accept": "text/event-stream", "origin": "http://localhost:8080"}
 
     assert client.get("/api/private").status_code == 401
     assert client.get("/api/private", headers=cookie_header).status_code == 200
 
-    with pytest.raises(WebSocketDisconnect) as unpaired:
-        with client.websocket_connect(
-            "/_nicegui_ws/socket.io",
-            headers={
-                "host": "localhost:8080",
-                "origin": "http://localhost:8080",
-            },
-        ):
-            pass
-    assert unpaired.value.code == 1008
-
-    with client.websocket_connect(
-        "/_nicegui_ws/socket.io",
-        headers={
-            "host": "localhost:8080",
-            "origin": "http://localhost:8080",
-            **cookie_header,
-        },
-    ) as websocket:
-        websocket.send_text("connected")
-        assert websocket.receive_text() == "connected"
+    unpaired = client.get("/api/v1/events", headers=stream_headers)
+    assert unpaired.status_code == 401
+    assert unpaired.json()["code"] == "authentication_required"
 
 
-def test_revocation_blocks_http_immediately_and_active_websocket_within_bound() -> None:
+def test_revocation_blocks_http_immediately_and_ends_an_open_stream_within_bound() -> None:
     authenticator = FakeSessionAuthenticator()
     client = _build_app(authenticator)
     cookie_header = {"cookie": "row_bot_test=owner-token"}
+    revoked_at: list[float] = []
 
-    with client.websocket_connect(
-        "/_nicegui_ws/socket.io",
-        headers={
-            "host": "localhost:8080",
-            "origin": "http://localhost:8080",
-            **cookie_header,
-        },
-    ) as websocket:
-        websocket.send_text("before")
-        assert websocket.receive_text() == "before"
-
+    def revoke_soon() -> None:
+        time.sleep(0.2)
         authenticator.revoke("owner-token")
-        assert client.get("/api/private", headers=cookie_header).status_code == 401
+        revoked_at.append(time.monotonic())
 
-        started = time.monotonic()
-        with pytest.raises(WebSocketDisconnect) as revoked:
-            websocket.receive_text()
-        elapsed = time.monotonic() - started
+    threading.Thread(target=revoke_soon, daemon=True).start()
+    stream = client.get("/api/v1/events", headers={
+        "accept": "text/event-stream", "origin": "http://localhost:8080", **cookie_header})
+    ended_at = time.monotonic()
 
-    assert revoked.value.code == 1008
-    assert elapsed < 1.0
+    assert stream.status_code == 200
+    assert ": heartbeat" in stream.text  # it streamed while the session was valid
+    assert revoked_at and ended_at - revoked_at[0] < 1.0
+    assert client.get("/api/private", headers=cookie_header).status_code == 401
 
 
 def test_phone_session_can_use_owner_management_routes() -> None:
