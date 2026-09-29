@@ -40,6 +40,7 @@ import WikiSettings, {
   type WikiSettingsSession,
 } from '../knowledge/WikiSettings';
 import type { SettingsMutationIO } from './SettingsSnapshotPanels';
+import { When } from '../../ui/When';
 
 type SavedPage = {
   revision: string;
@@ -711,7 +712,7 @@ export default function KnowledgeCatalog({
               <option value="">All categories</option>
               {snapshot?.entity_types.map((item) => (
                 <option key={item.kind} value={item.kind}>
-                  {item.kind}
+                  {humanizeToken(item.kind)}
                 </option>
               ))}
             </select>
@@ -959,7 +960,9 @@ export default function KnowledgeCatalog({
                           )}
                           {detail && detail.availability !== 'available' && (
                             <p role="status">
-                              Details are {detail.availability}.
+                              Details are{' '}
+                              {humanizeToken(detail.availability).toLowerCase()}
+                              .
                             </p>
                           )}
                         </div>
@@ -1009,8 +1012,8 @@ export default function KnowledgeCatalog({
       )}
       {maintenanceResult?.status !== 'completed' && maintenanceResult && (
         <p role="alert">
-          Deletion was {maintenanceResult.status}. Deleted{' '}
-          {maintenanceResult.deleted.length}; stale{' '}
+          Deletion was {humanizeToken(maintenanceResult.status).toLowerCase()}.
+          Deleted {maintenanceResult.deleted.length}; stale{' '}
           {maintenanceResult.stale.length}; missing{' '}
           {maintenanceResult.missing.length}. Cleanup:{' '}
           {JSON.stringify(maintenanceResult.cleanup)}.
@@ -1122,28 +1125,38 @@ function KnowledgeDetail({
         </div>
         <div className="settings-fact">
           <dt>Created</dt>
-          <dd>{detail.created_at || 'Unknown'}</dd>
+          <dd>
+            <When value={detail.created_at} />
+          </dd>
         </div>
         <div className="settings-fact">
           <dt>Updated</dt>
-          <dd>{detail.updated_at || 'Unknown'}</dd>
+          <dd>
+            <When value={detail.updated_at} />
+          </dd>
         </div>
         {detail.last_user_modified_at && (
           <div className="settings-fact">
             <dt>User modified</dt>
-            <dd>{detail.last_user_modified_at}</dd>
+            <dd>
+              <When value={detail.last_user_modified_at} />
+            </dd>
           </div>
         )}
         {detail.last_evolved_at && (
           <div className="settings-fact">
             <dt>Evolved</dt>
-            <dd>{detail.last_evolved_at}</dd>
+            <dd>
+              <When value={detail.last_evolved_at} />
+            </dd>
           </div>
         )}
         {detail.last_recalled_at && (
           <div className="settings-fact">
             <dt>Recalled</dt>
-            <dd>{detail.last_recalled_at}</dd>
+            <dd>
+              <When value={detail.last_recalled_at} />
+            </dd>
           </div>
         )}
       </dl>
@@ -1517,7 +1530,9 @@ function LazyAuditDisclosure<P extends { availability: string }>({
         )}
         {page && page.availability === 'available' && render(page)}
         {page && page.availability !== 'available' && (
-          <p className="settings-help">Audit data is {page.availability}.</p>
+          <p className="settings-help">
+            Audit data is {humanizeToken(page.availability).toLowerCase()}.
+          </p>
         )}
       </div>
     </details>

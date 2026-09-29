@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { Button, ErrorState } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 export type DocumentRemovalOutcome = {
   removal_id: string;
@@ -354,7 +355,8 @@ export default function DocumentRemoval({
             <ul>
               {result.stages.map((stage) => (
                 <li key={stage.stage}>
-                  {stages[stage.stage] ?? 'Saved stage'}: {stage.status}
+                  {stages[stage.stage] ?? 'Saved stage'}:{' '}
+                  {humanizeToken(stage.status).toLowerCase()}
                 </li>
               ))}
             </ul>

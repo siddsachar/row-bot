@@ -1,24 +1,8 @@
 import type { Tone } from '../../ui/primitives';
-import { absoluteTime, parseTimestamp, relativeTime } from '../../ui/format';
+import { absoluteTime, parseTimestamp } from '../../ui/format';
 
-/** A relative time ("3 hours ago", "in 2 days") with the full date on hover. */
-export function When({
-  value,
-  fallback = 'Unknown',
-  now,
-}: {
-  value: string | null | undefined;
-  fallback?: string;
-  now?: Date;
-}) {
-  const date = parseTimestamp(value);
-  if (!date) return <>{fallback}</>;
-  return (
-    <time dateTime={date.toISOString()} title={absoluteTime(date)}>
-      {relativeTime(date, now)}
-    </time>
-  );
-}
+// The shared relative time lives in ui/ so Settings can use it too (U59).
+export { When } from '../../ui/When';
 
 const WEEKDAYS: Record<string, string> = {
   mon: 'Monday',

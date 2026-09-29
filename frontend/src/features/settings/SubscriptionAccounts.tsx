@@ -13,6 +13,8 @@ import {
   ProviderSettingsSession,
   useProviderSettingsValue,
 } from './provider-settings-sessions';
+import { When } from '../../ui/When';
+import { humanizeToken } from '../../ui/format';
 
 type Action =
   'start' | 'check' | 'submit' | 'disconnect' | 'restore' | 'import_token';
@@ -712,13 +714,20 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
             Saved status: {account.saved_state.replaceAll('_', ' ')} ·
             Credential storage: {account.credential_storage} · Readiness:
             unknown
-            {account.expires_at ? ` · Expires ${account.expires_at}` : ''}
+            {account.expires_at ? (
+              <>
+                {' · Expires '}
+                <When value={account.expires_at} />
+              </>
+            ) : (
+              ''
+            )}
           </p>
         )}
         {flow && (
           <div className="stack" role="group" aria-label="Current sign-in">
             <p>
-              Sign-in: {flow.state}.{' '}
+              Sign-in: {humanizeToken(flow.state).toLowerCase()}.{' '}
               {flow.quiescent
                 ? 'No sign-in operation is running.'
                 : 'A sign-in operation is still running.'}
@@ -737,7 +746,11 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
                 />
               </Field>
             )}
-            {flow.expires_at && <p>Sign-in expires: {flow.expires_at}</p>}
+            {flow.expires_at && (
+              <p>
+                Sign-in expires <When value={flow.expires_at} />
+              </p>
+            )}
             <div className="actions">
               <Button
                 onClick={() => void inspect()}

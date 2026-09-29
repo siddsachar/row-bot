@@ -17,6 +17,7 @@ import {
   Select,
   Toggle,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 type Owner = {
   scan: (body: MigrationScanRequest) => Promise<MigrationPreview>;
@@ -349,7 +350,8 @@ export function MigrationControls({ owner }: { owner: Owner }) {
                 <span>
                   <strong>{item.label}</strong>
                   <small>
-                    {item.category} · {item.status}
+                    {humanizeToken(item.category)} ·{' '}
+                    {humanizeToken(item.status).toLowerCase()}
                     {item.target ? ` · ${item.target}` : ''}
                     {item.reason ? ` · ${item.reason}` : ''}
                   </small>
@@ -410,7 +412,7 @@ export function MigrationControls({ owner }: { owner: Owner }) {
           )}
           {receipt.failed_items.map((item) => (
             <p key={item.id}>
-              {item.id}: {item.reason}
+              {humanizeToken(item.id)}: {item.reason}
             </p>
           ))}
           <CompactAction label="Scan again" onClick={() => void scan()}>

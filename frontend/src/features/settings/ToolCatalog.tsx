@@ -10,6 +10,7 @@ import {
   Select,
   Skeleton,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 type Source = ToolCatalogPage['items'][number]['source'];
 const sourceLabels: Record<Source, string> = {
@@ -275,9 +276,9 @@ export default function ToolCatalog({
                         </strong>
                         <small>
                           {tool.parent_id
-                            ? `Parent: ${tool.parent_id}`
+                            ? `Part of ${humanizeToken(tool.parent_id)}`
                             : tool.plugin_id
-                              ? `Plugin: ${tool.plugin_id}`
+                              ? `From the ${humanizeToken(tool.plugin_id)} plugin`
                               : tool.server_name
                                 ? `MCP server: ${tool.server_name}`
                                 : 'Saved catalog entry'}
@@ -348,13 +349,13 @@ export default function ToolCatalog({
                       {tool.parent_id && (
                         <>
                           <dt>Parent tool</dt>
-                          <dd>{tool.parent_id}</dd>
+                          <dd>{humanizeToken(tool.parent_id)}</dd>
                         </>
                       )}
                       {tool.plugin_id && (
                         <>
                           <dt>Plugin</dt>
-                          <dd>{tool.plugin_id}</dd>
+                          <dd>{humanizeToken(tool.plugin_id)}</dd>
                         </>
                       )}
                       {tool.server_name && (

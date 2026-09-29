@@ -231,6 +231,8 @@ it('loads rich details only on first expansion and renders safe provenance and a
   expect(screen.getByText(/supports: Related fact/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Open Related fact' }));
   expect(onOpen).toHaveBeenCalledWith('peer');
+  // Dates read in words, with the full date on hover (U59).
+  expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
   fireEvent.click(screen.getByText('Provenance'));
   expect(screen.getByText('actor: manual')).toBeVisible();
   expect(screen.getByText('Evidence: Reviewed evidence')).toBeVisible();

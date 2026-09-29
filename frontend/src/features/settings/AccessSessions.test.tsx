@@ -42,7 +42,7 @@ it('lists public device/session metadata and revokes the exact session', async (
   const client = fixture();
   render(<AccessSessions currentSessionId="session-a" client={client} />);
   expect(await screen.findByText('Phone')).toBeInTheDocument();
-  expect(screen.getByText(/trusted session/)).toHaveTextContent('current');
+  expect(screen.getByText(/Trusted session/)).toHaveTextContent('current');
   fireEvent.click(screen.getByRole('button', { name: 'Revoke session' }));
   await waitFor(() =>
     expect(client.revokeSession).toHaveBeenCalledWith(
@@ -60,4 +60,15 @@ it('keeps an exact revocation failure visible and retryable', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Revoke device' }));
   expect(await screen.findByRole('alert')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+});
+
+it('says times in words, never raw timestamps (U59)', async () => {
+  render(<AccessSessions currentSessionId="session-a" client={fixture()} />);
+  await screen.findByText('Phone');
+  expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
+  expect(screen.getByText(/Trusted session · expires/)).toBeInTheDocument();
+  const expiry = document.querySelector(
+    'time[datetime="2026-10-20T00:00:00.000Z"]',
+  );
+  expect(expiry).not.toBeNull();
 });

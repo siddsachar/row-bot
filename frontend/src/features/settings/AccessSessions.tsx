@@ -6,6 +6,8 @@ import {
 } from '../../api/access';
 import { clientError } from '../../api/errors';
 import { Button, ErrorState, Skeleton } from '../../ui/primitives';
+import { When } from '../../ui/When';
+import { humanizeToken } from '../../ui/format';
 
 export default function AccessSessions({
   currentDeviceId,
@@ -90,17 +92,22 @@ export default function AccessSessions({
               <small>(this device)</small>
             ) : null}
             <p className="muted">
-              {device.revoked_at
-                ? 'Revoked'
-                : device.last_seen_at
-                  ? `Last seen ${device.last_seen_at}`
-                  : 'Not yet seen'}
+              {device.revoked_at ? (
+                'Revoked'
+              ) : device.last_seen_at ? (
+                <>
+                  Last seen <When value={device.last_seen_at} />
+                </>
+              ) : (
+                'Not yet seen'
+              )}
             </p>
           </div>
           {device.sessions.map((session) => (
             <div className="button-row" key={session.id}>
               <span>
-                {session.lifetime} session · expires {session.expires_at}
+                {humanizeToken(session.lifetime)} session · expires{' '}
+                <When value={session.expires_at} />
                 {session.id === currentSessionId ? ' · current' : ''}
                 {session.revoked_at ? ' · revoked' : ''}
               </span>

@@ -11,6 +11,7 @@ import {
   Select,
   Skeleton,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 const tabs: Surface[] = ['chat', 'vision', 'image', 'video', 'voice'];
@@ -313,11 +314,12 @@ export default function ModelCatalog({
               return (
                 <li key={model.selection_ref}>
                   <div className="settings-model-row-name">
-                    <strong>{model.display_name}</strong>
-                    <small title={model.model_id}>{model.model_id}</small>
+                    <strong title={model.model_id}>{model.display_name}</strong>
                   </div>
                   <div className="settings-model-row-badges">
-                    <span className="status-chip">{model.provider_id}</span>
+                    <span className="status-chip">
+                      {humanizeToken(model.provider_id)}
+                    </span>
                     {model.context_window && (
                       <span className="status-chip">
                         {Math.round(model.context_window / 1000)}K ctx

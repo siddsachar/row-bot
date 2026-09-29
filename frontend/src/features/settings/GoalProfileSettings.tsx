@@ -40,6 +40,7 @@ import {
   Tabs,
   Toggle,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 export type GoalStatus =
   | 'active'
@@ -1029,7 +1030,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           <li className="surface" key={goal.id}>
             <strong>{goal.objective}</strong>
             <p>
-              {goal.status} · {goal.turns_used} of {goal.max_turns} turns
+              {humanizeToken(goal.status)} · {goal.turns_used} of{' '}
+              {goal.max_turns} turns
             </p>
             {goal.last_progress && <p>{goal.last_progress}</p>}
             {goal.last_reason && <p>{goal.last_reason}</p>}

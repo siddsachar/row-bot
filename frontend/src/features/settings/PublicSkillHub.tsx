@@ -219,7 +219,8 @@ export default function PublicSkillHub({
       {results && (
         <>
           <p role="status">
-            {results.entries.length} skills · {results.mode}
+            {results.entries.length} skills ·{' '}
+            {humanizeToken(results.mode).toLowerCase()}
           </p>
           {results.error && <p role="alert">{results.error}</p>}
           {results.source_statuses.map((row) => (

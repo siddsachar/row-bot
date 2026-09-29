@@ -624,7 +624,8 @@ export default function CapabilitySettings({
             <section className="card stack" aria-label="MCP diagnostics">
               <h3>MCP diagnostics</h3>
               <p>
-                Saved configuration: {page.availability}. Global access:{' '}
+                Saved configuration:{' '}
+                {humanizeToken(page.availability).toLowerCase()}. Global access:{' '}
                 {page.enabled === null
                   ? 'unknown'
                   : page.enabled
@@ -685,8 +686,8 @@ export default function CapabilitySettings({
                 {directoryError && <p role="alert">{directoryError}</p>}
                 {directoryResult && (
                   <p role="status">
-                    {directoryResult.items.length} {directoryResult.mode}{' '}
-                    results
+                    {directoryResult.items.length}{' '}
+                    {humanizeToken(directoryResult.mode).toLowerCase()} results
                   </p>
                 )}
                 {directoryResult?.items.map((entry) => (
@@ -697,8 +698,9 @@ export default function CapabilitySettings({
                     <strong>{entry.name}</strong>
                     <p>{entry.description || 'No description provided.'}</p>
                     <small>
-                      {entry.source} · {entry.publisher || 'Publisher unknown'}{' '}
-                      · {humanizeToken(entry.transport)} ·{' '}
+                      {humanizeToken(entry.source)} ·{' '}
+                      {entry.publisher || 'Publisher unknown'} ·{' '}
+                      {humanizeToken(entry.transport)} ·{' '}
                       {entry.risk_level
                         ? `${humanizeToken(entry.risk_level).toLowerCase()} risk`
                         : 'Risk unknown'}

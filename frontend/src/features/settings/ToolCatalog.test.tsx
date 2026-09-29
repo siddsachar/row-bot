@@ -152,7 +152,7 @@ it('keeps declarations separate from access and renders labels as text', async (
   expect(row.getByText('Recorded')).toBeVisible();
   expect(row.getAllByText('Not declared')).toHaveLength(2);
   expect(row.getByText('Unknown')).toBeVisible();
-  expect(row.getByText('plugin-id')).toBeVisible();
+  expect(row.getByText('Plugin ID')).toBeVisible();
   expect(screen.getByText('same · Core')).toBeVisible();
   expect(
     screen.queryByText(/ready to run|credentials verified|safe to execute/i),

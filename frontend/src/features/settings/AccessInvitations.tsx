@@ -11,6 +11,8 @@ import { clientError } from '../../api/errors';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
 import { Button, ErrorState, Skeleton, Toggle } from '../../ui/primitives';
+import { When } from '../../ui/When';
+import { humanizeToken } from '../../ui/format';
 
 export default function AccessInvitations({
   client = accessInvitationClient,
@@ -307,8 +309,9 @@ export default function AccessInvitations({
           {active.map((invitation) => (
             <div className="button-row" key={invitation.id}>
               <span>
-                {invitation.intended_origin} · {invitation.session_lifetime} ·
-                expires {invitation.expires_at}
+                {invitation.intended_origin} ·{' '}
+                {humanizeToken(invitation.session_lifetime)} · expires{' '}
+                <When value={invitation.expires_at} />
               </span>
               <Button
                 iconOnly

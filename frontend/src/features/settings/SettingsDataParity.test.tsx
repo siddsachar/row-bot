@@ -70,7 +70,7 @@ it('presents saved graph totals and an owner-sized initial knowledge catalog', a
   expect(screen.getByText('Showing 25 of 30 matching entries.')).toBeVisible();
   expect(screen.getAllByRole('combobox')[0]).toHaveValue('');
   expect(screen.getByRole('option', { name: 'All categories' })).toBeVisible();
-  expect(screen.getByRole('option', { name: 'person' })).toBeVisible();
+  expect(screen.getByRole('option', { name: 'Person' })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
   await screen.findByLabelText('Knowledge 29 · person');
   expect(
