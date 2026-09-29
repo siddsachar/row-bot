@@ -683,6 +683,21 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   await expect(
     preview.getByRole('heading', { name: 'Presentation', exact: true }),
   ).toBeVisible();
+  // Present fills the screen (U36); Escape leaves full screen and ends it,
+  // handing focus back to Present.
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(
+    preview.getByRole('heading', { name: 'Presentation', exact: true }),
+  ).toBeHidden();
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(false);
+  await expect(
+    actions.getByRole('button', { name: 'Present', exact: true }),
+  ).toBeFocused();
   await actions.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(
     preview.getByRole('region', { name: 'Design export', exact: true }),

@@ -1462,3 +1462,83 @@ it('offers the actions of the shown design to the global palette while visible',
   );
   expect(designCommandSets()).toEqual([]);
 });
+
+it('hands focus back to Present only once full screen has ended', async () => {
+  resizeFixture();
+  let fullscreenElement: Element | null = null;
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => fullscreenElement,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+    configurable: true,
+    value: vi.fn(async () => {
+      fullscreenElement = document.querySelector('.design-stage');
+      document.dispatchEvent(new Event('fullscreenchange'));
+    }),
+  });
+  let exited = () => {};
+  Object.defineProperty(document, 'exitFullscreen', {
+    configurable: true,
+    value: vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          exited = () => {
+            fullscreenElement = null;
+            document.dispatchEvent(new Event('fullscreenchange'));
+            resolve();
+          };
+        }),
+    ),
+  });
+  const presentation = {
+    load: vi.fn(async () => ({
+      resource_id: 'deck-a',
+      resource_revision: 'resource-1',
+      page_id: 'slide-0',
+      title: 'Opening',
+      notes: '',
+      page_index: 0,
+      page_count: 2,
+      pages: [],
+      next_cursor: null,
+    })),
+    preview: vi.fn(() => new Promise<Preview>(() => {})),
+  };
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        presentation={presentation}
+      />,
+    ),
+  );
+  const present = screen.getByRole('button', { name: 'Present' });
+  await act(async () => fireEvent.click(present));
+  await screen.findByRole('button', { name: 'End presentation' });
+  // Escape inside the presentation ends it; the browser leaves full screen
+  // a moment later, and only then can Present take the focus back.
+  await act(async () =>
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Presentation' }), {
+      key: 'Escape',
+    }),
+  );
+  expect(document.exitFullscreen).toHaveBeenCalledOnce();
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  expect(present).not.toHaveFocus();
+  await act(async () => {
+    exited();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  expect(present).toHaveFocus();
+  delete (HTMLElement.prototype as { requestFullscreen?: unknown })
+    .requestFullscreen;
+  delete (document as { fullscreenElement?: unknown }).fullscreenElement;
+  delete (document as { exitFullscreen?: unknown }).exitFullscreen;
+});

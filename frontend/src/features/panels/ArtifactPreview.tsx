@@ -568,13 +568,25 @@ export default function ArtifactPreview({
     return () => document.removeEventListener('fullscreenchange', changed);
   }, [presenting]);
 
+  // Ends presenting and gives Present the focus back. While the stage is
+  // still full screen the browser refuses focus outside it, so that waits
+  // until full screen has ended.
+  function stopPresenting(refocus: boolean) {
+    enteredFullscreen.current = false;
+    setFullscreen(false);
+    setPresenting(false);
+    const focus = () =>
+      requestAnimationFrame(() => presentButton.current?.focus());
+    if (document.fullscreenElement === stage.current && stage.current) {
+      const leaving = document.exitFullscreen?.();
+      if (refocus) void (leaving ?? Promise.resolve()).then(focus, focus);
+      else void leaving?.catch(() => {});
+    } else if (refocus) focus();
+  }
+
   function present() {
     if (presenting) {
-      enteredFullscreen.current = false;
-      setFullscreen(false);
-      setPresenting(false);
-      if (document.fullscreenElement === stage.current)
-        void document.exitFullscreen?.().catch(() => {});
+      stopPresenting(false);
       return;
     }
     setPresenting(true);
@@ -1261,15 +1273,8 @@ export default function ArtifactPreview({
               autoStart
               fullscreen={fullscreen}
               startIndex={current.page_index}
-              onEnded={() => {
-                enteredFullscreen.current = false;
-                if (document.fullscreenElement === stage.current)
-                  void document.exitFullscreen?.().catch(() => {});
-                setFullscreen(false);
-                setPresenting(false);
-                // Back to where presenting started.
-                requestAnimationFrame(() => presentButton.current?.focus());
-              }}
+              // Back to where presenting started.
+              onEnded={() => stopPresenting(true)}
             />
           ) : (
             <>

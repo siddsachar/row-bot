@@ -835,6 +835,15 @@
 .design-stage:fullscreen .presentation-notes {
   display: none;
 }
+/* The stage is black in either theme, so secondary text is light. */
+.artifact-presentation:fullscreen .presentation-position,
+.artifact-presentation:fullscreen .presentation-timer,
+.artifact-presentation:fullscreen .muted,
+.design-stage:fullscreen .presentation-position,
+.design-stage:fullscreen .presentation-timer,
+.design-stage:fullscreen .muted {
+  color: #c9d1dc;
+}
 .presentation-bar {
   display: flex;
   flex-wrap: wrap;

@@ -175,12 +175,17 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
 
   // Presenting takes the keyboard at once, so arrows and Escape work
   // without first clicking into the slide. A layout effect: focus moves in
-  // the commit that shows the first slide, never a frame after it.
+  // the commit that shows the first slide, never a frame after it; one that
+  // starts on its own takes it while the first slide loads.
   useLayoutEffect(() => {
     const element = host.current;
-    if (active && element && !element.contains(document.activeElement))
+    if (
+      (active || props.autoStart) &&
+      element &&
+      !element.contains(document.activeElement)
+    )
       element.focus({ preventScroll: true });
-  }, [active]);
+  }, [active, props.autoStart]);
 
   function end() {
     props.onEnded?.();
@@ -227,16 +232,18 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
       data-active={active ? 'true' : undefined}
       onKeyDown={(event) => {
         if (
-          !active ||
-          busy ||
           event.target instanceof HTMLInputElement ||
           event.target instanceof HTMLTextAreaElement
         )
           return;
-        if (event.key === 'Escape') {
+        // Escape also ends one whose slide is still loading.
+        if (event.key === 'Escape' && (active || busy)) {
           event.preventDefault();
           end();
-        } else if (
+          return;
+        }
+        if (!active || busy) return;
+        if (
           event.key === 'ArrowRight' &&
           state &&
           state.page_index + 1 < state.page_count

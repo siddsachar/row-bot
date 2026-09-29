@@ -164,3 +164,15 @@ it('rejects stale preview descriptors and shows explicit fullscreen/audience fai
     expect.objectContaining({ state: 'ended' }),
   );
 });
+
+it('takes the keyboard at once and Escape ends it while the first slide still loads', async () => {
+  const p = props();
+  p.load = vi.fn(() => new Promise<DesignPresentationState>(() => {}));
+  const onEnded = vi.fn();
+  render(<ArtifactPresentation {...p} autoStart onEnded={onEnded} />);
+  const presentation = screen.getByRole('group', { name: 'Presentation' });
+  expect(p.load).toHaveBeenCalledOnce();
+  expect(presentation).toHaveFocus();
+  fireEvent.keyDown(presentation, { key: 'Escape' });
+  expect(onEnded).toHaveBeenCalledOnce();
+});
