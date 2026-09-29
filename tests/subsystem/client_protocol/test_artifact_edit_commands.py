@@ -121,3 +121,32 @@ def test_duplicate_binds_a_copy_beside_the_original(artifact_service):
         refused = _setup(client, headers, {**payload, "artifact": {"mode": "deck"}},
                          target=created["conversation_id"], revision=copy["revision"])
         assert refused.status_code == 422
+
+
+def test_brand_suggestion_reads_a_website_only_through_the_guarded_fetch(artifact_service, monkeypatch):
+    from row_bot.designer import brand_fetch
+    from row_bot.designer.client_service import ArtifactError
+
+    seen = []
+
+    def suggestion(url):
+        seen.append(url)
+        if "intranet" in url:
+            raise ArtifactError("brand_website_unavailable")
+        return {"found": True, "site": "example.com", "primary_color": "#1D4ED8", "secondary_color": None,
+                "accent_color": None, "heading_font": None, "body_font": None}
+
+    monkeypatch.setattr(brand_fetch, "brand_suggestion", suggestion)
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        url = f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}/brand-suggestion"
+        ok = client.post(url, headers=headers, json={"url": "https://example.com/"})
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["primary_color"] == "#1D4ED8" and ok.json()["site"] == "example.com"
+        refused = client.post(url, headers=headers, json={"url": "http://intranet.example/"})
+        assert refused.status_code == 422 and refused.json()["code"] == "brand_website_unavailable"
+        before = artifacts.read_artifact(created["resource_id"]).updated_at
+        assert seen == ["https://example.com/", "http://intranet.example/"]
+        # A suggestion never changes the design by itself.
+        assert artifacts.read_artifact(created["resource_id"]).updated_at == before

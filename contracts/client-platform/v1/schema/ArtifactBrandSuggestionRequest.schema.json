@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "url": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "ArtifactBrandSuggestionRequest",
+  "type": "object"
+}

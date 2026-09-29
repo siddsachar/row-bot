@@ -361,6 +361,7 @@ _STATUS.update(
         "design_catalog_too_large": 413,
         "design_review_unavailable": 409,
         "design_review_too_large": 413,
+        "brand_website_unavailable": 422,
         "font_unavailable": 409,
     }
 )
@@ -8129,6 +8130,22 @@ def create_router(
         return await bound_export(
             conversation_id, binding_id, export_id, request, download=True
         )
+
+    @router.post(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion"
+    )
+    async def artifact_brand_suggestion(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        # One explicitly asked-for, guarded read of a public page (Brand › From
+        # a website); the panel applies the result through the brand control.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ArtifactBrandSuggestionRequest)
+        await call(bound_resource, conversation_id, binding_id, "artifact")
+        from row_bot.designer.brand_fetch import brand_suggestion
+
+        result = await call(brand_suggestion, body.url)
+        return await respond(request, dto.ArtifactBrandSuggestion, result)
 
     async def local_export(
         conversation_id: str, binding_id: str, export_id: str, request: Request

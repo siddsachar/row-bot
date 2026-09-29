@@ -939,6 +939,10 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  brand_website_unavailable: [
+    "Row-Bot couldn't read that website. Check the address; pages on this computer or your local network aren't read.",
+    'review',
+  ],
   editing_record_too_large: [
     'This design is too large to edit in the panel.',
     'review',

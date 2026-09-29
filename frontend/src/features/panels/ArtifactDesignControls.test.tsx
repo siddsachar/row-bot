@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ArtifactDesignControls, {
   type DesignControlsProps,
@@ -503,4 +509,93 @@ it('checks again after a saved change and says when nothing is left', async () =
   expect(await screen.findByText('No issues found.')).toBeInTheDocument();
   expect(current.review).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('button', { name: /Fix all/ })).toBeNull();
+});
+
+it('takes brand colours and fonts from a website through the brand control', async () => {
+  const suggestBrand = vi.fn(async () => ({
+    found: true,
+    site: 'example.com',
+    primary_color: '#1D4ED8',
+    secondary_color: '#F97316',
+    accent_color: null,
+    heading_font: 'Playfair Display',
+    body_font: null,
+  }));
+  const current = props({ suggestBrand });
+  render(<ArtifactDesignControls {...current} view="properties" />);
+  const field = await screen.findByRole('textbox', {
+    name: 'Website address',
+  });
+  fireEvent.change(field, { target: { value: 'example.com' } });
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Use its colours' }),
+    ).toBeEnabled(),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Use its colours' })),
+  );
+  expect(suggestBrand).toHaveBeenCalledWith('https://example.com');
+  expect(current.apply).toHaveBeenCalledWith(
+    'brand',
+    expect.objectContaining({
+      primary_color: '#1D4ED8',
+      secondary_color: '#F97316',
+      accent_color: '#445566',
+      heading_font: 'Playfair Display',
+      body_font: 'Inter',
+    }),
+    'r1',
+    'first',
+    'element-a',
+  );
+  expect(
+    await screen.findByText('Used 2 colours and fonts from example.com.'),
+  ).toBeInTheDocument();
+});
+
+it('says when a website has no colours and changes nothing', async () => {
+  const current = props({
+    suggestBrand: vi.fn(async () => ({
+      found: false,
+      site: 'example.com',
+      primary_color: null,
+      secondary_color: null,
+      accent_color: null,
+      heading_font: null,
+      body_font: null,
+    })),
+  });
+  render(<ArtifactDesignControls {...current} view="properties" />);
+  fireEvent.change(
+    await screen.findByRole('textbox', { name: 'Website address' }),
+    { target: { value: 'https://example.com' } },
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Use its colours' })),
+  );
+  expect(
+    screen.getByText('No colours or fonts were found on example.com.'),
+  ).toBeInTheDocument();
+  expect(current.apply).not.toHaveBeenCalled();
+});
+
+it('explains a website it may not read', async () => {
+  const current = props({
+    suggestBrand: vi.fn().mockRejectedValue({
+      code: 'brand_website_unavailable',
+    }),
+  });
+  render(<ArtifactDesignControls {...current} view="properties" />);
+  fireEvent.change(
+    await screen.findByRole('textbox', { name: 'Website address' }),
+    { target: { value: 'http://192.168.1.2' } },
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Use its colours' })),
+  );
+  expect(
+    screen.getByText(/pages on this computer or your local network/),
+  ).toBeInTheDocument();
+  expect(current.apply).not.toHaveBeenCalled();
 });

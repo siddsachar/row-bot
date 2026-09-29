@@ -370,7 +370,14 @@ def extract_brand_from_url(url: str) -> Optional[BrandConfig]:
     except Exception as exc:
         logger.warning("Brand extraction failed to fetch %s: %s", url, exc)
         return None
+    extracted = brand_from_html(html)
+    if extracted is not None:
+        logger.info("Extracted brand from %s", url)
+    return extracted
 
+
+def brand_from_html(html: str) -> Optional[BrandConfig]:
+    """Best-effort colours and fonts from a page's inline CSS (no network)."""
     # Collect colors (from CSS custom properties, inline styles, etc.)
     colors = _HEX_RE.findall(html)
     # Deduplicate while preserving order
@@ -409,9 +416,4 @@ def extract_brand_from_url(url: str) -> Optional[BrandConfig]:
         brand.body_font = unique_fonts[1]
     elif len(unique_fonts) == 1:
         brand.body_font = unique_fonts[0]
-
-    logger.info(
-        "Extracted brand from %s: %d colors, %d fonts",
-        url, len(unique_colors), len(unique_fonts),
-    )
     return brand

@@ -5,6 +5,8 @@ import {
 } from './artifact-design-sessions';
 import { MoreHorizontal } from 'lucide-react';
 import { humanizeToken } from '../../ui/format';
+import { clientError } from '../../api/errors';
+import type { ArtifactBrandSuggestion } from '../../api/types';
 import {
   Button,
   Disclosure,
@@ -123,6 +125,8 @@ export type DesignControlsProps = {
     expectedRevision: string,
   ) => Promise<{ resource_revision: string }>;
   onSelectElement: (elementId: string) => void;
+  /** Brand › From a website (a guarded read of a public page). */
+  suggestBrand?: (url: string) => Promise<ArtifactBrandSuggestion>;
   draftFix?: (
     findingId: string,
     pageId: string,
@@ -638,6 +642,48 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     // scan reads the current state and scope itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, props.view, state, saving, loading, scope]);
+  // Brand › From a website: read the page once, then apply what it uses
+  // through the normal brand control (so the panel's Undo brings it back).
+  const [website, setWebsite] = useState('');
+  const [reading, setReading] = useState(false);
+  async function fromWebsite() {
+    if (!props.suggestBrand || !brand || reading || operation.current) return;
+    let address = website.trim();
+    if (!/^https?:\/\//i.test(address)) address = `https://${address}`;
+    setReading(true);
+    setError('');
+    setNotice('');
+    try {
+      const found = await props.suggestBrand(address);
+      const next = { ...brand };
+      let used = 0;
+      for (const key of [
+        'primary_color',
+        'secondary_color',
+        'accent_color',
+      ] as const)
+        if (found[key]) {
+          next[key] = found[key]!;
+          used += 1;
+        }
+      for (const key of ['heading_font', 'body_font'] as const)
+        if (found[key]) next[key] = found[key]!;
+      if (!found.found || JSON.stringify(next) === JSON.stringify(brand)) {
+        setNotice(`No colours or fonts were found on ${found.site}.`);
+        return;
+      }
+      setBrand(next);
+      setWebsite('');
+      await apply('brand', next);
+      setNotice(
+        `Used ${used === 1 ? 'a colour' : `${used} colours`}${found.heading_font || found.body_font ? ' and fonts' : ''} from ${found.site}.`,
+      );
+    } catch (reason) {
+      setError(clientError(reason).message);
+    } finally {
+      setReading(false);
+    }
+  }
   function changeBrand(next: DesignBrand, delay = BRAND_DELAY) {
     setBrand(next);
     if (brandTimer.current) clearTimeout(brandTimer.current);
@@ -807,6 +853,33 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
             </div>
             {!colors.every(([key]) => HEX.test(brand[key])) && (
               <p className="muted">Use hex colours such as #2563EB.</p>
+            )}
+            {props.suggestBrand && (
+              <form
+                className="inspector-inline-form"
+                aria-label="Brand from a website"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void fromWebsite();
+                }}
+              >
+                <Input
+                  aria-label="Website address"
+                  inputMode="url"
+                  autoComplete="url"
+                  placeholder="From a website: https://…"
+                  value={website}
+                  maxLength={2048}
+                  disabled={busy || reading}
+                  onChange={(event) => setWebsite(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  disabled={busy || reading || !website.trim()}
+                >
+                  {reading ? 'Reading…' : 'Use its colours'}
+                </Button>
+              </form>
             )}
           </section>
           <section className="inspector-section" aria-label="Type">

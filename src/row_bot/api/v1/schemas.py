@@ -4715,6 +4715,21 @@ class DesignPresentationState(WireModel):
     next_cursor: str | None = Field(max_length=2048)
 
 
+class ArtifactBrandSuggestionRequest(WireModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class ArtifactBrandSuggestion(WireModel):
+    """Colours and fonts a website uses; nothing is saved until the panel applies them."""
+    found: bool
+    site: str = Field(max_length=256)
+    primary_color: str | None = Field(default=None, max_length=32)
+    secondary_color: str | None = Field(default=None, max_length=32)
+    accent_color: str | None = Field(default=None, max_length=32)
+    heading_font: str | None = Field(default=None, max_length=128)
+    body_font: str | None = Field(default=None, max_length=128)
+
+
 class ArtifactSavedExport(WireModel):
     """A ready export copied into the workspace's Exports folder (local owner)."""
     export_id: UUID

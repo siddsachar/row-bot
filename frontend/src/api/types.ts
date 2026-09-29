@@ -163,6 +163,12 @@ export interface ClientTransport {
     exportId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactExport>;
+  suggestArtifactBrand?(
+    conversation: string,
+    binding: string,
+    body: Wire.ArtifactBrandSuggestionRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactBrandSuggestion>;
   saveArtifactExport?(
     conversation: string,
     binding: string,

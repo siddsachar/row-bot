@@ -27,6 +27,7 @@
     "audio_duration_invalid": 422,
     "audio_receive_timeout": 408,
     "authentication_required": 401,
+    "brand_website_unavailable": 422,
     "browser_action_denied": 403,
     "browser_action_failed": 409,
     "browser_navigation_denied": 403,

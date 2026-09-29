@@ -88,6 +88,7 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
         upload={session.upload}
         mutatePreset={session.mutatePreset}
         draftFix={session.draftFix}
+        suggestBrand={session.suggestBrand}
         onSelectElement={props.onSelectElement}
         onDraftText={(text) => {
           session.guard();

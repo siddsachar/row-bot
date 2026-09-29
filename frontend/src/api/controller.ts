@@ -4320,6 +4320,20 @@ export class ClientController {
     this.query(() =>
       this.transport.artifactExport?.(conversation, binding, exportId, signal),
     );
+  suggestArtifactBrand = (
+    conversation: string,
+    binding: string,
+    body: import('./types').ArtifactBrandSuggestionRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.suggestArtifactBrand?.(
+        conversation,
+        binding,
+        body,
+        signal,
+      ),
+    );
   saveArtifactExport = (
     conversation: string,
     binding: string,

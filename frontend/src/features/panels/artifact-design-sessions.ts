@@ -1,4 +1,4 @@
-import type { ResourceView } from '../../api/types';
+import type { ArtifactBrandSuggestion, ResourceView } from '../../api/types';
 import type {
   DesignBrand,
   DesignControlsProps,
@@ -178,6 +178,12 @@ export type DesignSessionOwner = {
     options: { finding_id: string; page_id: string; expected_revision: string },
     signal: AbortSignal,
   ): Promise<string>;
+  /** Brand › From a website: a suggestion, applied through the brand control. */
+  suggestBrand?(
+    scope: DesignScope,
+    url: string,
+    signal: AbortSignal,
+  ): Promise<ArtifactBrandSuggestion>;
   stageUpload(
     scope: DesignScope,
     file: File,
@@ -456,6 +462,10 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
             signal,
           ),
         ),
+      suggestBrand: owner.suggestBrand
+        ? (url: string) =>
+            query((signal) => owner.suggestBrand!(scope, url, signal))
+        : undefined,
       apply: (
         operation: Parameters<DesignControlsProps['apply']>[0],
         parameters: Record<string, unknown>,

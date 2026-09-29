@@ -2117,6 +2117,21 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  suggestArtifactBrand(
+    conversation: string,
+    binding: string,
+    body: wire.ArtifactBrandSuggestionRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.suggestArtifactBrand(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      body,
+      signal,
+    );
+  }
   saveArtifactExport(
     conversation: string,
     binding: string,

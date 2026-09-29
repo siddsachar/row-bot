@@ -94,6 +94,13 @@ export function createControllerDesignSessions(controller: ClientController) {
         options,
         signal,
       ),
+    suggestBrand: (scope, url, signal) =>
+      controller.suggestArtifactBrand(
+        scope.conversation_id,
+        scope.binding_id,
+        { url },
+        signal,
+      ),
     draftFix: async (scope, options, signal) =>
       (
         await controller.artifactReviewDraft(

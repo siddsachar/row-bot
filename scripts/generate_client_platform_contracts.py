@@ -78,7 +78,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactShareChannels", "ArtifactPublication",
     "TaskRunReview", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskApprovalReview",
     "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport",
-    "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult", "WorkspaceEditableFile", "WorkspaceEditResult",
+    "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult",
+    "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "TaskGraphFields", "TaskGraphStepEdit", "TaskGraphSnapshot",
@@ -336,6 +337,7 @@ OPERATIONS = (
     ("get", "/tasks/{task_id}/runs/{run_id}/approvals", None, "TaskApprovalPage"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}", None, "ArtifactExport"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save", None, "ArtifactSavedExport"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion", "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal", "ArtifactExportReveal", "ArtifactExportRevealResult"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download", None, "bytes"),
     ("post", "/tasks/commands", "Command", "CommandReceipt"),
@@ -1236,6 +1238,8 @@ export const disconnectNativeTerminal = (base: string, proof: SessionProof, term
   jsonRequest(base, `/native/terminals/${id(terminal)}`, 'NativeTerminalClosed', proof, 'DELETE', undefined, undefined, signal);
 export const getArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactExport> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}`, 'ArtifactExport', proof, 'GET', undefined, undefined, signal);
+export const suggestArtifactBrand = (base: string, proof: SessionProof, conversation: string, binding: string, body: ArtifactBrandSuggestionRequest, signal?: AbortSignal): Promise<ArtifactBrandSuggestion> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/brand-suggestion`, 'ArtifactBrandSuggestion', proof, 'POST', body, undefined, signal);
 export const saveArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactSavedExport> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
 export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
