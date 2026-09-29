@@ -194,7 +194,7 @@ it('archives a saved entity on one click with its loaded revision', async () => 
       onLifecycle={onLifecycle}
     />,
   );
-  fireEvent.click(await screen.findByLabelText('Saved thought · fact'));
+  fireEvent.click(await screen.findByLabelText('Saved thought · Fact'));
   fireEvent.click(await screen.findByRole('button', { name: /Archive/ }));
   await act(async () => undefined);
   expect(onLifecycle).toHaveBeenCalledExactlyOnceWith(
@@ -219,7 +219,7 @@ it('loads rich details only on first expansion and renders safe provenance and a
       onOpen={onOpen}
     />,
   );
-  const row = await screen.findByLabelText('Saved thought · fact');
+  const row = await screen.findByLabelText('Saved thought · Fact');
   expect(loadDetail).not.toHaveBeenCalled();
   fireEvent.click(row);
   expect(
@@ -284,7 +284,7 @@ it('loads each bounded audit view only when first opened', async () => {
       loadChangeLog={changes}
     />,
   );
-  await screen.findByLabelText('Saved thought · fact');
+  await screen.findByLabelText('Saved thought · Fact');
   expect(recalls).not.toHaveBeenCalled();
   expect(changes).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Recent recall decisions'));
@@ -329,7 +329,7 @@ it('reviews exact selected revisions and executes captured bulk deletion', async
       maintenance={maintenance}
     />,
   );
-  await screen.findByLabelText('Saved thought · fact');
+  await screen.findByLabelText('Saved thought · Fact');
   fireEvent.click(screen.getByRole('button', { name: 'Select' }));
   fireEvent.click(
     screen.getByRole('checkbox', { name: 'Select Saved thought' }),
@@ -365,10 +365,10 @@ it('aborts and fences a slower search response', async () => {
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'new' } });
   await act(async () => vi.advanceTimersByTime(300));
   vi.useRealTimers();
-  expect(await screen.findByLabelText('Newest · fact')).toBeVisible();
+  expect(await screen.findByLabelText('Newest · Fact')).toBeVisible();
   expect(load.mock.calls[0][2]?.aborted).toBe(true);
   await act(async () => first.resolve(page('Old')));
-  expect(screen.queryByLabelText('Old · fact')).toBeNull();
+  expect(screen.queryByLabelText('Old · Fact')).toBeNull();
 });
 
 it.each(['missing', 'unavailable', 'available'] as const)(

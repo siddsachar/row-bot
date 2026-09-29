@@ -931,13 +931,13 @@ export default function KnowledgeCatalog({
                         }}
                       >
                         <summary
-                          aria-label={`${item.subject || 'Untitled knowledge'} · ${item.entity_type}`}
+                          aria-label={`${item.subject || 'Untitled knowledge'} · ${humanizeToken(item.entity_type)}`}
                         >
                           <strong>
                             {item.subject || 'Untitled knowledge'}
                           </strong>
                           <span className="status-chip">
-                            {item.entity_type}
+                            {humanizeToken(item.entity_type)}
                           </span>
                           <ChevronDown
                             className="settings-disclosure-chevron"

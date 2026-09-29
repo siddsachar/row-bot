@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Button, ErrorState, Field, Input, Select } from '../../ui/primitives';
 import type { KnowledgeEntity } from './KnowledgeEditor';
+import { humanizeToken } from '../../ui/format';
 export type Relation = {
   id: string;
   source_id: string;
@@ -523,7 +524,7 @@ export default function KnowledgeRelations({
                         onClick={() => perform(() => session.select(item.id))}
                       >
                         {item.subject || 'Untitled knowledge'} ·{' '}
-                        {item.entity_type}
+                        {humanizeToken(item.entity_type)}
                       </Button>
                     </li>
                   ))}

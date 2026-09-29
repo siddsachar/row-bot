@@ -287,8 +287,11 @@ export type KnowledgeEditorSession = ReturnType<
 >;
 export default function KnowledgeEditor({
   session,
+  heading = true,
 }: {
   session: KnowledgeEditorSession;
+  /** False inside a dialog whose title already names the editor. */
+  heading?: boolean;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const perform = (call: () => Promise<unknown>) => {
@@ -302,7 +305,9 @@ export default function KnowledgeEditor({
       aria-label="Knowledge editor"
       aria-busy={state.busy}
     >
-      <h2>{session.getTarget() ? 'Edit knowledge' : 'Add memory'}</h2>
+      {heading && (
+        <h2>{session.getTarget() ? 'Edit knowledge' : 'Add memory'}</h2>
+      )}
       {!state.saved && (
         <Button disabled={locked} onClick={() => perform(() => session.load())}>
           Open editor
@@ -404,14 +409,16 @@ export default function KnowledgeEditor({
                 )}
               </>
             )}
-            <Button
-              disabled={locked}
-              onClick={() => perform(() => session.load(true))}
-            >
-              {state.dirty
-                ? 'Discard draft and reload saved entry'
-                : 'Reload saved entry'}
-            </Button>
+            {session.getTarget() && (
+              <Button
+                disabled={locked}
+                onClick={() => perform(() => session.load(true))}
+              >
+                {state.dirty
+                  ? 'Discard draft and reload saved entry'
+                  : 'Reload saved entry'}
+              </Button>
+            )}
           </div>
         </>
       )}

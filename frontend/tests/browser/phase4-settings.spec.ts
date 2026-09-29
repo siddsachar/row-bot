@@ -1132,7 +1132,7 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
     .getByRole('button', { name: 'Search targets', exact: true })
     .click();
   await relations
-    .getByRole('button', { name: 'Phase 4 knowledge 001 · fact', exact: true })
+    .getByRole('button', { name: 'Phase 4 knowledge 001 · Fact', exact: true })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Edit knowledge' });
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();

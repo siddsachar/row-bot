@@ -63,7 +63,7 @@ it('presents saved graph totals and an owner-sized initial knowledge catalog', a
     />,
   );
 
-  await screen.findByLabelText('Knowledge 0 · fact');
+  await screen.findByLabelText('Knowledge 0 · Fact');
   expect(
     view.container.querySelectorAll('.settings-knowledge-result'),
   ).toHaveLength(25);
@@ -72,7 +72,7 @@ it('presents saved graph totals and an owner-sized initial knowledge catalog', a
   expect(screen.getByRole('option', { name: 'All categories' })).toBeVisible();
   expect(screen.getByRole('option', { name: 'Person' })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
-  await screen.findByLabelText('Knowledge 29 · person');
+  await screen.findByLabelText('Knowledge 29 · Person');
   expect(
     view.container.querySelectorAll('.settings-knowledge-result'),
   ).toHaveLength(30);

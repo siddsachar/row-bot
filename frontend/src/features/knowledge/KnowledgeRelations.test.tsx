@@ -119,7 +119,7 @@ describe('retained knowledge relations', () => {
     await screen.findByRole('button', { name: 'Search targets' });
     fireEvent.click(screen.getByRole('button', { name: 'Search targets' }));
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Second subject · fact' }),
+      await screen.findByRole('button', { name: 'Second subject · Fact' }),
     );
     await screen.findByRole('textbox', { name: 'Relation type' });
     fireEvent.change(screen.getByRole('textbox', { name: 'Relation type' }), {

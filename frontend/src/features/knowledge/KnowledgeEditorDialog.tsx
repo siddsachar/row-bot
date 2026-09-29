@@ -28,7 +28,7 @@ function EditorDialogBody({
   }, [revision, onMutation]);
   return (
     <div className="stack">
-      <KnowledgeEditor session={session} />
+      <KnowledgeEditor session={session} heading={false} />
       {state.saved?.entity && !relations && (
         <Button onClick={() => owner.openRelations()}>
           Relations and replacement
