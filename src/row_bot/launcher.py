@@ -2739,7 +2739,7 @@ class RowBotTray:
                 return
             # Window is running but may be behind other apps.  Try to bring
             # it to the foreground WITHOUT killing it — killing drops the
-            # WebSocket connection and makes in-flight streams appear failed.
+            # event stream and makes in-flight turns appear failed.
             _brought = False
             if sys.platform == "darwin":
                 try:
@@ -2785,7 +2785,7 @@ class RowBotTray:
                 logger.info(
                     "Brought existing window to front (pid %s)", self._window_proc.pid
                 )
-                return  # keep existing WebSocket connection alive
+                return  # keep the existing event stream alive
 
             # Platform trick failed — kill and spawn fresh window.
             _RowBotProcess._terminate_process(
