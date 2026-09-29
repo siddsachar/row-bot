@@ -764,8 +764,24 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
             content=user_input, id=submission,
             additional_kwargs=admitted_human_metadata(str(configurable.get("thread_id") or ""), submission),
         )
+    else:
+        # A delegated agent's task (or its parent's messages to it) carries its
+        # handoff prompt for the model; the thread shows a short note (B167).
+        task_note = configurable.get("platform_task_note")
+        human = (
+            HumanMessage(
+                content=user_input,
+                additional_kwargs={
+                    "platform_note": str(task_note.get("kind")),
+                    "platform_public_content": str(task_note.get("text") or "")[:8000],
+                },
+            )
+            if isinstance(task_note, dict)
+            and task_note.get("kind") in {"agent_task", "agent_guidance"}
+            else None
+        )
     return normalized, {
-        "messages": [human] if submission else [("human", user_input)],
+        "messages": [human] if human is not None else [("human", user_input)],
         "execution_budget": budget,
     }
 

@@ -2344,6 +2344,10 @@ export default function Conversation({
     );
   }
   const allowInChat = () => updateControls({ approval_mode: 'allow_all' });
+  // A delegated agent's own thread (it has a parent conversation).
+  const childThread = Boolean(
+    state.conversation?.id === id && state.conversation.parent_conversation_id,
+  );
   function chooseTarget(
     kind: 'artifact' | 'workspace',
     bindingId: string | null,
@@ -2850,9 +2854,17 @@ export default function Conversation({
                                   : undefined
                               }
                               onAllowInChat={
-                                controls?.approval_mode === 'allow_all'
+                                controls?.approval_mode === 'allow_all' ||
+                                childThread
                                   ? undefined
                                   : allowInChat
+                              }
+                              // A delegated agent's turn is not live here, so
+                              // its thread re-reads once the answer is in (B162).
+                              onResolved={
+                                childThread
+                                  ? () => void controller.refreshWorkspace()
+                                  : undefined
                               }
                             />
                           )}

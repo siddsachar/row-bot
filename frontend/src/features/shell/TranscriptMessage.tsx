@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  CornerDownRight,
   Pencil,
   Repeat2,
   RotateCcw,
@@ -12,6 +13,7 @@ import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { Button, CopyGlyph, IconButton } from '../../ui/primitives';
+import ApprovalCard from './ApprovalCard';
 import { MediaPreview } from './MediaPreview';
 import {
   speak,
@@ -213,6 +215,28 @@ export const TranscriptMessage = memo(function TranscriptMessage({
         <span>{visibleText(shown)}</span>
       </div>
     );
+  if (row.note === 'agent_task' || row.note === 'agent_guidance')
+    // A delegated agent's thread: what the parent asked it to do, never its
+    // internal handoff prompt as the person's bubble (B167).
+    return (
+      <div
+        className="transcript-note"
+        role="note"
+        data-note={row.note}
+        data-message-id={row.message_id ?? row.id}
+        data-row-id={row.id}
+      >
+        <CornerDownRight aria-hidden />
+        <span>
+          <strong>
+            {row.note === 'agent_task'
+              ? 'Task from the parent conversation'
+              : 'Message from the parent conversation'}
+          </strong>
+          <span className="transcript-note-body">{visibleText(shown)}</span>
+        </span>
+      </div>
+    );
   return (
     <article
       className={`message message-${row.role}`}
@@ -298,6 +322,10 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           </span>
         )}
         {children}
+        {row.approval_id && (
+          // A delegated agent asked its parent for a go-ahead (B162).
+          <ApprovalCard id={row.approval_id} notice />
+        )}
         {((row.content_status === 'lazy' && (!expanded || cursor)) ||
           previous.length > 0) && (
           <div className="message-actions">

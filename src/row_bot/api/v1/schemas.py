@@ -6566,8 +6566,12 @@ class TranscriptRow(WireModel):
     traces: list[TranscriptTraceGroup] = Field(default_factory=list, max_length=256)
     trace_parent_id: str | None = Field(default=None, max_length=1024)
     # A server-started follow-up (a goal step, work continuing in a resource
-    # the assistant created): the row's text is a short public note.
-    note: Literal["continuation"] | None = None
+    # the assistant created), a delegated agent's task or its parent's
+    # messages to it: the row's text is a short public note.
+    note: Literal["continuation", "agent_task", "agent_guidance"] | None = None
+    # A delegated agent's approval announced in its parent conversation: the
+    # row is answered in place with the approval card.
+    approval_id: str | None = Field(default=None, max_length=128)
 
 
 class Snapshot(WireModel):

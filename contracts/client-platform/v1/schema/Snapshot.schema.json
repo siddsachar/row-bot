@@ -476,6 +476,19 @@
     "TranscriptRow": {
       "additionalProperties": false,
       "properties": {
+        "approval_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Id"
+        },
         "blocks": {
           "items": {
             "discriminator": {
@@ -566,7 +579,11 @@
         "note": {
           "anyOf": [
             {
-              "const": "continuation",
+              "enum": [
+                "continuation",
+                "agent_task",
+                "agent_guidance"
+              ],
               "type": "string"
             },
             {

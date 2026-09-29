@@ -2964,3 +2964,44 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* A delegated agent's task, or its parent's message to it (B167): a quiet
+   block with what was asked, never the internal handoff prompt as a bubble. */
+.transcript-note[data-note] {
+  align-items: flex-start;
+  justify-content: flex-start;
+  max-width: 72ch;
+  margin-inline: auto;
+  padding: 8px 12px;
+  border-radius: var(--radius-card);
+  background: var(--surface-soft);
+  text-align: start;
+}
+.transcript-note[data-note] svg {
+  margin-top: 2px;
+}
+.transcript-note[data-note] strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.transcript-note-body {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A delegated agent's approval that was answered here or elsewhere. */
+.approval-card-answered {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.approval-card-answered svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}

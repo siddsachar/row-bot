@@ -158,3 +158,87 @@ def test_stopping_an_agent_that_waits_for_approval_withdraws_the_approval(servic
     statuses = tasks.get_approval_request_statuses([approval_id, other_approval])
     assert statuses == {approval_id: "cancelled", other_approval: "pending"}
     assert [item["id"] for item in tasks.get_pending_approvals()] == [other_approval]
+
+
+def _waiting_child(monkeypatch, parent):
+    """A child agent that paused on an approval, with the model faked."""
+    from row_bot import agent_runner
+    resumed = []
+
+    def interrupt(prompt, enabled_tool_names, config, *, stop_event):
+        return {"type": "interrupt", "interrupts": [{
+            "id": "interrupt-1", "tool": "workspace_file_delete", "label": "Delete a file",
+            "approval_reason": "Remove a stale note.", "args": {"path": "missing-note.txt"}}]}
+
+    def resume(enabled_tool_names, config, approved, *, interrupt_ids=None, stop_event):
+        resumed.append(approved)
+        return "Child finished."
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", interrupt)
+    monkeypatch.setattr(agent_runner, "_resume_invoke_agent", resume)
+    run = agent_runner.spawn_agent_run("Tidy the notes folder.", parent_thread_id=parent,
+                                       profile="worker", enabled_tool_names=["filesystem"], wait=True)
+    assert run["status"] == "waiting_approval"
+    return run, resumed
+
+
+def test_a_delegated_agents_approval_is_answered_in_its_thread_and_in_the_parent(service, monkeypatch):
+    """B162: the child's thread showed "Running a command" with no card, the
+    parent a plain message without Approve/Deny, and Home did not list it."""
+    from row_bot import agent_runner, tasks, threads
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    run, resumed = _waiting_child(monkeypatch, parent)
+    child = run["thread_id"]
+    approval = next(row for row in tasks.get_pending_approvals() if row["agent_run_id"] == run["id"])
+    # Its own thread shows the paused turn, so the card appears there.
+    generation = service.snapshot(child)["generation"]
+    assert generation is not None
+    assert generation["status"] == "waiting_approval" and generation["approval_id"] == approval["id"]
+    # The card says what the agent wants to do, not "Requested action".
+    view = service.get_approval(approval["id"])
+    assert view["action_label"] != "Requested action"
+    assert view["reason"] == "Remove a stale note."
+    # The parent's notice carries the same approval, so it gets a card too.
+    rows = service.snapshot(parent)["rows"]
+    assert [row["approval_id"] for row in rows if row.get("approval_id")] == [approval["id"]]
+    # Home lists the waiting agent under "Needs you".
+    assert service.get_conversation(child)["activity_phase"] == "waiting_approval"
+    # Answered from React: the agent goes on and the card goes away.
+    service._resolve_approval(approval["id"], {"decision": "approve"})
+    final = agent_runner.wait_for_agent_run(run["id"], timeout=5)
+    assert final["status"] == "completed" and resumed == [True]
+    assert service.snapshot(child)["generation"] is None
+    assert service.get_conversation(child)["activity_phase"] != "waiting_approval"
+
+
+def test_a_delegated_agents_thread_shows_its_task_not_the_handoff_prompt(service, monkeypatch):
+    """B167: the child thread opened with AGENT PROFILE / MISSION / RUNTIME
+    MODEL / PARENT REFS as the person's bubble."""
+    from row_bot import agent, agent_runner, threads
+    from uuid import uuid4
+    prompts = []
+
+    def record(prompt, enabled_tool_names, config, *, stop_event):
+        # What the real graph would store: its input messages.
+        _normalized, graph_input = agent._new_agent_graph_input(prompt, config)
+        messages = [message if not isinstance(message, tuple) else
+                    __import__("langchain_core.messages", fromlist=["HumanMessage"]).HumanMessage(content=message[1])
+                    for message in graph_input["messages"]]
+        for message in messages:
+            if not message.id:
+                message.id = str(uuid4())
+        threads.append_checkpoint_messages(config["configurable"]["thread_id"], messages)
+        prompts.append(prompt)
+        return "Done."
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", record)
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    run = agent_runner.spawn_agent_run("Tidy the notes folder.", parent_thread_id=parent,
+                                       profile="worker", wait=True)
+    assert "MISSION" in prompts[0]
+    first = service.snapshot(run["thread_id"])["rows"][0]
+    assert first["role"] == "user" and first["note"] == "agent_task"
+    shown = json.dumps(first["blocks"])
+    assert "Tidy the notes folder." in shown
+    for internal in ("AGENT PROFILE", "MISSION", "RUNTIME MODEL", "PARENT REFS"):
+        assert internal not in shown

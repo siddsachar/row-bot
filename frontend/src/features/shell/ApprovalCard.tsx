@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Power, ShieldAlert } from 'lucide-react';
+import { Power, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { ApprovalView } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -19,6 +19,13 @@ type Hint_ = {
   risk_class?: string;
   setup?: { kind: 'tool'; label: string } | null;
 };
+
+/** A notice's approval that is no longer waiting. */
+const ANSWERED = new Set([
+  'approval_expired',
+  'approval_already_resolved',
+  'not_found',
+]);
 
 const RISK: Record<string, string> = {
   low: 'Low risk',
@@ -132,15 +139,25 @@ export default function ApprovalCard({
   id,
   hint,
   onAllowInChat,
+  onResolved,
+  notice = false,
 }: {
   id: string;
   hint?: Hint_;
   onAllowInChat?: () => Promise<void>;
+  /** After the decision was accepted (a delegated agent's thread re-reads). */
+  onResolved?: () => void;
+  /**
+   * The card sits on a delegated agent's notice in its parent conversation
+   * (B162): no keyboard shortcut, and one quiet line once it was answered.
+   */
+  notice?: boolean;
 }) {
   const { controller } = useRuntime();
   const overlay = useOverlay();
   const [view, setView] = useState<ApprovalView | null>(null);
   const [error, setError] = useState('');
+  const [answered, setAnswered] = useState(false);
   const [busy, setBusy] = useState(false);
   const [resolution, setResolution] = useState('');
   useEffect(() => {
@@ -149,10 +166,13 @@ export default function ApprovalCard({
       .approval(id, abort.signal)
       .then(setView)
       .catch((error) => {
-        if (!abort.signal.aborted) setError(clientError(error).message);
+        if (abort.signal.aborted) return;
+        const failure = clientError(error);
+        if (notice && ANSWERED.has(failure.code)) setAnswered(true);
+        else setError(failure.message);
       });
     return () => abort.abort();
-  }, [controller, id]);
+  }, [controller, id, notice]);
   async function resolve(decision: 'approve' | 'reject', allow = false) {
     if (!view || busy || resolution) return;
     setBusy(true);
@@ -167,12 +187,13 @@ export default function ApprovalCard({
       setResolution(
         decision === 'approve' ? 'Approval submitted.' : 'Denial submitted.',
       );
+      onResolved?.();
     } catch (cause) {
       setError(clientError(cause).message);
       setBusy(false);
     }
   }
-  const ready = Boolean(view) && !busy && !resolution;
+  const ready = Boolean(view) && !busy && !resolution && !notice;
   useEffect(() => {
     if (!ready) return;
     const key = (event: KeyboardEvent) => {
@@ -195,6 +216,13 @@ export default function ApprovalCard({
   const risk = view?.risk_class || hint?.risk_class || 'unknown';
   const argument = keyArgument(view?.safe_argument_summary);
   const setup = view?.setup ?? hint?.setup ?? null;
+  if (answered)
+    return (
+      <p className="approval-card-answered">
+        <ShieldCheck aria-hidden />
+        This request was answered.
+      </p>
+    );
   if (setup)
     return (
       <aside
@@ -292,14 +320,18 @@ export default function ApprovalCard({
             <Button
               variant="primary"
               aria-label="Approve"
-              aria-keyshortcuts="Control+Enter Meta+Enter"
+              aria-keyshortcuts={
+                notice ? undefined : 'Control+Enter Meta+Enter'
+              }
               disabled={busy || Boolean(resolution)}
               onClick={() => void resolve('approve')}
             >
               Approve
-              <span aria-hidden className="approval-card-kbd">
-                <Kbd keys="Mod+Enter" />
-              </span>
+              {!notice && (
+                <span aria-hidden className="approval-card-kbd">
+                  <Kbd keys="Mod+Enter" />
+                </span>
+              )}
             </Button>
             {onAllowInChat && (
               <Hint label="Switch this conversation to automatic approvals and approve this request">

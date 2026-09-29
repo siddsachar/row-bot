@@ -283,6 +283,7 @@ class ClientPlatformService:
 
         A paused turn is quiesced, so it has no live generation state; the
         durable request is the only signal that the conversation needs you.
+        A delegated agent's thread counts too: its turn waits the same way (B162).
         """
         if not conversation_ids:
             return set()
@@ -292,7 +293,7 @@ class ClientPlatformService:
             with closing(_get_conn()) as conn:
                 return {str(row[0]) for row in conn.execute(
                     "SELECT DISTINCT source_thread_id FROM approval_requests "
-                    "WHERE resume_kind='conversation' AND status='pending' "
+                    "WHERE resume_kind IN ('conversation','agent_run') AND status='pending' "
                     f"AND source_thread_id IN ({placeholders})", conversation_ids)}
         except sqlite3.Error:
             return set()
@@ -426,13 +427,15 @@ class ClientPlatformService:
         The live generation state is in memory only, so after a restart a
         pending approval had nothing to show it and the turn could neither be
         approved nor resumed. The durable request restores the waiting state.
+        A delegated agent's paused turn is never live in this projection, so
+        its thread shows the card from the request too (B162).
         """
         from row_bot.tasks import _get_conn
         try:
             with closing(_get_conn()) as conn:
                 row = conn.execute(
                     "SELECT id, approval_payload_json FROM approval_requests "
-                    "WHERE source_thread_id=? AND resume_kind='conversation' "
+                    "WHERE source_thread_id=? AND resume_kind IN ('conversation','agent_run') "
                     "AND status='pending' ORDER BY requested_at DESC LIMIT 1",
                     (conversation_id,)).fetchone()
         except sqlite3.Error:
@@ -1314,9 +1317,14 @@ class ClientPlatformService:
             context = json.loads(str(row["approval_payload_json"] or "{}"))
         except (TypeError, ValueError, json.JSONDecodeError):
             context = {}
+        if not isinstance(context, dict):
+            context = {}
+        # A delegated agent's request keeps its interrupts as a list, with the
+        # reason in words beside them (B162).
+        agent_request = row["resume_kind"] == "agent_run"
         public_context = project_approval_context(
-            context.get("interrupt") if isinstance(context, dict) else None,
-            fallback_reason=str(row["message"] or ""),
+            context.get("interrupts") if agent_request else context.get("interrupt"),
+            fallback_reason=str((context.get("reason") if agent_request else "") or row["message"] or ""),
         )
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
