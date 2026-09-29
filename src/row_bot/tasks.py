@@ -5608,9 +5608,14 @@ def handle_webhook(task_id: str, secret: str | None = None,
     if not trigger or trigger.get("type") != "webhook":
         return {"status": "error", "message": "Task does not have a webhook trigger"}
 
-    # Validate secret
-    expected_secret = trigger.get("secret", "")
-    if expected_secret and expected_secret != secret:
+    # Validate the secret in constant time. A webhook without a secret never
+    # runs: an empty stored secret used to accept any caller.
+    import hmac
+
+    expected_secret = str(trigger.get("secret") or "")
+    if not expected_secret or not hmac.compare_digest(
+        expected_secret.encode(), str(secret or "").encode()
+    ):
         return {"status": "error", "message": "Invalid secret"}
 
     if not task.get("enabled", True):
