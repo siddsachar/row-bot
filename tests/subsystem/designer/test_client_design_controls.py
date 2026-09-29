@@ -599,3 +599,37 @@ def test_posix_global_preset_parent_swap_never_redirects_effect(project, monkeyp
         mutate_global(project, 'delete', preset_id=first['preset_id'])
     assert list(outside.iterdir()) == []
     assert (retained / 'Shared.json').read_bytes() == original
+
+
+def test_fix_all_safe_issues_applies_every_safe_fix_in_one_step(project):
+    from row_bot.designer.state import DesignerPage
+
+    project.pages[0].html = '<img src="row-bot-asset:missing"><img src="row-bot-asset:also-missing">'
+    project.pages.append(DesignerPage(title='Third', route_id='third',
+                                      html='<img src="row-bot-asset:third-missing">'))
+    storage.save_project(project)
+    first = client.read_review(project.id, scope='project')
+    safe = [item for item in first.findings if item.auto_fixable]
+    assert safe, 'the synthetic pages have safe findings'
+    fixed = apply(project, 'review_fix_all', {'scope': 'project'}, page_id=first.page_id)
+    assert fixed.pages[0].html.count('alt=""') == 2 and 'alt=""' in fixed.pages[-1].html
+    after = client.read_review(fixed.id, scope='project')
+    assert not [item for item in after.findings if item.auto_fixable]
+    # Nothing safe left: the same request changes nothing and says so.
+    with pytest.raises(ArtifactError, match='design_finding_unavailable'):
+        apply(fixed, 'review_fix_all', {'scope': 'project'}, page_id=first.page_id)
+
+
+def test_fix_all_on_this_page_leaves_other_pages_alone(project):
+    from row_bot.designer.state import DesignerPage
+
+    project.pages[0].html = '<img src="row-bot-asset:missing">'
+    project.pages.append(DesignerPage(title='Third', route_id='third',
+                                      html='<img src="row-bot-asset:third-missing">'))
+    storage.save_project(project)
+    page = client.read_review(project.id).page_id
+    fixed = apply(project, 'review_fix_all', {'scope': 'page'}, page_id=page)
+    assert 'alt=""' in fixed.pages[0].html and 'alt=""' not in fixed.pages[-1].html
+    for payload in ({}, {'scope': 'everything'}, {'scope': 'page', 'extra': 1}):
+        with pytest.raises(ArtifactError, match='invalid_design_control'):
+            apply(fixed, 'review_fix_all', payload, page_id=page)

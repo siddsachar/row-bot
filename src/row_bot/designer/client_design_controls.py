@@ -484,6 +484,23 @@ def apply_control(project_id: str, *, expected_revision: str, operation: str,
             if finding is None or not finding['auto_fixable']:
                 raise ArtifactError('design_finding_unavailable')
             review._apply_to_page(updated, finding['page_index'], finding['source'], [finding['category']])
+        elif operation == 'review_fix_all':
+            # "Fix all safe issues" (parity row 25): every safe finding of the
+            # reviewed scope, grouped per page and source, as one saved step.
+            if (not isinstance(payload, dict) or set(payload) != {'scope'}
+                    or payload['scope'] not in {'page', 'project'}):
+                raise ArtifactError('invalid_design_control')
+            report = _review(project, page_id, payload['scope'])
+            groups: dict[tuple[int, str], set[str]] = {}
+            for finding in report['findings']:
+                if finding['auto_fixable']:
+                    groups.setdefault((finding['page_index'], finding['source']), set()).add(finding['category'])
+            applied = False
+            for (page_index, source), categories in sorted(groups.items()):
+                ok, _changes = review._apply_to_page(updated, page_index, source, sorted(categories))
+                applied = applied or bool(ok)
+            if not applied:
+                raise ArtifactError('design_finding_unavailable')
         elif operation == 'block_insert':
             from row_bot.designer.components import get_component, render_component_html
             from row_bot.designer.html_ops import insert_component_in_html

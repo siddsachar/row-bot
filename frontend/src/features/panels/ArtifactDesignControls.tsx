@@ -108,6 +108,7 @@ export type DesignControlsProps = {
       | 'style'
       | 'hotspot'
       | 'review_fix'
+      | 'review_fix_all'
       | 'asset_insert'
       | 'asset_remove'
       | 'asset_forget'
@@ -619,6 +620,24 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     // Only a settled save or a reload releases queued changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saving, state]);
+  // The Review tab checks the design by itself, and again after every saved
+  // change: once per saved version, page and scope, so a failure never loops.
+  const checked = useRef('');
+  useEffect(() => {
+    if (!visible || props.view !== 'review' || !state || saving || loading)
+      return;
+    const key = JSON.stringify([
+      state.resource_id,
+      state.resource_revision,
+      state.page_id,
+      scope,
+    ]);
+    if (checked.current === key || operation.current) return;
+    checked.current = key;
+    void scan();
+    // scan reads the current state and scope itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, props.view, state, saving, loading, scope]);
   function changeBrand(next: DesignBrand, delay = BRAND_DELAY) {
     setBrand(next);
     if (brandTimer.current) clearTimeout(brandTimer.current);
@@ -630,7 +649,10 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
   const view = props.view;
   const showProperties = !view || view === 'properties';
   const showLibrary = !view || view === 'library';
-  const showReview = !view || view === 'review';
+  // The Review tab checks the design by itself (parity row 25).
+  const showReview = view === 'review';
+  const safeCount =
+    review?.findings.filter((finding) => finding.auto_fixable).length ?? 0;
   const pendingFields = retained.dirtyFields.filter((field) =>
     ['brand', 'styles'].includes(field),
   );
@@ -1177,19 +1199,27 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                 { value: 'project', label: 'Whole design', disabled: busy },
               ]}
             />
-            <Button
-              variant="primary"
-              disabled={busy || !state}
-              onClick={() => void scan()}
-            >
-              Run design review
-            </Button>
+            {safeCount > 0 && (
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() =>
+                  void apply('review_fix_all', { scope }, review!.page_id)
+                }
+              >
+                Fix all safe issues ({safeCount})
+              </Button>
+            )}
           </div>
           <p className="muted">
-            A heuristic critique and brand check. It does not replace visual or
-            accessibility checks; a safe fix applies its category across the
-            page.
+            A quick heuristic check of layout, text and brand; it checks again
+            after every change. It doesn't replace your own look at the design.
           </p>
+          {!review && !error && state && (
+            <p className="muted" role="status">
+              Checking the design…
+            </p>
+          )}
           {review && (
             <div
               className="design-review"
@@ -1197,8 +1227,9 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
               aria-label="Design review findings"
             >
               <p className="inspector-meta">
-                Score {review.score} · {review.findings.length} of{' '}
-                {review.finding_count} findings
+                {review.finding_count === 0
+                  ? 'No issues found.'
+                  : `Score ${review.score} · ${review.finding_count} ${review.finding_count === 1 ? 'issue' : 'issues'}`}
               </p>
               <ul className="inspector-list">
                 {review.findings.map((finding) => (
@@ -1222,19 +1253,10 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                       </span>
                     </span>
                     <span className="inspector-list-actions">
-                      {props.draftFix && props.onDraftText && (
+                      {finding.auto_fixable ? (
                         <Button
                           disabled={busy}
-                          aria-label={`Draft AI fix in chat: ${finding.message}`}
-                          onClick={() => void draft(finding)}
-                        >
-                          Draft fix
-                        </Button>
-                      )}
-                      {finding.auto_fixable && (
-                        <Button
-                          disabled={busy}
-                          aria-label={`Apply safe ${finding.category} fix`}
+                          aria-label={`Fix: ${finding.message}`}
                           onClick={() =>
                             void apply(
                               'review_fix',
@@ -1243,8 +1265,19 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                             )
                           }
                         >
-                          Apply fix
+                          Fix
                         </Button>
+                      ) : (
+                        props.draftFix &&
+                        props.onDraftText && (
+                          <Button
+                            disabled={busy}
+                            aria-label={`Ask Row-Bot to fix: ${finding.message}`}
+                            onClick={() => void draft(finding)}
+                          >
+                            Ask Row-Bot
+                          </Button>
+                        )
                       )}
                     </span>
                   </li>

@@ -246,17 +246,32 @@ it('blocks a stale draft until the user explicitly discards it', async () => {
 
 it('drafts into the existing composer only after the explicit button and never executes a design command', async () => {
   const f = fixture();
-  render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Run design review' })),
-  );
+  vi.mocked(f.owner.review).mockImplementation(async () => ({
+    resource_id: 'design',
+    resource_revision: 'r1',
+    page_id: 'first',
+    scope: 'page' as const,
+    heuristic: true,
+    score: 80,
+    findings: [
+      {
+        id: 'finding',
+        source: 'critique',
+        category: 'hierarchy',
+        severity: 'low',
+        message: 'Weak hierarchy',
+        suggested_fix: 'Make the title larger',
+        page_id: 'first',
+        auto_fixable: false,
+      },
+    ],
+    finding_count: 1,
+    next_cursor: null,
+  }));
+  render(<ArtifactDesignPanel {...f.props} view="review" />);
+  const ask = await screen.findByRole('button', { name: /Ask Row-Bot to fix/ });
   expect(f.props.onDraftText).not.toHaveBeenCalled();
-  await act(async () =>
-    fireEvent.click(
-      screen.getByRole('button', { name: /Draft AI fix in chat/ }),
-    ),
-  );
+  await act(async () => fireEvent.click(ask));
   expect(f.props.onDraftText).toHaveBeenCalledWith('Review this local draft');
   expect(f.owner.execute).not.toHaveBeenCalled();
 });
@@ -314,13 +329,11 @@ it('replaces review pages without hiding later findings and exposes First findin
     finding_count: 100,
     next_cursor: options.cursor ? null : 'next',
   }));
-  render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
+  render(<ArtifactDesignPanel {...f.props} view="review" />);
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Run design review' })),
-  );
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Next findings page' })),
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Next findings page' }),
+    ),
   );
   expect(screen.queryByText('First finding 0')).not.toBeInTheDocument();
   expect(screen.getAllByRole('listitem')).toHaveLength(50);

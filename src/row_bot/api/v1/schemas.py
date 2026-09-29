@@ -4608,6 +4608,7 @@ class ArtifactDesignControlPayload(WireModel):
         "style",
         "hotspot",
         "review_fix",
+        "review_fix_all",
         "asset_insert",
         "asset_remove",
         "asset_forget",

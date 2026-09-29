@@ -115,11 +115,10 @@ it('shows only the requested inspector section', async () => {
   expect(
     screen.queryByRole('radiogroup', { name: 'Library section' }),
   ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole('button', { name: 'Run design review' }),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Review' })).toBeNull();
+  expect(current.review).not.toHaveBeenCalled();
   view.rerender(<ArtifactDesignControls {...current} view="review" />);
-  await screen.findByRole('button', { name: 'Run design review' });
+  await screen.findByRole('group', { name: 'Design review findings' });
   expect(
     screen.queryByRole('region', { name: 'Brand' }),
   ).not.toBeInTheDocument();
@@ -274,33 +273,33 @@ it('does not interpret a failed scanner as a clean review', async () => {
     }),
   });
   render(<ArtifactDesignControls {...current} view="review" />);
-  await screen.findByRole('button', { name: 'Run design review' });
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Run design review' })),
-  );
   expect(
-    screen.getByText(/No clean result has been established/),
+    await screen.findByText(/No clean result has been established/),
   ).toBeInTheDocument();
+  // A failed check is not repeated in a loop.
+  expect(current.review).toHaveBeenCalledOnce();
   expect(
     screen.queryByRole('group', { name: 'Design review findings' }),
   ).not.toBeInTheDocument();
   expect(current.apply).not.toHaveBeenCalled();
 });
 
-it('discloses heuristic limits and requires an explicit category fix', async () => {
+it('checks by itself, says it is heuristic and fixes one safe issue on request', async () => {
   const current = props();
   render(<ArtifactDesignControls {...current} view="review" />);
-  await screen.findByRole('button', { name: 'Run design review' });
+  await screen.findByRole('button', { name: 'Fix: Missing spacing' });
   expect(
-    screen.getByText(/a safe fix applies its category across the page/),
+    screen.getByText(/checks again after every change/),
   ).toBeInTheDocument();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Run design review' })),
-  );
+  expect(current.review).toHaveBeenCalledWith({
+    page_id: 'first',
+    scope: 'page',
+    cursor: undefined,
+  });
   expect(current.apply).not.toHaveBeenCalled();
   await act(async () =>
     fireEvent.click(
-      screen.getByRole('button', { name: 'Apply safe spacing fix' }),
+      screen.getByRole('button', { name: 'Fix: Missing spacing' }),
     ),
   );
   expect(current.apply).toHaveBeenCalledWith(
@@ -435,14 +434,18 @@ it('saves a global preset on one click and keeps project revision', async () => 
 
 it('drafts an explicit review instruction into chat without submitting a provider request', async () => {
   const current = props({
+    review: vi.fn(async () => ({
+      ...report,
+      findings: [{ ...report.findings[0], auto_fixable: false }],
+    })),
     draftFix: vi.fn(async () => 'Focused fix instruction'),
     onDraftText: vi.fn(),
   });
   render(<ArtifactDesignControls {...current} view="review" />);
-  await screen.findByRole('button', { name: 'Run design review' });
-  fireEvent.click(screen.getByRole('button', { name: 'Run design review' }));
   fireEvent.click(
-    await screen.findByRole('button', { name: /Draft AI fix in chat/ }),
+    await screen.findByRole('button', {
+      name: 'Ask Row-Bot to fix: Missing spacing',
+    }),
   );
   await screen.findByText(
     'AI fix drafted in chat. Review and send it when ready.',
@@ -450,4 +453,54 @@ it('drafts an explicit review instruction into chat without submitting a provide
   expect(current.draftFix).toHaveBeenCalledWith('finding-a', 'first', 'r1');
   expect(current.onDraftText).toHaveBeenCalledWith('Focused fix instruction');
   expect(current.apply).not.toHaveBeenCalled();
+});
+
+it('fixes all safe issues in one step, with the reviewed scope', async () => {
+  const safe = (id: string) => ({ ...report.findings[0], id, message: id });
+  const current = props({
+    review: vi.fn(async () => ({
+      ...report,
+      findings: [
+        safe('Tight spacing'),
+        safe('Low contrast'),
+        { ...safe('Weak hierarchy'), auto_fixable: false },
+      ],
+      finding_count: 3,
+    })),
+  });
+  render(<ArtifactDesignControls {...current} view="review" />);
+  await act(async () =>
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Fix all safe issues (2)' }),
+    ),
+  );
+  expect(current.apply).toHaveBeenCalledWith(
+    'review_fix_all',
+    { scope: 'page' },
+    'r1',
+    'first',
+    'element-a',
+  );
+});
+
+it('checks again after a saved change and says when nothing is left', async () => {
+  let revision = 'r1';
+  const current = props({
+    load: vi.fn(async () => ({ ...state, resource_revision: revision })),
+    review: vi.fn(async () => ({
+      ...report,
+      resource_revision: revision,
+      findings: revision === 'r1' ? report.findings : [],
+      finding_count: revision === 'r1' ? 1 : 0,
+    })),
+  });
+  const view = render(<ArtifactDesignControls {...current} view="review" />);
+  await screen.findByRole('button', { name: 'Fix: Missing spacing' });
+  revision = 'r2';
+  view.rerender(
+    <ArtifactDesignControls {...current} view="review" resourceRevision="r2" />,
+  );
+  expect(await screen.findByText('No issues found.')).toBeInTheDocument();
+  expect(current.review).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('button', { name: /Fix all/ })).toBeNull();
 });
