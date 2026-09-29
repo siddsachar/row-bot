@@ -409,6 +409,29 @@ one-use grant; a rescan with other choices names the preview instead); the
 preview has Select all and Clear all over the items that can be imported.
 *Danger zone* points to removing documents and keeps deleting all tracker data.
 
+**Settings › Devices & remote access** (`/settings/access`) is one guided
+flow, one list and Advanced. *Connect a phone or computer* (opened by its
+button, so nothing is probed or created before) asks how the device reaches
+this computer, from what is detected: Tailscale (private, HTTPS; checks this
+computer's Tailscale once, shares after one confirmation, links Tailscale's
+consent page when it asks and gives next steps for another Serve setting),
+Same Wi-Fi (two lines of steps; "Allow on my network…" asks and restarts)
+or Internet (the saved public link; starting it asks first). A loopback
+address is never offered. Then one QR code with Copy link: every code is a
+one-time, 10-minute invitation that renews 30 s before it expires (the old
+one is cancelled; a few renewals at most) and is cancelled when the flow
+closes; the link is never written on the page. It waits for the device, then
+shows "Connected: <name> · Rename" and how to install Row-Bot on that
+phone (over plain HTTP it says why it can't). *Your devices* lists each
+signed-in device with "This device" (marked by the server), when and where
+it was last seen in words, Sign out (confirmed; ends every session of that
+device) and Rename. *Advanced*: where Row-Bot listens, allowed addresses, a
+Tailscale share Row-Bot made (Copy, Stop sharing), the tunnel provider and
+token, and the "Public" line with the address, Copy and Stop. A device
+signed in by invitation renews its 30-day session by itself (at start and
+every 12 hours); a signed-out or expired device is told how to connect
+again.
+
 Values speak human: enums are translated (`humanizeToken`: "Router",
 "Private · on device", "HTTP", "Local process"), times are relative with the
 full date on hover, and secrets read "Key saved · ····c99 · in keychain ·
@@ -625,7 +648,8 @@ are always shown.
   ("Open …"), Find in conversation, Context, Share or export and Rename.
   Tablets keep the icon actions in the same row (Find, Share, Workspace
   commands, Open panel, Context). Home and routed views keep one compact bar
-  (navigation, title, search).
+  (navigation, title, search); Settings puts the navigation toggle and
+  Workspace commands in its own header instead.
 - **Drawer.** The navigation drawer is full width on phones and 280px on
   tablets, slides in from the left and closes from its header. It hosts the
   same sidebar: Pinned / Today / Yesterday / This week / Older and the type
@@ -798,7 +822,8 @@ A public tunnel is exposure, so it never outlives Row-Bot.
   sessions.
 - Failures are words, not ngrok codes: a session-limit refusal says the
   account already runs as many agents as it allows and where to stop one.
-- Settings › Access shows the tunnel as it is: running (with how many public
+- Settings › Devices & remote access › Advanced shows the tunnel as it is in
+  one "Public" line: running (with how many public
   addresses), not running with the reason, set up and not running, or not set
   up. Monitor agrees, and a running SMS channel without a public address is a
   warning, not "Running". "Check tunnel setup" reports what it found. A tunnel

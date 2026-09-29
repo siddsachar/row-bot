@@ -72,12 +72,12 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 43 | Channels | WhatsApp live QR, "Waiting for QR code…", Reset session | Keep | WhatsApp live QR and Reset session | 15 | Open |
 | 44 | Channels | "Save current" (import a secret from the environment) | Simplify | A field supplied by the environment says so; stored secrets migrate at start | 15 | Open |
 | 45 | Accounts | Google and X guided steps; GitHub setup guide | Keep | Google, X and GitHub steps in the connect sheet | 15 | Open |
-| 46 | Remote | Pairing QR, Refresh QR, custom pairing QR | Simplify | One QR that refreshes itself; custom addresses in Advanced | 14 | Open |
-| 47 | Remote | Same-network setup instructions | Keep | Two short lines in the "Same Wi-Fi" option | 14 | Open |
-| 48 | Remote | Recent access activity log | Simplify | Folded into Your devices (last seen, last address) | 14 | Open |
-| 49 | Remote | Access sessions renew every 12 hours | Keep | Automatic session renewal | 14 | Open |
-| 50 | Remote | Tailscale consent link, terms link, review checkbox, private address | Simplify | One confirmation, Tailscale's own consent page when it asks, the address with Copy | 14 | Open |
-| 51 | Remote | Active tunnels list with Copy | Simplify | One "Public" status line with the address, Copy and Stop | 14 | Open |
+| 46 | Remote | Pairing QR, Refresh QR, custom pairing QR | Simplify | One QR that renews itself before its invitation expires, with Copy link; custom addresses in Advanced | 14 | Shipped (Phase 14) |
+| 47 | Remote | Same-network setup instructions | Keep | Two short lines in the "Same Wi-Fi" option; "Allow on my network…" when Row-Bot listens on this computer only | 14 | Shipped (Phase 14) |
+| 48 | Remote | Recent access activity log | Simplify | Folded into Your devices (last seen, where from in words) | 14 | Shipped (Phase 14) |
+| 49 | Remote | Access sessions renew every 12 hours | Keep | Automatic session renewal in the React client | 14 | Shipped (Phase 14) |
+| 50 | Remote | Tailscale consent link, terms link, review checkbox, private address | Simplify | One confirmation, Tailscale's own consent page when it asks, the address with Copy | 14 | Shipped (Phase 14) |
+| 51 | Remote | Active tunnels list with Copy | Simplify | One "Public" status line with the address, Copy and Stop | 14 | Shipped (Phase 14) |
 | 52 | Remote | "Expose task webhook" switch | Simplify | Moves to the workflow's webhook trigger: "Make reachable from the internet" | 13 | Shipped (Phase 13) |
 | 53 | Data | Migration: Browse buttons, default source paths, Select all / Clear all | Simplify | The source is detected (Browse only if not found); Select all / Clear all kept | 13 | Shipped (Phase 13) |
 
